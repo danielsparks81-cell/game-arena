@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { GAMES } from '@/lib/games/registry';
 import type { TTTState } from '@/lib/games/tictactoe';
-import { joinRoom, leaveRoom, makeMoveTTT, sendChat } from './actions';
+import { type C4State, C4_COLS, C4_ROWS } from '@/lib/games/connect4';
+import { joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat } from './actions';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
 type Room = {
@@ -103,6 +104,15 @@ export default function RoomClient({
           />
         )}
 
+        {room.game_type === 'connect4' && (
+          <ConnectFourBoard
+            state={room.state as C4State}
+            currentUserId={currentUserId}
+            disabled={pending || room.status !== 'playing'}
+            onMove={(col) => startTransition(() => { makeMoveC4(roomId, col); })}
+          />
+        )}
+
         {imSeated && room.status !== 'finished' && (
           <div className="mt-6">
             <button
@@ -154,7 +164,13 @@ export default function RoomClient({
   );
 }
 
+const SEAT_LABELS: Record<string, [string, string]> = {
+  tictactoe: ['X', 'O'],
+  connect4:  ['Red', 'Yellow'],
+};
+
 function Seats({ room, currentUserId }: { room: Room; currentUserId: string }) {
+  const labels = SEAT_LABELS[room.game_type] ?? ['Seat 1', 'Seat 2'];
   const seated = [...room.room_players].sort((a, b) => a.seat - b.seat);
   const slots = Array.from({ length: room.max_players }, (_, i) => seated.find(p => p.seat === i));
   return (
@@ -163,7 +179,7 @@ function Seats({ room, currentUserId }: { room: Room; currentUserId: string }) {
         <div key={i} className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
           p ? 'border-neutral-700 bg-neutral-900' : 'border-dashed border-neutral-800 text-neutral-500'
         }`}>
-          <div className="text-xs text-neutral-500">Seat {i + 1} {i === 0 ? '(X)' : '(O)'}</div>
+          <div className="text-xs text-neutral-500">Seat {i + 1} ({labels[i] ?? `P${i + 1}`})</div>
           <div className={p?.player_id === currentUserId ? 'font-semibold text-emerald-400' : ''}>
             {p?.profiles?.username || 'Waiting…'}
           </div>
@@ -201,6 +217,86 @@ function TicTacToeBoard({
             <span className={cell === 'X' ? 'text-emerald-400' : cell === 'O' ? 'text-sky-400' : ''}>{cell}</span>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ConnectFourBoard({
+  state, currentUserId, disabled, onMove,
+}: {
+  state: C4State; currentUserId: string; disabled: boolean; onMove: (col: number) => void;
+}) {
+  const yourMark = state.seats.R === currentUserId ? 'R' : state.seats.Y === currentUserId ? 'Y' : null;
+  const yourTurn = yourMark && state.turn === yourMark && !state.winner;
+
+  const isWinning = (r: number, c: number) =>
+    !!state.winningLine?.some(cell => cell.r === r && cell.c === c);
+
+  // Top row of column buttons (hover indicator + click-to-drop)
+  const colFull = (col: number) => state.board[0][col] !== null;
+
+  return (
+    <div>
+      <div className="mb-3 text-center text-sm text-neutral-400">
+        {state.winner
+          ? state.winner === 'draw'
+            ? 'Draw!'
+            : `${state.winner === 'R' ? 'Red' : 'Yellow'} wins! 🎉`
+          : yourMark
+            ? (yourTurn
+                ? `Your turn (${yourMark === 'R' ? 'Red' : 'Yellow'})`
+                : `Waiting on ${state.turn === 'R' ? 'Red' : 'Yellow'}…`)
+            : `Spectating · ${state.turn === 'R' ? 'Red' : 'Yellow'}'s turn`}
+      </div>
+
+      <div className="mx-auto w-fit rounded-xl bg-blue-900 p-3 shadow-xl">
+        {/* Drop buttons */}
+        <div
+          className="mb-1 grid gap-1"
+          style={{ gridTemplateColumns: `repeat(${C4_COLS}, minmax(0, 1fr))` }}
+        >
+          {Array.from({ length: C4_COLS }, (_, c) => (
+            <button
+              key={c}
+              disabled={disabled || !yourTurn || colFull(c)}
+              onClick={() => onMove(c)}
+              aria-label={`Drop in column ${c + 1}`}
+              className="h-6 rounded text-xs text-blue-200 transition hover:bg-blue-800 disabled:opacity-30 disabled:hover:bg-transparent"
+            >
+              ▼
+            </button>
+          ))}
+        </div>
+
+        {/* Board */}
+        <div
+          className="grid gap-1"
+          style={{ gridTemplateColumns: `repeat(${C4_COLS}, minmax(0, 1fr))` }}
+        >
+          {Array.from({ length: C4_ROWS * C4_COLS }, (_, idx) => {
+            const r = Math.floor(idx / C4_COLS);
+            const c = idx % C4_COLS;
+            const cell = state.board[r][c];
+            const winning = isWinning(r, c);
+            return (
+              <button
+                key={idx}
+                disabled={disabled || !yourTurn || colFull(c)}
+                onClick={() => onMove(c)}
+                className="aspect-square w-10 rounded-full bg-blue-950 transition sm:w-12 disabled:cursor-default"
+              >
+                <span
+                  className={`block h-full w-full rounded-full transition ${
+                    cell === 'R' ? 'bg-red-500'
+                    : cell === 'Y' ? 'bg-yellow-400'
+                    : 'bg-neutral-900'
+                  } ${winning ? 'ring-4 ring-emerald-400' : ''}`}
+                />
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

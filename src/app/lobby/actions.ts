@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getGame } from '@/lib/games/registry';
 import { initialState as tttInitial } from '@/lib/games/tictactoe';
+import { initialState as c4Initial } from '@/lib/games/connect4';
 
 export async function createRoom(formData: FormData) {
   const gameType = String(formData.get('gameType') || '');
@@ -14,10 +15,11 @@ export async function createRoom(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not signed in');
 
-  // Initial state with host seated as X
-  const state = gameType === 'tictactoe'
-    ? { ...tttInitial(), seats: { X: user.id } }
-    : {};
+  // Initial state with host seated as the first player
+  const state =
+    gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
+    gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
+    {};
 
   const { data: room, error } = await supabase
     .from('rooms')
