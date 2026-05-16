@@ -5,6 +5,7 @@ export type C4State = {
   turn: C4Mark;
   winner: C4Mark | 'draw' | null;
   winningLine: { r: number; c: number }[] | null;
+  lastMove: { r: number; c: number } | null;
   seats: { R?: string; Y?: string };
 };
 
@@ -17,6 +18,7 @@ export function initialState(): C4State {
     turn: 'R',
     winner: null,
     winningLine: null,
+    lastMove: null,
     seats: {},
   };
 }
@@ -67,6 +69,7 @@ export function applyMove(state: C4State, col: number, playerId: string): C4Stat
     turn: state.turn === 'R' ? 'Y' : 'R',
     winner,
     winningLine: win ? win.line : null,
+    lastMove: { r: row, c: col },
     seats: state.seats,
   };
 }

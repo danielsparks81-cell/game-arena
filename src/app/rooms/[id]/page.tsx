@@ -17,7 +17,7 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
 
   const { data: room } = await supabase
     .from('rooms')
-    .select('id, game_type, status, host_id, state, max_players, room_players(player_id, seat, profiles(username))')
+    .select('id, game_type, status, host_id, state, max_players, rematch_votes, room_players(player_id, seat, profiles(username))')
     .eq('id', id)
     .single();
   if (!room) notFound();

@@ -1,12 +1,15 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { GAMES } from '@/lib/games/registry';
 import type { TTTState } from '@/lib/games/tictactoe';
 import { type C4State, C4_COLS, C4_ROWS } from '@/lib/games/connect4';
-import { joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat } from './actions';
+import { sounds, unlockAudio } from '@/lib/sounds';
+import {
+  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch,
+} from './actions';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
 type Room = {
@@ -16,12 +19,16 @@ type Room = {
   host_id: string;
   state: unknown;
   max_players: number;
+  rematch_votes: string[];
   room_players: RoomPlayer[];
 };
 type ChatMsg = {
   id: number; body: string; created_at: string;
   sender_id: string; profiles: { username: string } | null;
 };
+
+const ROOM_SELECT =
+  'id, game_type, status, host_id, state, max_players, rematch_votes, room_players(player_id, seat, profiles(username))';
 
 export default function RoomClient({
   roomId, currentUserId, currentUsername, initialRoom, initialMessages,
@@ -47,24 +54,19 @@ export default function RoomClient({
     }
   }, [imSeated, room.status, room.room_players.length, room.max_players, roomId]);
 
-  // Realtime: room state, players, chat
+  // Realtime subscriptions
   useEffect(() => {
     const refreshRoom = async () => {
-      const { data } = await supabase
-        .from('rooms')
-        .select('id, game_type, status, host_id, state, max_players, room_players(player_id, seat, profiles(username))')
-        .eq('id', roomId)
-        .single();
+      const { data } = await supabase.from('rooms').select(ROOM_SELECT).eq('id', roomId).single();
       if (data) setRoom(data as unknown as Room);
     };
 
     const ch = supabase.channel(`room-${roomId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms', filter: `id=eq.${roomId}` }, refreshRoom)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms',        filter: `id=eq.${roomId}` },     refreshRoom)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_players', filter: `room_id=eq.${roomId}` }, refreshRoom)
       .on('postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `room_id=eq.${roomId}` },
         async (payload) => {
-          // fetch the username for the new message
           const m = payload.new as { id: number; body: string; created_at: string; sender_id: string };
           const { data: prof } = await supabase
             .from('profiles').select('username').eq('id', m.sender_id).single();
@@ -75,7 +77,30 @@ export default function RoomClient({
     return () => { supabase.removeChannel(ch); };
   }, [supabase, roomId]);
 
+  // Sound effects: detect moves and game end
+  const prevWinnerRef = useRef<unknown>(null);
+  const prevMoveRef   = useRef<number>(0);
+  useEffect(() => {
+    const s = room.state as { winner?: unknown; board?: unknown };
+    const winner = s?.winner ?? null;
+    const moveCount = countMoves(s);
+
+    if (winner && !prevWinnerRef.current) {
+      if (winner === 'draw') sounds.draw();
+      else sounds.win();
+    } else if (moveCount > prevMoveRef.current) {
+      if (room.game_type === 'connect4') sounds.drop();
+      else sounds.click();
+    }
+    prevWinnerRef.current = winner;
+    prevMoveRef.current = moveCount;
+  }, [room.state, room.game_type]);
+
   const gameName = GAMES[room.game_type]?.name ?? room.game_type;
+  const finished = room.status === 'finished';
+  const iVoted = room.rematch_votes?.includes(currentUserId) ?? false;
+  const otherSeated = room.room_players.find(p => p.player_id !== currentUserId);
+  const otherVoted = otherSeated ? room.rematch_votes?.includes(otherSeated.player_id) : false;
 
   return (
     <main className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-6 p-6 lg:grid-cols-[1fr_320px]">
@@ -100,7 +125,7 @@ export default function RoomClient({
             state={room.state as TTTState}
             currentUserId={currentUserId}
             disabled={pending || room.status !== 'playing'}
-            onMove={(cell) => startTransition(() => { makeMoveTTT(roomId, cell); })}
+            onMove={(cell) => { unlockAudio(); startTransition(() => { makeMoveTTT(roomId, cell); }); }}
           />
         )}
 
@@ -109,11 +134,33 @@ export default function RoomClient({
             state={room.state as C4State}
             currentUserId={currentUserId}
             disabled={pending || room.status !== 'playing'}
-            onMove={(col) => startTransition(() => { makeMoveC4(roomId, col); })}
+            onMove={(col) => { unlockAudio(); startTransition(() => { makeMoveC4(roomId, col); }); }}
           />
         )}
 
-        {imSeated && room.status !== 'finished' && (
+        {finished && imSeated && (
+          <div className="mt-6 flex flex-col items-center gap-2 rounded-xl border border-emerald-900/40 bg-emerald-500/5 p-5">
+            <p className="text-sm text-neutral-300">Rematch? Both players need to agree.</p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => startTransition(() => { proposeRematch(roomId); })}
+                disabled={pending || iVoted}
+                className="rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
+              >
+                {iVoted ? '✓ You voted' : 'Rematch'}
+              </button>
+              <span className="text-sm text-neutral-400">
+                {otherSeated
+                  ? otherVoted
+                    ? `${otherSeated.profiles?.username ?? 'Opponent'} ready ✓`
+                    : `Waiting on ${otherSeated.profiles?.username ?? 'opponent'}…`
+                  : 'No opponent in room'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {imSeated && !finished && (
           <div className="mt-6">
             <button
               onClick={() => startTransition(() => { leaveRoom(roomId); })}
@@ -164,6 +211,18 @@ export default function RoomClient({
   );
 }
 
+function countMoves(s: unknown): number {
+  if (!s || typeof s !== 'object') return 0;
+  const obj = s as { board?: unknown };
+  if (!obj.board) return 0;
+  if (Array.isArray(obj.board) && obj.board.length > 0 && Array.isArray(obj.board[0])) {
+    // 2D board (connect4)
+    return (obj.board as unknown[][]).reduce((acc, row) => acc + row.filter(c => c !== null).length, 0);
+  }
+  // Flat board (tictactoe)
+  return (obj.board as unknown[]).filter(c => c !== null).length;
+}
+
 const SEAT_LABELS: Record<string, [string, string]> = {
   tictactoe: ['X', 'O'],
   connect4:  ['Red', 'Yellow'],
@@ -196,37 +255,45 @@ function TicTacToeBoard({
 }) {
   const yourMark = state.seats.X === currentUserId ? 'X' : state.seats.O === currentUserId ? 'O' : null;
   const yourTurn = yourMark && state.turn === yourMark && !state.winner;
+  const winning = new Set(state.winningLine ?? []);
+
+  const statusText = state.winner
+    ? state.winner === 'draw' ? 'Draw!' : `${state.winner} wins! 🎉`
+    : yourMark
+      ? (yourTurn ? `Your turn (${yourMark})` : `Waiting on ${state.turn}…`)
+      : `Spectating · ${state.turn}'s turn`;
 
   return (
     <div>
-      <div className="mb-3 text-center text-sm text-neutral-400">
-        {state.winner
-          ? state.winner === 'draw' ? 'Draw!' : `${state.winner} wins! 🎉`
-          : yourMark
-            ? (yourTurn ? `Your turn (${yourMark})` : `Waiting on ${state.turn}…`)
-            : `Spectating · ${state.turn}'s turn`}
-      </div>
+      <div className="mb-3 text-center text-sm text-neutral-400">{statusText}</div>
       <div className="mx-auto grid w-72 grid-cols-3 gap-2 sm:w-96">
-        {state.board.map((cell, i) => (
-          <button
-            key={i}
-            disabled={disabled || !yourTurn || cell !== null}
-            onClick={() => onMove(i)}
-            className="group flex aspect-square items-center justify-center rounded-xl border border-neutral-800 bg-gradient-to-br from-neutral-900 to-neutral-950 p-4 shadow-inner transition hover:border-emerald-500 hover:from-neutral-800 disabled:hover:border-neutral-800 disabled:hover:from-neutral-900"
-          >
-            {cell === 'X' && (
-              <svg viewBox="0 0 24 24" className="h-full w-full text-emerald-400">
-                <line x1="5" y1="5" x2="19" y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                <line x1="19" y1="5" x2="5" y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-              </svg>
-            )}
-            {cell === 'O' && (
-              <svg viewBox="0 0 24 24" className="h-full w-full text-sky-400">
-                <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="3" fill="none" />
-              </svg>
-            )}
-          </button>
-        ))}
+        {state.board.map((cell, i) => {
+          const isWin = winning.has(i);
+          return (
+            <button
+              key={i}
+              disabled={disabled || !yourTurn || cell !== null}
+              onClick={() => onMove(i)}
+              className={`group flex aspect-square items-center justify-center rounded-xl border p-4 shadow-inner transition ${
+                isWin
+                  ? 'border-emerald-400 bg-emerald-500/10 animate-win-pulse'
+                  : 'border-neutral-800 bg-gradient-to-br from-neutral-900 to-neutral-950 hover:border-emerald-500 hover:from-neutral-800 disabled:hover:border-neutral-800 disabled:hover:from-neutral-900'
+              }`}
+            >
+              {cell === 'X' && (
+                <svg key={`X-${i}`} viewBox="0 0 24 24" className="h-full w-full text-emerald-400 animate-piece-in">
+                  <line x1="5"  y1="5"  x2="19" y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                  <line x1="19" y1="5"  x2="5"  y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                </svg>
+              )}
+              {cell === 'O' && (
+                <svg key={`O-${i}`} viewBox="0 0 24 24" className="h-full w-full text-sky-400 animate-piece-in">
+                  <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="3" fill="none" />
+                </svg>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -243,24 +310,23 @@ function ConnectFourBoard({
   const isWinning = (r: number, c: number) =>
     !!state.winningLine?.some(cell => cell.r === r && cell.c === c);
 
-  // Top row of column buttons (hover indicator + click-to-drop)
   const colFull = (col: number) => state.board[0][col] !== null;
+
+  const statusText = state.winner
+    ? state.winner === 'draw'
+      ? 'Draw!'
+      : `${state.winner === 'R' ? 'Red' : 'Yellow'} wins! 🎉`
+    : yourMark
+      ? (yourTurn
+          ? `Your turn (${yourMark === 'R' ? 'Red' : 'Yellow'})`
+          : `Waiting on ${state.turn === 'R' ? 'Red' : 'Yellow'}…`)
+      : `Spectating · ${state.turn === 'R' ? 'Red' : 'Yellow'}'s turn`;
 
   return (
     <div>
-      <div className="mb-3 text-center text-sm text-neutral-400">
-        {state.winner
-          ? state.winner === 'draw'
-            ? 'Draw!'
-            : `${state.winner === 'R' ? 'Red' : 'Yellow'} wins! 🎉`
-          : yourMark
-            ? (yourTurn
-                ? `Your turn (${yourMark === 'R' ? 'Red' : 'Yellow'})`
-                : `Waiting on ${state.turn === 'R' ? 'Red' : 'Yellow'}…`)
-            : `Spectating · ${state.turn === 'R' ? 'Red' : 'Yellow'}'s turn`}
-      </div>
+      <div className="mb-3 text-center text-sm text-neutral-400">{statusText}</div>
 
-      <div className="mx-auto w-fit rounded-xl bg-blue-900 p-3 shadow-xl">
+      <div className="mx-auto w-fit rounded-xl bg-gradient-to-b from-blue-700 to-blue-900 p-3 shadow-2xl">
         {/* Drop buttons */}
         <div
           className="mb-1 grid gap-1"
@@ -289,20 +355,27 @@ function ConnectFourBoard({
             const c = idx % C4_COLS;
             const cell = state.board[r][c];
             const winning = isWinning(r, c);
+            const isLastMove = state.lastMove && state.lastMove.r === r && state.lastMove.c === c;
             return (
               <button
                 key={idx}
                 disabled={disabled || !yourTurn || colFull(c)}
                 onClick={() => onMove(c)}
-                className="aspect-square w-10 rounded-full bg-blue-950 transition sm:w-12 disabled:cursor-default"
+                className="aspect-square w-10 rounded-full bg-blue-950 shadow-inner transition sm:w-12 disabled:cursor-default"
               >
-                <span
-                  className={`block h-full w-full rounded-full transition ${
-                    cell === 'R' ? 'bg-red-500'
-                    : cell === 'Y' ? 'bg-yellow-400'
-                    : 'bg-neutral-900'
-                  } ${winning ? 'ring-4 ring-emerald-400' : ''}`}
-                />
+                {cell ? (
+                  <span
+                    key={`${cell}-${r}-${c}`}
+                    className={`block h-full w-full rounded-full transition ${
+                      cell === 'R'
+                        ? 'bg-gradient-to-br from-red-400 to-red-600 shadow-lg shadow-red-900/40'
+                        : 'bg-gradient-to-br from-yellow-300 to-yellow-500 shadow-lg shadow-yellow-900/40'
+                    } ${winning ? 'ring-4 ring-emerald-400 animate-win-pulse' : ''} ${isLastMove ? 'animate-drop-in' : ''}`}
+                    style={isLastMove ? ({ ['--drop-from' as string]: `-${(r + 1) * 100}%` } as React.CSSProperties) : undefined}
+                  />
+                ) : (
+                  <span className="block h-full w-full rounded-full bg-neutral-900/80" />
+                )}
               </button>
             );
           })}

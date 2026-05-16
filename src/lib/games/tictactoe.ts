@@ -4,11 +4,13 @@ export type TTTState = {
   board: Cell[];           // length 9
   turn: Mark;              // whose turn it is
   winner: Mark | 'draw' | null;
+  winningLine: number[] | null;
+  lastMove: number | null;
   seats: { X?: string; O?: string }; // player ids by seat
 };
 
 export function initialState(): TTTState {
-  return { board: Array(9).fill(null), turn: 'X', winner: null, seats: {} };
+  return { board: Array(9).fill(null), turn: 'X', winner: null, winningLine: null, lastMove: null, seats: {} };
 }
 
 const LINES: number[][] = [
@@ -17,9 +19,10 @@ const LINES: number[][] = [
   [0,4,8],[2,4,6],
 ];
 
-export function checkWinner(board: Cell[]): Mark | 'draw' | null {
-  for (const [a,b,c] of LINES) {
-    if (board[a] && board[a] === board[b] && board[a] === board[c]) return board[a];
+export function checkWinner(board: Cell[]): { mark: Mark; line: number[] } | 'draw' | null {
+  for (const line of LINES) {
+    const [a, b, c] = line;
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) return { mark: board[a]!, line };
   }
   if (board.every(c => c !== null)) return 'draw';
   return null;
@@ -35,11 +38,14 @@ export function applyMove(state: TTTState, cell: number, playerId: string): TTTS
 
   const board = state.board.slice();
   board[cell] = state.turn;
-  const winner = checkWinner(board);
+  const win = checkWinner(board);
+  const winner: TTTState['winner'] = win === 'draw' ? 'draw' : win ? win.mark : null;
   return {
     board,
     turn: state.turn === 'X' ? 'O' : 'X',
     winner,
+    winningLine: typeof win === 'object' && win !== null ? win.line : null,
+    lastMove: cell,
     seats: state.seats,
   };
 }

@@ -40,3 +40,51 @@ export async function createRoom(formData: FormData) {
 
   redirect(`/rooms/${room.id}`);
 }
+
+export async function inviteToGame(targetUserId: string, gameType: string): Promise<{ roomId: string }> {
+  const game = getGame(gameType);
+  if (!game) throw new Error('Unknown game');
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+  if (targetUserId === user.id) throw new Error("Can't invite yourself");
+
+  // Verify target exists
+  const { data: target } = await supabase
+    .from('profiles').select('id').eq('id', targetUserId).maybeSingle();
+  if (!target) throw new Error('User not found');
+
+  const seats =
+    gameType === 'tictactoe' ? { X: user.id, O: targetUserId } :
+    gameType === 'connect4'  ? { R: user.id, Y: targetUserId } :
+    {};
+
+  const state =
+    gameType === 'tictactoe' ? { ...tttInitial(), seats } :
+    gameType === 'connect4'  ? { ...c4Initial(),  seats } :
+    {};
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .insert({
+      game_type: gameType,
+      host_id: user.id,
+      max_players: game.maxPlayers,
+      state,
+      status: 'playing',
+    })
+    .select('id')
+    .single();
+  if (error || !room) throw new Error(error?.message || 'Could not create room');
+
+  const { error: rpErr } = await supabase
+    .from('room_players')
+    .insert([
+      { room_id: room.id, player_id: user.id,      seat: 0 },
+      { room_id: room.id, player_id: targetUserId, seat: 1 },
+    ]);
+  if (rpErr) throw new Error(rpErr.message);
+
+  return { roomId: room.id };
+}

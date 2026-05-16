@@ -28,7 +28,7 @@ export default async function LobbyPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <TopBar username={username} />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+      <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-8">
         <section className="mb-8">
           <h2 className="mb-3 text-xl font-semibold">Start a new game</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -58,7 +58,11 @@ export default async function LobbyPage() {
           </div>
         </section>
 
-        <LobbyClient initialRooms={(rooms ?? []) as unknown as Parameters<typeof LobbyClient>[0]['initialRooms']} currentUserId={user.id} />
+        <LobbyClient
+          initialRooms={(rooms ?? []) as unknown as Parameters<typeof LobbyClient>[0]['initialRooms']}
+          currentUserId={user.id}
+          currentUsername={username}
+        />
       </main>
     </div>
   );
