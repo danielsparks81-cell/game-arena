@@ -212,9 +212,19 @@ function TicTacToeBoard({
             key={i}
             disabled={disabled || !yourTurn || cell !== null}
             onClick={() => onMove(i)}
-            className="flex aspect-square items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 text-5xl font-bold transition hover:border-emerald-500 disabled:hover:border-neutral-800"
+            className="group flex aspect-square items-center justify-center rounded-xl border border-neutral-800 bg-gradient-to-br from-neutral-900 to-neutral-950 p-4 shadow-inner transition hover:border-emerald-500 hover:from-neutral-800 disabled:hover:border-neutral-800 disabled:hover:from-neutral-900"
           >
-            <span className={cell === 'X' ? 'text-emerald-400' : cell === 'O' ? 'text-sky-400' : ''}>{cell}</span>
+            {cell === 'X' && (
+              <svg viewBox="0 0 24 24" className="h-full w-full text-emerald-400">
+                <line x1="5" y1="5" x2="19" y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                <line x1="19" y1="5" x2="5" y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+              </svg>
+            )}
+            {cell === 'O' && (
+              <svg viewBox="0 0 24 24" className="h-full w-full text-sky-400">
+                <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="3" fill="none" />
+              </svg>
+            )}
           </button>
         ))}
       </div>
