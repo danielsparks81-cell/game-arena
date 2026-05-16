@@ -1,12 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center p-8">
+      <Suspense fallback={<div className="text-neutral-500">Loading…</div>}>
+        <LoginForm />
+      </Suspense>
+    </main>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const search = useSearchParams();
+  const next = search.get('next');
+  const dest = next && next.startsWith('/') ? next : '/lobby';
   const supabase = createClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,44 +33,50 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setLoading(false);
     if (error) { setError(error.message); return; }
-    router.push('/lobby');
+    router.push(dest);
     router.refresh();
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-8">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
-        <h1 className="text-2xl font-semibold">Log in</h1>
-        <label className="block">
-          <span className="mb-1 block text-sm text-neutral-400">Email</span>
-          <input
-            type="email" required value={email} onChange={e => setEmail(e.target.value)}
-            className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 outline-none focus:border-emerald-500"
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-sm text-neutral-400">Password</span>
-          <input
-            type="password" required value={password} onChange={e => setPassword(e.target.value)}
-            className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 outline-none focus:border-emerald-500"
-          />
-        </label>
-        {error && <p className="text-sm text-red-400">{error}</p>}
-        <button
-          type="submit" disabled={loading}
-          className="w-full rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
+    <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-xl border border-neutral-800 bg-neutral-900 p-6">
+      <h1 className="text-2xl font-semibold">Log in</h1>
+      {next && next.startsWith('/rooms/') && (
+        <p className="rounded-md border border-emerald-900/40 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-300">
+          🎮 Log in (or <Link href={`/signup?next=${encodeURIComponent(next)}`} className="underline">create an account</Link>) to join the game you were invited to.
+        </p>
+      )}
+      <label className="block">
+        <span className="mb-1 block text-sm text-neutral-400">Email</span>
+        <input
+          type="email" required value={email} onChange={e => setEmail(e.target.value)}
+          className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 outline-none focus:border-emerald-500"
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-sm text-neutral-400">Password</span>
+        <input
+          type="password" required value={password} onChange={e => setPassword(e.target.value)}
+          className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 outline-none focus:border-emerald-500"
+        />
+      </label>
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      <button
+        type="submit" disabled={loading}
+        className="w-full rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
+      >
+        {loading ? 'Logging in…' : 'Log in'}
+      </button>
+      <div className="flex items-center justify-between text-sm">
+        <Link href="/forgot-password" className="text-neutral-400 hover:text-emerald-400 hover:underline">
+          Forgot password?
+        </Link>
+        <Link
+          href={next ? `/signup?next=${encodeURIComponent(next)}` : '/signup'}
+          className="text-emerald-400 hover:underline"
         >
-          {loading ? 'Logging in…' : 'Log in'}
-        </button>
-        <div className="flex items-center justify-between text-sm">
-          <Link href="/forgot-password" className="text-neutral-400 hover:text-emerald-400 hover:underline">
-            Forgot password?
-          </Link>
-          <Link href="/signup" className="text-emerald-400 hover:underline">
-            Create account
-          </Link>
-        </div>
-      </form>
-    </main>
+          Create account
+        </Link>
+      </div>
+    </form>
   );
 }

@@ -36,10 +36,19 @@ export async function updateSession(request: NextRequest) {
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
+    url.searchParams.set('next', path + request.nextUrl.search);
     return NextResponse.redirect(url);
   }
 
-  if (user && (path === '/login' || path === '/signup' || path === '/')) {
+  if (user && (path === '/login' || path === '/signup')) {
+    const next = request.nextUrl.searchParams.get('next');
+    const url = request.nextUrl.clone();
+    url.pathname = next && next.startsWith('/') ? next : '/lobby';
+    url.search = '';
+    return NextResponse.redirect(url);
+  }
+
+  if (user && path === '/') {
     const url = request.nextUrl.clone();
     url.pathname = '/lobby';
     return NextResponse.redirect(url);
