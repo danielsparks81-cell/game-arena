@@ -30,6 +30,7 @@ export async function updateSession(request: NextRequest) {
     path === '/' ||
     path.startsWith('/login') ||
     path.startsWith('/signup') ||
+    path.startsWith('/forgot-password') ||
     path.startsWith('/auth');
 
   if (!user && !isPublic) {
