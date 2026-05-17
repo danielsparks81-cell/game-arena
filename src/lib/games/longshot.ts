@@ -101,13 +101,11 @@ export type LSPlayer = {
   /**
    * Additional secondary-bar X's this player has marked via the Jersey action.
    * jerseyMarks[rolledHorse - 1] = array of horse numbers (1-8) the player has marked
-   * on the rolled horse's secondary movement bar. These add to SECONDARY_BARS for
-   * MOVEMENT — the rolled horse moves all listed horses (default bar ∪ all players' marks).
+   * on the rolled horse's secondary movement bar.
    */
   jerseyMarks: number[][];
   wildsUsed: number;            // 0..MAX_WILDS
-  concessionGrid: number[];     // length 40 (8 rows × 5 cols), horse number printed in each cell (1-8)
-  concessionMarks: boolean[];   // length 40, true = marked
+  concessionMarks: boolean[];   // length CONCESSION_CELLS, true = marked (per-player marks on the shared grid)
   actedThisRound: boolean;
 };
 
@@ -134,6 +132,12 @@ export type LSState = {
   log: string[];
   rollId: number;
   lastSequence: LSMove[];
+  /**
+   * Shared concession grid layout for this game. Generated once when the host
+   * clicks Start, every player marks on the same arrangement.
+   * Length = CONCESSION_CELLS; each entry is a horse number 1..NUM_HORSES.
+   */
+  concessionGrid: number[];
 };
 
 // ---------- Setup ----------
@@ -165,6 +169,7 @@ export function initialState(): LSState {
     log: [],
     rollId: 0,
     lastSequence: [],
+    concessionGrid: [],   // populated when the race starts
   };
 }
 
@@ -180,7 +185,6 @@ export function addPlayer(state: LSState, playerId: string, username: string, se
     jerseys: Array.from({ length: NUM_HORSES }, () => 0),
     jerseyMarks: Array.from({ length: NUM_HORSES }, () => [] as number[]),
     wildsUsed: 0,
-    concessionGrid: genConcessionGrid(),
     concessionMarks: Array.from({ length: CONCESSION_CELLS }, () => false),
     actedThisRound: false,
   };
@@ -200,6 +204,7 @@ export function startRace(state: LSState): LSState | { error: string } {
     activePlayerSeat: startSeat,
     currentTurnSeat: null,
     step: 'roll',
+    concessionGrid: genConcessionGrid(),  // one random layout shared by all players
     log: [`Race begins! ${startName} rolls first.`],
   };
 }
@@ -455,8 +460,8 @@ export function takeAction(
       if (!Number.isInteger(cell) || cell < 0 || cell >= CONCESSION_CELLS) {
         return { error: 'Bad concession cell' };
       }
-      if (player.concessionGrid[cell] !== rolledHorse) {
-        return { error: `That cell shows horse ${player.concessionGrid[cell]}, not ${rolledHorse}` };
+      if (state.concessionGrid[cell] !== rolledHorse) {
+        return { error: `That cell shows horse ${state.concessionGrid[cell]}, not ${rolledHorse}` };
       }
       if (player.concessionMarks[cell]) return { error: 'Cell already marked' };
       updatedPlayer = {

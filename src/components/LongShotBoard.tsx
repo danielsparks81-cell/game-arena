@@ -379,11 +379,11 @@ function ActionPanel({
   const hasHelmet = me.helmets[horseIdx] > 0;
 
   const concessionCellsAvailable = useMemo(
-    () => me.concessionGrid
+    () => state.concessionGrid
       .map((n, i) => ({ n, i }))
       .filter(c => c.n === rolledHorse && !me.concessionMarks[c.i])
       .map(c => c.i),
-    [me.concessionGrid, me.concessionMarks, rolledHorse],
+    [state.concessionGrid, me.concessionMarks, rolledHorse],
   );
 
   const canConcession = concessionCellsAvailable.length > 0;
@@ -483,7 +483,7 @@ function ActionPanel({
             Pick a circle showing horse {rolledHorse}
           </div>
           <ConcessionGrid
-            grid={me.concessionGrid}
+            grid={state.concessionGrid}
             marks={me.concessionMarks}
             clickable={concessionCellsAvailable}
             onPick={(idx) => { closeAll(); onAction({ type: 'concession', cellIdx: idx }); }}
@@ -535,7 +535,7 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
         <div className="space-y-3">
           <div>
             <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
-            <ConcessionGrid grid={me.concessionGrid} marks={me.concessionMarks} />
+            <ConcessionGrid grid={state.concessionGrid} marks={me.concessionMarks} />
           </div>
           <div>
             <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Row/Column bonuses</div>
