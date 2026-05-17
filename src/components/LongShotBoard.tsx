@@ -367,6 +367,47 @@ export default function LongShotBoard({
     setPickingWild(false);
   };
 
+  /**
+   * Fire an action with a Wild Number explicitly passed (bypasses the wildHorse state — needed
+   * because React batches setState, so we can't `setWildHorse(n)` then immediately call sendAction.)
+   */
+  const sendActionWithWild = (wildHorseNum: number, payload: ActionPayload) => {
+    onAction({ ...payload, wild: wildHorseNum } as ActionPayload);
+    setWildHorse(null);
+    setSubPicker(null);
+    setPickingWild(false);
+  };
+
+  // When pickingWild is active, compute eligibility for each non-rolled horse — every cell
+  // that would be a legal action *if* that horse had been rolled becomes a target.
+  const wildTargets = useMemo(() => {
+    if (!isMyTurnToAct || !me || !pickingWild || state.horseDie === null) return null;
+    const helmet = new Set<number>();
+    const jersey = new Set<number>();
+    const bet = new Set<number>();
+    const buy = new Set<number>();
+    const concessionCells = new Set<number>();
+
+    for (let i = 0; i < NUM_HORSES; i++) {
+      const num = i + 1;
+      if (num === state.horseDie) continue; // rolled horse already drives the normal action highlights
+      const h = state.horses[i];
+      if (h.finished) continue;
+      const past = h.position >= NO_BET_SPACE;
+      const hasHelmet = me.helmets[i] > 0;
+
+      if (me.helmets[i] < MAX_HELMETS_PER_HORSE) helmet.add(num);
+      if (me.jerseys[i] < MAX_JERSEYS_PER_HORSE && (me.jerseyMarks[i]?.length ?? 0) < NUM_HORSES) jersey.add(num);
+      if (me.money >= 1 && (!past || hasHelmet)) bet.add(num);
+      if (state.market.includes(num) && me.money >= HORSE_COSTS[i]) buy.add(num);
+    }
+    state.concessionGrid.forEach((n, idx) => {
+      if (!me.concessionMarks[idx] && n !== state.horseDie) concessionCells.add(idx);
+    });
+
+    return { helmet, jersey, bet, buy, concessionCells };
+  }, [isMyTurnToAct, me, pickingWild, state.horseDie, state.horses, state.market, state.concessionGrid]);
+
   // Bonus context for PlayerSheet — light up the tiles + per-target highlights
   const sheetBonus = myBonusPending && me
     ? {
@@ -411,6 +452,8 @@ export default function LongShotBoard({
           subPicker,
           setSubPicker,
           send: sendAction,
+          sendWithWild: sendActionWithWild,
+          wildTargets,
           refreshWild: me.wildsUsed > 0 ? () => onAction({ type: 'refresh_wild' }) : undefined,
           disabled,
         };
@@ -545,6 +588,14 @@ export default function LongShotBoard({
 // Player sheet (own)
 // =====================================================================
 
+type WildTargets = {
+  helmet: Set<number>;
+  jersey: Set<number>;
+  bet: Set<number>;
+  buy: Set<number>;
+  concessionCells: Set<number>;
+};
+
 type SheetAction = {
   effectiveHorse: number;
   rolledHorse: number;
@@ -561,6 +612,10 @@ type SheetAction = {
   subPicker: 'bet' | 'jersey' | null;
   setSubPicker: (s: 'bet' | 'jersey' | null) => void;
   send: (payload: ActionPayload) => void;
+  /** Fire an action with a specific Wild horse passed inline (used in pickingWild mode). */
+  sendWithWild: (wildHorseNum: number, payload: ActionPayload) => void;
+  /** Per-horse eligibility for each action type during pickingWild mode. */
+  wildTargets: WildTargets | null;
   refreshWild?: () => void;
   disabled: boolean;
 };
@@ -592,8 +647,27 @@ function PlayerSheet({ state, me, action, bonus }: {
   const jockeySets = me.helmets.reduce((acc, h, i) => acc + (h > 0 && me.jerseys[i] > 0 ? 1 : 0), 0);
   const effHorseIdx = action ? action.effectiveHorse - 1 : -1;
 
+  // Concession pick handler: covers both the normal "rolled horse" case and the wild case.
+  // The cell number tells us which horse to use; if it isn't the rolled horse, pass it as wild.
   const onConcessionPick = action
-    ? (idx: number) => { action.setSubPicker(null); action.send({ type: 'concession', cellIdx: idx }); }
+    ? (idx: number) => {
+        const cellHorse = state.concessionGrid[idx];
+        if (cellHorse !== action.rolledHorse) {
+          action.sendWithWild(cellHorse, { type: 'concession', cellIdx: idx });
+        } else {
+          action.setSubPicker(null);
+          action.send({ type: 'concession', cellIdx: idx });
+        }
+      }
+    : undefined;
+
+  // Combined set of pickable concession cells: rolled-horse cells (normal) +
+  // wild-eligible cells from any non-rolled horse when pickingWild is active.
+  const concessionPickable = action
+    ? Array.from(new Set([
+        ...action.concessionCells,
+        ...(action.wildTargets ? Array.from(action.wildTargets.concessionCells) : []),
+      ]))
     : undefined;
 
   return (
@@ -670,7 +744,7 @@ function PlayerSheet({ state, me, action, bonus }: {
             <ConcessionGrid
               grid={state.concessionGrid}
               marks={me.concessionMarks}
-              clickable={action?.concessionCells}
+              clickable={concessionPickable}
               onPick={onConcessionPick}
               fullWidth
             />
@@ -800,6 +874,14 @@ function PlayerSheet({ state, me, action, bonus }: {
                         >
                           <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
                         </ActionCell>
+                      ) : action?.wildTargets?.helmet.has(num) ? (
+                        <ActionCell
+                          disabled={action.disabled}
+                          onClick={() => action.sendWithWild(num, { type: 'helmet' })}
+                          title={`Use a Wild on horse ${num} + helmet`}
+                        >
+                          <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
+                        </ActionCell>
                       ) : (
                         <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
                       )}
@@ -822,6 +904,14 @@ function PlayerSheet({ state, me, action, bonus }: {
                           active={action!.subPicker === 'jersey'}
                           onClick={() => action!.setSubPicker(action!.subPicker === 'jersey' ? null : 'jersey')}
                           title="Mark a horse on this horse's secondary bar"
+                        >
+                          <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                        </ActionCell>
+                      ) : action?.wildTargets?.jersey.has(num) ? (
+                        <ActionCell
+                          disabled={action.disabled}
+                          onClick={() => { action.setWildHorse(num); action.setSubPicker('jersey'); }}
+                          title={`Use a Wild on horse ${num} + jersey`}
                         >
                           <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
                         </ActionCell>
@@ -848,6 +938,16 @@ function PlayerSheet({ state, me, action, bonus }: {
                           active={action!.subPicker === 'bet'}
                           onClick={() => action!.setSubPicker(action!.subPicker === 'bet' ? null : 'bet')}
                           title="Place a bet on this horse"
+                        >
+                          {me.bets[i] > 0
+                            ? <span className="text-emerald-400">${me.bets[i]}</span>
+                            : <span className="text-emerald-300">$+</span>}
+                        </ActionCell>
+                      ) : action?.wildTargets?.bet.has(num) ? (
+                        <ActionCell
+                          disabled={action.disabled}
+                          onClick={() => { action.setWildHorse(num); action.setSubPicker('bet'); }}
+                          title={`Use a Wild on horse ${num} + bet`}
                         >
                           {me.bets[i] > 0
                             ? <span className="text-emerald-400">${me.bets[i]}</span>
@@ -887,6 +987,14 @@ function PlayerSheet({ state, me, action, bonus }: {
                           disabled={action!.disabled}
                           onClick={() => action!.send({ type: 'buy' })}
                           title={`Buy horse ${num} for $${HORSE_COSTS[i]}`}
+                        >
+                          <span className="text-emerald-300">${HORSE_COSTS[i]}</span>
+                        </ActionCell>
+                      ) : action?.wildTargets?.buy.has(num) ? (
+                        <ActionCell
+                          disabled={action.disabled}
+                          onClick={() => action.sendWithWild(num, { type: 'buy' })}
+                          title={`Use a Wild on horse ${num} + buy ($${HORSE_COSTS[i]})`}
                         >
                           <span className="text-emerald-300">${HORSE_COSTS[i]}</span>
                         </ActionCell>
