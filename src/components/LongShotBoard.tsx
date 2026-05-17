@@ -737,20 +737,14 @@ function PlayerSheet({ state, me, action, bonus }: {
         </div>
       </div>
 
-      {/* TOP: horse table + (side panel on the right when a sub-picker is active) */}
-      {(() => null)() /* helper to keep this block readable */}
-      <div className={`grid grid-cols-1 gap-4 ${
-        (action?.subPicker || (bonus?.targets?.jerseyMark && bonus.horse1 !== null))
-          ? 'lg:grid-cols-[1fr_minmax(0,260px)]'
-          : ''
-      }`}>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[480px] border-collapse text-center text-sm">
+      {/* TOP: horse table (full width — sub-pickers are inline in their respective cells) */}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[560px] border-collapse text-center text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
               <tr>
                 <th className="px-2 py-1 text-center">#</th>
                 <th className="px-2 py-1 text-center">Helmets</th>
-                <th className="px-2 py-1 text-center">Jerseys</th>
+                <th className="px-2 py-1 text-center">Jersey · Marks</th>
                 <th className="px-2 py-1 text-center">Bet</th>
                 <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1st·2nd·3rd</span></th>
                 <th className="px-2 py-1 text-center">Market</th>
@@ -834,75 +828,134 @@ function PlayerSheet({ state, me, action, bonus }: {
                       )}
                     </td>
 
-                    {/* Jerseys */}
+                    {/* Jersey · Marks — jersey indicator + 8 always-visible horse dots */}
                     <td className="px-2 py-1.5 text-center">
-                      {bonus?.targets?.jersey?.has(num) ? (
-                        <ActionCell
-                          disabled={bonus.disabled}
-                          active={bonus.horse1 === num}
-                          onClick={() => bonus.onPick(num)}
-                          title={`Pick horse ${num} as the jersey horse (bonus)`}
-                        >
-                          <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
-                        </ActionCell>
-                      ) : isActive && action!.canJersey ? (
-                        <ActionCell
-                          disabled={action!.disabled}
-                          active={action!.subPicker === 'jersey'}
-                          onClick={() => action!.setSubPicker(action!.subPicker === 'jersey' ? null : 'jersey')}
-                          title="Mark a horse on this horse's secondary bar"
-                        >
-                          <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
-                        </ActionCell>
-                      ) : action?.wildTargets?.jersey.has(num) ? (
-                        <ActionCell
-                          disabled={action.disabled}
-                          onClick={() => { action.setWildHorse(num); action.setSubPicker('jersey'); }}
-                          title={`Use a Wild on horse ${num} + jersey`}
-                        >
-                          <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
-                        </ActionCell>
-                      ) : (
-                        <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
-                      )}
+                      {(() => {
+                        // Pickable contexts for this row's jersey marks:
+                        // 1) Active row (rolled horse) and canJersey
+                        // 2) Wild-target jersey row (uses a wild)
+                        // 3) Bonus jersey_any picking — but only on the row matching bonus.horse1 (step 2)
+                        const isBonusMarkRow = !!(bonus?.targets?.jerseyMark && bonus.horse1 === num);
+                        const isBonusJerseyPick = !!(bonus?.targets?.jersey?.has(num));
+                        const canActionPickHere = !!action && (
+                          (isActive && action.canJersey) ||
+                          (action.wildTargets?.jersey.has(num) ?? false)
+                        );
+
+                        const onPickMark = (markN: number) => {
+                          if (isBonusMarkRow) {
+                            bonus!.onPick(markN);
+                          } else if (action) {
+                            if (num === action.effectiveHorse) {
+                              action.send({ type: 'jersey', markHorse: markN });
+                            } else {
+                              action.sendWithWild(num, { type: 'jersey', markHorse: markN });
+                            }
+                          }
+                        };
+
+                        return (
+                          <div className="flex items-center justify-center gap-1.5">
+                            {/* Jersey-action indicator (still shown so the bonus jersey_any tile can highlight it) */}
+                            {isBonusJerseyPick ? (
+                              <ActionCell
+                                disabled={bonus!.disabled}
+                                active={bonus!.horse1 === num}
+                                onClick={() => bonus!.onPick(num)}
+                                title={`Pick horse ${num} as the jersey horse (bonus)`}
+                              >
+                                <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                              </ActionCell>
+                            ) : (
+                              <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                            )}
+
+                            {/* Always-visible 8 horse dots: colored if marked, grey if not.
+                                When this row is pickable for the jersey action (or bonus step 2),
+                                unmarked dots get an emerald ring and become clickable. */}
+                            <div className="flex gap-0.5">
+                              {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
+                                const marked = (me.jerseyMarks[i] ?? []).includes(n);
+                                const pickable = !marked && (
+                                  (isBonusMarkRow && bonus!.targets!.jerseyMark!.has(n)) ||
+                                  (canActionPickHere && !(state.horses[i].finished))
+                                );
+                                if (pickable) {
+                                  return (
+                                    <button
+                                      key={n}
+                                      onClick={() => onPickMark(n)}
+                                      disabled={isBonusMarkRow ? bonus!.disabled : action!.disabled}
+                                      title={`Add H${n} to horse ${num}'s jersey bar`}
+                                      className="inline-flex items-center justify-center rounded-full p-0.5 ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 transition hover:scale-110 disabled:opacity-50"
+                                    >
+                                      <HorseDot num={n} />
+                                    </button>
+                                  );
+                                }
+                                return (
+                                  <span
+                                    key={n}
+                                    title={marked ? `Horse ${n} marked on horse ${num}'s bar` : `Horse ${n} not on horse ${num}'s bar`}
+                                    className={`inline-flex items-center justify-center rounded-full p-0.5 ${
+                                      marked ? '' : 'opacity-25 grayscale'
+                                    }`}
+                                  >
+                                    <HorseDot num={n} />
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
 
-                    {/* Bet */}
+                    {/* Bet — inline $1/$2/$3 picker on the active row (or wild target row) */}
                     <td className="px-2 py-1.5 text-center font-mono">
-                      {bonus?.targets?.bet?.has(num) ? (
-                        <ActionCell
-                          disabled={bonus.disabled}
-                          onClick={() => bonus.onPick(num)}
-                          title={`Free $3 bet on horse ${num} (bonus)`}
-                        >
-                          <span className="text-emerald-300">
-                            {me.bets[i] > 0 ? `$${me.bets[i]} +$3` : '+$3'}
-                          </span>
-                        </ActionCell>
-                      ) : isActive && action!.canBet ? (
-                        <ActionCell
-                          disabled={action!.disabled}
-                          active={action!.subPicker === 'bet'}
-                          onClick={() => action!.setSubPicker(action!.subPicker === 'bet' ? null : 'bet')}
-                          title="Place a bet on this horse"
-                        >
-                          {me.bets[i] > 0
-                            ? <span className="text-emerald-400">${me.bets[i]}</span>
-                            : <span className="text-emerald-300">$+</span>}
-                        </ActionCell>
-                      ) : action?.wildTargets?.bet.has(num) ? (
-                        <ActionCell
-                          disabled={action.disabled}
-                          onClick={() => { action.setWildHorse(num); action.setSubPicker('bet'); }}
-                          title={`Use a Wild on horse ${num} + bet`}
-                        >
-                          {me.bets[i] > 0
-                            ? <span className="text-emerald-400">${me.bets[i]}</span>
-                            : <span className="text-emerald-300">$+</span>}
-                        </ActionCell>
-                      ) : (
-                        me.bets[i] > 0 ? <span className="text-emerald-400">${me.bets[i]}</span> : <span className="text-neutral-700">—</span>
-                      )}
+                      {(() => {
+                        // Free $3 bet from bonus is a direct-fire on the cell
+                        if (bonus?.targets?.bet?.has(num)) {
+                          return (
+                            <ActionCell
+                              disabled={bonus.disabled}
+                              onClick={() => bonus.onPick(num)}
+                              title={`Free $3 bet on horse ${num} (bonus)`}
+                            >
+                              <span className="text-emerald-300">
+                                {me.bets[i] > 0 ? `$${me.bets[i]} +$3` : '+$3'}
+                              </span>
+                            </ActionCell>
+                          );
+                        }
+                        const useWild = !!action && !isActive && (action.wildTargets?.bet.has(num) ?? false);
+                        const canPlaceBet = !!action && ((isActive && action.canBet) || useWild);
+                        if (canPlaceBet) {
+                          const onBet = (amt: number) => {
+                            if (useWild) action!.sendWithWild(num, { type: 'bet', amount: amt });
+                            else action!.send({ type: 'bet', amount: amt });
+                          };
+                          return (
+                            <div className="flex items-center justify-center gap-1">
+                              {me.bets[i] > 0 && <span className="mr-1 text-emerald-400">${me.bets[i]}</span>}
+                              {[1, 2, 3].map(amt => (
+                                <button
+                                  key={amt}
+                                  disabled={action!.disabled || me.money < amt}
+                                  onClick={() => onBet(amt)}
+                                  title={`Bet $${amt} on horse ${num}${useWild ? ' (uses a Wild)' : ''}`}
+                                  className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-xs font-semibold text-emerald-300 ring-2 ring-emerald-400 hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-30"
+                                >
+                                  ${amt}
+                                </button>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return me.bets[i] > 0
+                          ? <span className="text-emerald-400">${me.bets[i]}</span>
+                          : <span className="text-neutral-700">—</span>;
+                      })()}
                     </td>
 
                     {/* Odds */}
@@ -955,102 +1008,8 @@ function PlayerSheet({ state, me, action, bonus }: {
             </tbody>
           </table>
 
-          {/* Bet winnings — shown when the race is over (Phase 4 will fold this into full settlement) */}
-          {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
-        </div>
-
-        {/* RIGHT-SIDE PANEL: sub-pickers (bet amount, jersey horse, bonus jerseyMark) */}
-        {(action?.subPicker || (bonus?.targets?.jerseyMark && bonus.horse1 !== null)) && (
-          <div className="space-y-3">
-            {action?.subPicker === 'bet' && (
-              <div className="rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
-                <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
-                  Bet amount for horse {action.effectiveHorse}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {[1, 2, 3].map(amt => (
-                    <button
-                      key={amt}
-                      disabled={action.disabled || me.money < amt}
-                      onClick={() => action.send({ type: 'bet', amount: amt })}
-                      className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40"
-                    >
-                      ${amt}
-                    </button>
-                  ))}
-                  <button
-                    onClick={() => action.setSubPicker(null)}
-                    className="rounded-md border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {action?.subPicker === 'jersey' && (
-              <div className="rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
-                <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
-                  Add a horse to horse {action.effectiveHorse}&apos;s secondary bar
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
-                    const alreadyMarked = (me.jerseyMarks[effHorseIdx] ?? []).includes(n);
-                    return (
-                      <button
-                        key={n}
-                        disabled={action.disabled || alreadyMarked}
-                        onClick={() => action.send({ type: 'jersey', markHorse: n })}
-                        title={alreadyMarked ? 'Already marked' : `Add H${n}`}
-                        className={`flex items-center gap-1 rounded-md p-1.5 text-sm transition disabled:opacity-30 ${
-                          alreadyMarked
-                            ? 'bg-neutral-800 text-neutral-500'
-                            : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
-                        }`}
-                      >
-                        <HorseDot num={n} />
-                      </button>
-                    );
-                  })}
-                </div>
-                <button
-                  onClick={() => action.setSubPicker(null)}
-                  className="mt-2 w-full rounded-md border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-
-            {bonus?.targets?.jerseyMark && bonus.horse1 !== null && (
-              <div className="rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
-                <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
-                  Add a horse to horse {bonus.horse1}&apos;s jersey bar
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
-                    const pickable = bonus.targets!.jerseyMark!.has(n);
-                    return (
-                      <button
-                        key={n}
-                        disabled={bonus.disabled || !pickable}
-                        onClick={() => bonus.onPick(n)}
-                        title={pickable ? `Add H${n}` : 'Already marked'}
-                        className={`flex items-center gap-1 rounded-md p-1.5 text-sm transition disabled:opacity-30 ${
-                          pickable
-                            ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
-                            : 'bg-neutral-800 text-neutral-500'
-                        }`}
-                      >
-                        <HorseDot num={n} />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Bet winnings — shown when the race is over (Phase 4 will fold this into full settlement) */}
+        {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
       </div>
 
       {/* BOTTOM: concessions (lower-left) + Row/Column bonuses (right of concessions) */}
