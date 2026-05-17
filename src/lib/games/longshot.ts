@@ -7,6 +7,14 @@ export const NO_BET_SPACE = 10;     // past this index, no new bets without a he
 export const STARTING_MONEY = 12;
 export const FINISH_POSITIONS = 3;  // race ends after 3 horses cross
 
+/**
+ * Movement die faces. It's a 6-sided die but weighted: one 1, three 2s, two 3s.
+ * Use this array as the source of truth for both rolling and display.
+ */
+export const MOVEMENT_DIE_FACES = [1, 2, 2, 2, 3, 3] as const;
+export const MOVEMENT_DIE_MIN = 1;
+export const MOVEMENT_DIE_MAX = 3;
+
 /** Distinct colors per horse (1-indexed via HORSE_COLORS[n-1]). */
 export const HORSE_COLORS = [
   '#dc2626', // 1 - red
@@ -148,7 +156,7 @@ function moveHorseForward(state: LSState, horseIndex: number, spaces: number): L
 export function rollDice(state: LSState, horseDie: number, movementDie: number): LSState | { error: string } {
   if (state.phase !== 'playing') return { error: 'Race not in progress' };
   if (state.step !== 'roll') return { error: 'Not the roll step' };
-  if (horseDie < 1 || horseDie > 8 || movementDie < 1 || movementDie > 6) {
+  if (horseDie < 1 || horseDie > 8 || movementDie < MOVEMENT_DIE_MIN || movementDie > MOVEMENT_DIE_MAX) {
     return { error: 'Bad dice values' };
   }
 

@@ -33,8 +33,8 @@ export default function LongShotBoard({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" max={8} />
-          <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" max={6} />
+          <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" caption="d8" />
+          <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" caption="1·2·2·2·3·3" />
           {state.phase === 'playing' && (
             <button
               onClick={onRoll}
@@ -120,7 +120,7 @@ export default function LongShotBoard({
   );
 }
 
-function Die({ label, value, color, max }: { label: string; value: number | null; color: string; max: number }) {
+function Die({ label, value, color, caption }: { label: string; value: number | null; color: string; caption: string }) {
   return (
     <div className="flex flex-col items-center">
       <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
@@ -129,7 +129,7 @@ function Die({ label, value, color, max }: { label: string; value: number | null
       }`}>
         {value ?? '?'}
       </div>
-      <span className="mt-0.5 text-[9px] text-neutral-600">d{max}</span>
+      <span className="mt-0.5 text-[9px] text-neutral-600">{caption}</span>
     </div>
   );
 }

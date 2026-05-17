@@ -9,6 +9,7 @@ import {
   addPlayer as lsAddPlayer,
   startRace as lsStartRace,
   rollDice as lsRollDice,
+  MOVEMENT_DIE_FACES,
   type LSState,
 } from '@/lib/games/longshot';
 
@@ -111,8 +112,8 @@ export async function rollDiceLS(roomId: string) {
     throw new Error('Only the active player can roll the dice');
   }
 
-  const horseDie = 1 + Math.floor(Math.random() * 8);    // d8
-  const movementDie = 1 + Math.floor(Math.random() * 6); // d6
+  const horseDie = 1 + Math.floor(Math.random() * 8);                                // d8
+  const movementDie = MOVEMENT_DIE_FACES[Math.floor(Math.random() * MOVEMENT_DIE_FACES.length)]; // weighted d6: 1, 2, 2, 2, 3, 3
   const next = lsRollDice(state, horseDie, movementDie);
   if ('error' in next) throw new Error(next.error);
 
