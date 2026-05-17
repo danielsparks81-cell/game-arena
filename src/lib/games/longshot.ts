@@ -603,7 +603,7 @@ export function takeAction(
   // Wild Numbers: if the player chose to use a wild, validate and consume one
   let effectiveHorse = state.horseDie!;
   let wildConsumed = false;
-  if (payload.type !== 'claim_bonus' && payload.type !== 'pass' && payload.wild !== undefined) {
+  if (payload.type !== 'claim_bonus' && payload.type !== 'refresh_wilds' && payload.wild !== undefined) {
     if (player.wildsUsed >= MAX_WILDS) return { error: 'No wilds remaining' };
     if (!Number.isInteger(payload.wild) || payload.wild < 1 || payload.wild > NUM_HORSES) {
       return { error: 'Wild horse number must be 1-8' };
