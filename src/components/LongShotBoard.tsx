@@ -80,23 +80,6 @@ function angleForPosition(pos: number): number {
   return angleLo + frac * (angleHi - angleLo);
 }
 
-/**
- * Angle for the label centered above space `i`. Computes the midpoint of the two
- * separators that bound the space visually. For spaces 1 and 15, the S/F line acts
- * as one of the bounding separators (since we removed the flanking ones).
- */
-function labelAngleForSpace(i: number): number {
-  const leftSep =
-    i === 1
-      ? POSITION_ANGLES[0]                                           // S/F is the left bound of space 1
-      : (POSITION_ANGLES[i - 1] + POSITION_ANGLES[i]) / 2;
-  const rightSep =
-    i === TRACK_LENGTH - 1
-      ? POSITION_ANGLES[0] - 2 * Math.PI                             // S/F (wrapped) is the right bound of space 15
-      : (POSITION_ANGLES[i] + POSITION_ANGLES[i + 1]) / 2;
-  return (leftSep + rightSep) / 2;
-}
-
 function pointOnOval(angle: number, rx: number, ry: number) {
   return { x: TRACK_CX + rx * Math.cos(angle), y: TRACK_CY + ry * Math.sin(angle) };
 }
@@ -1223,24 +1206,6 @@ function Track({ state }: { state: LSState }) {
         <line x1={noBetInner.x} y1={noBetInner.y} x2={noBetOuter.x} y2={noBetOuter.y}
               stroke="#ef4444" strokeWidth="4" strokeDasharray="4 3" />
 
-        {/* Space number labels — small, on the inner rail. Skip position 0 (the S/F line).
-            Labels sit at the visual center of each space, not at the integer position angle —
-            this matters for spaces 1 and 15 whose positions are shifted toward S/F. */}
-        {Array.from({ length: TRACK_LENGTH }, (_, i) => {
-          if (i === 0) return null;
-          const a = labelAngleForSpace(i);
-          const labelPt = pointOnOval(a, TRACK_RX - TRACK_HALF_WIDTH - 12, TRACK_RY - TRACK_HALF_WIDTH - 12);
-          const past = i >= NO_BET_SPACE;
-          return (
-            <text key={`lbl-${i}`} x={labelPt.x} y={labelPt.y + 3}
-              fontSize="9" fontWeight="bold" textAnchor="middle"
-              fill={past ? '#fca5a5' : '#fafafa'}
-              opacity="0.9"
-            >
-              {i}
-            </text>
-          );
-        })}
 
         {/* Horse tokens — sequenced, with starting-gate column behind the line */}
         {horses.map((_, i) => {
