@@ -222,14 +222,10 @@ export default function LongShotBoard({
   // --- Lifted bonus-picking state — bonus tiles in the sheet drive this ---
   const [bonusPicking, setBonusPicking] = useState<string | null>(null);
   const [bonusHorse1, setBonusHorse1] = useState<number | null>(null);
-  const [bonusHorse2, setBonusHorse2] = useState<number | null>(null);
-  const [bonusMarkHorse, setBonusMarkHorse] = useState<number | null>(null);
 
   const resetBonusPick = () => {
     setBonusPicking(null);
     setBonusHorse1(null);
-    setBonusHorse2(null);
-    setBonusMarkHorse(null);
   };
 
   // Reset on round/turn change so leftover state doesn't carry across turns
@@ -255,8 +251,100 @@ export default function LongShotBoard({
       resetBonusPick();
       return;
     }
-    setBonusHorse1(null); setBonusHorse2(null); setBonusMarkHorse(null);
+    setBonusHorse1(null);
     setBonusPicking(bonusId);
+  };
+
+  // Per-bonus eligibility — which sheet/track targets should light up right now
+  const bonusTargets = useMemo(() => {
+    if (!myBonusPending || !me || !bonusPicking) return null;
+    const live = (i: number) => !state.horses[i].finished;
+
+    if (bonusPicking === 'helmet_any') {
+      return { helmet: new Set(
+        Array.from({ length: NUM_HORSES }, (_, i) => i + 1)
+          .filter(n => live(n - 1) && me.helmets[n - 1] < MAX_HELMETS_PER_HORSE)
+      )};
+    }
+    if (bonusPicking === 'jersey_any') {
+      // Step 1: pick the jersey horse. Step 2: pick which horse to add to its bar.
+      if (bonusHorse1 === null) {
+        return { jersey: new Set(
+          Array.from({ length: NUM_HORSES }, (_, i) => i + 1)
+            .filter(n => live(n - 1) && me.jerseys[n - 1] < MAX_JERSEYS_PER_HORSE)
+        )};
+      }
+      const markedAlready = new Set(me.jerseyMarks[bonusHorse1 - 1] ?? []);
+      return { jerseyMark: new Set(
+        Array.from({ length: NUM_HORSES }, (_, i) => i + 1).filter(n => !markedAlready.has(n))
+      )};
+    }
+    if (bonusPicking === 'freebet3_a' || bonusPicking === 'freebet3_b') {
+      return { bet: new Set(
+        Array.from({ length: NUM_HORSES }, (_, i) => i + 1).filter(n => {
+          if (!live(n - 1)) return false;
+          const past = state.horses[n - 1].position >= NO_BET_SPACE;
+          return !past || me.helmets[n - 1] > 0;
+        })
+      )};
+    }
+    if (bonusPicking === 'free_horse') {
+      return { market: new Set(state.market) };
+    }
+    if (bonusPicking === 'back2x2' || bonusPicking === 'back3') {
+      const eligible = new Set(
+        Array.from({ length: NUM_HORSES }, (_, i) => i + 1)
+          .filter(n => live(n - 1) && state.horses[n - 1].position > 0)
+      );
+      if (bonusHorse1 !== null) eligible.delete(bonusHorse1);
+      return { track: eligible };
+    }
+    if (bonusPicking === 'forward2x2' || bonusPicking === 'forward3') {
+      const eligible = new Set(
+        Array.from({ length: NUM_HORSES }, (_, i) => i + 1)
+          .filter(n => live(n - 1) && state.horses[n - 1].position < TRACK_LENGTH - 1)
+      );
+      if (bonusHorse1 !== null) eligible.delete(bonusHorse1);
+      return { track: eligible };
+    }
+    return null;
+  }, [myBonusPending, me, bonusPicking, bonusHorse1, state.horses, state.market]);
+
+  // Handle a click on a highlighted bonus target (helmet/jersey/jerseyMark/bet/market/track horse)
+  const handleBonusPick = (horseNum: number) => {
+    if (!bonusPicking) return;
+
+    // Single-pick bonuses → fire immediately
+    if (
+      bonusPicking === 'helmet_any' ||
+      bonusPicking === 'free_horse' ||
+      bonusPicking === 'freebet3_a' || bonusPicking === 'freebet3_b' ||
+      bonusPicking === 'back3' || bonusPicking === 'forward3'
+    ) {
+      onAction({ type: 'claim_bonus', bonusId: bonusPicking, horse: horseNum });
+      resetBonusPick();
+      return;
+    }
+
+    // Two-pick bonuses (jersey: jersey horse → mark horse; movement2x2: horse1 → horse2)
+    if (bonusPicking === 'jersey_any') {
+      if (bonusHorse1 === null) {
+        setBonusHorse1(horseNum);
+      } else {
+        onAction({ type: 'claim_bonus', bonusId: bonusPicking, horse: bonusHorse1, markHorse: horseNum });
+        resetBonusPick();
+      }
+      return;
+    }
+    if (bonusPicking === 'back2x2' || bonusPicking === 'forward2x2') {
+      if (bonusHorse1 === null) {
+        setBonusHorse1(horseNum);
+      } else {
+        onAction({ type: 'claim_bonus', bonusId: bonusPicking, horse: bonusHorse1, horse2: horseNum });
+        resetBonusPick();
+      }
+      return;
+    }
   };
 
   const effectiveHorse = wildHorse ?? state.horseDie ?? 0;
@@ -276,13 +364,21 @@ export default function LongShotBoard({
     setSubPicker(null);
   };
 
-  // Bonus context for PlayerSheet — light up the tiles for the player who must claim
+  // Bonus context for PlayerSheet — light up the tiles + per-target highlights
   const sheetBonus = myBonusPending && me
     ? {
         picking: bonusPicking,
+        horse1: bonusHorse1,
         onTileClick: handleBonusTileClick,
+        onPick: handleBonusPick,
+        targets: bonusTargets,
         disabled,
       }
+    : undefined;
+
+  // Movement-bonus highlighting on the track itself
+  const trackBonusPick = myBonusPending && bonusTargets && 'track' in bonusTargets && bonusTargets.track
+    ? { eligible: bonusTargets.track, onPick: handleBonusPick }
     : undefined;
 
   // Build the action context handed to PlayerSheet. Undefined when the sheet is read-only
@@ -382,43 +478,10 @@ export default function LongShotBoard({
       {/* Main grid: track left, actions+sheet right on desktop; stacked on mobile/tablet */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
         {/* LEFT: track */}
-        <Track state={state} />
+        <Track state={state} bonusPick={trackBonusPick} />
 
         {/* RIGHT: actions on top, sheet below (stacked) */}
         <div className="space-y-3">
-          {/* Bonus sub-picker — only when a bonus is mid-selection (tile clicked but needs input).
-              The bonus tiles themselves live inside PlayerSheet now. */}
-          {state.step === 'action' && me && myBonusPending && bonusPicking && (
-            <BonusSubPicker
-              state={state}
-              me={me}
-              picking={bonusPicking}
-              horse1={bonusHorse1}
-              setHorse1={setBonusHorse1}
-              horse2={bonusHorse2}
-              setHorse2={setBonusHorse2}
-              markHorse={bonusMarkHorse}
-              setMarkHorse={setBonusMarkHorse}
-              disabled={disabled}
-              onSubmit={() => {
-                onAction({
-                  type: 'claim_bonus',
-                  bonusId: bonusPicking,
-                  horse: bonusHorse1 ?? undefined,
-                  horse2: bonusHorse2 ?? undefined,
-                  markHorse: bonusMarkHorse ?? undefined,
-                });
-                resetBonusPick();
-              }}
-              onCancel={resetBonusPick}
-            />
-          )}
-          {/* Hint that a bonus is pending and you should click a tile in your sheet */}
-          {state.step === 'action' && me && myBonusPending && !bonusPicking && state.pendingBonus && (
-            <div className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-3 text-sm text-amber-300">
-              🎉 You have {state.pendingBonus.count} bonus{state.pendingBonus.count > 1 ? 'es' : ''} to claim — click a highlighted tile in <strong>Your Sheet → Row/Column bonuses</strong>.
-            </div>
-          )}
           {/* Waiting-on-X notice when in action phase but not my turn (sheet stays read-only) */}
           {state.step === 'action' && me && !state.pendingBonus && !isMyTurnToAct && (
             <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-3 text-sm text-neutral-300">
@@ -471,173 +534,6 @@ export default function LongShotBoard({
 // Bonus picker (shown when the player has unclaimed concession bonuses)
 // =====================================================================
 
-/**
- * Controlled bonus sub-picker — rendered only when a bonus tile has been clicked AND that
- * bonus needs further input (horse selection). All state is owned by LongShotBoard so the
- * sheet's bonus tiles and this sub-picker stay in sync.
- */
-function BonusSubPicker({
-  state, me, picking, horse1, setHorse1, horse2, setHorse2, markHorse, setMarkHorse,
-  disabled, onSubmit, onCancel,
-}: {
-  state: LSState;
-  me: LSPlayer;
-  picking: string;
-  horse1: number | null; setHorse1: (n: number | null) => void;
-  horse2: number | null; setHorse2: (n: number | null) => void;
-  markHorse: number | null; setMarkHorse: (n: number | null) => void;
-  disabled: boolean;
-  onSubmit: () => void;
-  onCancel: () => void;
-}) {
-  const liveHorses = state.horses
-    .map((h, i) => ({ num: i + 1, finished: !!h.finished, position: h.position }))
-    .filter(h => !h.finished);
-  const horsesForBetOrJersey = liveHorses;
-  const marketHorses = state.market;
-
-  const isFreeBet = picking === 'freebet3_a' || picking === 'freebet3_b';
-  const noBetDisabled = useMemo(() => {
-    const set = new Set<number>();
-    if (!isFreeBet) return set;
-    state.horses.forEach((h, i) => {
-      if (!h.finished && h.position >= NO_BET_SPACE && me.helmets[i] === 0) set.add(i + 1);
-    });
-    return set;
-  }, [isFreeBet, state.horses, me.helmets]);
-
-  const isForwardMove = picking === 'forward2x2' || picking === 'forward3';
-  const atFinishDisabled = useMemo(() => {
-    const set = new Set<number>();
-    if (!isForwardMove) return set;
-    state.horses.forEach((h, i) => {
-      if (!h.finished && h.position >= TRACK_LENGTH - 1) set.add(i + 1);
-    });
-    return set;
-  }, [isForwardMove, state.horses]);
-
-  const isBackMove = picking === 'back2x2' || picking === 'back3';
-  const atStartDisabled = useMemo(() => {
-    const set = new Set<number>();
-    if (!isBackMove) return set;
-    state.horses.forEach((h, i) => {
-      if (!h.finished && h.position <= 0) set.add(i + 1);
-    });
-    return set;
-  }, [isBackMove, state.horses]);
-
-  const needs2 = picking === 'back2x2' || picking === 'forward2x2';
-  const needsMarkHorse = picking === 'jersey_any';
-  const selectedBonus = CONCESSION_BONUSES.find(b => b.id === picking);
-
-  const canSubmit =
-    needs2 ? (horse1 && horse2 && horse1 !== horse2)
-    : needsMarkHorse ? (horse1 && markHorse)
-    : !!horse1;
-
-  return (
-    <div className="space-y-2 rounded-xl border border-emerald-500 bg-emerald-500/10 p-3 text-xs">
-      <div className="flex items-baseline justify-between">
-        <div className="text-sm font-semibold text-emerald-300">
-          🎉 {selectedBonus?.label} <span className="text-neutral-400">— {selectedBonus?.desc}</span>
-        </div>
-        <button onClick={onCancel} className="text-[11px] text-neutral-400 hover:text-neutral-200">Cancel</button>
-      </div>
-
-      <HorsePicker
-        label={needs2 ? 'First horse' : needsMarkHorse ? 'Jersey horse' : 'Horse'}
-        value={horse1}
-        onChange={setHorse1}
-        options={picking === 'free_horse' ? marketHorses : horsesForBetOrJersey.map(h => h.num)}
-        disabledHorses={
-          isFreeBet ? noBetDisabled
-          : isForwardMove ? atFinishDisabled
-          : isBackMove ? atStartDisabled
-          : undefined
-        }
-        disabledReason={
-          isFreeBet ? 'Past the No-Bet line — you need a helmet on this horse first'
-          : isForwardMove ? 'Already at the finish line — forward bonus would be wasted'
-          : isBackMove ? 'Still in the starting gate — can\'t move back'
-          : undefined
-        }
-      />
-
-      {needs2 && (
-        <HorsePicker
-          label="Second horse"
-          value={horse2}
-          onChange={setHorse2}
-          options={horsesForBetOrJersey.map(h => h.num).filter(n => n !== horse1)}
-          disabledHorses={
-            isForwardMove ? atFinishDisabled
-            : isBackMove ? atStartDisabled
-            : undefined
-          }
-          disabledReason={
-            isForwardMove ? 'Already at the finish line — forward bonus would be wasted'
-            : isBackMove ? 'Still in the starting gate — can\'t move back'
-            : undefined
-          }
-        />
-      )}
-      {needsMarkHorse && (
-        <HorsePicker
-          label="Horse to add to bar"
-          value={markHorse}
-          onChange={setMarkHorse}
-          options={Array.from({ length: NUM_HORSES }, (_, i) => i + 1)}
-        />
-      )}
-
-      <div className="flex gap-2 pt-1">
-        <button disabled={disabled || !canSubmit}
-          onClick={onSubmit}
-          className="rounded-md bg-emerald-500 px-4 py-1.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40">
-          Claim bonus
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function HorsePicker({
-  label, value, onChange, options, disabledHorses, disabledReason,
-}: {
-  label: string;
-  value: number | null;
-  onChange: (n: number) => void;
-  options: number[];
-  disabledHorses?: Set<number>;
-  disabledReason?: string;
-}) {
-  return (
-    <div>
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">{label}</div>
-      <div className="flex flex-wrap gap-1">
-        {options.length === 0 && <span className="text-neutral-500">No valid horses</span>}
-        {options.map(n => {
-          const isDisabled = disabledHorses?.has(n) ?? false;
-          return (
-            <button
-              key={n}
-              disabled={isDisabled}
-              onClick={() => onChange(n)}
-              title={isDisabled ? disabledReason : undefined}
-              className={`rounded-md px-2 py-1 transition ${
-                isDisabled ? 'cursor-not-allowed opacity-25 grayscale'
-                : value === n ? 'bg-emerald-500 text-neutral-950'
-                : 'bg-neutral-950 text-neutral-300 hover:bg-emerald-900/30'
-              }`}
-            >
-              <HorseDot num={n} />
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // =====================================================================
 // Player sheet (own)
@@ -661,13 +557,29 @@ type SheetAction = {
   disabled: boolean;
 };
 
+type BonusTargets = {
+  helmet?: Set<number>;
+  jersey?: Set<number>;
+  jerseyMark?: Set<number>;
+  bet?: Set<number>;
+  market?: Set<number>;
+  track?: Set<number>;
+};
+
 function PlayerSheet({ state, me, action, bonus }: {
   state: LSState;
   me: LSPlayer;
   /** When present, the sheet is the interactive action surface for the current player's turn. */
   action?: SheetAction;
   /** When present, the Row/Column bonus tiles become clickable for claiming a pending bonus. */
-  bonus?: { picking: string | null; onTileClick: (bonusId: string) => void; disabled: boolean };
+  bonus?: {
+    picking: string | null;
+    horse1: number | null;
+    onTileClick: (bonusId: string) => void;
+    onPick: (horseNum: number) => void;
+    targets: BonusTargets | null;
+    disabled: boolean;
+  };
 }) {
   const jockeySets = me.helmets.reduce((acc, h, i) => acc + (h > 0 && me.jerseys[i] > 0 ? 1 : 0), 0);
   const effHorseIdx = action ? action.effectiveHorse - 1 : -1;
@@ -831,7 +743,15 @@ function PlayerSheet({ state, me, action, bonus }: {
 
                     {/* Helmets */}
                     <td className="px-2 py-1.5 text-center">
-                      {isActive && action!.canHelmet ? (
+                      {bonus?.targets?.helmet?.has(num) ? (
+                        <ActionCell
+                          disabled={bonus.disabled}
+                          onClick={() => bonus.onPick(num)}
+                          title={`Add a helmet to horse ${num} (bonus)`}
+                        >
+                          <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
+                        </ActionCell>
+                      ) : isActive && action!.canHelmet ? (
                         <ActionCell
                           disabled={action!.disabled}
                           onClick={() => action!.send({ type: 'helmet' })}
@@ -846,7 +766,16 @@ function PlayerSheet({ state, me, action, bonus }: {
 
                     {/* Jerseys */}
                     <td className="px-2 py-1.5 text-center">
-                      {isActive && action!.canJersey ? (
+                      {bonus?.targets?.jersey?.has(num) ? (
+                        <ActionCell
+                          disabled={bonus.disabled}
+                          active={bonus.horse1 === num}
+                          onClick={() => bonus.onPick(num)}
+                          title={`Pick horse ${num} as the jersey horse (bonus)`}
+                        >
+                          <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                        </ActionCell>
+                      ) : isActive && action!.canJersey ? (
                         <ActionCell
                           disabled={action!.disabled}
                           active={action!.subPicker === 'jersey'}
@@ -862,7 +791,17 @@ function PlayerSheet({ state, me, action, bonus }: {
 
                     {/* Bet */}
                     <td className="px-2 py-1.5 text-center font-mono">
-                      {isActive && action!.canBet ? (
+                      {bonus?.targets?.bet?.has(num) ? (
+                        <ActionCell
+                          disabled={bonus.disabled}
+                          onClick={() => bonus.onPick(num)}
+                          title={`Free $3 bet on horse ${num} (bonus)`}
+                        >
+                          <span className="text-emerald-300">
+                            {me.bets[i] > 0 ? `$${me.bets[i]} +$3` : '+$3'}
+                          </span>
+                        </ActionCell>
+                      ) : isActive && action!.canBet ? (
                         <ActionCell
                           disabled={action!.disabled}
                           active={action!.subPicker === 'bet'}
@@ -892,6 +831,14 @@ function PlayerSheet({ state, me, action, bonus }: {
                         </span>
                       ) : owned ? (
                         <span className="text-emerald-400">owned 🏠</span>
+                      ) : bonus?.targets?.market?.has(num) ? (
+                        <ActionCell
+                          disabled={bonus.disabled}
+                          onClick={() => bonus.onPick(num)}
+                          title={`Claim horse ${num} free (bonus)`}
+                        >
+                          <span className="font-mono font-bold text-emerald-200">FREE</span>
+                        </ActionCell>
                       ) : otherOwner ? (
                         <span className="truncate text-sky-400">{otherOwner.username}</span>
                       ) : isActive && action!.canBuy ? (
@@ -911,6 +858,35 @@ function PlayerSheet({ state, me, action, bonus }: {
               })}
             </tbody>
           </table>
+
+          {/* Bonus inline picker: jersey-step-2 (pick which horse to add to bar) */}
+          {bonus?.targets?.jerseyMark && bonus.horse1 !== null && (
+            <div className="mt-3 rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
+              <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
+                Pick a horse to add to horse {bonus.horse1}&apos;s jersey bar
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
+                  const pickable = bonus.targets!.jerseyMark!.has(n);
+                  return (
+                    <button
+                      key={n}
+                      disabled={bonus.disabled || !pickable}
+                      onClick={() => bonus.onPick(n)}
+                      className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition disabled:opacity-30 ${
+                        pickable
+                          ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
+                          : 'bg-neutral-800 text-neutral-500'
+                      }`}
+                    >
+                      <HorseDot num={n} /> H{n}
+                      {!pickable && <span className="text-[10px]">(marked)</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Sub-picker: bet amount */}
           {action?.subPicker === 'bet' && (
@@ -1131,7 +1107,11 @@ function HorseDot({ num }: { num: number }) {
   );
 }
 
-function Track({ state }: { state: LSState }) {
+function Track({ state, bonusPick }: {
+  state: LSState;
+  /** When set, horses whose number is in `eligible` are clickable (movement-bonus selection). */
+  bonusPick?: { eligible: Set<number>; onPick: (horseNum: number) => void };
+}) {
   // Sequenced animation: rolled horse first, then each secondary-bar horse, one at a time.
   const { positions, finished } = useSequencedRace(state);
   const horses = state.horses;
@@ -1263,10 +1243,23 @@ function Track({ state }: { state: LSState }) {
           const x = startX * startWeight + ovalX * (1 - startWeight);
           const y = startY * startWeight + ovalY * (1 - startWeight);
 
+          const pickable = bonusPick?.eligible.has(horseNum) ?? false;
           return (
-            <g key={`horse-${horseNum}`}>
+            <g key={`horse-${horseNum}`}
+              onClick={pickable ? () => bonusPick!.onPick(horseNum) : undefined}
+              style={pickable ? { cursor: 'pointer' } : undefined}
+            >
+              {/* Emerald halo behind eligible horses during a movement-bonus pick */}
+              {pickable && (
+                <circle cx={x} cy={y} r="14" fill="none" stroke="#34d399" strokeWidth="2.5"
+                  opacity="0.9">
+                  <animate attributeName="r" values="13;16;13" dur="1.2s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.9;0.5;0.9" dur="1.2s" repeatCount="indefinite" />
+                </circle>
+              )}
               <circle cx={x} cy={y} r="10" fill={HORSE_COLORS[horseNum - 1]} stroke="#0a0a0a" strokeWidth="1.25" />
               <text x={x} y={y + 3.5} fontSize="11" textAnchor="middle" fontWeight="bold"
+                pointerEvents="none"
                 fill={horseNum === 2 ? '#0a0a0a' : '#fafafa'}>
                 {horseNum}
               </text>
