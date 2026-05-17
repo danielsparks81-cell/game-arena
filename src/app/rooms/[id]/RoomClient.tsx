@@ -8,8 +8,10 @@ import type { TTTState } from '@/lib/games/tictactoe';
 import { type C4State, C4_COLS, C4_ROWS } from '@/lib/games/connect4';
 import { sounds, unlockAudio } from '@/lib/sounds';
 import MembersPanel from '@/components/MembersPanel';
+import LongShotBoard from '@/components/LongShotBoard';
+import type { LSState } from '@/lib/games/longshot';
 import {
-  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch, startGame,
+  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch, startGame, rollDiceLS,
 } from './actions';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
@@ -155,12 +157,21 @@ export default function RoomClient({
           />
         )}
 
-        {room.game_type === 'longshot' && (
+        {room.game_type === 'longshot' && room.status === 'waiting' && (
           <LongShotPlaceholder
             room={room}
             currentUserId={currentUserId}
             pending={pending}
             onStart={() => startTransition(() => { startGame(roomId); })}
+          />
+        )}
+
+        {room.game_type === 'longshot' && room.status !== 'waiting' && (
+          <LongShotBoard
+            state={room.state as LSState}
+            currentUserId={currentUserId}
+            disabled={pending}
+            onRoll={() => { unlockAudio(); startTransition(() => { rollDiceLS(roomId); }); }}
           />
         )}
 

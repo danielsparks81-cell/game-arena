@@ -8,6 +8,7 @@ import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } fro
 import {
   addPlayer as lsAddPlayer,
   startRace as lsStartRace,
+  rollDice as lsRollDice,
   type LSState,
 } from '@/lib/games/longshot';
 
@@ -87,6 +88,39 @@ export async function joinRoom(roomId: string) {
 
   await notifyRoom(roomId);
   revalidatePath(`/rooms/${roomId}`);
+}
+
+/** Active player rolls both dice and resolves movement. Server-rolled for fairness. */
+export async function rollDiceLS(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, game_type, status, state')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'longshot') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Race not in progress');
+
+  const state = (room.state || {}) as LSState;
+  const me = state.players.find(p => p.playerId === user.id);
+  if (!me || me.seat !== state.activePlayerSeat) {
+    throw new Error('Only the active player can roll the dice');
+  }
+
+  const horseDie = 1 + Math.floor(Math.random() * 8);    // d8
+  const movementDie = 1 + Math.floor(Math.random() * 6); // d6
+  const next = lsRollDice(state, horseDie, movementDie);
+  if ('error' in next) throw new Error(next.error);
+
+  const updates: { state: LSState; status?: string } = { state: next };
+  if (next.phase === 'finished') updates.status = 'finished';
+
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+  await notifyRoom(roomId);
 }
 
 /** Host flips a waiting Long Shot room to 'playing'. */
