@@ -155,26 +155,43 @@ export type LSState = {
 // ---------- Setup ----------
 
 function genConcessionGrid(): number[] {
-  // 4 × 4 = 16 cells. Each horse number 1-8 appears exactly twice. Additional
-  // constraint: no number repeats in any row or column.
+  // 4 × 4 = 16 cells. Each horse number 1-8 appears exactly twice. Constraints:
+  //   1. No number repeats in any row.
+  //   2. No number repeats in any column.
+  //   3. No number is adjacent to itself (including diagonally) — Chebyshev distance ≥ 2.
   const base = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
 
+  const isAdjacent = (i1: number, i2: number): boolean => {
+    const r1 = Math.floor(i1 / CONCESSION_COLS);
+    const c1 = i1 % CONCESSION_COLS;
+    const r2 = Math.floor(i2 / CONCESSION_COLS);
+    const c2 = i2 % CONCESSION_COLS;
+    return i1 !== i2 && Math.abs(r1 - r2) <= 1 && Math.abs(c1 - c2) <= 1;
+  };
+
   const isValid = (cells: number[]): boolean => {
+    // No row dupes
     for (let r = 0; r < CONCESSION_ROWS; r++) {
       const row = cells.slice(r * CONCESSION_COLS, (r + 1) * CONCESSION_COLS);
       if (new Set(row).size !== row.length) return false;
     }
+    // No column dupes
     for (let c = 0; c < CONCESSION_COLS; c++) {
       const col: number[] = [];
       for (let r = 0; r < CONCESSION_ROWS; r++) col.push(cells[r * CONCESSION_COLS + c]);
       if (new Set(col).size !== col.length) return false;
     }
+    // No same number adjacent (incl. diagonals)
+    for (let i = 0; i < cells.length; i++) {
+      for (let j = i + 1; j < cells.length; j++) {
+        if (cells[i] === cells[j] && isAdjacent(i, j)) return false;
+      }
+    }
     return true;
   };
 
-  // Generate-and-test with a high retry limit. The constraint is loose enough that
-  // most random shuffles satisfy it, so this almost always converges in a handful of tries.
-  for (let attempt = 0; attempt < 5000; attempt++) {
+  // The combined constraints have a low hit rate per random shuffle, so allow plenty of retries.
+  for (let attempt = 0; attempt < 50000; attempt++) {
     const cells = base.slice();
     for (let i = cells.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -183,7 +200,8 @@ function genConcessionGrid(): number[] {
     if (isValid(cells)) return cells;
   }
 
-  // Fallback: known-good arrangement (uncopyrighted; constructed by hand to satisfy the rule).
+  // Fallback: hand-constructed arrangement that satisfies every constraint.
+  // Each pair is at Chebyshev distance ≥ 2; no row/col repeats; each horse appears twice.
   return [
     1, 2, 3, 4,
     5, 6, 7, 8,
