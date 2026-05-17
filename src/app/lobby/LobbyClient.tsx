@@ -38,6 +38,7 @@ export default function LobbyClient({
   );
   const [online, setOnline] = useState<OnlineUser[]>([]);
   const [invitee, setInvitee] = useState<OnlineUser | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [inviteToast, setInviteToast] = useState<{ from: string; roomId: string; game: string } | null>(null);
 
@@ -119,22 +120,28 @@ export default function LobbyClient({
   const otherOnline = useMemo(() => online.filter(u => u.id !== currentUserId), [online, currentUserId]);
 
   async function doInvite(target: OnlineUser, gameType: string) {
-    setInvitee(null);
+    setInviteError(null);
     startTransition(async () => {
-      const { roomId } = await inviteToGame(target.id, gameType);
-      // notify the invitee in real time
-      const notify = supabase.channel(`user:${target.id}`);
-      notify.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await notify.send({
-            type: 'broadcast',
-            event: 'invite',
-            payload: { from: currentUsername, roomId, game: gameType },
-          });
-          supabase.removeChannel(notify);
-        }
-      });
-      router.push(`/rooms/${roomId}`);
+      try {
+        const { roomId } = await inviteToGame(target.id, gameType);
+        // notify the invitee in real time
+        const notify = supabase.channel(`user:${target.id}`);
+        notify.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await notify.send({
+              type: 'broadcast',
+              event: 'invite',
+              payload: { from: currentUsername, roomId, game: gameType },
+            });
+            supabase.removeChannel(notify);
+          }
+        });
+        setInvitee(null);
+        router.push(`/rooms/${roomId}`);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Could not send invite';
+        setInviteError(msg);
+      }
     });
   }
 
@@ -193,8 +200,13 @@ export default function LobbyClient({
                 </button>
               ))}
             </div>
+            {inviteError && (
+              <p className="mt-3 rounded-md border border-red-900/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
+                {inviteError}
+              </p>
+            )}
             <button
-              onClick={() => setInvitee(null)}
+              onClick={() => { setInvitee(null); setInviteError(null); }}
               className="mt-4 w-full rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
             >
               Cancel

@@ -50,19 +50,15 @@ export async function inviteToGame(targetUserId: string, gameType: string): Prom
   if (!user) throw new Error('Not signed in');
   if (targetUserId === user.id) throw new Error("Can't invite yourself");
 
-  // Verify target exists
   const { data: target } = await supabase
     .from('profiles').select('id').eq('id', targetUserId).maybeSingle();
   if (!target) throw new Error('User not found');
 
-  const seats =
-    gameType === 'tictactoe' ? { X: user.id, O: targetUserId } :
-    gameType === 'connect4'  ? { R: user.id, Y: targetUserId } :
-    {};
-
+  // Host seats themselves; invitee joins themselves when they click the notification
+  // (RLS only allows users to insert their own room_players rows).
   const state =
-    gameType === 'tictactoe' ? { ...tttInitial(), seats } :
-    gameType === 'connect4'  ? { ...c4Initial(),  seats } :
+    gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
+    gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
     {};
 
   const { data: room, error } = await supabase
@@ -72,7 +68,7 @@ export async function inviteToGame(targetUserId: string, gameType: string): Prom
       host_id: user.id,
       max_players: game.maxPlayers,
       state,
-      status: 'playing',
+      status: 'waiting',
     })
     .select('id')
     .single();
@@ -80,10 +76,7 @@ export async function inviteToGame(targetUserId: string, gameType: string): Prom
 
   const { error: rpErr } = await supabase
     .from('room_players')
-    .insert([
-      { room_id: room.id, player_id: user.id,      seat: 0 },
-      { room_id: room.id, player_id: targetUserId, seat: 1 },
-    ]);
+    .insert({ room_id: room.id, player_id: user.id, seat: 0 });
   if (rpErr) throw new Error(rpErr.message);
 
   return { roomId: room.id };
