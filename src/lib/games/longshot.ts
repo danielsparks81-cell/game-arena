@@ -7,6 +7,8 @@ export const TRACK_LENGTH = 16;
 export const NO_BET_SPACE = 12;
 export const STARTING_MONEY = 12;
 export const FINISH_POSITIONS = 3;
+/** Purse paid to the owner of the horse finishing 1st / 2nd / 3rd. */
+export const PURSE: [number, number, number] = [35, 25, 15];
 
 export const MAX_HELMETS_PER_HORSE = 1;
 export const MAX_JERSEYS_PER_HORSE = 1;

@@ -6,7 +6,7 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
-  SECONDARY_BARS, allMarksOnBar, calculateBetWinnings,
+  SECONDARY_BARS, PURSE, allMarksOnBar, calculateBetWinnings,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -1161,20 +1161,36 @@ function WinnersCircle({ state }: { state: LSState }) {
       <div className="mb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-amber-400">
         Winner&apos;s Circle
       </div>
-      <div className="flex items-center justify-around gap-3">
-        {places.map(p => (
-          <div key={p.place} className="flex items-center gap-2">
-            <span className={`text-2xl ${p.horseNum ? '' : 'opacity-40 grayscale'}`}>{p.medal}</span>
-            {p.horseNum ? (
-              <span className="flex items-center gap-1.5 text-sm">
-                <HorseDiamond num={p.horseNum} />
-                {p.owner && <span className="text-sky-400">{p.owner}</span>}
+      <div className="flex items-start justify-around gap-3">
+        {places.map(p => {
+          const prize = PURSE[p.place - 1];
+          // Purse goes to the horse's owner. Highlight only when the slot has both a
+          // finished horse AND that horse is owned by someone.
+          const purseActive = !!p.horseNum && !!p.owner;
+          return (
+            <div key={p.place} className="flex flex-col items-center gap-1">
+              <span className={`text-2xl leading-none ${p.horseNum ? '' : 'opacity-40 grayscale'}`}>{p.medal}</span>
+              {p.horseNum ? (
+                <>
+                  <HorseDiamond num={p.horseNum} />
+                  {p.owner ? (
+                    <span className="text-xs text-sky-400">{p.owner}</span>
+                  ) : (
+                    <span className="text-xs text-neutral-600">no owner</span>
+                  )}
+                </>
+              ) : (
+                <span className="text-xs text-neutral-600">—</span>
+              )}
+              <span
+                title={purseActive ? `Owner takes the $${prize} purse` : `${prize} purse — paid to the owner of the finishing horse`}
+                className={`font-mono text-sm ${purseActive ? 'font-bold text-sky-300' : 'text-neutral-700'}`}
+              >
+                ${prize}
               </span>
-            ) : (
-              <span className="text-xs text-neutral-600">—</span>
-            )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
