@@ -412,11 +412,16 @@ function moveHorseForward(state: LSState, horseIndex: number, spaces: number): L
 
 /** Combine the default secondary-bar with any Jersey-marked X's across all players. */
 function effectiveSecondaryBar(state: LSState, rolledHorse: number): number[] {
-  const set = new Set<number>(SECONDARY_BARS[rolledHorse] ?? []);
+  return Array.from(allMarksOnBar(state, rolledHorse)).sort((a, b) => a - b);
+}
+
+/** Set of horses currently on horse N's bar — pre-printed + all players' jersey marks. */
+export function allMarksOnBar(state: LSState, horseNum: number): Set<number> {
+  const set = new Set<number>(SECONDARY_BARS[horseNum] ?? []);
   for (const p of state.players) {
-    for (const n of p.jerseyMarks[rolledHorse - 1] ?? []) set.add(n);
+    for (const n of p.jerseyMarks[horseNum - 1] ?? []) set.add(n);
   }
-  return Array.from(set).sort((a, b) => a - b);
+  return set;
 }
 
 export function rollDice(state: LSState, horseDie: number, movementDie: number): LSState | { error: string } {
@@ -678,8 +683,8 @@ export function takeAction(
       if (!Number.isInteger(m) || m < 1 || m > NUM_HORSES) {
         return { error: 'Pick which horse to add to the secondary bar (1-8)' };
       }
-      if ((player.jerseyMarks[horseIdx] ?? []).includes(m)) {
-        return { error: `Horse ${m} is already marked on horse ${rolledHorse}'s bar by you` };
+      if (allMarksOnBar(state, rolledHorse).has(m)) {
+        return { error: `Horse ${m} is already marked on horse ${rolledHorse}'s bar` };
       }
       const updatedJerseyMarks = player.jerseyMarks.map((arr, i) =>
         i === horseIdx ? [...arr, m] : arr,
@@ -892,7 +897,7 @@ function applyBonusClaim(
       if (updatedPlayer.jerseys[h - 1] >= MAX_JERSEYS_PER_HORSE) {
         return { error: `Already have a jersey on horse ${h}` };
       }
-      if ((updatedPlayer.jerseyMarks[h - 1] ?? []).includes(m)) {
+      if (allMarksOnBar(state, h).has(m)) {
         return { error: `Horse ${m} is already marked on horse ${h}'s bar` };
       }
       updatedPlayer.jerseys = updatedPlayer.jerseys.map((c, i) => (i === h - 1 ? c + 1 : c));

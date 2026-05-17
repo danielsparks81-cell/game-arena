@@ -6,7 +6,7 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
-  SECONDARY_BARS, calculateBetWinnings,
+  SECONDARY_BARS, allMarksOnBar, calculateBetWinnings,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -277,7 +277,9 @@ export default function LongShotBoard({
             .filter(n => live(n - 1) && me.jerseys[n - 1] < MAX_JERSEYS_PER_HORSE)
         )};
       }
-      const markedAlready = new Set(me.jerseyMarks[bonusHorse1 - 1] ?? []);
+      // Jersey marks are now globally unique — exclude any horse already on this bar
+      // (default pre-print OR any player's existing mark).
+      const markedAlready = allMarksOnBar(state, bonusHorse1);
       return { jerseyMark: new Set(
         Array.from({ length: NUM_HORSES }, (_, i) => i + 1).filter(n => !markedAlready.has(n))
       )};
@@ -870,15 +872,20 @@ function PlayerSheet({ state, me, action, bonus }: {
                               <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
                             )}
 
-                            {/* Always-visible 8 horse dots. Colored if marked (default pre-print
-                                OR player-added), grey if not. On the active/wild/bonus-pick row,
-                                unmarked dots get an emerald ring and become clickable. */}
+                            {/* Always-visible 8 horse dots. Jersey marks are now globally unique —
+                                a slot is "chosen" if anyone (or the default bar) has it. Chosen
+                                slots show a bright number; unchosen slots show the colored circle
+                                with a greyed-out number (so the slot is still visible and clickable
+                                when this row is in pick-mode). */}
                             <div className="flex gap-0.5">
                               {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
                                 const isDefaultMark = (SECONDARY_BARS[num] ?? []).includes(n);
                                 const isPlayerMark = (me.jerseyMarks[i] ?? []).includes(n);
-                                const marked = isDefaultMark || isPlayerMark;
-                                const pickable = !marked && (
+                                const isOtherPlayerMark = state.players.some(p =>
+                                  p.playerId !== me.playerId && (p.jerseyMarks[i] ?? []).includes(n)
+                                );
+                                const chosen = isDefaultMark || isPlayerMark || isOtherPlayerMark;
+                                const pickable = !chosen && (
                                   (isBonusMarkRow && bonus!.targets!.jerseyMark!.has(n)) ||
                                   (canActionPickHere && !(state.horses[i].finished))
                                 );
@@ -891,7 +898,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                                       title={`Add H${n} to horse ${num}'s jersey bar`}
                                       className="inline-flex items-center justify-center rounded-full p-0.5 ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 transition hover:scale-110 disabled:opacity-50"
                                     >
-                                      <HorseDot num={n} />
+                                      <HorseDot num={n} muted />
                                     </button>
                                   );
                                 }
@@ -900,14 +907,13 @@ function PlayerSheet({ state, me, action, bonus }: {
                                     key={n}
                                     title={
                                       isPlayerMark ? `H${n} marked by you on horse ${num}'s bar`
+                                      : isOtherPlayerMark ? `H${n} marked by another player on horse ${num}'s bar`
                                       : isDefaultMark ? `H${n} pre-marked on horse ${num}'s bar`
-                                      : `H${n} not on horse ${num}'s bar`
+                                      : `H${n} available on horse ${num}'s bar`
                                     }
-                                    className={`inline-flex items-center justify-center rounded-full p-0.5 ${
-                                      marked ? '' : 'opacity-25 grayscale'
-                                    }`}
+                                    className="inline-flex items-center justify-center rounded-full p-0.5"
                                   >
-                                    <HorseDot num={n} />
+                                    <HorseDot num={n} muted={!chosen} />
                                   </span>
                                 );
                               })}
@@ -1266,10 +1272,12 @@ function Die({ label, value, color, horseDie }: {
   );
 }
 
-function HorseDot({ num }: { num: number }) {
+function HorseDot({ num, muted }: { num: number; muted?: boolean }) {
   return (
     <span
-      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white shadow"
+      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow ${
+        muted ? 'text-white/25' : 'text-white'
+      }`}
       style={{ backgroundColor: HORSE_COLORS[num - 1] }}
     >
       {num}
