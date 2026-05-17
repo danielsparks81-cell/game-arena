@@ -962,3 +962,48 @@ function commitTurn(
 function ordinal(n: 1 | 2 | 3): string {
   return n === 1 ? '1st' : n === 2 ? '2nd' : '3rd';
 }
+
+/**
+ * Calculate a player's total bet winnings at the end of the race.
+ * For each horse the player bet on:
+ *   - If the horse finished 1st/2nd/3rd: bet × BET_ODDS[horseIdx][place-1]
+ *   - Else if the horse crossed the No-Bet line: bet × 1 (consolation — bet back)
+ *   - Else: $0 (forfeit)
+ * The place payout and the consolation payout are mutually exclusive.
+ *
+ * Returns both the grand total and a per-horse breakdown so the UI can show the math.
+ */
+export type BetBreakdownEntry = {
+  horseNum: number;
+  bet: number;
+  place: HorseFinish;          // null if not on the podium
+  pastNoBet: boolean;          // horse crossed the No-Bet line
+  multiplier: number;          // 0, 1, or one of the BET_ODDS place values
+  payout: number;              // bet * multiplier
+};
+
+export function calculateBetWinnings(state: LSState, player: LSPlayer): {
+  total: number;
+  breakdown: BetBreakdownEntry[];
+} {
+  const breakdown: BetBreakdownEntry[] = [];
+  let total = 0;
+  for (let i = 0; i < NUM_HORSES; i++) {
+    const bet = player.bets[i];
+    if (bet <= 0) continue;
+    const horse = state.horses[i];
+    const place = horse.finished;
+    const pastNoBet = horse.position >= NO_BET_SPACE;
+
+    let multiplier = 0;
+    if (place === 1 || place === 2 || place === 3) {
+      multiplier = BET_ODDS[i][place - 1];
+    } else if (pastNoBet) {
+      multiplier = 1;
+    }
+    const payout = bet * multiplier;
+    breakdown.push({ horseNum: i + 1, bet, place, pastNoBet, multiplier, payout });
+    total += payout;
+  }
+  return { total, breakdown };
+}

@@ -6,6 +6,7 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
+  calculateBetWinnings,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -1008,6 +1009,9 @@ function PlayerSheet({ state, me, action, bonus }: {
             </tbody>
           </table>
 
+          {/* Bet winnings — shown when the race is over (Phase 4 will fold this into full settlement) */}
+          {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
+
           {/* Bonus inline picker: jersey-step-2 (pick which horse to add to bar) */}
           {bonus?.targets?.jerseyMark && bonus.horse1 !== null && (
             <div className="mt-3 rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
@@ -1100,6 +1104,51 @@ function PlayerSheet({ state, me, action, bonus }: {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Final-state panel showing the player's bet payouts with per-horse breakdown. */
+function BetWinningsPanel({ state, me }: { state: LSState; me: LSPlayer }) {
+  const { total, breakdown } = calculateBetWinnings(state, me);
+  if (breakdown.length === 0) {
+    return (
+      <div className="mt-3 rounded-md border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-500">
+        No bets placed this race.
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-xs">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="font-semibold uppercase tracking-wider text-emerald-300">Bet winnings</span>
+        <span className="font-mono text-base font-bold text-emerald-300">${total}</span>
+      </div>
+      <ul className="space-y-1">
+        {breakdown.map(b => {
+          const placeLabel =
+            b.place === 1 ? '🥇 1st'
+            : b.place === 2 ? '🥈 2nd'
+            : b.place === 3 ? '🥉 3rd'
+            : b.pastNoBet ? 'past No-Bet (bet back)'
+            : 'did not cross No-Bet (forfeit)';
+          const tone =
+            b.payout > b.bet ? 'text-emerald-400'
+            : b.payout === b.bet ? 'text-neutral-300'
+            : 'text-rose-400';
+          return (
+            <li key={b.horseNum} className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-2">
+                <HorseDot num={b.horseNum} />
+                <span className="text-neutral-400">${b.bet} bet · {placeLabel}</span>
+              </span>
+              <span className={`font-mono ${tone}`}>
+                ${b.bet} × {b.multiplier} = <span className="font-bold">${b.payout}</span>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
