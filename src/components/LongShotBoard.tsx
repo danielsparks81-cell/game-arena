@@ -17,9 +17,57 @@ const TRACK_RX = 190;              // horizontal radius (rail centerline)
 const TRACK_RY = 108;              // vertical radius
 const TRACK_HALF_WIDTH = 34;       // half-width of the track surface (full width ≈ 68px)
 
+/**
+ * Pre-compute an angle table where each integer position is placed at equal ARC LENGTH
+ * around the oval (rather than equal angle). This keeps space sizes visually uniform —
+ * an ellipse with rx > ry would otherwise have skinny segments near the top/bottom and
+ * fat segments on the sides.
+ */
+const POSITION_ANGLES: number[] = (() => {
+  const STEPS = 16000;
+  const dtheta = (2 * Math.PI) / STEPS;
+
+  // Walk counterclockwise from π/2 (bottom of oval, where position 0 lives)
+  let theta = Math.PI / 2;
+  let arc = 0;
+  const samples: Array<{ theta: number; arc: number }> = [{ theta, arc }];
+  for (let i = 0; i < STEPS; i++) {
+    const nextTheta = theta - dtheta;
+    const midTheta = (theta + nextTheta) / 2;
+    const ds = Math.hypot(TRACK_RX * Math.sin(midTheta), TRACK_RY * Math.cos(midTheta)) * dtheta;
+    arc += ds;
+    theta = nextTheta;
+    samples.push({ theta, arc });
+  }
+  const total = arc;
+  const segArc = total / TRACK_LENGTH;
+
+  const angles: number[] = [];
+  let idx = 0;
+  for (let k = 0; k < TRACK_LENGTH; k++) {
+    const target = k * segArc;
+    while (idx < samples.length - 1 && samples[idx + 1].arc < target) idx++;
+    const a = samples[idx];
+    const b = samples[idx + 1] ?? a;
+    if (b.arc === a.arc) angles.push(a.theta);
+    else {
+      const frac = (target - a.arc) / (b.arc - a.arc);
+      angles.push(a.theta + frac * (b.theta - a.theta));
+    }
+  }
+  return angles;
+})();
+
 function angleForPosition(pos: number): number {
-  // pos = 0 at bottom, counterclockwise on screen
-  return Math.PI / 2 - (2 * Math.PI * pos) / TRACK_LENGTH;
+  if (pos <= 0) return POSITION_ANGLES[0];
+  if (pos >= TRACK_LENGTH) return POSITION_ANGLES[0] - 2 * Math.PI;
+  const lo = Math.floor(pos);
+  const hi = (lo + 1) % TRACK_LENGTH;
+  const frac = pos - lo;
+  const angleLo = POSITION_ANGLES[lo];
+  // When wrapping from position TRACK_LENGTH-1 to position 0, the next angle is one full revolution past
+  const angleHi = hi === 0 ? POSITION_ANGLES[0] - 2 * Math.PI : POSITION_ANGLES[hi];
+  return angleLo + frac * (angleHi - angleLo);
 }
 
 function pointOnOval(angle: number, rx: number, ry: number) {
@@ -358,19 +406,19 @@ function Track({ state }: { state: LSState }) {
         <line x1={noBetInner.x} y1={noBetInner.y} x2={noBetOuter.x} y2={noBetOuter.y}
               stroke="#ef4444" strokeWidth="4" strokeDasharray="4 3" />
 
-        {/* Space number labels — small, on the inner rail; space 0 shows "S/F" */}
+        {/* Space number labels — small, on the inner rail. Skip position 0 (the S/F line). */}
         {Array.from({ length: TRACK_LENGTH }, (_, i) => {
+          if (i === 0) return null;
           const a = angleForPosition(i);
           const labelPt = pointOnOval(a, TRACK_RX - TRACK_HALF_WIDTH - 12, TRACK_RY - TRACK_HALF_WIDTH - 12);
           const past = i >= NO_BET_SPACE;
-          const label = i === 0 ? 'S/F' : String(i);
           return (
             <text key={`lbl-${i}`} x={labelPt.x} y={labelPt.y + 3}
-              fontSize={i === 0 ? '10' : '9'} fontWeight="bold" textAnchor="middle"
-              fill={i === 0 ? '#34d399' : past ? '#fca5a5' : '#fafafa'}
+              fontSize="9" fontWeight="bold" textAnchor="middle"
+              fill={past ? '#fca5a5' : '#fafafa'}
               opacity="0.9"
             >
-              {label}
+              {i}
             </text>
           );
         })}
