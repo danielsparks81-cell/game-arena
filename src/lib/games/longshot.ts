@@ -255,13 +255,37 @@ export function startRace(state: LSState): LSState | { error: string } {
   const startSeat = state.players[Math.floor(Math.random() * state.players.length)].seat;
   const startName = state.players.find(p => p.seat === startSeat)!.username;
   const concessionGrid = genConcessionGrid();
-  // Each player gets pre-placed marks AND starting bets — randomized, so every player
-  // begins the race with a different setup (the spirit of the Starting Card draw).
-  const players = state.players.map(p => ({
-    ...p,
-    concessionMarks: genStartingMarks(concessionGrid),
-    bets: genStartingBets(),
-  }));
+
+  // Each player gets pre-placed marks AND starting bets. Bet rules:
+  //   - $6 total per player, split as either $2+$4 or $3+$3
+  //   - lower (or first) bet on a horse 1-4
+  //   - higher (or second) bet on a horse 5-8
+  //   - no two players share the same (lowHorse, highHorse) pair
+  //   - neither bet horse may be on this player's pre-marked concession cells
+  const usedPairs = new Set<string>();
+  const players = state.players.map(p => {
+    let concessionMarks: boolean[] = Array.from({ length: CONCESSION_CELLS }, () => false);
+    let bets: number[] = Array.from({ length: NUM_HORSES }, () => 0);
+    let pairKey: string | null = null;
+
+    // Try multiple pre-mark layouts until one allows valid starting bets.
+    for (let outer = 0; outer < 30; outer++) {
+      const marks = genStartingMarks(concessionGrid);
+      const preMarkedHorses = new Set<number>();
+      marks.forEach((m, i) => { if (m) preMarkedHorses.add(concessionGrid[i]); });
+      const result = tryGenStartingBets(preMarkedHorses, usedPairs);
+      if (result) {
+        concessionMarks = marks;
+        bets = result.bets;
+        pairKey = result.pairKey;
+        break;
+      }
+    }
+    if (pairKey) usedPairs.add(pairKey);
+
+    return { ...p, concessionMarks, bets };
+  });
+
   return {
     ...state,
     phase: 'playing',
@@ -276,18 +300,36 @@ export function startRace(state: LSState): LSState | { error: string } {
 }
 
 /**
- * Random starting bets: one $2 bet and one $4 bet on two different horses.
- * These are "free" — they don't deduct from the player's $12 starting money.
+ * Try to generate a valid starting-bet configuration that satisfies:
+ *   - $6 total split as either $2+$4 or $3+$3
+ *   - lower bet on a horse from {1..4}, not in the player's pre-marked horses
+ *   - higher bet on a horse from {5..8}, not in the player's pre-marked horses
+ *   - (lowHorse, highHorse) pair not already used by another player
+ * Returns null if no valid arrangement was found within the retry budget.
  */
-function genStartingBets(): number[] {
+function tryGenStartingBets(
+  preMarkedHorses: Set<number>,
+  usedPairs: Set<string>,
+): { bets: number[]; pairKey: string } | null {
+  const lowerCandidates = [1, 2, 3, 4].filter(h => !preMarkedHorses.has(h));
+  const upperCandidates = [5, 6, 7, 8].filter(h => !preMarkedHorses.has(h));
+  if (lowerCandidates.length === 0 || upperCandidates.length === 0) return null;
+
+  // Enumerate all available pairs not yet used, then pick one at random.
+  const free: { lo: number; hi: number }[] = [];
+  for (const lo of lowerCandidates) {
+    for (const hi of upperCandidates) {
+      if (!usedPairs.has(`${lo}-${hi}`)) free.push({ lo, hi });
+    }
+  }
+  if (free.length === 0) return null;
+
+  const { lo, hi } = free[Math.floor(Math.random() * free.length)];
+  const split: [number, number] = Math.random() < 0.5 ? [2, 4] : [3, 3];
   const bets = Array.from({ length: NUM_HORSES }, () => 0);
-  // Pick two distinct horse indices
-  const horseA = Math.floor(Math.random() * NUM_HORSES);
-  let horseB = Math.floor(Math.random() * NUM_HORSES);
-  while (horseB === horseA) horseB = Math.floor(Math.random() * NUM_HORSES);
-  bets[horseA] = 2;
-  bets[horseB] = 4;
-  return bets;
+  bets[lo - 1] = split[0];
+  bets[hi - 1] = split[1];
+  return { bets, pairKey: `${lo}-${hi}` };
 }
 
 /**
