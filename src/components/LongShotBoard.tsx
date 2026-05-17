@@ -508,11 +508,10 @@ export default function LongShotBoard({
         </div>
       )}
 
-      {/* Main grid: winners + track + phase panel left, sheet right on desktop; stacked on mobile/tablet */}
+      {/* Main grid: track + winners + phase panel left, sheet right on desktop; stacked on mobile/tablet */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
-        {/* LEFT: Winner's Circle, then Track, then roll/action-phase panel */}
+        {/* LEFT: Track, then Winner's Circle, then roll/action-phase panel */}
         <div className="space-y-3">
-          <WinnersCircle state={state} />
           <Track
             state={state}
             bonusPick={trackBonusPick}
@@ -529,6 +528,7 @@ export default function LongShotBoard({
                 : undefined
             }
           />
+          <WinnersCircle state={state} />
           {/* Roll-phase panel — compact, below the track */}
           {state.step === 'roll' && (
             <div className="flex items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-center">
@@ -1637,18 +1637,6 @@ function Track({ state, bonusPick, infieldMessage }: {
           </foreignObject>
         )}
       </svg>
-
-      <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-neutral-500">
-        {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => (
-          <span key={n} className="inline-flex items-center gap-1">
-            <HorseDot num={n} />
-            <span>H{n}</span>
-          </span>
-        ))}
-        <span className="ml-2 inline-flex items-center gap-1 text-rose-400">
-          <span className="inline-block h-3 w-0.5 bg-rose-500" /> No-Bet at space {NO_BET_SPACE}
-        </span>
-      </div>
     </div>
   );
 }
