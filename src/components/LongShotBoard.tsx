@@ -465,7 +465,9 @@ function Track({ state }: { state: LSState }) {
           const group = (byPos.get(intPos) ?? [horseNum]).slice().sort((a, b) => a - b);
           const stackIdx = group.indexOf(horseNum);                  // 0 = lowest horse num
           const stackCount = group.length;
-          const STACK_STEP = stackCount > 1 ? Math.min(8, 24 / Math.max(1, stackCount - 1)) : 0;
+          // Horse tokens are radius 10 (diameter 20). Diagonal step distance between
+          // neighbors = STACK_STEP * √2. Picking 15 gives ~21px separation — no overlap.
+          const STACK_STEP = stackCount > 1 ? 15 : 0;
           // centerOffset > 0 → forward + inner; < 0 → backward + outer
           const centerOffset = (stackCount - 1) / 2 - stackIdx;
           // Forward direction = -tangent (tangentAt points opposite to direction of travel)
