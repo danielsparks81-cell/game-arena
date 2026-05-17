@@ -25,7 +25,7 @@ export const GAMES: Record<string, GameDef> = {
     id: 'longshot',
     name: 'Long Shot',
     description: 'Horse-racing dice game. Buy, bet, and influence the race. (Beta)',
-    minPlayers: 1,
+    minPlayers: 2,
     maxPlayers: 8,
   },
 };

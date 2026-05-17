@@ -434,7 +434,7 @@ function LongShotPlaceholder({
 }) {
   const isHost = room.host_id === currentUserId;
   const playerCount = room.room_players.length;
-  const canStart = isHost && room.status === 'waiting' && playerCount >= 1;
+  const canStart = isHost && room.status === 'waiting' && playerCount >= 2;
 
   return (
     <div className="space-y-4 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
@@ -456,7 +456,7 @@ function LongShotPlaceholder({
                 Start race ({playerCount} {playerCount === 1 ? 'player' : 'players'})
               </button>
             ) : isHost ? (
-              <span className="text-sm text-neutral-500">Need at least 1 seated player to start.</span>
+              <span className="text-sm text-neutral-500">Need at least 2 seated players to start.</span>
             ) : (
               <span className="text-sm text-neutral-500">Waiting for the host to start the race…</span>
             )}

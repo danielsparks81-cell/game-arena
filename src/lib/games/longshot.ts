@@ -77,7 +77,7 @@ export function addPlayer(state: LSState, playerId: string, username: string, se
 /** Host flips the room from lobby to playing. */
 export function startRace(state: LSState): LSState | { error: string } {
   if (state.phase !== 'lobby') return { error: 'Race already started' };
-  if (state.players.length < 1) return { error: 'Need at least 1 player' };
+  if (state.players.length < 2) return { error: 'Need at least 2 players' };
   return {
     ...state,
     phase: 'playing',

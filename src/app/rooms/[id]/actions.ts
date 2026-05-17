@@ -103,7 +103,7 @@ export async function startGame(roomId: string) {
   if (error || !room) throw new Error('Room not found');
   if (room.host_id !== user.id) throw new Error('Only the host can start the game');
   if (room.status !== 'waiting') throw new Error('Game already started');
-  if (room.room_players.length < 1) throw new Error('Need at least 1 player');
+  if (room.room_players.length < 2) throw new Error('Need at least 2 players');
 
   if (room.game_type === 'longshot') {
     const next = lsStartRace((room.state || {}) as LSState);
