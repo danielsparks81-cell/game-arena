@@ -6,15 +6,16 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES,
 } from '@/lib/games/longshot';
 
-// Oval geometry: viewBox 440x280, centered, counterclockwise on screen
+// Oval geometry: viewBox 460x300, centered, counterclockwise on screen
 // starting at bottom-middle (matches real horse-racing direction).
-const VIEW_W = 440;
-const VIEW_H = 280;
-const TRACK_CX = 220;
-const TRACK_CY = 140;
+// Bounds chosen so the outer rail AND the starting-gate column behind the line both fit.
+const VIEW_W = 460;
+const VIEW_H = 300;
+const TRACK_CX = 230;
+const TRACK_CY = 150;
 const TRACK_RX = 190;              // horizontal radius (rail centerline)
-const TRACK_RY = 110;              // vertical radius
-const TRACK_HALF_WIDTH = 36;       // wider track: outer rail to inner rail = 72px
+const TRACK_RY = 108;              // vertical radius
+const TRACK_HALF_WIDTH = 34;       // half-width of the track surface (full width ≈ 68px)
 
 function angleForPosition(pos: number): number {
   // pos = 0 at bottom, counterclockwise on screen
@@ -392,8 +393,9 @@ function Track({ state }: { state: LSState }) {
 
           // --- Starting-gate position: vertical column behind the start line.
           // Horse 1 closest to the inner rail, horse 8 closest to the outer rail.
+          // radialPerHorse chosen so the full column stays inside the viewBox.
           const startAngle = angleForPosition(0);
-          const radialPerHorse = 14;
+          const radialPerHorse = 10;
           const radialOffset = (horseNum - (NUM_HORSES + 1) / 2) * radialPerHorse;
           const startCenter = pointOnOval(
             startAngle,
