@@ -142,11 +142,14 @@ export function startRace(state: LSState): LSState | { error: string } {
 
 // ---------- Race mechanics ----------
 
-/** Move a single horse N spaces forward, handling finish line + winner's circle. */
+/**
+ * Move a single horse N spaces forward, handling finish line + winner's circle.
+ * Per the rules: even after 3 horses have finished, other horses still advance —
+ * they just stop one space short of the line and any extra movement is wasted.
+ */
 function moveHorseForward(state: LSState, horseIndex: number, spaces: number): LSState {
   const h = state.horses[horseIndex];
   if (h.finished) return state;                                   // finished horses don't move
-  if (state.finishedCount >= FINISH_POSITIONS) return state;      // race over for new finishes
 
   const horses = state.horses.map(x => ({ ...x }));
   let pos = horses[horseIndex].position + spaces;
@@ -159,7 +162,7 @@ function moveHorseForward(state: LSState, horseIndex: number, spaces: number): L
       finished = (finishedCount as HorseFinish);
       pos = TRACK_LENGTH;
     } else {
-      // 3rd place already taken — stop before finish line
+      // 3rd place already taken — stop one space before the finish line; any extra is wasted
       pos = TRACK_LENGTH - 1;
     }
   }
