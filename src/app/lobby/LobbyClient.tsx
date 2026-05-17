@@ -23,12 +23,13 @@ type UserStat = { user_id: string; username: string; wins: number; losses: numbe
 type PresencePayload = { user_id: string; username: string; online_at: string };
 
 export default function LobbyClient({
-  initialRooms, initialStats, currentUserId, currentUsername,
+  initialRooms, initialStats, currentUserId, currentUsername, newGameSection,
 }: {
   initialRooms: Room[];
   initialStats: UserStat[];
   currentUserId: string;
   currentUsername: string;
+  newGameSection: React.ReactNode;
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -222,31 +223,35 @@ export default function LobbyClient({
       )}
 
       <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[1fr_260px] lg:grid-cols-[1fr_280px]">
-        {/* LEFT: active rooms */}
-        <section>
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-xl font-semibold">Active rooms</h2>
-            <span className="text-sm text-neutral-400">{open.length} active · {online.length} online</span>
-          </div>
-          {open.length === 0 ? (
-            <p className="rounded-lg border border-dashed border-neutral-800 p-6 text-center text-neutral-500">
-              No active rooms. Invite a friend from the panel to start one.
-            </p>
-          ) : (
-            <ul className="divide-y divide-neutral-800 rounded-xl border border-neutral-800 bg-neutral-900">
-              {open.map(r => <RoomRow key={r.id} room={r} currentUserId={currentUserId} />)}
-            </ul>
-          )}
+        {/* LEFT: new game tiles + active rooms */}
+        <div className="space-y-8">
+          {newGameSection}
 
-          {finished.length > 0 && (
-            <div className="mt-6">
-              <h2 className="mb-3 text-xl font-semibold text-neutral-400">Recently finished</h2>
-              <ul className="divide-y divide-neutral-800 rounded-xl border border-neutral-800 bg-neutral-900/40">
-                {finished.map(r => <RoomRow key={r.id} room={r} currentUserId={currentUserId} />)}
-              </ul>
+          <section>
+            <div className="mb-3 flex items-baseline justify-between">
+              <h2 className="text-xl font-semibold">Active rooms</h2>
+              <span className="text-sm text-neutral-400">{open.length} active · {online.length} online</span>
             </div>
-          )}
-        </section>
+            {open.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-neutral-800 p-6 text-center text-neutral-500">
+                No active rooms. Start a new game above or invite a friend from the right.
+              </p>
+            ) : (
+              <ul className="divide-y divide-neutral-800 rounded-xl border border-neutral-800 bg-neutral-900">
+                {open.map(r => <RoomRow key={r.id} room={r} currentUserId={currentUserId} />)}
+              </ul>
+            )}
+
+            {finished.length > 0 && (
+              <div className="mt-6">
+                <h2 className="mb-3 text-xl font-semibold text-neutral-400">Recently finished</h2>
+                <ul className="divide-y divide-neutral-800 rounded-xl border border-neutral-800 bg-neutral-900/40">
+                  {finished.map(r => <RoomRow key={r.id} room={r} currentUserId={currentUserId} />)}
+                </ul>
+              </div>
+            )}
+          </section>
+        </div>
 
         {/* RIGHT: online + offline users — sticks to the top of the grid row */}
         <aside className="space-y-4 rounded-xl border border-neutral-800 bg-neutral-900 p-4 md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
