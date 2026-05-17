@@ -18,10 +18,11 @@ const TRACK_RY = 108;              // vertical radius
 const TRACK_HALF_WIDTH = 34;       // half-width of the track surface (full width ≈ 68px)
 
 /**
- * Pre-compute an angle table where each integer position is placed at equal ARC LENGTH
- * around the oval (rather than equal angle). This keeps space sizes visually uniform —
- * an ellipse with rx > ry would otherwise have skinny segments near the top/bottom and
- * fat segments on the sides.
+ * Pre-compute angles for each integer position. Spaces are placed at equal ARC LENGTH
+ * around the oval (so they look uniform on an ellipse). Positions 1 and 15 are then
+ * shifted closer to S/F by 25% so the spaces flanking the start/finish line aren't
+ * visually wider than the others (they otherwise inherit the full half-space gap that
+ * would normally be filled by separators on both sides).
  */
 const POSITION_ANGLES: number[] = (() => {
   const STEPS = 16000;
@@ -40,22 +41,28 @@ const POSITION_ANGLES: number[] = (() => {
     samples.push({ theta, arc });
   }
   const total = arc;
-  const segArc = total / TRACK_LENGTH;
+  const unit = total / TRACK_LENGTH;
 
-  const angles: number[] = [];
-  let idx = 0;
-  for (let k = 0; k < TRACK_LENGTH; k++) {
-    const target = k * segArc;
-    while (idx < samples.length - 1 && samples[idx + 1].arc < target) idx++;
-    const a = samples[idx];
-    const b = samples[idx + 1] ?? a;
-    if (b.arc === a.arc) angles.push(a.theta);
-    else {
-      const frac = (target - a.arc) / (b.arc - a.arc);
-      angles.push(a.theta + frac * (b.theta - a.theta));
-    }
-  }
-  return angles;
+  // Linear-interpolated lookup from arc length → angle using the sample table
+  const angleAtArc = (target: number): number => {
+    // Binary search would be faster, but TRACK_LENGTH is small so a linear scan is fine
+    let i = 0;
+    while (i < samples.length - 1 && samples[i + 1].arc < target) i++;
+    const a = samples[i];
+    const b = samples[i + 1] ?? a;
+    if (b.arc === a.arc) return a.theta;
+    const frac = (target - a.arc) / (b.arc - a.arc);
+    return a.theta + frac * (b.theta - a.theta);
+  };
+
+  // Custom arc offsets per position: equal spacing, but pull positions 1 and 15
+  // toward S/F so spaces 1 and 15 (each currently 1.5 normal-widths) shrink by 25%
+  // to 1.125 normal-widths. Other positions stay at their equal-arc spots.
+  const offsets: number[] = Array.from({ length: TRACK_LENGTH }, (_, k) => k * unit);
+  offsets[1] = 0.25 * unit;                          // space 1 visual width: 1.5 → 1.125 units
+  offsets[TRACK_LENGTH - 1] = (TRACK_LENGTH - 0.25) * unit; // space 15: same
+
+  return offsets.map(angleAtArc);
 })();
 
 function angleForPosition(pos: number): number {
@@ -430,17 +437,26 @@ function Track({ state }: { state: LSState }) {
           const animPos = positions[i] ?? 0;
           const intPos = Math.round(animPos);
 
-          // --- On-track position: tangential stacking along the oval at the animated position
+          // --- On-track position: stack diagonally so the lowest-numbered horse on a
+          // shared space sits closest to the infield AND closest to the next space's
+          // boundary (i.e. front-inner). Higher numbers fall back-outer.
           const ovalAngle = angleForPosition(animPos);
           const ovalCenter = pointOnOval(ovalAngle, TRACK_RX, TRACK_RY);
-          const ovalTan = tangentAt(ovalAngle, TRACK_RX, TRACK_RY);
-          const group = byPos.get(intPos) ?? [horseNum];
-          const stackIdx = group.indexOf(horseNum);
+          const ovalTan = tangentAt(ovalAngle, TRACK_RX, TRACK_RY); // points "backward" (against travel)
+          const group = (byPos.get(intPos) ?? [horseNum]).slice().sort((a, b) => a - b);
+          const stackIdx = group.indexOf(horseNum);                  // 0 = lowest horse num
           const stackCount = group.length;
-          const tangentSpacing = stackCount > 1 ? Math.min(13, 44 / Math.max(1, stackCount - 1)) : 0;
-          const tangentOffset = (stackIdx - (stackCount - 1) / 2) * tangentSpacing;
-          const ovalX = ovalCenter.x + ovalTan.x * tangentOffset;
-          const ovalY = ovalCenter.y + ovalTan.y * tangentOffset;
+          const STACK_STEP = stackCount > 1 ? Math.min(8, 24 / Math.max(1, stackCount - 1)) : 0;
+          // centerOffset > 0 → forward + inner; < 0 → backward + outer
+          const centerOffset = (stackCount - 1) / 2 - stackIdx;
+          // Forward direction = -tangent (tangentAt points opposite to direction of travel)
+          const forwardX = -ovalTan.x * centerOffset * STACK_STEP;
+          const forwardY = -ovalTan.y * centerOffset * STACK_STEP;
+          // Inner direction = toward the oval center (negate the outward radial)
+          const innerX = -Math.cos(ovalAngle) * centerOffset * STACK_STEP;
+          const innerY = -Math.sin(ovalAngle) * centerOffset * STACK_STEP;
+          const ovalX = ovalCenter.x + forwardX + innerX;
+          const ovalY = ovalCenter.y + forwardY + innerY;
 
           // --- Starting-gate position: vertical column behind the start line.
           // Horse 1 closest to the inner rail, horse 8 closest to the outer rail.
