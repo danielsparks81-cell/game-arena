@@ -1023,10 +1023,10 @@ function PlayerSheet({ state, me, action, bonus }: {
         {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
       </div>
 
-      {/* BOTTOM: concessions (lower-left) + Row/Column bonuses (right of concessions).
+      {/* BOTTOM: concessions (lower-left) + Row/Column bonuses + Wilds box on the right.
           Concessions bumped to ~240px so its 4-row aspect-square grid ends near the bonuses'
-          3-row grid (capped at max-w-xs ≈ 320px), giving matching heights at the section bottom. */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(200px,240px)_minmax(0,1fr)]">
+          3-row grid (capped at max-w 320px), giving matching heights at the section bottom. */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(200px,240px)_minmax(0,1fr)_minmax(70px,90px)]">
         <div>
           <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
           <ConcessionGrid
@@ -1097,6 +1097,25 @@ function PlayerSheet({ state, me, action, bonus }: {
                   }`}
                 >
                   {renderLabel()}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* WILDS — 3 stacked horseshoes; greyed/X'd out once spent */}
+        <div className="flex h-full flex-col">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Wilds</div>
+          <div className="flex flex-1 flex-col items-center justify-around rounded-md border border-neutral-800 bg-neutral-950 p-2">
+            {Array.from({ length: MAX_WILDS }, (_, idx) => {
+              // Spent wilds fill from the bottom up (top = last to go)
+              const used = idx >= MAX_WILDS - me.wildsUsed;
+              return (
+                <div key={idx} className="relative flex items-center justify-center" title={used ? 'Wild spent' : 'Wild available'}>
+                  <HorseshoeIcon className="h-10 w-10" used={used} />
+                  {used && (
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl font-bold text-red-500/70">✕</span>
+                  )}
                 </div>
               );
             })}
@@ -1208,6 +1227,33 @@ function JerseyIcon({ className }: { className?: string }) {
         strokeWidth="0.6"
         strokeLinejoin="round"
       />
+    </svg>
+  );
+}
+
+/**
+ * U-shaped horseshoe icon with nail dots. `used` flips it to a dim grey state
+ * so spent wilds are visually distinct from available ones.
+ */
+function HorseshoeIcon({ className, used }: { className?: string; used?: boolean }) {
+  const body = used ? '#3f3f46' : '#a16207';
+  const stroke = used ? '#27272a' : '#451a03';
+  const dots = used ? '#52525b' : '#1c1917';
+  return (
+    <svg viewBox="0 0 24 24" className={className ?? 'h-8 w-8'} role="img" aria-label="horseshoe">
+      {/* U-shaped horseshoe outline */}
+      <path
+        d="M 5 3 L 5 13 Q 5 18 12 18 Q 19 18 19 13 L 19 3 L 15.5 3 L 15.5 13 Q 15.5 15.5 12 15.5 Q 8.5 15.5 8.5 13 L 8.5 3 Z"
+        fill={body}
+        stroke={stroke}
+        strokeWidth="0.8"
+        strokeLinejoin="round"
+      />
+      {/* Nail holes — 2 per side */}
+      <circle cx="6.75" cy="5"  r="0.7" fill={dots} />
+      <circle cx="17.25" cy="5" r="0.7" fill={dots} />
+      <circle cx="6.75" cy="9"  r="0.7" fill={dots} />
+      <circle cx="17.25" cy="9" r="0.7" fill={dots} />
     </svg>
   );
 }
