@@ -530,7 +530,7 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[195px_1fr]">
         {/* LEFT: concession grid + bonuses (both fill the column width so their edges line up) */}
         <div className="space-y-3">
           <div>
