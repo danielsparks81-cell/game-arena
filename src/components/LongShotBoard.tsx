@@ -6,6 +6,7 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
+  hasValidActionOnHorse,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -424,6 +425,11 @@ function ActionPanel({
   const canBet        = !finished && me.money >= 1 && (!past || hasHelmet);
   const canBuy        = !finished && state.market.includes(rolledHorse) && me.money >= HORSE_COSTS[horseIdx];
 
+  // Refresh Wilds: spend your turn to reset wildsUsed → 0. Only legal when stuck on the
+  // ROLLED horse (independent of wild-induced options) AND you have at least one wild used.
+  const stuckOnRolled = !hasValidActionOnHorse(state, me, state.horseDie!);
+  const canRefreshWilds = stuckOnRolled && me.wildsUsed > 0;
+
   const [open, setOpen] = useState<'bet' | 'jersey' | 'concession' | null>(null);
 
   if (!isMyTurn) {
@@ -495,8 +501,13 @@ function ActionPanel({
         <ActionBtn label={`Buy ($${HORSE_COSTS[horseIdx]})`} icon="🏠" disabled={disabled || !canBuy}
           tip={!canBuy ? (finished ? 'Horse is finished' : !state.market.includes(rolledHorse) ? 'Not in market' : 'Not enough money') : undefined}
           onClick={() => { closeAll(); send({ type: 'buy' }); }} />
-        <ActionBtn label="Pass" icon="⏭️" disabled={disabled}
-          onClick={() => { closeAll(); onAction({ type: 'pass' }); }} />
+        <ActionBtn label="Refresh Wilds" icon="✨" disabled={disabled || !canRefreshWilds}
+          tip={!canRefreshWilds
+            ? (me.wildsUsed === 0
+                ? 'No wilds to refresh'
+                : 'Only available when you have no legal action on the rolled horse')
+            : 'Reset all wilds — spends your action'}
+          onClick={() => { closeAll(); onAction({ type: 'refresh_wilds' }); }} />
       </div>
 
       {open === 'bet' && (

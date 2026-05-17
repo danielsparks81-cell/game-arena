@@ -538,7 +538,7 @@ export type ActionPayload = (
   | { type: 'helmet' }
   | { type: 'jersey'; markHorse: number }           // horse number (1-8) to mark on rolled horse's bar
   | { type: 'concession'; cellIdx: number }         // 0..CONCESSION_CELLS-1
-  | { type: 'pass' }                                // forfeit turn (use this if no valid action)
+  | { type: 'refresh_wilds' }                       // spend your turn to reset all wilds; only legal when stuck
   | { type: 'claim_bonus'; bonusId: string;
       horse?: number;                               // single-horse bonuses
       horse2?: number;                              // second horse for back/forward 2-x-2
@@ -547,11 +547,36 @@ export type ActionPayload = (
 ) & {
   /**
    * Optional Wild Number override: use this horse number (1..8) instead of the rolled die
-   * to validate / take the action. Costs one wild from the player's pool of 4.
-   * Not applicable to claim_bonus or pass.
+   * to validate / take the action. Costs one wild from the player's pool of MAX_WILDS.
+   * Not applicable to claim_bonus or refresh_wilds.
    */
   wild?: number;
 };
+
+/**
+ * Does this player have at least one valid action on the given horse number?
+ * Mirrored on the client to gate the Refresh Wilds button.
+ */
+export function hasValidActionOnHorse(state: LSState, player: LSPlayer, horseNum: number): boolean {
+  const horseIdx = horseNum - 1;
+  const horse = state.horses[horseIdx];
+  // Concession: any unmarked cell on this player's grid showing this horse number
+  if (state.concessionGrid.some((n, i) => n === horseNum && !player.concessionMarks[i])) return true;
+  // Helmet
+  if (player.helmets[horseIdx] < MAX_HELMETS_PER_HORSE) return true;
+  // Jersey
+  if (player.jerseys[horseIdx] < MAX_JERSEYS_PER_HORSE &&
+      (player.jerseyMarks[horseIdx]?.length ?? 0) < NUM_HORSES) return true;
+  // Bet — refused on finished horses, and on past-No-Bet horses without a helmet
+  if (!horse.finished &&
+      (horse.position < NO_BET_SPACE || player.helmets[horseIdx] > 0) &&
+      player.money >= 1) return true;
+  // Buy
+  if (!horse.finished &&
+      state.market.includes(horseNum) &&
+      player.money >= HORSE_COSTS[horseIdx]) return true;
+  return false;
+}
 
 export function takeAction(
   state: LSState,
@@ -718,8 +743,15 @@ export function takeAction(
       return { error: 'No bonus to claim right now' };
     }
 
-    case 'pass': {
-      log.push(`${player.username} passes.`);
+    case 'refresh_wilds': {
+      // Only available when the player has no legal action on the rolled horse
+      // and has at least one wild that's been used.
+      if (player.wildsUsed === 0) return { error: 'No wilds to refresh' };
+      if (hasValidActionOnHorse(state, player, state.horseDie!)) {
+        return { error: 'You still have valid actions on the rolled horse — no refresh needed' };
+      }
+      updatedPlayer = { ...updatedPlayer, wildsUsed: 0 };
+      log.push(`✨ ${player.username} spends the turn to refresh all wilds.`);
       break;
     }
   }
