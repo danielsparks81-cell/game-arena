@@ -1042,14 +1042,18 @@ function PlayerSheet({ state, me, action, bonus }: {
             <span className="text-neutral-500">Row/Column bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
-          {/* 3-row × 4-col grid; aspect-square cells, text wraps onto multiple lines.
-              Cap matches the concessions height (concessions container bumped slightly). */}
-          <div className="grid w-full max-w-xs grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
+          {/* 3-row × 4-col grid sized to roughly match the concessions height.
+              Inline styles guarantee the cap applies (Tailwind arbitrary max-w classes
+              weren't taking effect for some reason in production). */}
+          <div
+            className="grid w-full grid-flow-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2"
+            style={{ maxWidth: '300px', gridTemplateRows: 'repeat(3, 4.25rem)' }}
+          >
             {CONCESSION_BONUSES.map((b, i) => {
               const claimed = me.bonusesClaimed[i];
               const isPickable = !!bonus && !claimed;
               const isSelected = !!bonus && bonus.picking === b.id;
-              const baseTile = `relative flex aspect-square flex-col items-center justify-center rounded-md border px-1 py-1 text-center transition`;
+              const baseTile = `relative flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-md border px-1 py-1 text-center transition`;
               if (isPickable) {
                 return (
                   <button
