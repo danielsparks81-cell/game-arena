@@ -1347,6 +1347,33 @@ function HorseDot({ num }: { num: number }) {
   );
 }
 
+/**
+ * Diamond-shaped horse badge — same color scheme as HorseDot but rotated 45° and larger.
+ * Used in places where we want a more prominent "the rolled horse" visual.
+ */
+function HorseDiamond({ num, size = 'md' }: { num: number; size?: 'md' | 'lg' }) {
+  // `size` controls outer bounding box AND the inner rotated square / text size together.
+  const box = size === 'lg' ? 'h-12 w-12' : 'h-9 w-9';
+  const inner = size === 'lg' ? 'h-8 w-8' : 'h-6 w-6';
+  const text = size === 'lg' ? 'text-lg' : 'text-sm';
+  const textColor = num === 2 ? '#0a0a0a' : '#ffffff';
+  return (
+    <span className={`inline-flex ${box} shrink-0 items-center justify-center`}>
+      <span
+        className={`relative inline-flex ${inner} rotate-45 rounded-sm shadow-lg`}
+        style={{ backgroundColor: HORSE_COLORS[num - 1] }}
+      >
+        <span
+          className={`absolute inset-0 flex -rotate-45 items-center justify-center ${text} font-bold leading-none`}
+          style={{ color: textColor }}
+        >
+          {num}
+        </span>
+      </span>
+    </span>
+  );
+}
+
 function Track({ state, bonusPick, infieldMessage }: {
   state: LSState;
   /** When set, horses whose number is in `eligible` are clickable (movement-bonus selection). */
@@ -1531,15 +1558,15 @@ function Track({ state, bonusPick, infieldMessage }: {
         {/* Infield message: "When the [N] horse moves…" — sits in the green center of the oval */}
         {infieldMessage && (
           <foreignObject
-            x={TRACK_CX - 110}
-            y={TRACK_CY - 18}
-            width="220"
-            height="36"
+            x={TRACK_CX - 130}
+            y={TRACK_CY - 28}
+            width="260"
+            height="56"
             style={{ overflow: 'visible' }}
           >
-            <div className="flex h-full items-center justify-center gap-1.5 text-center text-[13px] font-medium text-white drop-shadow">
+            <div className="flex h-full items-center justify-center gap-2 text-center text-sm font-medium text-white drop-shadow">
               <span>When the</span>
-              <HorseDot num={infieldMessage.effectiveHorse} />
+              <HorseDiamond num={infieldMessage.effectiveHorse} size="lg" />
               <span>horse moves…</span>
               {infieldMessage.wildHorse !== null && infieldMessage.onClearWild && (
                 <button
