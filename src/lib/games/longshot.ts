@@ -1,21 +1,27 @@
 // Long Shot: a horse-racing dice game.
-// Phase 1: race loop (roll dice, move horse, secondary movement, finish line). No actions yet.
+// Phase 2: full action phase — each round, after the roll, every player takes one of
+// five actions (Concession, Helmet, Jersey, Bet, Buy) keyed off the rolled horse number.
 
 export const NUM_HORSES = 8;
-export const TRACK_LENGTH = 16;     // total track spaces around the oval
-export const NO_BET_SPACE = 12;     // line sits between space 11 and 12; positions >= 12 are past it
+export const TRACK_LENGTH = 16;
+export const NO_BET_SPACE = 12;
 export const STARTING_MONEY = 12;
-export const FINISH_POSITIONS = 3;  // race ends after 3 horses cross
+export const FINISH_POSITIONS = 3;
 
-/**
- * Movement die faces. It's a 6-sided die but weighted: one 1, three 2s, two 3s.
- * Use this array as the source of truth for both rolling and display.
- */
+export const MAX_HELMETS_PER_HORSE = 3;
+export const MAX_JERSEYS_PER_HORSE = 3;
+export const MAX_WILDS = 4;
+export const MAX_BET_PER_ACTION = 3;
+
+export const CONCESSION_ROWS = 8;
+export const CONCESSION_COLS = 5;
+export const CONCESSION_CELLS = CONCESSION_ROWS * CONCESSION_COLS;
+
+/** Weighted movement die: one 1, three 2s, two 3s (six physical faces). */
 export const MOVEMENT_DIE_FACES = [1, 2, 2, 2, 3, 3] as const;
 export const MOVEMENT_DIE_MIN = 1;
 export const MOVEMENT_DIE_MAX = 3;
 
-/** Distinct colors per horse (1-indexed via HORSE_COLORS[n-1]). */
 export const HORSE_COLORS = [
   '#dc2626', // 1 - red
   '#eab308', // 2 - yellow
@@ -27,13 +33,18 @@ export const HORSE_COLORS = [
   '#6b21a8', // 8 - deep purple
 ];
 
+/** Placeholder per-horse cost for the Buy action. Real card data lands in Phase 4. */
+export const HORSE_COSTS = [4, 4, 6, 6, 7, 7, 8, 8];
+
 /**
- * Placeholder secondary-movement bars. When horse N is rolled, every entry
- * in SECONDARY_BARS[N] moves 1 space forward. Real card data lands in Phase 4.
+ * Placeholder secondary-movement bars: when horse N is rolled, every entry in
+ * SECONDARY_BARS[N] also advances 1 space (the "pre-printed X's"). Real card data
+ * lands in Phase 4. Players can mark ADDITIONAL X's via the Jersey action — those
+ * extras live in each player's jerseyMarks (not here).
  */
 export const SECONDARY_BARS: number[][] = [
-  [],                  // index 0 unused
-  [2, 3, 4],           // horse 1
+  [],
+  [2, 3, 4],
   [1, 3, 5],
   [1, 4, 6],
   [2, 5, 7],
@@ -46,8 +57,8 @@ export const SECONDARY_BARS: number[][] = [
 export type HorseFinish = 1 | 2 | 3 | null;
 
 export type LSHorse = {
-  position: number;          // 0 = at start/finish line; TRACK_LENGTH = finished
-  finished: HorseFinish;     // 1/2/3 = placed; null = still racing
+  position: number;
+  finished: HorseFinish;
 };
 
 export type LSPlayer = {
@@ -55,16 +66,25 @@ export type LSPlayer = {
   username: string;
   seat: number;
   money: number;
-  ownedHorses: number[];     // horse numbers (1-8)
-  bets: number[];            // length 8, dollars wagered on each horse
-  helmets: boolean[];        // length 8
-  jerseys: boolean[];        // length 8
-  wildsUsed: number;         // 0-4 wilds marked
+  ownedHorses: number[];        // horse numbers (1-8)
+  bets: number[];               // length 8, dollars wagered per horse
+  helmets: number[];            // length 8, count of helmet marks per horse (0..MAX_HELMETS_PER_HORSE)
+  jerseys: number[];            // length 8, count of jersey marks per horse (0..MAX_JERSEYS_PER_HORSE)
+  /**
+   * Additional secondary-bar X's this player has marked via the Jersey action.
+   * jerseyMarks[rolledHorse - 1] = array of horse numbers (1-8) the player has marked
+   * on the rolled horse's secondary movement bar. These add to SECONDARY_BARS for
+   * MOVEMENT — the rolled horse moves all listed horses (default bar ∪ all players' marks).
+   */
+  jerseyMarks: number[][];
+  wildsUsed: number;            // 0..MAX_WILDS
+  concessionGrid: number[];     // length 40 (8 rows × 5 cols), horse number printed in each cell (1-8)
+  concessionMarks: boolean[];   // length 40, true = marked
+  actedThisRound: boolean;
 };
 
-/** One horse-move within a roll's animation sequence. */
 export type LSMove = {
-  horseIdx: number;            // 0-7
+  horseIdx: number;
   fromPos: number;
   toPos: number;
   fromFinished: HorseFinish;
@@ -74,19 +94,31 @@ export type LSMove = {
 export type LSState = {
   phase: 'lobby' | 'playing' | 'finished';
   round: number;
-  activePlayerSeat: number;          // who rolls the dice this round
-  currentTurnSeat: number | null;    // who is choosing an action (Phase 2+); null in Phase 1
-  step: 'roll' | 'action' | 'between-rounds' | 'done';
-  horseDie: number | null;           // 1-8 (last roll)
-  movementDie: number | null;        // 1-3 (weighted d6)
-  horses: LSHorse[];                 // length 8
-  finishedCount: number;             // how many horses have crossed the line
-  market: number[];                  // horse numbers still purchasable
-  players: LSPlayer[];               // seated players, sorted by seat
-  log: string[];                     // human-readable event log (last ~30)
-  rollId: number;                    // increments per roll — client uses this to trigger animation
-  lastSequence: LSMove[];            // ordered horse moves from the most recent roll
+  activePlayerSeat: number;
+  currentTurnSeat: number | null;
+  step: 'roll' | 'action' | 'done';
+  horseDie: number | null;
+  movementDie: number | null;
+  horses: LSHorse[];
+  finishedCount: number;
+  market: number[];
+  players: LSPlayer[];
+  log: string[];
+  rollId: number;
+  lastSequence: LSMove[];
 };
+
+// ---------- Setup ----------
+
+function genConcessionGrid(): number[] {
+  // 8 rows × 5 cols. Each row contains 5 distinct horse numbers (shuffled).
+  const grid: number[] = [];
+  for (let r = 0; r < CONCESSION_ROWS; r++) {
+    const horses = [1, 2, 3, 4, 5, 6, 7, 8].sort(() => Math.random() - 0.5).slice(0, CONCESSION_COLS);
+    grid.push(...horses);
+  }
+  return grid;
+}
 
 export function initialState(): LSState {
   return {
@@ -115,9 +147,13 @@ export function addPlayer(state: LSState, playerId: string, username: string, se
     money: STARTING_MONEY,
     ownedHorses: [],
     bets: Array.from({ length: NUM_HORSES }, () => 0),
-    helmets: Array.from({ length: NUM_HORSES }, () => false),
-    jerseys: Array.from({ length: NUM_HORSES }, () => false),
+    helmets: Array.from({ length: NUM_HORSES }, () => 0),
+    jerseys: Array.from({ length: NUM_HORSES }, () => 0),
+    jerseyMarks: Array.from({ length: NUM_HORSES }, () => [] as number[]),
     wildsUsed: 0,
+    concessionGrid: genConcessionGrid(),
+    concessionMarks: Array.from({ length: CONCESSION_CELLS }, () => false),
+    actedThisRound: false,
   };
   const players = [...state.players, player].sort((a, b) => a.seat - b.seat);
   return { ...state, players };
@@ -126,7 +162,6 @@ export function addPlayer(state: LSState, playerId: string, username: string, se
 export function startRace(state: LSState): LSState | { error: string } {
   if (state.phase !== 'lobby') return { error: 'Race already started' };
   if (state.players.length < 2) return { error: 'Need at least 2 players' };
-  // Random starting player (matches "most recently bet" being arbitrary across digital play)
   const startSeat = state.players[Math.floor(Math.random() * state.players.length)].seat;
   const startName = state.players.find(p => p.seat === startSeat)!.username;
   return {
@@ -142,14 +177,9 @@ export function startRace(state: LSState): LSState | { error: string } {
 
 // ---------- Race mechanics ----------
 
-/**
- * Move a single horse N spaces forward, handling finish line + winner's circle.
- * Per the rules: even after 3 horses have finished, other horses still advance —
- * they just stop one space short of the line and any extra movement is wasted.
- */
 function moveHorseForward(state: LSState, horseIndex: number, spaces: number): LSState {
   const h = state.horses[horseIndex];
-  if (h.finished) return state;                                   // finished horses don't move
+  if (h.finished) return state;
 
   const horses = state.horses.map(x => ({ ...x }));
   let pos = horses[horseIndex].position + spaces;
@@ -162,7 +192,6 @@ function moveHorseForward(state: LSState, horseIndex: number, spaces: number): L
       finished = (finishedCount as HorseFinish);
       pos = TRACK_LENGTH;
     } else {
-      // 3rd place already taken — stop one space before the finish line; any extra is wasted
       pos = TRACK_LENGTH - 1;
     }
   }
@@ -171,7 +200,15 @@ function moveHorseForward(state: LSState, horseIndex: number, spaces: number): L
   return { ...state, horses, finishedCount };
 }
 
-/** Roll the dice, move the rolled horse, then run secondary movement. */
+/** Combine the default secondary-bar with any Jersey-marked X's across all players. */
+function effectiveSecondaryBar(state: LSState, rolledHorse: number): number[] {
+  const set = new Set<number>(SECONDARY_BARS[rolledHorse] ?? []);
+  for (const p of state.players) {
+    for (const n of p.jerseyMarks[rolledHorse - 1] ?? []) set.add(n);
+  }
+  return Array.from(set).sort((a, b) => a - b);
+}
+
 export function rollDice(state: LSState, horseDie: number, movementDie: number): LSState | { error: string } {
   if (state.phase !== 'playing') return { error: 'Race not in progress' };
   if (state.step !== 'roll') return { error: 'Not the roll step' };
@@ -186,7 +223,7 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
   const log: string[] = [`Round ${state.round}: rolled horse ${rolledHorse}, move ${movementDie}.`];
   const sequence: LSMove[] = [];
 
-  // Step 2: move the rolled horse `movementDie` spaces (skipped if it's already finished)
+  // Step 2: move the rolled horse
   if (!next.horses[rolledIdx].finished) {
     const before = next.horses[rolledIdx];
     next = moveHorseForward(next, rolledIdx, movementDie);
@@ -206,15 +243,11 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
     log.push(`Horse ${rolledHorse} already finished; only secondary movement applies.`);
   }
 
-  // Step 3: secondary movement bar — each horse marked on the rolled horse's bar moves 1 forward,
-  // processed in numerical order (lowest first).
-  const bar = [...(SECONDARY_BARS[rolledHorse] ?? [])].sort((a, b) => a - b);
+  // Step 3: secondary movement bar (default + jersey-marked)
+  const bar = effectiveSecondaryBar(next, rolledHorse);
   for (const n of bar) {
     const before = next.horses[n - 1];
-    if (before.finished) {
-      log.push(`↳ Horse ${n} already finished; skipped.`);
-      continue;
-    }
+    if (before.finished) continue;
     next = moveHorseForward(next, n - 1, 1);
     const after = next.horses[n - 1];
     const moved = after.position - before.position;
@@ -234,31 +267,197 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
 
   // Race end check
   if (next.finishedCount >= FINISH_POSITIONS) {
-    next = { ...next, phase: 'finished', step: 'done' };
+    next = {
+      ...next,
+      phase: 'finished',
+      step: 'done',
+      currentTurnSeat: null,
+    };
     log.push('🏁 Race complete!');
   } else {
-    // Phase 1: no action step — advance directly to next round.
-    next = advanceRound(next);
+    // Transition to action phase — all players act starting with active
+    next = {
+      ...next,
+      step: 'action',
+      currentTurnSeat: state.activePlayerSeat,
+      players: next.players.map(p => ({ ...p, actedThisRound: false })),
+    };
   }
 
-  return { ...next, log: [...state.log, ...log].slice(-30) };
+  return { ...next, log: [...state.log, ...log].slice(-50) };
 }
 
-/** Move active-player seat to the next seated player, increment round, reset to roll. */
 function advanceRound(state: LSState): LSState {
   const seats = state.players.map(p => p.seat);
   if (seats.length === 0) return state;
   const idx = seats.indexOf(state.activePlayerSeat);
-  const next = seats[(idx + 1) % seats.length];
+  const nextSeat = seats[(idx + 1) % seats.length];
   return {
     ...state,
     round: state.round + 1,
-    activePlayerSeat: next,
+    activePlayerSeat: nextSeat,
     currentTurnSeat: null,
     step: 'roll',
     horseDie: null,
     movementDie: null,
+    players: state.players.map(p => ({ ...p, actedThisRound: false })),
   };
+}
+
+function advanceActionTurn(state: LSState, justActedSeat: number, log: string[]): LSState {
+  const seats = state.players.map(p => p.seat);
+  const startIdx = seats.indexOf(justActedSeat);
+  // Find next unacted player going clockwise (seat++)
+  for (let i = 1; i <= seats.length; i++) {
+    const candidate = seats[(startIdx + i) % seats.length];
+    const player = state.players.find(p => p.seat === candidate)!;
+    if (!player.actedThisRound) {
+      return { ...state, currentTurnSeat: candidate, log: [...state.log, ...log].slice(-50) };
+    }
+  }
+  // Everyone has acted — round ends
+  const advanced = advanceRound(state);
+  return { ...advanced, log: [...state.log, ...log, `— round ${advanced.round} —`].slice(-50) };
+}
+
+// ---------- Actions ----------
+
+export type ActionPayload =
+  | { type: 'bet'; amount: number }                 // amount 1, 2, or 3
+  | { type: 'buy' }
+  | { type: 'helmet' }
+  | { type: 'jersey'; markHorse: number }           // horse number (1-8) to mark on rolled horse's bar
+  | { type: 'concession'; cellIdx: number }         // 0..CONCESSION_CELLS-1
+  | { type: 'pass' };                               // forfeit turn (use this if no valid action)
+
+export function takeAction(
+  state: LSState,
+  playerId: string,
+  payload: ActionPayload,
+): LSState | { error: string } {
+  if (state.phase !== 'playing') return { error: 'Race not in progress' };
+  if (state.step !== 'action') return { error: 'Not in action phase' };
+  if (state.currentTurnSeat === null) return { error: 'No active turn' };
+
+  const playerIdx = state.players.findIndex(p => p.playerId === playerId);
+  if (playerIdx < 0) return { error: 'Not a seated player' };
+  const player = state.players[playerIdx];
+  if (player.seat !== state.currentTurnSeat) return { error: 'Not your turn' };
+  if (player.actedThisRound) return { error: 'You already acted this round' };
+
+  const rolledHorse = state.horseDie!;
+  const horseIdx = rolledHorse - 1;
+  const horse = state.horses[horseIdx];
+  const log: string[] = [];
+
+  let updatedPlayer: LSPlayer = { ...player, actedThisRound: true };
+
+  switch (payload.type) {
+    case 'bet': {
+      if (![1, 2, 3].includes(payload.amount)) return { error: 'Bet must be $1, $2, or $3' };
+      if (horse.finished) return { error: 'Cannot bet on a finished horse' };
+      const pastNoBet = horse.position >= NO_BET_SPACE;
+      if (pastNoBet && player.helmets[horseIdx] === 0) {
+        return { error: `Horse ${rolledHorse} is past the No-Bet line — you need a helmet first` };
+      }
+      if (player.money < payload.amount) return { error: 'Not enough money' };
+      updatedPlayer = {
+        ...updatedPlayer,
+        money: player.money - payload.amount,
+        bets: player.bets.map((b, i) => (i === horseIdx ? b + payload.amount : b)),
+      };
+      log.push(`💰 ${player.username} bets $${payload.amount} on horse ${rolledHorse}.`);
+      break;
+    }
+
+    case 'buy': {
+      if (horse.finished) return { error: 'Cannot buy a finished horse' };
+      if (!state.market.includes(rolledHorse)) return { error: `Horse ${rolledHorse} is not in the market` };
+      const cost = HORSE_COSTS[horseIdx];
+      if (player.money < cost) return { error: `Not enough money (cost $${cost})` };
+      updatedPlayer = {
+        ...updatedPlayer,
+        money: player.money - cost,
+        ownedHorses: [...player.ownedHorses, rolledHorse].sort((a, b) => a - b),
+      };
+      log.push(`🏠 ${player.username} buys horse ${rolledHorse} for $${cost}.`);
+      // Remove from market
+      const newMarket = state.market.filter(n => n !== rolledHorse);
+      return commitTurn(state, playerIdx, updatedPlayer, log, { market: newMarket });
+    }
+
+    case 'helmet': {
+      if (player.helmets[horseIdx] >= MAX_HELMETS_PER_HORSE) {
+        return { error: `You already have ${MAX_HELMETS_PER_HORSE} helmets on horse ${rolledHorse}` };
+      }
+      updatedPlayer = {
+        ...updatedPlayer,
+        helmets: player.helmets.map((h, i) => (i === horseIdx ? h + 1 : h)),
+      };
+      log.push(`⛑️ ${player.username} marks a helmet on horse ${rolledHorse}.`);
+      break;
+    }
+
+    case 'jersey': {
+      if (player.jerseys[horseIdx] >= MAX_JERSEYS_PER_HORSE) {
+        return { error: `You already have ${MAX_JERSEYS_PER_HORSE} jerseys on horse ${rolledHorse}` };
+      }
+      const m = payload.markHorse;
+      if (!Number.isInteger(m) || m < 1 || m > NUM_HORSES) {
+        return { error: 'Pick which horse to add to the secondary bar (1-8)' };
+      }
+      if ((player.jerseyMarks[horseIdx] ?? []).includes(m)) {
+        return { error: `Horse ${m} is already marked on horse ${rolledHorse}'s bar by you` };
+      }
+      const updatedJerseyMarks = player.jerseyMarks.map((arr, i) =>
+        i === horseIdx ? [...arr, m] : arr,
+      );
+      updatedPlayer = {
+        ...updatedPlayer,
+        jerseys: player.jerseys.map((j, i) => (i === horseIdx ? j + 1 : j)),
+        jerseyMarks: updatedJerseyMarks,
+      };
+      log.push(`🏁 ${player.username} marks horse ${m} on horse ${rolledHorse}'s secondary bar.`);
+      break;
+    }
+
+    case 'concession': {
+      const cell = payload.cellIdx;
+      if (!Number.isInteger(cell) || cell < 0 || cell >= CONCESSION_CELLS) {
+        return { error: 'Bad concession cell' };
+      }
+      if (player.concessionGrid[cell] !== rolledHorse) {
+        return { error: `That cell shows horse ${player.concessionGrid[cell]}, not ${rolledHorse}` };
+      }
+      if (player.concessionMarks[cell]) return { error: 'Cell already marked' };
+      updatedPlayer = {
+        ...updatedPlayer,
+        concessionMarks: player.concessionMarks.map((m, i) => (i === cell ? true : m)),
+      };
+      log.push(`🎪 ${player.username} marks a concession cell for horse ${rolledHorse}.`);
+      break;
+    }
+
+    case 'pass': {
+      log.push(`${player.username} passes.`);
+      break;
+    }
+  }
+
+  return commitTurn(state, playerIdx, updatedPlayer, log);
+}
+
+function commitTurn(
+  state: LSState,
+  playerIdx: number,
+  updatedPlayer: LSPlayer,
+  log: string[],
+  extra: Partial<LSState> = {},
+): LSState {
+  const players = state.players.slice();
+  players[playerIdx] = updatedPlayer;
+  const next: LSState = { ...state, ...extra, players };
+  return advanceActionTurn(next, updatedPlayer.seat, log);
 }
 
 function ordinal(n: 1 | 2 | 3): string {

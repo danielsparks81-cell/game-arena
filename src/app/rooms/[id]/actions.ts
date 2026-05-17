@@ -9,8 +9,10 @@ import {
   addPlayer as lsAddPlayer,
   startRace as lsStartRace,
   rollDice as lsRollDice,
+  takeAction as lsTakeAction,
   MOVEMENT_DIE_FACES,
   type LSState,
+  type ActionPayload,
 } from '@/lib/games/longshot';
 
 /**
@@ -89,6 +91,31 @@ export async function joinRoom(roomId: string) {
 
   await notifyRoom(roomId);
   revalidatePath(`/rooms/${roomId}`);
+}
+
+/** Apply a player action (BET / BUY / HELMET / JERSEY / CONCESSION / PASS) during the action phase. */
+export async function takeActionLS(roomId: string, payload: ActionPayload) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, game_type, status, state')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'longshot') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Race not in progress');
+
+  const next = lsTakeAction((room.state || {}) as LSState, user.id, payload);
+  if ('error' in next) throw new Error(next.error);
+
+  const updates: { state: LSState; status?: string } = { state: next };
+  if (next.phase === 'finished') updates.status = 'finished';
+
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+  await notifyRoom(roomId);
 }
 
 /** Active player rolls both dice and resolves movement. Server-rolled for fairness. */

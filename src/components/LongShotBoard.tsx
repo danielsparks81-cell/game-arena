@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  type LSState, type LSMove, type HorseFinish,
+  type LSState, type LSMove, type LSPlayer, type HorseFinish, type ActionPayload,
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES,
+  HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
+  CONCESSION_ROWS, CONCESSION_COLS,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -210,16 +212,19 @@ function useSequencedRace(
 }
 
 export default function LongShotBoard({
-  state, currentUserId, disabled, onRoll,
+  state, currentUserId, disabled, onRoll, onAction,
 }: {
   state: LSState;
   currentUserId: string;
   disabled: boolean;
   onRoll: () => void;
+  onAction: (payload: ActionPayload) => void;
 }) {
   const activePlayer = state.players.find(p => p.seat === state.activePlayerSeat);
+  const currentTurnPlayer = state.players.find(p => p.seat === state.currentTurnSeat);
   const me = state.players.find(p => p.playerId === currentUserId);
-  const isMyTurn = me && state.activePlayerSeat === me.seat && state.step === 'roll';
+  const isMyTurnToRoll = me && state.activePlayerSeat === me.seat && state.step === 'roll';
+  const isMyTurnToAct  = me && state.currentTurnSeat === me.seat && state.step === 'action';
 
   const winners = state.horses
     .map((h, i) => ({ num: i + 1, ...h }))
@@ -231,21 +236,28 @@ export default function LongShotBoard({
       {/* Status bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
         <div>
-          <div className="text-xs uppercase tracking-wider text-neutral-500">Round {state.round}</div>
+          <div className="text-xs uppercase tracking-wider text-neutral-500">
+            Round {state.round} · {state.step === 'roll' ? 'Roll phase' : state.step === 'action' ? 'Action phase' : 'Race over'}
+          </div>
           <div className="text-sm">
-            Active: <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span>
-            {isMyTurn && <span className="ml-2 text-xs text-emerald-400">(you)</span>}
+            {state.step === 'roll' && (
+              <>Active: <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span>{isMyTurnToRoll && <span className="ml-2 text-xs text-emerald-400">(you roll)</span>}</>
+            )}
+            {state.step === 'action' && (
+              <>Turn: <span className="font-semibold text-emerald-400">{currentTurnPlayer?.username ?? '—'}</span>{isMyTurnToAct && <span className="ml-2 text-xs text-emerald-400">(your action)</span>}</>
+            )}
+            {state.step === 'done' && <span className="text-amber-400">Final scoring coming in Phase 4</span>}
           </div>
         </div>
         <div className="flex items-center gap-3">
           <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" caption="d8" />
           <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" caption="1·2·2·2·3·3" />
-          {state.phase === 'playing' && (
+          {state.phase === 'playing' && state.step === 'roll' && (
             <button
               onClick={onRoll}
-              disabled={disabled || !isMyTurn}
+              disabled={disabled || !isMyTurnToRoll}
               className="rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 transition hover:bg-emerald-400 disabled:opacity-40"
-              title={isMyTurn ? 'Roll both dice' : 'Not your turn'}
+              title={isMyTurnToRoll ? 'Roll both dice' : 'Not your turn'}
             >
               🎲 Roll
             </button>
@@ -257,6 +269,18 @@ export default function LongShotBoard({
           )}
         </div>
       </div>
+
+      {/* Action picker */}
+      {state.step === 'action' && me && (
+        <ActionPanel
+          state={state}
+          me={me}
+          isMyTurn={!!isMyTurnToAct}
+          currentTurnUsername={currentTurnPlayer?.username ?? 'someone'}
+          disabled={disabled}
+          onAction={onAction}
+        />
+      )}
 
       {/* Track */}
       <Track state={state} />
@@ -283,18 +307,23 @@ export default function LongShotBoard({
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {state.players.map(p => {
             const isActive = p.seat === state.activePlayerSeat;
-            const isYou = p.playerId === currentUserId;
+            const isTurn   = state.step === 'action' && p.seat === state.currentTurnSeat;
+            const isYou    = p.playerId === currentUserId;
             return (
               <div
                 key={p.playerId}
                 className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm ${
-                  isActive ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-neutral-800 bg-neutral-950'
+                  isTurn ? 'border-amber-500/60 bg-amber-500/5'
+                  : isActive ? 'border-emerald-500/50 bg-emerald-500/5'
+                  : 'border-neutral-800 bg-neutral-950'
                 }`}
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate">{p.username}</span>
-                  {isYou  && <span className="text-xs text-neutral-500">(you)</span>}
-                  {isActive && <span className="text-xs text-emerald-400">●</span>}
+                  {isYou && <span className="text-xs text-neutral-500">(you)</span>}
+                  {isTurn && <span className="text-xs text-amber-400">acting…</span>}
+                  {isActive && state.step === 'roll' && <span className="text-xs text-emerald-400">rolling…</span>}
+                  {p.actedThisRound && state.step === 'action' && !isTurn && <span className="text-xs text-neutral-500">✓</span>}
                 </div>
                 <span className="font-mono text-emerald-400">${p.money}</span>
               </div>
@@ -302,6 +331,9 @@ export default function LongShotBoard({
           })}
         </div>
       </div>
+
+      {/* Player sheet (own) */}
+      {me && <PlayerSheet state={state} me={me} />}
 
       {/* Event log */}
       {state.log.length > 0 && (
@@ -317,10 +349,271 @@ export default function LongShotBoard({
         </details>
       )}
 
-      {/* Phase 1 disclaimer */}
+      {/* Phase 2 disclaimer */}
       <p className="text-center text-xs text-neutral-600">
-        Phase 1 build: rolling + movement only. Bets, buys, helmets, jerseys, concessions ship next.
+        Phase 2 build: actions live. Concession bonuses, wilds, horse abilities, and final scoring come next.
       </p>
+    </div>
+  );
+}
+
+// =====================================================================
+// Action picker
+// =====================================================================
+
+function ActionPanel({
+  state, me, isMyTurn, currentTurnUsername, disabled, onAction,
+}: {
+  state: LSState;
+  me: LSPlayer;
+  isMyTurn: boolean;
+  currentTurnUsername: string;
+  disabled: boolean;
+  onAction: (payload: ActionPayload) => void;
+}) {
+  const rolledHorse = state.horseDie!;
+  const horseIdx = rolledHorse - 1;
+  const horse = state.horses[horseIdx];
+  const past = horse.position >= NO_BET_SPACE;
+  const finished = !!horse.finished;
+  const hasHelmet = me.helmets[horseIdx] > 0;
+
+  const concessionCellsAvailable = useMemo(
+    () => me.concessionGrid
+      .map((n, i) => ({ n, i }))
+      .filter(c => c.n === rolledHorse && !me.concessionMarks[c.i])
+      .map(c => c.i),
+    [me.concessionGrid, me.concessionMarks, rolledHorse],
+  );
+
+  const canConcession = concessionCellsAvailable.length > 0;
+  const canHelmet     = me.helmets[horseIdx] < MAX_HELMETS_PER_HORSE;
+  const canJersey     = me.jerseys[horseIdx] < MAX_JERSEYS_PER_HORSE
+                       && (me.jerseyMarks[horseIdx]?.length ?? 0) < NUM_HORSES;
+  const canBet        = !finished && me.money >= 1 && (!past || hasHelmet);
+  const canBuy        = !finished && state.market.includes(rolledHorse) && me.money >= HORSE_COSTS[horseIdx];
+
+  const [open, setOpen] = useState<'bet' | 'jersey' | 'concession' | null>(null);
+
+  if (!isMyTurn) {
+    return (
+      <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-4 text-sm text-neutral-300">
+        Action phase — waiting on <span className="font-semibold text-amber-400">{currentTurnUsername}</span>…
+      </div>
+    );
+  }
+
+  const closeAll = () => setOpen(null);
+
+  return (
+    <div className="space-y-3 rounded-xl border border-emerald-900/40 bg-emerald-500/5 p-4">
+      <div className="text-sm text-neutral-300">
+        Your action this round — must use horse <HorseDot num={rolledHorse} /> (the rolled die).
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+        <ActionBtn label="Concession" emoji="🎪" disabled={disabled || !canConcession}
+          tip={!canConcession ? 'No unmarked cell on your sheet for that horse' : undefined}
+          onClick={() => setOpen('concession')} />
+        <ActionBtn label="Helmet" emoji="⛑️" disabled={disabled || !canHelmet}
+          tip={!canHelmet ? `Already at ${MAX_HELMETS_PER_HORSE} helmets on this horse` : undefined}
+          onClick={() => { closeAll(); onAction({ type: 'helmet' }); }} />
+        <ActionBtn label="Jersey" emoji="🏁" disabled={disabled || !canJersey}
+          tip={!canJersey ? 'No jersey slots left' : undefined}
+          onClick={() => setOpen('jersey')} />
+        <ActionBtn label="Bet" emoji="💰" disabled={disabled || !canBet}
+          tip={!canBet ? (finished ? 'Horse is finished' : past && !hasHelmet ? 'Past No-Bet line — need a helmet first' : 'Not enough money') : undefined}
+          onClick={() => setOpen('bet')} />
+        <ActionBtn label={`Buy ($${HORSE_COSTS[horseIdx]})`} emoji="🏠" disabled={disabled || !canBuy}
+          tip={!canBuy ? (finished ? 'Horse is finished' : !state.market.includes(rolledHorse) ? 'Not in market' : 'Not enough money') : undefined}
+          onClick={() => { closeAll(); onAction({ type: 'buy' }); }} />
+        <ActionBtn label="Pass" emoji="⏭️" disabled={disabled}
+          onClick={() => { closeAll(); onAction({ type: 'pass' }); }} />
+      </div>
+
+      {open === 'bet' && (
+        <div className="rounded-md border border-neutral-800 bg-neutral-900 p-3">
+          <div className="mb-2 text-xs uppercase tracking-wider text-neutral-400">Bet amount</div>
+          <div className="flex gap-2">
+            {[1, 2, 3].map(amt => (
+              <button key={amt} disabled={disabled || me.money < amt}
+                onClick={() => { closeAll(); onAction({ type: 'bet', amount: amt }); }}
+                className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40">
+                ${amt}
+              </button>
+            ))}
+            <button onClick={closeAll}
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {open === 'jersey' && (
+        <div className="rounded-md border border-neutral-800 bg-neutral-900 p-3">
+          <div className="mb-2 text-xs uppercase tracking-wider text-neutral-400">
+            Mark a horse on horse {rolledHorse}&apos;s secondary movement bar
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
+              const alreadyMarked = (me.jerseyMarks[horseIdx] ?? []).includes(n);
+              return (
+                <button key={n} disabled={disabled || alreadyMarked}
+                  onClick={() => { closeAll(); onAction({ type: 'jersey', markHorse: n }); }}
+                  className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition disabled:opacity-30 ${
+                    alreadyMarked ? 'bg-neutral-800 text-neutral-500' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
+                  }`}>
+                  <HorseDot num={n} /> Horse {n}
+                  {alreadyMarked && <span className="text-[10px]">(marked)</span>}
+                </button>
+              );
+            })}
+          </div>
+          <button onClick={closeAll}
+            className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {open === 'concession' && (
+        <div className="rounded-md border border-neutral-800 bg-neutral-900 p-3">
+          <div className="mb-2 text-xs uppercase tracking-wider text-neutral-400">
+            Pick a circle showing horse {rolledHorse}
+          </div>
+          <ConcessionGrid
+            grid={me.concessionGrid}
+            marks={me.concessionMarks}
+            clickable={concessionCellsAvailable}
+            onPick={(idx) => { closeAll(); onAction({ type: 'concession', cellIdx: idx }); }}
+          />
+          <button onClick={closeAll}
+            className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionBtn({
+  label, emoji, disabled, onClick, tip,
+}: {
+  label: string;
+  emoji: string;
+  disabled?: boolean;
+  onClick: () => void;
+  tip?: string;
+}) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={tip}
+      className="flex flex-col items-center gap-1 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-3 text-sm transition hover:border-emerald-500 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-neutral-800 disabled:hover:bg-neutral-950">
+      <span className="text-xl">{emoji}</span>
+      <span className="font-medium">{label}</span>
+    </button>
+  );
+}
+
+// =====================================================================
+// Player sheet (own)
+// =====================================================================
+
+function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
+  return (
+    <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Your sheet</div>
+        <div className="font-mono text-sm text-emerald-400">${me.money}</div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-wider text-neutral-500">
+            <tr>
+              <th className="px-2 py-1">Horse</th>
+              <th className="px-2 py-1">Owned</th>
+              <th className="px-2 py-1">Helmets</th>
+              <th className="px-2 py-1">Jerseys</th>
+              <th className="px-2 py-1">Bet</th>
+              <th className="px-2 py-1">Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: NUM_HORSES }, (_, i) => {
+              const num = i + 1;
+              const owned = me.ownedHorses.includes(num);
+              const inMarket = state.market.includes(num);
+              const finished = state.horses[i].finished;
+              return (
+                <tr key={num} className="border-t border-neutral-800/60">
+                  <td className="px-2 py-1">
+                    <span className="inline-flex items-center gap-2">
+                      <HorseDot num={num} /> {num}
+                      {finished && <span className="text-[10px] text-amber-400">({finished === 1 ? '1st' : finished === 2 ? '2nd' : '3rd'})</span>}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1">{owned ? '🏠' : ''}</td>
+                  <td className="px-2 py-1">{'⛑️'.repeat(me.helmets[i])}</td>
+                  <td className="px-2 py-1">{'🏁'.repeat(me.jerseys[i])}</td>
+                  <td className="px-2 py-1 font-mono">{me.bets[i] > 0 ? `$${me.bets[i]}` : '—'}</td>
+                  <td className="px-2 py-1 text-neutral-500">
+                    {owned ? '—' : !inMarket ? '(sold)' : `$${HORSE_COSTS[i]}`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <details className="mt-4">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-400">
+          Concession grid
+        </summary>
+        <div className="mt-2">
+          <ConcessionGrid grid={me.concessionGrid} marks={me.concessionMarks} />
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function ConcessionGrid({
+  grid, marks, clickable, onPick,
+}: {
+  grid: number[];
+  marks: boolean[];
+  clickable?: number[];
+  onPick?: (idx: number) => void;
+}) {
+  const clickSet = useMemo(() => new Set(clickable ?? []), [clickable]);
+  return (
+    <div className="inline-block rounded-md border border-neutral-800 bg-neutral-950 p-2">
+      <div className="grid" style={{ gridTemplateColumns: `repeat(${CONCESSION_COLS}, minmax(0, 1fr))`, gap: '4px' }}>
+        {Array.from({ length: CONCESSION_ROWS * CONCESSION_COLS }, (_, i) => {
+          const n = grid[i];
+          const marked = marks[i];
+          const canClick = clickSet.has(i);
+          return (
+            <button
+              key={i}
+              disabled={!canClick}
+              onClick={() => onPick?.(i)}
+              className={`relative flex h-7 w-7 items-center justify-center rounded text-xs font-semibold text-white transition ${
+                canClick ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-950 hover:scale-105' : 'cursor-default'
+              } ${marked ? 'opacity-30' : ''}`}
+              style={{ backgroundColor: HORSE_COLORS[n - 1] }}
+            >
+              <span className={n === 2 ? 'text-neutral-950' : 'text-white'}>{n}</span>
+              {marked && (
+                <span className="absolute inset-0 flex items-center justify-center text-base font-bold text-neutral-950">✕</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

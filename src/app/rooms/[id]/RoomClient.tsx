@@ -11,7 +11,7 @@ import MembersPanel from '@/components/MembersPanel';
 import LongShotBoard from '@/components/LongShotBoard';
 import type { LSState } from '@/lib/games/longshot';
 import {
-  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch, startGame, rollDiceLS,
+  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
 } from './actions';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
@@ -172,6 +172,7 @@ export default function RoomClient({
             currentUserId={currentUserId}
             disabled={pending}
             onRoll={() => { unlockAudio(); startTransition(() => { rollDiceLS(roomId); }); }}
+            onAction={(payload) => { unlockAudio(); startTransition(() => { takeActionLS(roomId, payload); }); }}
           />
         )}
 
