@@ -62,12 +62,12 @@ export const CONCESSION_BONUSES = [
   { id: 'cash7_a',      label: '+$7',         desc: 'Gain $7' },
   { id: 'cash7_b',      label: '+$7',         desc: 'Gain $7' },
   { id: 'cash7_c',      label: '+$7',         desc: 'Gain $7' },
-  // Row 1: back2x2, FREE BET (center), back3
+  // Row 1: back2x2, FREE BET (center), forward2x2
   { id: 'back2x2',      label: '−2 / −2',     desc: 'Move any 2 horses back 2 each' },
   { id: 'freebet3_a',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any horse' },
-  { id: 'back3',        label: '−3',          desc: 'Move 1 horse back 3' },
-  // Row 2: forward2x2, FREE BET (center), forward3
   { id: 'forward2x2',   label: '+2 / +2',     desc: 'Move any 2 horses forward 2 each' },
+  // Row 2: back3, FREE BET (center), forward3
+  { id: 'back3',        label: '−3',          desc: 'Move 1 horse back 3' },
   { id: 'freebet3_b',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any horse' },
   { id: 'forward3',     label: '+3',          desc: 'Move 1 horse forward 3' },
   // Row 3 (bottom): helmet, jersey, free horse
