@@ -1037,20 +1037,20 @@ function PlayerSheet({ state, me, action, bonus }: {
             fullWidth
           />
         </div>
-        <div>
+        <div className="flex h-full flex-col">
           <div className="mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
             <span className="text-neutral-500">Row/Column bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
-          {/* 3-row × 4-col grid sized to roughly match the concessions height.
-              Inline styles guarantee the cap applies (Tailwind arbitrary max-w classes
-              weren't taking effect for some reason in production). */}
+          {/* The wrapper above is h-full → matches the concessions wrapper height via grid-row stretch.
+              flex-1 here makes the inner grid fill the remaining height after the header, and the
+              row template (1fr each) splits that height into 3 equal rows. */}
           <div
-            className="grid w-full grid-flow-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2"
+            className="grid w-full flex-1 grid-flow-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2"
             style={{
-              maxWidth: '300px',
-              gridTemplateRows: 'repeat(3, 4.25rem)',
-              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',  // equal-width columns
+              maxWidth: '320px',
+              gridTemplateRows: 'repeat(3, minmax(0, 1fr))',
+              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
             }}
           >
             {CONCESSION_BONUSES.map((b, i) => {
