@@ -650,7 +650,6 @@ function PlayerSheet({ state, me, action, bonus }: {
     disabled: boolean;
   };
 }) {
-  const jockeySets = me.helmets.reduce((acc, h, i) => acc + (h > 0 && me.jerseys[i] > 0 ? 1 : 0), 0);
   const effHorseIdx = action ? action.effectiveHorse - 1 : -1;
 
   // Concession pick handler: covers both the normal "rolled horse" case and the wild case.
@@ -678,69 +677,25 @@ function PlayerSheet({ state, me, action, bonus }: {
 
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-          Your sheet
-          {action && (
-            <span className="ml-2 normal-case tracking-normal text-emerald-400">
-              · acting on horse <HorseDot num={action.effectiveHorse} />
-              {action.wildHorse !== null && <span className="ml-1 text-amber-400">(Wild)</span>}
-            </span>
+      {/* Compact "acting on horse N" indicator — only when it's the player's action turn */}
+      {action && (
+        <div className="mb-2 text-center text-xs text-emerald-400">
+          Acting on horse <HorseDot num={action.effectiveHorse} />
+          {action.wildHorse !== null && (
+            <>
+              <span className="ml-1 text-amber-400">(Wild)</span>
+              <button
+                onClick={() => action.setWildHorse(null)}
+                disabled={action.disabled}
+                title="Clear Wild selection"
+                className="ml-2 rounded border border-amber-600 px-1.5 py-0 text-[10px] text-amber-400 hover:bg-amber-900/30"
+              >
+                ✕
+              </button>
+            </>
           )}
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          {/* Prominent Wild action button — when clicked, lights up the eligible horse #s in the table */}
-          {action && action.wildsLeft > 0 && (
-            <button
-              onClick={() => action.setPickingWild(!action.pickingWild)}
-              disabled={action.disabled}
-              title={action.pickingWild ? 'Cancel — pick a horse # in the table' : 'Use a Wild to act on a different horse'}
-              className={`inline-flex items-center gap-1.5 rounded-md border-2 px-3 py-1.5 text-sm font-bold transition disabled:opacity-40 ${
-                action.pickingWild
-                  ? 'border-amber-300 bg-amber-500 text-neutral-950 ring-2 ring-amber-300'
-                  : 'border-amber-500 bg-amber-500/15 text-amber-300 hover:bg-amber-500/30 hover:scale-105'
-              }`}
-            >
-              ✨ Wild
-              <span className="font-mono text-[11px] opacity-80">({action.wildsLeft}/{MAX_WILDS})</span>
-            </button>
-          )}
-          {action?.wildHorse !== null && action?.wildHorse !== undefined && (
-            <button
-              onClick={() => action.setWildHorse(null)}
-              disabled={action.disabled}
-              title="Clear Wild selection"
-              className="inline-flex items-center gap-1 rounded-md border border-amber-500 bg-amber-500/15 px-2 py-1.5 text-xs text-amber-300 hover:bg-amber-500/30"
-            >
-              Wild: <HorseDot num={action.wildHorse} /> <span>✕</span>
-            </button>
-          )}
-          {action?.refreshWild && (
-            <button
-              onClick={action.refreshWild}
-              disabled={action.disabled}
-              title="Spend your action to recover one Wild"
-              className="rounded-md border border-amber-600 px-2 py-1.5 text-xs text-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
-            >
-              ↺ Refresh
-            </button>
-          )}
-          {!action && (
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
-              <span className="text-neutral-500">Wilds </span>
-              <span className="font-mono text-amber-400">{MAX_WILDS - me.wildsUsed}/{MAX_WILDS}</span>
-            </span>
-          )}
-          <span className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
-            <span className="text-neutral-500">Jockey sets </span>
-            <span className="font-mono text-sky-400">{jockeySets}</span>
-            <span className="text-neutral-600"> · ${jockeySets * 5}</span>
-          </span>
-          <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-emerald-500/50 bg-emerald-500/10 font-mono text-sm font-bold text-emerald-400">
-            ${me.money}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* TOP: horse table (full width — sub-pickers are inline in their respective cells) */}
       <div className="overflow-x-auto">
@@ -1023,12 +978,12 @@ function PlayerSheet({ state, me, action, bonus }: {
         {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
       </div>
 
-      {/* BOTTOM: concessions (lower-left) + Row/Column bonuses + Wilds box on the right.
-          Concessions bumped to ~240px so its 4-row aspect-square grid ends near the bonuses'
-          3-row grid (capped at max-w 320px), giving matching heights at the section bottom. */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(200px,240px)_minmax(0,1fr)_minmax(70px,90px)]">
+      {/* BOTTOM: 4-column row — Concessions · Bonuses · Wilds · Money. All titles centered.
+          Concessions sets the row height via its aspect-square 4×4 grid; the other three
+          columns are `flex h-full` so their inner content stretches to match. */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(200px,240px)_minmax(0,1fr)_minmax(70px,90px)_minmax(80px,110px)]">
         <div>
-          <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
+          <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
           <ConcessionGrid
             grid={state.concessionGrid}
             marks={me.concessionMarks}
@@ -1038,8 +993,8 @@ function PlayerSheet({ state, me, action, bonus }: {
           />
         </div>
         <div className="flex h-full flex-col">
-          <div className="mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
-            <span className="text-neutral-500">Row/Column bonuses</span>
+          <div className="mb-1 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wider">
+            <span className="text-neutral-500">Bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
           {/* The wrapper above is h-full → matches the concessions wrapper height via grid-row stretch.
@@ -1103,22 +1058,67 @@ function PlayerSheet({ state, me, action, bonus }: {
           </div>
         </div>
 
-        {/* WILDS — 3 stacked horseshoes; greyed/X'd out once spent */}
+        {/* WILDS — 3 stacked horseshoes; greyed/X'd out once spent. Clicking the box enters
+            wild-picking mode (lights up every legal action across all horses). */}
         <div className="flex h-full flex-col">
-          <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Wilds</div>
-          <div className="flex flex-1 flex-col items-center justify-around rounded-md border border-neutral-800 bg-neutral-950 p-2">
-            {Array.from({ length: MAX_WILDS }, (_, idx) => {
-              // Spent wilds fill from the bottom up (top = last to go)
-              const used = idx >= MAX_WILDS - me.wildsUsed;
+          <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Wilds</div>
+          {(() => {
+            const inner = (
+              <>
+                {Array.from({ length: MAX_WILDS }, (_, idx) => {
+                  const used = idx >= MAX_WILDS - me.wildsUsed;
+                  return (
+                    <div key={idx} className="relative flex items-center justify-center" title={used ? 'Wild spent' : 'Wild available'}>
+                      <HorseshoeIcon className="h-10 w-10" used={used} />
+                      {used && (
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl font-bold text-red-500/70">✕</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            );
+            const canActivate = action && action.wildsLeft > 0;
+            const isActive = action?.pickingWild ?? false;
+            if (canActivate) {
               return (
-                <div key={idx} className="relative flex items-center justify-center" title={used ? 'Wild spent' : 'Wild available'}>
-                  <HorseshoeIcon className="h-10 w-10" used={used} />
-                  {used && (
-                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl font-bold text-red-500/70">✕</span>
-                  )}
-                </div>
+                <button
+                  onClick={() => action!.setPickingWild(!isActive)}
+                  disabled={action!.disabled}
+                  title={isActive ? 'Cancel Wild pick' : 'Use a Wild — light up every legal action'}
+                  className={`flex flex-1 flex-col items-center justify-around rounded-md border-2 p-2 transition disabled:opacity-50 ${
+                    isActive
+                      ? 'border-amber-300 bg-amber-500/20 ring-2 ring-amber-300'
+                      : 'border-amber-600 bg-neutral-950 hover:bg-amber-900/20 hover:scale-[1.02]'
+                  }`}
+                >
+                  {inner}
+                </button>
               );
-            })}
+            }
+            return (
+              <div className="flex flex-1 flex-col items-center justify-around rounded-md border border-neutral-800 bg-neutral-950 p-2">
+                {inner}
+              </div>
+            );
+          })()}
+          {action?.refreshWild && (
+            <button
+              onClick={action.refreshWild}
+              disabled={action.disabled}
+              title="Spend your action to recover one Wild"
+              className="mt-1 rounded border border-amber-600 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
+            >
+              ↺ Refresh
+            </button>
+          )}
+        </div>
+
+        {/* MONEY — big green dollar amount, matches the column heights */}
+        <div className="flex h-full flex-col">
+          <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Money</div>
+          <div className="flex flex-1 items-center justify-center rounded-md border-2 border-emerald-500/50 bg-emerald-500/10 p-2">
+            <span className="font-mono text-2xl font-bold text-emerald-400">${me.money}</span>
           </div>
         </div>
       </div>
