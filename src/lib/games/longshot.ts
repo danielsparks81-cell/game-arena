@@ -13,9 +13,9 @@ export const MAX_JERSEYS_PER_HORSE = 3;
 export const MAX_WILDS = 4;
 export const MAX_BET_PER_ACTION = 3;
 
-export const CONCESSION_ROWS = 8;
-export const CONCESSION_COLS = 5;
-export const CONCESSION_CELLS = CONCESSION_ROWS * CONCESSION_COLS;
+export const CONCESSION_ROWS = 4;
+export const CONCESSION_COLS = 4;
+export const CONCESSION_CELLS = CONCESSION_ROWS * CONCESSION_COLS;  // 16
 
 /** Weighted movement die: one 1, three 2s, two 3s (six physical faces). */
 export const MOVEMENT_DIE_FACES = [1, 2, 2, 2, 3, 3] as const;
@@ -139,13 +139,14 @@ export type LSState = {
 // ---------- Setup ----------
 
 function genConcessionGrid(): number[] {
-  // 8 rows × 5 cols. Each row contains 5 distinct horse numbers (shuffled).
-  const grid: number[] = [];
-  for (let r = 0; r < CONCESSION_ROWS; r++) {
-    const horses = [1, 2, 3, 4, 5, 6, 7, 8].sort(() => Math.random() - 0.5).slice(0, CONCESSION_COLS);
-    grid.push(...horses);
+  // 4 × 4 = 16 cells. Each horse number 1-8 appears exactly twice; full grid is shuffled.
+  // Mirrors the spirit of the Starting Cards (every player gets a unique balanced layout).
+  const cells = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
+  for (let i = cells.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [cells[i], cells[j]] = [cells[j], cells[i]];
   }
-  return grid;
+  return cells;
 }
 
 export function initialState(): LSState {
