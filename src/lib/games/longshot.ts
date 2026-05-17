@@ -254,6 +254,12 @@ export function startRace(state: LSState): LSState | { error: string } {
   if (state.players.length < 2) return { error: 'Need at least 2 players' };
   const startSeat = state.players[Math.floor(Math.random() * state.players.length)].seat;
   const startName = state.players.find(p => p.seat === startSeat)!.username;
+  const concessionGrid = genConcessionGrid();
+  // Pre-mark 4 cells per player: 1 per row, 1 per column, all 4 horse numbers distinct.
+  const players = state.players.map(p => ({
+    ...p,
+    concessionMarks: genStartingMarks(concessionGrid),
+  }));
   return {
     ...state,
     phase: 'playing',
@@ -261,9 +267,37 @@ export function startRace(state: LSState): LSState | { error: string } {
     activePlayerSeat: startSeat,
     currentTurnSeat: null,
     step: 'roll',
-    concessionGrid: genConcessionGrid(),  // one random layout shared by all players
+    concessionGrid,
+    players,
     log: [`Race begins! ${startName} rolls first.`],
   };
+}
+
+/**
+ * Pick 4 cells from the 4×4 grid such that:
+ *   - exactly one cell per row
+ *   - exactly one cell per column
+ *   - the four horse numbers at those cells are all distinct
+ * Returns a boolean[] of length CONCESSION_CELLS with those 4 cells set to true.
+ */
+function genStartingMarks(grid: number[]): boolean[] {
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    // Random permutation of column indices, one per row
+    const cols = [0, 1, 2, 3];
+    for (let i = cols.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cols[i], cols[j]] = [cols[j], cols[i]];
+    }
+    const cellIdxs = cols.map((c, r) => r * CONCESSION_COLS + c);
+    const values = cellIdxs.map(i => grid[i]);
+    if (new Set(values).size === values.length) {
+      const marks = new Array(CONCESSION_CELLS).fill(false);
+      cellIdxs.forEach(i => { marks[i] = true; });
+      return marks;
+    }
+  }
+  // Fallback: leave empty (should be impossibly rare)
+  return new Array(CONCESSION_CELLS).fill(false);
 }
 
 // ---------- Race mechanics ----------
