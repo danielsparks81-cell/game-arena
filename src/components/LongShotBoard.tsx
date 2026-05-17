@@ -310,23 +310,44 @@ function Track({ horses }: { horses: LSState['horses'] }) {
           );
         })}
 
-        {/* Horse tokens — animated along the oval, stacked tangentially per space */}
+        {/* Horse tokens — animated along the oval, with starting-gate column behind the line */}
         {horses.map((h, i) => {
           if (h.finished) return null;
           const horseNum = i + 1;
           const animPos = animated[i] ?? h.position;
-          const angle = angleForPosition(animPos);
-          // Find this horse's index within its space group for tangential offset
+
+          // --- On-track position: tangential stacking along the oval at the animated position
+          const ovalAngle = angleForPosition(animPos);
+          const ovalCenter = pointOnOval(ovalAngle, TRACK_RX, TRACK_RY);
+          const ovalTan = tangentAt(ovalAngle, TRACK_RX, TRACK_RY);
           const group = byPos.get(h.position) ?? [horseNum];
           const stackIdx = group.indexOf(horseNum);
           const stackCount = group.length;
-          // Spread up to 6 horses tangentially within ±18px; collapse beyond that
-          const spacing = stackCount > 1 ? Math.min(11, 36 / Math.max(1, stackCount - 1)) : 0;
-          const tangentOffset = (stackIdx - (stackCount - 1) / 2) * spacing;
-          const center = pointOnOval(angle, TRACK_RX, TRACK_RY);
-          const tan = tangentAt(angle, TRACK_RX, TRACK_RY);
-          const x = center.x + tan.x * tangentOffset;
-          const y = center.y + tan.y * tangentOffset;
+          const tangentSpacing = stackCount > 1 ? Math.min(11, 36 / Math.max(1, stackCount - 1)) : 0;
+          const tangentOffset = (stackIdx - (stackCount - 1) / 2) * tangentSpacing;
+          const ovalX = ovalCenter.x + ovalTan.x * tangentOffset;
+          const ovalY = ovalCenter.y + ovalTan.y * tangentOffset;
+
+          // --- Starting-gate position: a single vertical column behind the start line.
+          // Horse 1 closest to the inner rail, horse 8 closest to the outer rail.
+          const startAngle = angleForPosition(0);
+          const radialPerHorse = 12;
+          const radialOffset = (horseNum - (NUM_HORSES + 1) / 2) * radialPerHorse; // -3.5..+3.5 → -42..+42
+          const startCenter = pointOnOval(
+            startAngle,
+            TRACK_RX + radialOffset,
+            TRACK_RY + radialOffset
+          );
+          const startTan = tangentAt(startAngle, TRACK_RX, TRACK_RY); // points "behind line" (≈ −x at bottom)
+          const BEHIND_OFFSET = 24;
+          const startX = startCenter.x + startTan.x * BEHIND_OFFSET;
+          const startY = startCenter.y + startTan.y * BEHIND_OFFSET;
+
+          // Blend starting-gate → oval position over the first space of movement
+          const startWeight = Math.max(0, Math.min(1, 1 - animPos));
+          const x = startX * startWeight + ovalX * (1 - startWeight);
+          const y = startY * startWeight + ovalY * (1 - startWeight);
+
           return (
             <g key={`horse-${horseNum}`}>
               <circle cx={x} cy={y} r="9" fill={HORSE_COLORS[horseNum - 1]} stroke="#0a0a0a" strokeWidth="1.25" />

@@ -113,14 +113,17 @@ export function addPlayer(state: LSState, playerId: string, username: string, se
 export function startRace(state: LSState): LSState | { error: string } {
   if (state.phase !== 'lobby') return { error: 'Race already started' };
   if (state.players.length < 2) return { error: 'Need at least 2 players' };
+  // Random starting player (matches "most recently bet" being arbitrary across digital play)
+  const startSeat = state.players[Math.floor(Math.random() * state.players.length)].seat;
+  const startName = state.players.find(p => p.seat === startSeat)!.username;
   return {
     ...state,
     phase: 'playing',
     round: 1,
-    activePlayerSeat: state.players[0].seat,
+    activePlayerSeat: startSeat,
     currentTurnSeat: null,
     step: 'roll',
-    log: ['Race begins!'],
+    log: [`Race begins! ${startName} rolls first.`],
   };
 }
 
