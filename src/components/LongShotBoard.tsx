@@ -332,8 +332,11 @@ function Track({ state }: { state: LSState }) {
         {/* Infield (grass) */}
         <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX - TRACK_HALF_WIDTH - 1} ry={TRACK_RY - TRACK_HALF_WIDTH - 1} fill="url(#ls-track-infield)" />
 
-        {/* Equidistant separator lines between each pair of consecutive spaces */}
+        {/* Equidistant separator lines between each pair of consecutive spaces.
+            Skip the two separators flanking the S/F line (i=0 and i=TRACK_LENGTH-1)
+            because the S/F line itself already provides the divider there. */}
         {Array.from({ length: TRACK_LENGTH }, (_, i) => {
+          if (i === 0 || i === TRACK_LENGTH - 1) return null;
           const a = angleForPosition(i + 0.5); // midpoint between space i and i+1
           const inner = pointOnOval(a, TRACK_RX - TRACK_HALF_WIDTH, TRACK_RY - TRACK_HALF_WIDTH);
           const outer = pointOnOval(a, TRACK_RX + TRACK_HALF_WIDTH, TRACK_RY + TRACK_HALF_WIDTH);
