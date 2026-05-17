@@ -1016,3 +1016,50 @@ export function calculateBetWinnings(state: LSState, player: LSPlayer): {
   }
   return { total, breakdown };
 }
+
+/**
+ * End-of-race score breakdown per player, summing four categories:
+ *   - Purse: $35/$25/$15 to the owner of each finishing horse (1st/2nd/3rd)
+ *   - Bonus: $5 per Jockey Set (horse with both at least one helmet AND one jersey)
+ *   - Bets:  payouts from {@link calculateBetWinnings}
+ *   - Money: cash on hand at race end
+ */
+export type FinalScore = {
+  playerId: string;
+  username: string;
+  seat: number;
+  purse: number;
+  bonus: number;
+  bets: number;
+  money: number;
+  total: number;
+};
+
+export function calculateFinalScores(state: LSState): FinalScore[] {
+  return state.players.map(player => {
+    let purse = 0;
+    for (const horseNum of player.ownedHorses) {
+      const place = state.horses[horseNum - 1].finished;
+      if (place === 1 || place === 2 || place === 3) {
+        purse += PURSE[place - 1];
+      }
+    }
+    const jockeySets = player.helmets.reduce(
+      (acc, h, i) => acc + (h > 0 && player.jerseys[i] > 0 ? 1 : 0),
+      0,
+    );
+    const bonus = jockeySets * 5;
+    const bets = calculateBetWinnings(state, player).total;
+    const money = player.money;
+    return {
+      playerId: player.playerId,
+      username: player.username,
+      seat: player.seat,
+      purse,
+      bonus,
+      bets,
+      money,
+      total: purse + bonus + bets + money,
+    };
+  });
+}

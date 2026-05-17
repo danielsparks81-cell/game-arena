@@ -6,7 +6,7 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
-  SECONDARY_BARS, PURSE, allMarksOnBar, calculateBetWinnings,
+  SECONDARY_BARS, PURSE, allMarksOnBar, calculateBetWinnings, calculateFinalScores,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -507,6 +507,9 @@ export default function LongShotBoard({
           </span> to claim {state.pendingBonus.count} concession bonus{state.pendingBonus.count > 1 ? 'es' : ''}…
         </div>
       )}
+
+      {/* End-of-race scoring window — full width, sits above the main grid */}
+      {state.phase === 'finished' && <FinalScoringPanel state={state} />}
 
       {/* Main grid: track + winners + phase panel left, sheet right on desktop; stacked on mobile/tablet */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
@@ -1194,6 +1197,72 @@ function WinnersCircle({ state }: { state: LSState }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * End-of-race scoring panel — shown once the third horse crosses the finish line.
+ * Tallies each player's score across four categories: Purse · Bonus · Bets · Money.
+ * Players are ranked by total; medals on the top three.
+ */
+function FinalScoringPanel({ state }: { state: LSState }) {
+  const ranked = [...calculateFinalScores(state)].sort((a, b) => b.total - a.total);
+  const winner = ranked[0];
+  const medals = ['🥇', '🥈', '🥉'];
+
+  return (
+    <div className="rounded-xl border-2 border-amber-500/60 bg-amber-500/5 p-4">
+      <div className="mb-3 text-center">
+        <h2 className="text-xl font-bold text-amber-400">🏁 Final Scoring</h2>
+        {winner && (
+          <p className="text-sm text-neutral-300">
+            Winner: <span className="font-semibold text-amber-300">{winner.username}</span>
+            <span className="ml-2 font-mono">${winner.total}</span>
+          </p>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[480px] border-collapse text-sm">
+          <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
+            <tr>
+              <th className="px-2 py-1 text-left">Player</th>
+              <th className="px-2 py-1 text-center" title="Purse for owned horses on the podium ($35 / $25 / $15)">Purse</th>
+              <th className="px-2 py-1 text-center" title="$5 per completed helmet + jersey combo">Bonus</th>
+              <th className="px-2 py-1 text-center" title="Bet payouts (place odds + past-No-Bet consolation)">Bets</th>
+              <th className="px-2 py-1 text-center" title="Cash on hand at race end">Money</th>
+              <th className="px-2 py-1 text-center">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ranked.map((s, idx) => (
+              <tr key={s.playerId} className="border-t border-neutral-800/60">
+                <td className="px-2 py-2">
+                  <span className="font-medium">
+                    <span className="mr-1">{medals[idx] ?? ''}</span>
+                    {s.username}
+                  </span>
+                </td>
+                <td className="px-2 py-2 text-center font-mono">
+                  {s.purse > 0 ? <span className="text-amber-300">${s.purse}</span> : <span className="text-neutral-600">$0</span>}
+                </td>
+                <td className="px-2 py-2 text-center font-mono">
+                  {s.bonus > 0 ? <span className="text-sky-300">${s.bonus}</span> : <span className="text-neutral-600">$0</span>}
+                </td>
+                <td className="px-2 py-2 text-center font-mono">
+                  {s.bets > 0 ? <span className="text-emerald-400">${s.bets}</span> : <span className="text-neutral-600">$0</span>}
+                </td>
+                <td className="px-2 py-2 text-center font-mono">
+                  <span className="text-emerald-400">${s.money}</span>
+                </td>
+                <td className="px-2 py-2 text-center font-mono text-lg font-bold text-amber-400">
+                  ${s.total}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
