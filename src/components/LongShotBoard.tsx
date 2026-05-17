@@ -5,7 +5,7 @@ import {
   type LSState, type LSMove, type LSPlayer, type HorseFinish, type ActionPayload,
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
-  CONCESSION_ROWS, CONCESSION_COLS,
+  CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -523,60 +523,110 @@ function ActionBtn({
 function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-      <div className="mb-3 flex items-baseline justify-between">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Your sheet</div>
-        <div className="font-mono text-sm text-emerald-400">${me.money}</div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-xs uppercase tracking-wider text-neutral-500">
-            <tr>
-              <th className="px-2 py-1">Horse</th>
-              <th className="px-2 py-1">Owned</th>
-              <th className="px-2 py-1">Helmets</th>
-              <th className="px-2 py-1">Jerseys</th>
-              <th className="px-2 py-1">Bet</th>
-              <th className="px-2 py-1">Cost</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: NUM_HORSES }, (_, i) => {
-              const num = i + 1;
-              const owned = me.ownedHorses.includes(num);
-              const inMarket = state.market.includes(num);
-              const finished = state.horses[i].finished;
-              return (
-                <tr key={num} className="border-t border-neutral-800/60">
-                  <td className="px-2 py-1">
-                    <span className="inline-flex items-center gap-2">
-                      <HorseDot num={num} /> {num}
-                      {finished && <span className="text-[10px] text-amber-400">({finished === 1 ? '1st' : finished === 2 ? '2nd' : '3rd'})</span>}
-                    </span>
-                  </td>
-                  <td className="px-2 py-1">{owned ? '🏠' : ''}</td>
-                  <td className="px-2 py-1">{'⛑️'.repeat(me.helmets[i])}</td>
-                  <td className="px-2 py-1">{'🏁'.repeat(me.jerseys[i])}</td>
-                  <td className="px-2 py-1 font-mono">{me.bets[i] > 0 ? `$${me.bets[i]}` : '—'}</td>
-                  <td className="px-2 py-1 text-neutral-500">
-                    {owned ? '—' : !inMarket ? '(sold)' : `$${HORSE_COSTS[i]}`}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      <details className="mt-4">
-        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-400">
-          Concession grid
-        </summary>
-        <div className="mt-2">
-          <ConcessionGrid grid={me.concessionGrid} marks={me.concessionMarks} />
+        <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-emerald-500/50 bg-emerald-500/10 font-mono text-sm font-bold text-emerald-400">
+          ${me.money}
         </div>
-      </details>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr]">
+        {/* LEFT: concession grid + bonuses */}
+        <div className="space-y-3">
+          <div>
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
+            <ConcessionGrid grid={me.concessionGrid} marks={me.concessionMarks} />
+          </div>
+          <div>
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Row/Column bonuses</div>
+            <ul className="space-y-0.5 text-[11px] leading-tight text-neutral-400">
+              {CONCESSION_BONUSES.map(b => (
+                <li key={b.id} className="flex items-center gap-2" title={b.desc}>
+                  <span className="inline-block w-14 shrink-0 font-mono text-neutral-300">{b.label}</span>
+                  <span className="truncate">{b.desc}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1 text-[10px] italic text-neutral-600">Bonuses fire in Phase 3.</p>
+          </div>
+        </div>
+
+        {/* RIGHT: horse rows with helmet/jersey/bet/odds/cost */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[480px] border-collapse text-left text-sm">
+            <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
+              <tr>
+                <th className="px-2 py-1">#</th>
+                <th className="px-2 py-1">Helmets</th>
+                <th className="px-2 py-1">Jerseys</th>
+                <th className="px-2 py-1">Bet</th>
+                <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1st·2nd·3rd</span></th>
+                <th className="px-2 py-1">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: NUM_HORSES }, (_, i) => {
+                const num = i + 1;
+                const owned = me.ownedHorses.includes(num);
+                const inMarket = state.market.includes(num);
+                const finished = state.horses[i].finished;
+                const odds = BET_ODDS[i];
+                return (
+                  <tr key={num} className="border-t border-neutral-800/60">
+                    <td className="px-2 py-1.5">
+                      <span className="inline-flex items-center gap-2">
+                        <HorseDot num={num} /> {num}
+                      </span>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon="⛑️" />
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon="🏁" />
+                    </td>
+                    <td className="px-2 py-1.5 font-mono">
+                      {me.bets[i] > 0 ? <span className="text-emerald-400">${me.bets[i]}</span> : <span className="text-neutral-700">—</span>}
+                    </td>
+                    <td className="px-2 py-1.5 text-center font-mono text-[11px] text-neutral-300">
+                      {odds[0]}·{odds[1]}·{odds[2]}
+                    </td>
+                    <td className="px-2 py-1.5 text-[11px]">
+                      {finished
+                        ? <span className="text-amber-400">{finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}</span>
+                        : owned
+                          ? <span className="text-emerald-400">owned 🏠</span>
+                          : !inMarket
+                            ? <span className="text-neutral-500">sold</span>
+                            : <span className="text-neutral-400">market · ${HORSE_COSTS[i]}</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Actions reference */}
+      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-neutral-800 pt-3 text-[11px] text-neutral-400 sm:grid-cols-3 lg:grid-cols-6">
+        <span><span className="mr-1">🎪</span>Concession: mark cell</span>
+        <span><span className="mr-1">⛑️</span>Helmet: bet past No-Bet</span>
+        <span><span className="mr-1">🏁</span>Jersey: + secondary mark</span>
+        <span><span className="mr-1">💰</span>Bet: up to $3</span>
+        <span><span className="mr-1">🏠</span>Buy: own the horse</span>
+        <span><span className="mr-1">⏭️</span>Pass</span>
+      </div>
     </div>
+  );
+}
+
+function SlotRow({ count, max, icon }: { count: number; max: number; icon: string }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 font-mono text-xs">
+      {Array.from({ length: max }, (_, i) => (
+        <span key={i} className={i < count ? '' : 'opacity-20 grayscale'}>{icon}</span>
+      ))}
+    </span>
   );
 }
 

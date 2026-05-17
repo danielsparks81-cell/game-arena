@@ -37,6 +37,34 @@ export const HORSE_COLORS = [
 export const HORSE_COSTS = [4, 4, 6, 6, 7, 7, 8, 8];
 
 /**
+ * Bet odds per horse number: [1st place mult, 2nd mult, 3rd mult, past-No-Bet mult].
+ * Past-No-Bet always pays 1× the bet if the horse crossed the No-Bet line but didn't finish.
+ */
+export const BET_ODDS: number[][] = [
+  [5, 4, 3, 1],  // horse 1
+  [5, 4, 3, 1],  // horse 2
+  [6, 5, 4, 1],  // horse 3
+  [6, 5, 4, 1],  // horse 4
+  [7, 6, 5, 1],  // horse 5
+  [7, 6, 5, 1],  // horse 6
+  [9, 8, 7, 1],  // horse 7
+  [9, 8, 7, 1],  // horse 8
+];
+
+/** Concession bonuses (ID + short label). Effects are implemented in Phase 3. */
+export const CONCESSION_BONUSES = [
+  { id: 'cash7',        label: '+$7',         desc: 'Gain $7' },
+  { id: 'back2x2',      label: '−2 / −2',     desc: 'Move any 2 horses back 2 each' },
+  { id: 'back3',        label: '−3',          desc: 'Move 1 horse back 3' },
+  { id: 'forward2x2',   label: '+2 / +2',     desc: 'Move any 2 horses forward 2 each' },
+  { id: 'forward3',     label: '+3',          desc: 'Move 1 horse forward 3' },
+  { id: 'freebet3',     label: 'Free $3 bet', desc: 'Place a free $3 bet on any horse' },
+  { id: 'helmet_any',   label: 'Helmet ★',    desc: 'Take Helmet action for any horse' },
+  { id: 'jersey_any',   label: 'Jersey ★',    desc: 'Take Jersey action for any horse' },
+  { id: 'free_horse',   label: 'Free horse',  desc: 'Take any horse from the market for free' },
+] as const;
+
+/**
  * Placeholder secondary-movement bars: when horse N is rolled, every entry in
  * SECONDARY_BARS[N] also advances 1 space (the "pre-printed X's"). Real card data
  * lands in Phase 4. Players can mark ADDITIONAL X's via the Jersey action — those
