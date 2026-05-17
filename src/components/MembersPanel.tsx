@@ -275,7 +275,14 @@ export default function MembersPanel({
                     <WinRateBadge stat={stats.get(u.id)} />
                   </span>
                   <button
-                    onClick={() => setInvitee(u)}
+                    onClick={() => {
+                      // Inside a waiting room with seats open → invite directly, skip the picker
+                      if (canInviteToCurrent && currentRoom) {
+                        doInvite(u, currentRoom.gameType);
+                      } else {
+                        setInvitee(u);
+                      }
+                    }}
                     disabled={pending}
                     className="ml-2 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-50"
                   >
@@ -308,7 +315,14 @@ export default function MembersPanel({
                     <WinRateBadge stat={u} />
                   </span>
                   <button
-                    onClick={() => setInvitee({ id: u.user_id, username: u.username })}
+                    onClick={() => {
+                      const target = { id: u.user_id, username: u.username };
+                      if (canInviteToCurrent && currentRoom) {
+                        doInvite(target, currentRoom.gameType);
+                      } else {
+                        setInvitee(target);
+                      }
+                    }}
                     disabled={pending}
                     title="They won't see a popup, but the room you create will appear in their lobby when they log in"
                     className="ml-2 shrink-0 rounded-md border border-neutral-700 px-2 py-0.5 text-xs font-medium text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200 disabled:opacity-50"
