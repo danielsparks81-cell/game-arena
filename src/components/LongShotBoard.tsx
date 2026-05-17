@@ -599,7 +599,7 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                         : owned
                           ? <span className="text-emerald-400">owned 🏠</span>
                           : otherOwner
-                            ? <span className="text-sky-400">owned by {otherOwner.username}</span>
+                            ? <span className="truncate text-sky-400">{otherOwner.username}</span>
                             : <span className="text-neutral-400">market · ${HORSE_COSTS[i]}</span>}
                     </td>
                   </tr>
