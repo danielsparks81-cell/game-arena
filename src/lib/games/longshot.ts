@@ -53,12 +53,15 @@ export const BET_ODDS: number[][] = [
 
 /** Concession bonuses (ID + short label). Effects are implemented in Phase 3. */
 export const CONCESSION_BONUSES = [
-  { id: 'cash7',        label: '+$7',         desc: 'Gain $7' },
+  { id: 'cash7_a',      label: '+$7',         desc: 'Gain $7' },
+  { id: 'cash7_b',      label: '+$7',         desc: 'Gain $7' },
+  { id: 'cash7_c',      label: '+$7',         desc: 'Gain $7' },
   { id: 'back2x2',      label: '−2 / −2',     desc: 'Move any 2 horses back 2 each' },
   { id: 'back3',        label: '−3',          desc: 'Move 1 horse back 3' },
   { id: 'forward2x2',   label: '+2 / +2',     desc: 'Move any 2 horses forward 2 each' },
   { id: 'forward3',     label: '+3',          desc: 'Move 1 horse forward 3' },
-  { id: 'freebet3',     label: 'Free $3 bet', desc: 'Place a free $3 bet on any horse' },
+  { id: 'freebet3_a',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any horse' },
+  { id: 'freebet3_b',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any horse' },
   { id: 'helmet_any',   label: 'Helmet ★',    desc: 'Take Helmet action for any horse' },
   { id: 'jersey_any',   label: 'Jersey ★',    desc: 'Take Jersey action for any horse' },
   { id: 'free_horse',   label: 'Free horse',  desc: 'Take any horse from the market for free' },
