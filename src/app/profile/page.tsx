@@ -50,7 +50,8 @@ export default async function ProfilePage() {
     else losses++;
   }
   const total = rows.length;
-  const winRate = total > 0 ? Math.round((wins / total) * 100) : 0;
+  const decisive = wins + losses;
+  const winRate = decisive > 0 ? Math.round((wins / decisive) * 100) : 0;
 
   const username = profile?.username ?? 'player';
   const joined = profile?.created_at

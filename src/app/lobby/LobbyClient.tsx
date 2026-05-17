@@ -336,10 +336,11 @@ export default function LobbyClient({
 }
 
 function WinRateBadge({ stat }: { stat?: UserStat }) {
-  if (!stat || stat.games === 0) {
-    return <span className="text-xs text-neutral-600" title="No games yet">—</span>;
+  const decisive = stat ? stat.wins + stat.losses : 0;
+  if (!stat || decisive === 0) {
+    return <span className="text-xs text-neutral-600" title="No decisive games yet">—</span>;
   }
-  const pct = Math.round((stat.wins / stat.games) * 100);
+  const pct = Math.round((stat.wins / decisive) * 100);
   const tone =
     pct >= 60 ? 'bg-emerald-500/15 text-emerald-400' :
     pct >= 40 ? 'bg-sky-500/15 text-sky-400'         :
@@ -347,7 +348,7 @@ function WinRateBadge({ stat }: { stat?: UserStat }) {
   return (
     <span
       className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${tone}`}
-      title={`${stat.wins}W · ${stat.losses}L · ${stat.draws}D · ${stat.games} games`}
+      title={`${stat.wins}W · ${stat.losses}L · ${stat.draws}D · ${pct}% (draws not counted)`}
     >
       {pct}%
     </span>
