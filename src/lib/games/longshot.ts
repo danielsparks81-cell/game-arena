@@ -33,8 +33,8 @@ export const HORSE_COLORS = [
   '#6b21a8', // 8 - deep purple
 ];
 
-/** Placeholder per-horse cost for the Buy action. Real card data lands in Phase 4. */
-export const HORSE_COSTS = [4, 4, 6, 6, 7, 7, 8, 8];
+/** Per-horse cost for the Buy action. Favorites cost more; long shots cost less. */
+export const HORSE_COSTS = [10, 10, 8, 8, 6, 6, 4, 4];
 
 /**
  * Bet odds per horse number: [1st place mult, 2nd mult, 3rd mult, past-No-Bet mult].
