@@ -218,6 +218,7 @@ export default function LongShotBoard({
   // --- Lifted action state — the PlayerSheet itself is now the action surface ---
   const [wildHorse, setWildHorse] = useState<number | null>(null);
   const [subPicker, setSubPicker] = useState<'bet' | 'jersey' | null>(null);
+  const [pickingWild, setPickingWild] = useState(false);
 
   // --- Lifted bonus-picking state — bonus tiles in the sheet drive this ---
   const [bonusPicking, setBonusPicking] = useState<string | null>(null);
@@ -232,6 +233,7 @@ export default function LongShotBoard({
   useEffect(() => {
     setWildHorse(null);
     setSubPicker(null);
+    setPickingWild(false);
     resetBonusPick();
   }, [state.rollId, state.currentTurnSeat]);
 
@@ -362,6 +364,7 @@ export default function LongShotBoard({
     else onAction(payload);
     setWildHorse(null);
     setSubPicker(null);
+    setPickingWild(false);
   };
 
   // Bonus context for PlayerSheet — light up the tiles + per-target highlights
@@ -394,8 +397,11 @@ export default function LongShotBoard({
           effectiveHorse,
           rolledHorse: state.horseDie ?? 0,
           wildHorse,
-          setWildHorse,
+          // Setting a wild auto-closes the picking-wild highlight mode
+          setWildHorse: (n: number | null) => { setWildHorse(n); setPickingWild(false); },
           wildsLeft: MAX_WILDS - me.wildsUsed,
+          pickingWild,
+          setPickingWild,
           canHelmet: !finished && me.helmets[horseIdx] < MAX_HELMETS_PER_HORSE,
           canJersey: !finished && me.jerseys[horseIdx] < MAX_JERSEYS_PER_HORSE
                     && (me.jerseyMarks[horseIdx]?.length ?? 0) < NUM_HORSES,
@@ -545,6 +551,8 @@ type SheetAction = {
   wildHorse: number | null;
   setWildHorse: (n: number | null) => void;
   wildsLeft: number;
+  pickingWild: boolean;
+  setPickingWild: (b: boolean) => void;
   canHelmet: boolean;
   canJersey: boolean;
   canBet: boolean;
@@ -601,20 +609,48 @@ function PlayerSheet({ state, me, action, bonus }: {
           )}
         </div>
         <div className="flex items-center gap-2 text-xs">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
-            <span className="text-neutral-500">Wilds </span>
-            <span className="font-mono text-amber-400">{MAX_WILDS - me.wildsUsed}/{MAX_WILDS}</span>
-            {action?.refreshWild && (
-              <button
-                onClick={action.refreshWild}
-                disabled={action.disabled}
-                title="Spend your action to recover one Wild"
-                className="rounded border border-amber-600 px-1.5 py-0 text-[10px] text-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
-              >
-                ↺ Refresh
-              </button>
-            )}
-          </span>
+          {/* Prominent Wild action button — when clicked, lights up the eligible horse #s in the table */}
+          {action && action.wildsLeft > 0 && (
+            <button
+              onClick={() => action.setPickingWild(!action.pickingWild)}
+              disabled={action.disabled}
+              title={action.pickingWild ? 'Cancel — pick a horse # in the table' : 'Use a Wild to act on a different horse'}
+              className={`inline-flex items-center gap-1.5 rounded-md border-2 px-3 py-1.5 text-sm font-bold transition disabled:opacity-40 ${
+                action.pickingWild
+                  ? 'border-amber-300 bg-amber-500 text-neutral-950 ring-2 ring-amber-300'
+                  : 'border-amber-500 bg-amber-500/15 text-amber-300 hover:bg-amber-500/30 hover:scale-105'
+              }`}
+            >
+              ✨ Wild
+              <span className="font-mono text-[11px] opacity-80">({action.wildsLeft}/{MAX_WILDS})</span>
+            </button>
+          )}
+          {action?.wildHorse !== null && action?.wildHorse !== undefined && (
+            <button
+              onClick={() => action.setWildHorse(null)}
+              disabled={action.disabled}
+              title="Clear Wild selection"
+              className="inline-flex items-center gap-1 rounded-md border border-amber-500 bg-amber-500/15 px-2 py-1.5 text-xs text-amber-300 hover:bg-amber-500/30"
+            >
+              Wild: <HorseDot num={action.wildHorse} /> <span>✕</span>
+            </button>
+          )}
+          {action?.refreshWild && (
+            <button
+              onClick={action.refreshWild}
+              disabled={action.disabled}
+              title="Spend your action to recover one Wild"
+              className="rounded-md border border-amber-600 px-2 py-1.5 text-xs text-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
+            >
+              ↺ Refresh
+            </button>
+          )}
+          {!action && (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
+              <span className="text-neutral-500">Wilds </span>
+              <span className="font-mono text-amber-400">{MAX_WILDS - me.wildsUsed}/{MAX_WILDS}</span>
+            </span>
+          )}
           <span className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
             <span className="text-neutral-500">Jockey sets </span>
             <span className="font-mono text-sky-400">{jockeySets}</span>
@@ -716,6 +752,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                 const isRolled = !!action && num === action.rolledHorse;
                 const canWild = !!action && !isRolled && action.wildsLeft > 0;
                 const wildSelected = !!action && action.wildHorse === num;
+                const highlightWild = !!action && action.pickingWild && canWild;
 
                 return (
                   <tr key={num} className={`border-t border-neutral-800/60 ${isActive ? 'bg-emerald-500/[0.04]' : ''}`}>
@@ -726,8 +763,12 @@ function PlayerSheet({ state, me, action, bonus }: {
                           onClick={() => action!.setWildHorse(wildSelected ? null : num)}
                           disabled={action!.disabled}
                           title={wildSelected ? 'Clear Wild selection' : `Use a Wild to act on horse ${num}`}
-                          className={`inline-flex items-center justify-center rounded-full p-0.5 transition hover:scale-110 ${
-                            wildSelected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-neutral-900' : ''
+                          className={`group/wild inline-flex items-center justify-center rounded-full p-0.5 transition hover:scale-110 ${
+                            wildSelected
+                              ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-neutral-900'
+                              : highlightWild
+                                ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 animate-pulse'
+                                : ''
                           }`}
                         >
                           <HorseDot num={num} />
