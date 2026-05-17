@@ -630,6 +630,18 @@ function BonusPicker({
     return set;
   }, [isFreeBet, state.horses, me.helmets]);
 
+  // For forward movement bonuses: refuse horses already at the last space (movement
+  // would be wasted — bonus movement cannot cross the finish line).
+  const isForwardMove = picking === 'forward2x2' || picking === 'forward3';
+  const atFinishDisabled = useMemo(() => {
+    const set = new Set<number>();
+    if (!isForwardMove) return set;
+    state.horses.forEach((h, i) => {
+      if (!h.finished && h.position >= TRACK_LENGTH - 1) set.add(i + 1);
+    });
+    return set;
+  }, [isForwardMove, state.horses]);
+
   const needs2 = picking === 'back2x2' || picking === 'forward2x2';
   const needsHorse = picking !== null && (
     picking === 'back3' || picking === 'forward3' ||
@@ -696,8 +708,16 @@ function BonusPicker({
             value={horse1}
             onChange={setHorse1}
             options={picking === 'free_horse' ? marketHorses : horsesForBetOrJersey.map(h => h.num)}
-            disabledHorses={isFreeBet ? noBetDisabled : undefined}
-            disabledReason="Past the No-Bet line — you need a helmet on this horse first"
+            disabledHorses={
+              isFreeBet ? noBetDisabled
+              : isForwardMove ? atFinishDisabled
+              : undefined
+            }
+            disabledReason={
+              isFreeBet ? 'Past the No-Bet line — you need a helmet on this horse first'
+              : isForwardMove ? 'Already at the finish line — forward bonus would be wasted'
+              : undefined
+            }
           />
 
           {needs2 && (
@@ -706,6 +726,8 @@ function BonusPicker({
               value={horse2}
               onChange={setHorse2}
               options={horsesForBetOrJersey.map(h => h.num).filter(n => n !== horse1)}
+              disabledHorses={isForwardMove ? atFinishDisabled : undefined}
+              disabledReason={isForwardMove ? 'Already at the finish line — forward bonus would be wasted' : undefined}
             />
           )}
           {needsMarkHorse && (
