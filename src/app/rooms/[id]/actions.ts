@@ -6,6 +6,34 @@ import { createClient } from '@/lib/supabase/server';
 import { applyMove as applyMoveTTT, initialState as tttInitial, type TTTState } from '@/lib/games/tictactoe';
 import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } from '@/lib/games/connect4';
 
+/**
+ * Push a "room changed" event over Supabase Realtime broadcast so every connected client
+ * refetches immediately. This is more reliable than relying on postgres_changes alone,
+ * which can lag or silently drop with RLS in some Supabase configurations.
+ */
+async function notifyRoom(roomId: string) {
+  try {
+    await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/realtime/v1/api/broadcast`, {
+      method: 'POST',
+      headers: {
+        apikey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: [{
+          topic: `room-${roomId}`,
+          event: 'room-changed',
+          payload: { at: Date.now() },
+          private: false,
+        }],
+      }),
+    });
+  } catch {
+    // Best-effort — postgres_changes will still cover it eventually.
+  }
+}
+
 export async function joinRoom(roomId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -43,6 +71,7 @@ export async function joinRoom(roomId: string) {
     .update({ status: 'playing', state: { ...state, seats } })
     .eq('id', roomId);
 
+  await notifyRoom(roomId);
   revalidatePath(`/rooms/${roomId}`);
 }
 
@@ -51,6 +80,7 @@ export async function leaveRoom(roomId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not signed in');
   await supabase.from('room_players').delete().eq('room_id', roomId).eq('player_id', user.id);
+  await notifyRoom(roomId);
   revalidatePath(`/rooms/${roomId}`);
 }
 
@@ -95,6 +125,7 @@ export async function makeMoveTTT(roomId: string, cell: number) {
     .eq('id', roomId);
 
   if (next.winner) await recordHistory(supabase, roomId, 'tictactoe', next.seats as Record<string, string>, next.winner);
+  await notifyRoom(roomId);
 }
 
 export async function makeMoveC4(roomId: string, col: number) {
@@ -120,6 +151,7 @@ export async function makeMoveC4(roomId: string, col: number) {
     .eq('id', roomId);
 
   if (next.winner) await recordHistory(supabase, roomId, 'connect4', next.seats as Record<string, string>, next.winner);
+  await notifyRoom(roomId);
 }
 
 export async function sendChat(roomId: string, body: string) {
@@ -131,6 +163,7 @@ export async function sendChat(roomId: string, body: string) {
   await supabase.from('chat_messages').insert({
     room_id: roomId, sender_id: user.id, body: trimmed.slice(0, 500),
   });
+  await notifyRoom(roomId);
 }
 
 /**
@@ -182,5 +215,6 @@ export async function proposeRematch(roomId: string) {
     .update({ state: newState, status: 'playing', rematch_votes: [] })
     .eq('id', roomId);
 
+  await notifyRoom(roomId);
   return { restarted: true };
 }

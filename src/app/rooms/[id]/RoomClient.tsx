@@ -54,14 +54,30 @@ export default function RoomClient({
     }
   }, [imSeated, room.status, room.room_players.length, room.max_players, roomId]);
 
-  // Realtime subscriptions
+  // Realtime subscriptions — broadcast is the primary channel, postgres_changes is a fallback.
   useEffect(() => {
     const refreshRoom = async () => {
       const { data } = await supabase.from('rooms').select(ROOM_SELECT).eq('id', roomId).single();
       if (data) setRoom(data as unknown as Room);
     };
 
+    const refreshMessages = async () => {
+      const { data } = await supabase
+        .from('chat_messages')
+        .select('id, body, created_at, sender_id, profiles(username)')
+        .eq('room_id', roomId)
+        .order('created_at', { ascending: true })
+        .limit(100);
+      if (data) setMessages(data as unknown as ChatMsg[]);
+    };
+
     const ch = supabase.channel(`room-${roomId}`)
+      // Primary: server actions broadcast on this channel after any DB mutation.
+      .on('broadcast', { event: 'room-changed' }, () => {
+        refreshRoom();
+        refreshMessages();
+      })
+      // Fallback: postgres_changes if broadcast is missed.
       .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms',        filter: `id=eq.${roomId}` },     refreshRoom)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'room_players', filter: `room_id=eq.${roomId}` }, refreshRoom)
       .on('postgres_changes',
@@ -70,7 +86,7 @@ export default function RoomClient({
           const m = payload.new as { id: number; body: string; created_at: string; sender_id: string };
           const { data: prof } = await supabase
             .from('profiles').select('username').eq('id', m.sender_id).single();
-          setMessages(prev => [...prev, { ...m, profiles: prof ? { username: prof.username } : null }]);
+          setMessages(prev => prev.some(x => x.id === m.id) ? prev : [...prev, { ...m, profiles: prof ? { username: prof.username } : null }]);
         })
       .subscribe();
 
