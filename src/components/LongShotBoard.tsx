@@ -2,18 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  type LSState, TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES,
+  type LSState, type LSMove, type HorseFinish,
+  TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES,
 } from '@/lib/games/longshot';
 
-// Oval geometry: viewBox 440x260, centered, counterclockwise on screen
+// Oval geometry: viewBox 440x280, centered, counterclockwise on screen
 // starting at bottom-middle (matches real horse-racing direction).
 const VIEW_W = 440;
-const VIEW_H = 260;
+const VIEW_H = 280;
 const TRACK_CX = 220;
-const TRACK_CY = 130;
-const TRACK_RX = 185;             // horizontal radius (rail centerline)
-const TRACK_RY = 100;              // vertical radius
-const TRACK_HALF_WIDTH = 26;       // half the track surface width (outer rail to inner rail = 52px)
+const TRACK_CY = 140;
+const TRACK_RX = 190;              // horizontal radius (rail centerline)
+const TRACK_RY = 110;              // vertical radius
+const TRACK_HALF_WIDTH = 36;       // wider track: outer rail to inner rail = 72px
 
 function angleForPosition(pos: number): number {
   // pos = 0 at bottom, counterclockwise on screen
@@ -32,47 +33,107 @@ function tangentAt(angle: number, rx: number, ry: number) {
   return { x: tx / mag, y: ty / mag };
 }
 
-/** Animate an array of numbers toward `targets` over `durationMs`. Returns the live interpolated values. */
-function useAnimatedNumbers(targets: number[], durationMs = 700): number[] {
-  const [displayed, setDisplayed] = useState<number[]>(() => targets.slice());
-  const animsRef = useRef<{ from: number; to: number; start: number }[]>(targets.map(t => ({ from: t, to: t, start: 0 })));
+/**
+ * Drive the per-horse displayed position by replaying state.lastSequence one move at a time
+ * when state.rollId increases. Each move animates over `moveDurationMs`, with `gapMs` between.
+ */
+function useSequencedRace(
+  state: LSState,
+  moveDurationMs = 550,
+  gapMs = 120,
+): { positions: number[]; finished: HorseFinish[] } {
+  const [positions, setPositions] = useState<number[]>(() => state.horses.map(h => h.position));
+  const [finished, setFinished] = useState<HorseFinish[]>(() => state.horses.map(h => h.finished));
+  const rollSeen = useRef<number>(state.rollId);
   const rafRef = useRef<number | null>(null);
-  const key = targets.join(',');
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const now = performance.now();
-    // Seed animations: new `from` = current displayed value, `to` = new target
-    setDisplayed(prev => {
-      animsRef.current = targets.map((to, i) => ({ from: prev[i] ?? to, to, start: now }));
-      return prev;
-    });
+    // If no new roll, just snap to the canonical state
+    if (state.rollId === rollSeen.current) {
+      setPositions(state.horses.map(h => h.position));
+      setFinished(state.horses.map(h => h.finished));
+      return;
+    }
+    rollSeen.current = state.rollId;
 
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    const tick = (t: number) => {
-      let stillAnimating = false;
-      const next = animsRef.current.map(anim => {
-        const progress = Math.min(1, (t - anim.start) / durationMs);
-        if (progress < 1) stillAnimating = true;
-        // ease-in-out cubic
-        const eased = progress < 0.5
-          ? 4 * progress * progress * progress
-          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
-        return anim.from + (anim.to - anim.from) * eased;
-      });
-      setDisplayed(next);
-      if (stillAnimating) rafRef.current = requestAnimationFrame(tick);
-      else rafRef.current = null;
+    const sequence = state.lastSequence ?? [];
+    if (sequence.length === 0) {
+      setPositions(state.horses.map(h => h.position));
+      setFinished(state.horses.map(h => h.finished));
+      return;
+    }
+
+    // Begin every animating horse at its `fromPos`; others stay where they are.
+    const initPos = state.horses.map((h, i) => {
+      const m = sequence.find(x => x.horseIdx === i);
+      return m ? m.fromPos : h.position;
+    });
+    const initFin = state.horses.map((h, i) => {
+      const m = sequence.find(x => x.horseIdx === i);
+      return m ? m.fromFinished : h.finished;
+    });
+    setPositions(initPos);
+    setFinished(initFin);
+
+    let stepIdx = 0;
+    let cancelled = false;
+
+    const runStep = () => {
+      if (cancelled) return;
+      if (stepIdx >= sequence.length) {
+        // All moves played — settle to canonical final state
+        setPositions(state.horses.map(h => h.position));
+        setFinished(state.horses.map(h => h.finished));
+        return;
+      }
+      const move = sequence[stepIdx];
+      const start = performance.now();
+      const tick = (t: number) => {
+        if (cancelled) return;
+        const p = Math.min(1, (t - start) / moveDurationMs);
+        const eased = p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+        const animPos = move.fromPos + (move.toPos - move.fromPos) * eased;
+        setPositions(prev => {
+          const next = prev.slice();
+          next[move.horseIdx] = animPos;
+          return next;
+        });
+        if (p < 1) {
+          rafRef.current = requestAnimationFrame(tick);
+        } else {
+          // Snap to exact toPos and apply finished status
+          setPositions(prev => {
+            const next = prev.slice();
+            next[move.horseIdx] = move.toPos;
+            return next;
+          });
+          if (move.toFinished !== move.fromFinished) {
+            setFinished(prev => {
+              const next = prev.slice();
+              next[move.horseIdx] = move.toFinished;
+              return next;
+            });
+          }
+          stepIdx++;
+          timeoutRef.current = setTimeout(runStep, gapMs);
+        }
+      };
+      rafRef.current = requestAnimationFrame(tick);
     };
-    rafRef.current = requestAnimationFrame(tick);
+
+    runStep();
 
     return () => {
+      cancelled = true;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-    // Re-run only when the actual target values change
+    // Re-run only when the round/roll changes (or finished count, for safety)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, durationMs]);
+  }, [state.rollId]);
 
-  return displayed;
+  return { positions, finished };
 }
 
 export default function LongShotBoard({
@@ -125,7 +186,7 @@ export default function LongShotBoard({
       </div>
 
       {/* Track */}
-      <Track horses={state.horses} />
+      <Track state={state} />
 
       {/* Winners */}
       {winners.length > 0 && (
@@ -216,20 +277,19 @@ function HorseDot({ num }: { num: number }) {
   );
 }
 
-function Track({ horses }: { horses: LSState['horses'] }) {
-  // Animate each horse's track position smoothly (finished horses don't render here).
-  // For finished horses we just hold their last position so they don't fly back.
-  const targets = horses.map(h => (h.finished ? -1 : h.position));
-  const liveTargets = targets.map(t => (t < 0 ? 0 : t)); // -1 (finished) renders as 0 but hidden via opacity
-  const animated = useAnimatedNumbers(liveTargets, 750);
+function Track({ state }: { state: LSState }) {
+  // Sequenced animation: rolled horse first, then each secondary-bar horse, one at a time.
+  const { positions, finished } = useSequencedRace(state);
+  const horses = state.horses;
 
-  // Group horses by INTEGER target position for tangential stacking
+  // Group horses by their DISPLAYED integer position for tangential stacking
   const byPos = new Map<number, number[]>();
-  horses.forEach((h, i) => {
-    if (h.finished) return;
-    const list = byPos.get(h.position) ?? [];
+  horses.forEach((_, i) => {
+    if (finished[i]) return;
+    const intPos = Math.round(positions[i] ?? 0);
+    const list = byPos.get(intPos) ?? [];
     list.push(i + 1);
-    byPos.set(h.position, list);
+    byPos.set(intPos, list);
   });
 
   // No-Bet line: midway between space 11 and 12
@@ -294,52 +354,54 @@ function Track({ horses }: { horses: LSState['horses'] }) {
         <line x1={noBetInner.x} y1={noBetInner.y} x2={noBetOuter.x} y2={noBetOuter.y}
               stroke="#ef4444" strokeWidth="4" strokeDasharray="4 3" />
 
-        {/* Space number labels — small, on the inner rail */}
+        {/* Space number labels — small, on the inner rail; space 0 shows "S/F" */}
         {Array.from({ length: TRACK_LENGTH }, (_, i) => {
           const a = angleForPosition(i);
-          const labelPt = pointOnOval(a, TRACK_RX - TRACK_HALF_WIDTH - 10, TRACK_RY - TRACK_HALF_WIDTH - 10);
+          const labelPt = pointOnOval(a, TRACK_RX - TRACK_HALF_WIDTH - 12, TRACK_RY - TRACK_HALF_WIDTH - 12);
           const past = i >= NO_BET_SPACE;
+          const label = i === 0 ? 'S/F' : String(i);
           return (
             <text key={`lbl-${i}`} x={labelPt.x} y={labelPt.y + 3}
-              fontSize="9" fontWeight="bold" textAnchor="middle"
-              fill={past ? '#fca5a5' : '#fafafa'}
-              opacity="0.85"
+              fontSize={i === 0 ? '10' : '9'} fontWeight="bold" textAnchor="middle"
+              fill={i === 0 ? '#34d399' : past ? '#fca5a5' : '#fafafa'}
+              opacity="0.9"
             >
-              {i}
+              {label}
             </text>
           );
         })}
 
-        {/* Horse tokens — animated along the oval, with starting-gate column behind the line */}
-        {horses.map((h, i) => {
-          if (h.finished) return null;
+        {/* Horse tokens — sequenced, with starting-gate column behind the line */}
+        {horses.map((_, i) => {
+          if (finished[i]) return null;
           const horseNum = i + 1;
-          const animPos = animated[i] ?? h.position;
+          const animPos = positions[i] ?? 0;
+          const intPos = Math.round(animPos);
 
           // --- On-track position: tangential stacking along the oval at the animated position
           const ovalAngle = angleForPosition(animPos);
           const ovalCenter = pointOnOval(ovalAngle, TRACK_RX, TRACK_RY);
           const ovalTan = tangentAt(ovalAngle, TRACK_RX, TRACK_RY);
-          const group = byPos.get(h.position) ?? [horseNum];
+          const group = byPos.get(intPos) ?? [horseNum];
           const stackIdx = group.indexOf(horseNum);
           const stackCount = group.length;
-          const tangentSpacing = stackCount > 1 ? Math.min(11, 36 / Math.max(1, stackCount - 1)) : 0;
+          const tangentSpacing = stackCount > 1 ? Math.min(13, 44 / Math.max(1, stackCount - 1)) : 0;
           const tangentOffset = (stackIdx - (stackCount - 1) / 2) * tangentSpacing;
           const ovalX = ovalCenter.x + ovalTan.x * tangentOffset;
           const ovalY = ovalCenter.y + ovalTan.y * tangentOffset;
 
-          // --- Starting-gate position: a single vertical column behind the start line.
+          // --- Starting-gate position: vertical column behind the start line.
           // Horse 1 closest to the inner rail, horse 8 closest to the outer rail.
           const startAngle = angleForPosition(0);
-          const radialPerHorse = 12;
-          const radialOffset = (horseNum - (NUM_HORSES + 1) / 2) * radialPerHorse; // -3.5..+3.5 → -42..+42
+          const radialPerHorse = 14;
+          const radialOffset = (horseNum - (NUM_HORSES + 1) / 2) * radialPerHorse;
           const startCenter = pointOnOval(
             startAngle,
             TRACK_RX + radialOffset,
             TRACK_RY + radialOffset
           );
-          const startTan = tangentAt(startAngle, TRACK_RX, TRACK_RY); // points "behind line" (≈ −x at bottom)
-          const BEHIND_OFFSET = 24;
+          const startTan = tangentAt(startAngle, TRACK_RX, TRACK_RY);
+          const BEHIND_OFFSET = 26;
           const startX = startCenter.x + startTan.x * BEHIND_OFFSET;
           const startY = startCenter.y + startTan.y * BEHIND_OFFSET;
 
@@ -350,8 +412,8 @@ function Track({ horses }: { horses: LSState['horses'] }) {
 
           return (
             <g key={`horse-${horseNum}`}>
-              <circle cx={x} cy={y} r="9" fill={HORSE_COLORS[horseNum - 1]} stroke="#0a0a0a" strokeWidth="1.25" />
-              <text x={x} y={y + 3.5} fontSize="10.5" textAnchor="middle" fontWeight="bold"
+              <circle cx={x} cy={y} r="10" fill={HORSE_COLORS[horseNum - 1]} stroke="#0a0a0a" strokeWidth="1.25" />
+              <text x={x} y={y + 3.5} fontSize="11" textAnchor="middle" fontWeight="bold"
                 fill={horseNum === 2 ? '#0a0a0a' : '#fafafa'}>
                 {horseNum}
               </text>

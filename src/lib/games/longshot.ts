@@ -62,6 +62,15 @@ export type LSPlayer = {
   wildsUsed: number;         // 0-4 wilds marked
 };
 
+/** One horse-move within a roll's animation sequence. */
+export type LSMove = {
+  horseIdx: number;            // 0-7
+  fromPos: number;
+  toPos: number;
+  fromFinished: HorseFinish;
+  toFinished: HorseFinish;
+};
+
 export type LSState = {
   phase: 'lobby' | 'playing' | 'finished';
   round: number;
@@ -69,12 +78,14 @@ export type LSState = {
   currentTurnSeat: number | null;    // who is choosing an action (Phase 2+); null in Phase 1
   step: 'roll' | 'action' | 'between-rounds' | 'done';
   horseDie: number | null;           // 1-8 (last roll)
-  movementDie: number | null;        // 1-6
+  movementDie: number | null;        // 1-3 (weighted d6)
   horses: LSHorse[];                 // length 8
   finishedCount: number;             // how many horses have crossed the line
   market: number[];                  // horse numbers still purchasable
   players: LSPlayer[];               // seated players, sorted by seat
-  log: string[];                     // human-readable event log (last ~20)
+  log: string[];                     // human-readable event log (last ~30)
+  rollId: number;                    // increments per roll — client uses this to trigger animation
+  lastSequence: LSMove[];            // ordered horse moves from the most recent roll
 };
 
 export function initialState(): LSState {
@@ -91,6 +102,8 @@ export function initialState(): LSState {
     market: Array.from({ length: NUM_HORSES }, (_, i) => i + 1),
     players: [],
     log: [],
+    rollId: 0,
+    lastSequence: [],
   };
 }
 
@@ -168,6 +181,7 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
   const rolledIdx = rolledHorse - 1;
 
   const log: string[] = [`Round ${state.round}: rolled horse ${rolledHorse}, move ${movementDie}.`];
+  const sequence: LSMove[] = [];
 
   // Step 2: move the rolled horse `movementDie` spaces (skipped if it's already finished)
   if (!next.horses[rolledIdx].finished) {
@@ -175,6 +189,11 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
     next = moveHorseForward(next, rolledIdx, movementDie);
     const after = next.horses[rolledIdx];
     const moved = after.position - before.position;
+    sequence.push({
+      horseIdx: rolledIdx,
+      fromPos: before.position, toPos: after.position,
+      fromFinished: before.finished, toFinished: after.finished,
+    });
     if (after.finished) {
       log.push(`🏇 Horse ${rolledHorse} advances ${moved} → crosses the line, ${ordinal(after.finished)} place!`);
     } else if (moved > 0) {
@@ -196,12 +215,19 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
     next = moveHorseForward(next, n - 1, 1);
     const after = next.horses[n - 1];
     const moved = after.position - before.position;
+    sequence.push({
+      horseIdx: n - 1,
+      fromPos: before.position, toPos: after.position,
+      fromFinished: before.finished, toFinished: after.finished,
+    });
     if (after.finished) {
       log.push(`↳ Horse ${n} advances ${moved} → crosses the line, ${ordinal(after.finished)} place!`);
     } else if (moved > 0) {
       log.push(`↳ Horse ${n} advances ${moved} (now at space ${after.position}).`);
     }
   }
+
+  next = { ...next, rollId: state.rollId + 1, lastSequence: sequence };
 
   // Race end check
   if (next.finishedCount >= FINISH_POSITIONS) {
