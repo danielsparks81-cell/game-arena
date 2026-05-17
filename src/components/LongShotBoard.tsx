@@ -211,11 +211,6 @@ export default function LongShotBoard({
   const isMyTurnToAct  = me && state.currentTurnSeat === me.seat && state.step === 'action';
   const myBonusPending = !!(state.pendingBonus && me && state.pendingBonus.playerId === me.playerId);
 
-  const winners = state.horses
-    .map((h, i) => ({ num: i + 1, ...h }))
-    .filter(h => h.finished)
-    .sort((a, b) => (a.finished ?? 0) - (b.finished ?? 0));
-
   // --- Lifted action state — the PlayerSheet itself is now the action surface ---
   const [wildHorse, setWildHorse] = useState<number | null>(null);
   const [subPicker, setSubPicker] = useState<'bet' | 'jersey' | null>(null);
@@ -513,26 +508,11 @@ export default function LongShotBoard({
         </div>
       )}
 
-      {/* Winners (full width) */}
-      {winners.length > 0 && (
-        <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-2">
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400">Winner&apos;s Circle</div>
-          <div className="flex flex-wrap gap-4 text-sm">
-            {winners.map(w => (
-              <div key={w.num} className="flex items-center gap-2">
-                <span className="text-neutral-400">{w.finished === 1 ? '🥇' : w.finished === 2 ? '🥈' : '🥉'}</span>
-                <HorseDot num={w.num} />
-                <span>Horse {w.num}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Main grid: track + phase panel left, sheet right on desktop; stacked on mobile/tablet */}
+      {/* Main grid: winners + track + phase panel left, sheet right on desktop; stacked on mobile/tablet */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
-        {/* LEFT: track on top, roll/action-phase panel directly below */}
+        {/* LEFT: Winner's Circle, then Track, then roll/action-phase panel */}
         <div className="space-y-3">
+          <WinnersCircle state={state} />
           <Track
             state={state}
             bonusPick={trackBonusPick}
@@ -1155,6 +1135,51 @@ function PlayerSheet({ state, me, action, bonus }: {
 }
 
 /** Final-state panel showing the player's bet payouts with per-horse breakdown. */
+/**
+ * Always-visible Winner's Circle panel. Shows three medal slots (1st/2nd/3rd) — empty
+ * when no horses have finished yet, populated as horses cross the line. Sits above the
+ * track in the left column.
+ */
+function WinnersCircle({ state }: { state: LSState }) {
+  const places: { place: 1 | 2 | 3; medal: string; horseNum?: number; owner?: string }[] = [
+    { place: 1, medal: '🥇' },
+    { place: 2, medal: '🥈' },
+    { place: 3, medal: '🥉' },
+  ];
+  for (let i = 0; i < NUM_HORSES; i++) {
+    const f = state.horses[i].finished;
+    if (f) {
+      const slot = places.find(p => p.place === f);
+      if (slot) {
+        slot.horseNum = i + 1;
+        slot.owner = state.players.find(p => p.ownedHorses.includes(i + 1))?.username;
+      }
+    }
+  }
+  return (
+    <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-2">
+      <div className="mb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+        Winner&apos;s Circle
+      </div>
+      <div className="flex items-center justify-around gap-3">
+        {places.map(p => (
+          <div key={p.place} className="flex items-center gap-2">
+            <span className={`text-2xl ${p.horseNum ? '' : 'opacity-40 grayscale'}`}>{p.medal}</span>
+            {p.horseNum ? (
+              <span className="flex items-center gap-1.5 text-sm">
+                <HorseDiamond num={p.horseNum} />
+                {p.owner && <span className="text-sky-400">{p.owner}</span>}
+              </span>
+            ) : (
+              <span className="text-xs text-neutral-600">—</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BetWinningsPanel({ state, me }: { state: LSState; me: LSPlayer }) {
   const { total, breakdown } = calculateBetWinnings(state, me);
   if (breakdown.length === 0) {
