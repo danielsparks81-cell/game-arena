@@ -1066,60 +1066,65 @@ function PlayerSheet({ state, me, action, bonus }: {
           </div>
         </div>
 
-        {/* WILDS — 3 stacked horseshoes; greyed/X'd out once spent. Clicking the box enters
-            wild-picking mode (lights up every legal action across all horses). */}
+        {/* WILDS — 3 individual horseshoe tiles. Available tiles enter Wild-pick mode on click;
+            used tiles show a refresh ↺ overlay and click-to-recover (spends your action). */}
         <div className="flex h-full flex-col">
           <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Wilds</div>
-          {(() => {
-            const inner = (
-              <>
-                {Array.from({ length: MAX_WILDS }, (_, idx) => {
-                  const used = idx >= MAX_WILDS - me.wildsUsed;
-                  return (
-                    <div key={idx} className="relative flex items-center justify-center" title={used ? 'Wild spent' : 'Wild available'}>
-                      <HorseshoeIcon className="h-10 w-10" used={used} />
-                      {used && (
-                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl font-bold text-red-500/70">✕</span>
-                      )}
-                    </div>
-                  );
-                })}
-              </>
-            );
-            const canActivate = action && action.wildsLeft > 0;
-            const isActive = action?.pickingWild ?? false;
-            if (canActivate) {
+          <div className="flex flex-1 flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
+            {Array.from({ length: MAX_WILDS }, (_, idx) => {
+              const used = idx >= MAX_WILDS - me.wildsUsed;
+              const isPickingWild = action?.pickingWild ?? false;
+              const canActivate = !used && action && action.wildsLeft > 0;
+              const canRefresh = used && !!action?.refreshWild;
+
+              const tileBase =
+                'relative flex flex-1 items-center justify-center rounded-md border-2 transition disabled:opacity-50';
+
+              if (canActivate) {
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => action!.setPickingWild(!isPickingWild)}
+                    disabled={action!.disabled}
+                    title={isPickingWild ? 'Cancel Wild pick' : 'Use a Wild — light up every legal action'}
+                    className={`${tileBase} ${
+                      isPickingWild
+                        ? 'border-amber-300 bg-amber-500/20 ring-2 ring-amber-300'
+                        : 'border-amber-600 bg-neutral-950 hover:bg-amber-900/20'
+                    }`}
+                  >
+                    <HorseshoeIcon className="h-8 w-8" />
+                  </button>
+                );
+              }
+              if (canRefresh) {
+                return (
+                  <button
+                    key={idx}
+                    onClick={action!.refreshWild}
+                    disabled={action!.disabled}
+                    title="Recover this Wild — spends your action"
+                    className={`${tileBase} border-neutral-700 bg-neutral-900 hover:border-amber-600 hover:bg-amber-900/20`}
+                  >
+                    <HorseshoeIcon className="h-8 w-8" used />
+                    {/* Refresh-arrow overlay on top of the greyed horseshoe */}
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl font-bold text-amber-400">
+                      ↺
+                    </span>
+                  </button>
+                );
+              }
               return (
-                <button
-                  onClick={() => action!.setPickingWild(!isActive)}
-                  disabled={action!.disabled}
-                  title={isActive ? 'Cancel Wild pick' : 'Use a Wild — light up every legal action'}
-                  className={`flex flex-1 flex-col items-center justify-around rounded-md border-2 p-2 transition disabled:opacity-50 ${
-                    isActive
-                      ? 'border-amber-300 bg-amber-500/20 ring-2 ring-amber-300'
-                      : 'border-amber-600 bg-neutral-950 hover:bg-amber-900/20'
-                  }`}
+                <div
+                  key={idx}
+                  title={used ? 'Wild spent' : 'Wild available'}
+                  className={`${tileBase} border-neutral-800 bg-neutral-900`}
                 >
-                  {inner}
-                </button>
+                  <HorseshoeIcon className="h-8 w-8" used={used} />
+                </div>
               );
-            }
-            return (
-              <div className="flex flex-1 flex-col items-center justify-around rounded-md border border-neutral-800 bg-neutral-950 p-2">
-                {inner}
-              </div>
-            );
-          })()}
-          {action?.refreshWild && (
-            <button
-              onClick={action.refreshWild}
-              disabled={action.disabled}
-              title="Spend your action to recover one Wild"
-              className="mt-1 rounded border border-amber-600 px-2 py-0.5 text-[10px] text-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
-            >
-              ↺ Refresh
-            </button>
-          )}
+            })}
+          </div>
         </div>
 
         {/* MONEY — big green dollar amount, matches the column heights */}
