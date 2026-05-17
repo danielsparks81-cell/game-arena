@@ -1,23 +1,78 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import {
   type LSState, TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES,
 } from '@/lib/games/longshot';
 
-// Oval geometry: viewBox 400x220, centered at (200,110), counterclockwise on screen
+// Oval geometry: viewBox 440x260, centered, counterclockwise on screen
 // starting at bottom-middle (matches real horse-racing direction).
-const TRACK_CX = 200;
-const TRACK_CY = 110;
-const TRACK_RX = 165;
-const TRACK_RY = 75;
+const VIEW_W = 440;
+const VIEW_H = 260;
+const TRACK_CX = 220;
+const TRACK_CY = 130;
+const TRACK_RX = 185;             // horizontal radius (rail centerline)
+const TRACK_RY = 100;              // vertical radius
+const TRACK_HALF_WIDTH = 26;       // half the track surface width (outer rail to inner rail = 52px)
 
-function angleForSpace(i: number): number {
-  // i = 0 at bottom, counterclockwise on screen (bottom → right → top → left → bottom)
-  return Math.PI / 2 - (2 * Math.PI * i) / TRACK_LENGTH;
+function angleForPosition(pos: number): number {
+  // pos = 0 at bottom, counterclockwise on screen
+  return Math.PI / 2 - (2 * Math.PI * pos) / TRACK_LENGTH;
 }
 
 function pointOnOval(angle: number, rx: number, ry: number) {
   return { x: TRACK_CX + rx * Math.cos(angle), y: TRACK_CY + ry * Math.sin(angle) };
+}
+
+/** Unit tangent vector at a given angle on the oval (used to stack horses along the rail). */
+function tangentAt(angle: number, rx: number, ry: number) {
+  const tx = -rx * Math.sin(angle);
+  const ty = ry * Math.cos(angle);
+  const mag = Math.hypot(tx, ty) || 1;
+  return { x: tx / mag, y: ty / mag };
+}
+
+/** Animate an array of numbers toward `targets` over `durationMs`. Returns the live interpolated values. */
+function useAnimatedNumbers(targets: number[], durationMs = 700): number[] {
+  const [displayed, setDisplayed] = useState<number[]>(() => targets.slice());
+  const animsRef = useRef<{ from: number; to: number; start: number }[]>(targets.map(t => ({ from: t, to: t, start: 0 })));
+  const rafRef = useRef<number | null>(null);
+  const key = targets.join(',');
+
+  useEffect(() => {
+    const now = performance.now();
+    // Seed animations: new `from` = current displayed value, `to` = new target
+    setDisplayed(prev => {
+      animsRef.current = targets.map((to, i) => ({ from: prev[i] ?? to, to, start: now }));
+      return prev;
+    });
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    const tick = (t: number) => {
+      let stillAnimating = false;
+      const next = animsRef.current.map(anim => {
+        const progress = Math.min(1, (t - anim.start) / durationMs);
+        if (progress < 1) stillAnimating = true;
+        // ease-in-out cubic
+        const eased = progress < 0.5
+          ? 4 * progress * progress * progress
+          : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+        return anim.from + (anim.to - anim.from) * eased;
+      });
+      setDisplayed(next);
+      if (stillAnimating) rafRef.current = requestAnimationFrame(tick);
+      else rafRef.current = null;
+    };
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+    // Re-run only when the actual target values change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, durationMs]);
+
+  return displayed;
 }
 
 export default function LongShotBoard({
@@ -162,7 +217,13 @@ function HorseDot({ num }: { num: number }) {
 }
 
 function Track({ horses }: { horses: LSState['horses'] }) {
-  // Group horses by position; finished horses are not on the track
+  // Animate each horse's track position smoothly (finished horses don't render here).
+  // For finished horses we just hold their last position so they don't fly back.
+  const targets = horses.map(h => (h.finished ? -1 : h.position));
+  const liveTargets = targets.map(t => (t < 0 ? 0 : t)); // -1 (finished) renders as 0 but hidden via opacity
+  const animated = useAnimatedNumbers(liveTargets, 750);
+
+  // Group horses by INTEGER target position for tangential stacking
   const byPos = new Map<number, number[]>();
   horses.forEach((h, i) => {
     if (h.finished) return;
@@ -171,25 +232,19 @@ function Track({ horses }: { horses: LSState['horses'] }) {
     byPos.set(h.position, list);
   });
 
-  // Pre-compute label/horse positions for each of the 16 spaces
-  const spaceData = Array.from({ length: TRACK_LENGTH }, (_, i) => {
-    const angle = angleForSpace(i);
-    return { i, angle, ...pointOnOval(angle, (TRACK_RX + TRACK_RY) / 2 + 18, (TRACK_RY + TRACK_RY * 0.4)) };
-  });
+  // No-Bet line: midway between space 11 and 12
+  const noBetAngle = (angleForPosition(NO_BET_SPACE - 1) + angleForPosition(NO_BET_SPACE)) / 2;
+  const noBetInner = pointOnOval(noBetAngle, TRACK_RX - TRACK_HALF_WIDTH, TRACK_RY - TRACK_HALF_WIDTH);
+  const noBetOuter = pointOnOval(noBetAngle, TRACK_RX + TRACK_HALF_WIDTH, TRACK_RY + TRACK_HALF_WIDTH);
 
-  // No-Bet line: drawn between space 11 and 12 (i.e., at angle midway)
-  const noBetAngle = (angleForSpace(NO_BET_SPACE - 1) + angleForSpace(NO_BET_SPACE)) / 2;
-  const noBetInner  = pointOnOval(noBetAngle, TRACK_RX - 35, TRACK_RY - 14);
-  const noBetOuter  = pointOnOval(noBetAngle, TRACK_RX + 14, TRACK_RY + 6);
-
-  // Start/Finish line: at angle of space 0 (bottom)
-  const finishAngle = angleForSpace(0);
-  const finishInner = pointOnOval(finishAngle, TRACK_RX - 35, TRACK_RY - 14);
-  const finishOuter = pointOnOval(finishAngle, TRACK_RX + 14, TRACK_RY + 6);
+  // Start/Finish line at angle of space 0
+  const finishAngle = angleForPosition(0);
+  const finishInner = pointOnOval(finishAngle, TRACK_RX - TRACK_HALF_WIDTH, TRACK_RY - TRACK_HALF_WIDTH);
+  const finishOuter = pointOnOval(finishAngle, TRACK_RX + TRACK_HALF_WIDTH, TRACK_RY + TRACK_HALF_WIDTH);
 
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3">
-      <svg viewBox="0 0 400 220" className="block h-auto w-full">
+      <svg viewBox={`0 0 ${VIEW_W} ${VIEW_H}`} className="block h-auto w-full">
         <defs>
           <linearGradient id="ls-track-sky" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="#0c4a6e" />
@@ -205,69 +260,80 @@ function Track({ horses }: { horses: LSState['horses'] }) {
           </radialGradient>
         </defs>
 
-        <rect width="400" height="220" fill="url(#ls-track-sky)" rx="6" />
+        <rect width={VIEW_W} height={VIEW_H} fill="url(#ls-track-sky)" rx="6" />
 
-        {/* Track surface (outer ring) */}
-        <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX + 14} ry={TRACK_RY + 14} fill="#fafafa" />
-        <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX + 12} ry={TRACK_RY + 12} fill="url(#ls-track-turf)" />
+        {/* Outer rail (white) */}
+        <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX + TRACK_HALF_WIDTH + 2} ry={TRACK_RY + TRACK_HALF_WIDTH + 2} fill="#fafafa" />
+        {/* Track surface */}
+        <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX + TRACK_HALF_WIDTH} ry={TRACK_RY + TRACK_HALF_WIDTH} fill="url(#ls-track-turf)" />
+        {/* Inner rail (white) */}
+        <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX - TRACK_HALF_WIDTH + 1} ry={TRACK_RY - TRACK_HALF_WIDTH + 1} fill="#fafafa" />
         {/* Infield (grass) */}
-        <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX - 35} ry={TRACK_RY - 14} fill="url(#ls-track-infield)" stroke="#fafafa" strokeWidth="1.5" />
+        <ellipse cx={TRACK_CX} cy={TRACK_CY} rx={TRACK_RX - TRACK_HALF_WIDTH - 1} ry={TRACK_RY - TRACK_HALF_WIDTH - 1} fill="url(#ls-track-infield)" />
 
-        {/* Start/Finish line — emerald with stripes */}
-        <line x1={finishInner.x} y1={finishInner.y} x2={finishOuter.x} y2={finishOuter.y}
-              stroke="#34d399" strokeWidth="3" />
-        <line x1={finishInner.x} y1={finishInner.y} x2={finishOuter.x} y2={finishOuter.y}
-              stroke="#fafafa" strokeWidth="3" strokeDasharray="2 2" />
-        <text x={finishOuter.x} y={finishOuter.y + 14} fill="#34d399" fontSize="9" fontWeight="bold" textAnchor="middle">
-          START / FINISH
-        </text>
-
-        {/* No-Bet line — red */}
-        <line x1={noBetInner.x} y1={noBetInner.y} x2={noBetOuter.x} y2={noBetOuter.y}
-              stroke="#ef4444" strokeWidth="3" strokeDasharray="3 2" />
-        <text x={noBetOuter.x - 4} y={noBetOuter.y - 4} fill="#fca5a5" fontSize="8" fontWeight="bold" textAnchor="end">
-          NO-BET
-        </text>
-
-        {/* Space markers around the track (small numbered dots on the rail) */}
+        {/* Equidistant separator lines between each pair of consecutive spaces */}
         {Array.from({ length: TRACK_LENGTH }, (_, i) => {
-          const a = angleForSpace(i);
-          const railOuter = pointOnOval(a, TRACK_RX + 9, TRACK_RY + 9);
-          const past = i >= NO_BET_SPACE;
+          const a = angleForPosition(i + 0.5); // midpoint between space i and i+1
+          const inner = pointOnOval(a, TRACK_RX - TRACK_HALF_WIDTH, TRACK_RY - TRACK_HALF_WIDTH);
+          const outer = pointOnOval(a, TRACK_RX + TRACK_HALF_WIDTH, TRACK_RY + TRACK_HALF_WIDTH);
           return (
-            <g key={`sp-${i}`}>
-              <circle cx={railOuter.x} cy={railOuter.y} r="6" fill="#1f2937" stroke={past ? '#7f1d1d' : '#374151'} strokeWidth="1" />
-              <text x={railOuter.x} y={railOuter.y + 3} fontSize="8" textAnchor="middle"
-                    fill={past ? '#fca5a5' : '#9ca3af'} fontWeight="bold">
-                {i}
-              </text>
-            </g>
+            <line key={`sep-${i}`}
+              x1={inner.x} y1={inner.y} x2={outer.x} y2={outer.y}
+              stroke="#fafafa" strokeWidth="0.75" strokeOpacity="0.35"
+            />
           );
         })}
 
-        {/* Horse tokens — placed at each space's location, stacked radially when sharing */}
-        {spaceData.map(({ i, angle }) => {
-          const occupants = byPos.get(i) ?? [];
-          if (occupants.length === 0) return null;
-          // base ring radius (just inside the rail)
-          const baseRx = TRACK_RX - 14;
-          const baseRy = TRACK_RY - 14;
+        {/* Start/Finish line — green/white stripes, thicker */}
+        <line x1={finishInner.x} y1={finishInner.y} x2={finishOuter.x} y2={finishOuter.y}
+              stroke="#34d399" strokeWidth="4" />
+        <line x1={finishInner.x} y1={finishInner.y} x2={finishOuter.x} y2={finishOuter.y}
+              stroke="#fafafa" strokeWidth="4" strokeDasharray="3 3" />
+
+        {/* No-Bet line — red dashed */}
+        <line x1={noBetInner.x} y1={noBetInner.y} x2={noBetOuter.x} y2={noBetOuter.y}
+              stroke="#ef4444" strokeWidth="4" strokeDasharray="4 3" />
+
+        {/* Space number labels — small, on the inner rail */}
+        {Array.from({ length: TRACK_LENGTH }, (_, i) => {
+          const a = angleForPosition(i);
+          const labelPt = pointOnOval(a, TRACK_RX - TRACK_HALF_WIDTH - 10, TRACK_RY - TRACK_HALF_WIDTH - 10);
+          const past = i >= NO_BET_SPACE;
           return (
-            <g key={`occ-${i}`}>
-              {occupants.map((horseNum, idx) => {
-                // Offset each subsequent horse outward by 11px so they stack visually
-                const inward = idx * 13;
-                const p = pointOnOval(angle, baseRx - inward, baseRy - inward * 0.7);
-                return (
-                  <g key={horseNum}>
-                    <circle cx={p.x} cy={p.y} r="7.5" fill={HORSE_COLORS[horseNum - 1]} stroke="#0a0a0a" strokeWidth="1" />
-                    <text x={p.x} y={p.y + 3} fontSize="9" textAnchor="middle" fontWeight="bold"
-                          fill={horseNum === 2 ? '#0a0a0a' : '#fafafa'}>
-                      {horseNum}
-                    </text>
-                  </g>
-                );
-              })}
+            <text key={`lbl-${i}`} x={labelPt.x} y={labelPt.y + 3}
+              fontSize="9" fontWeight="bold" textAnchor="middle"
+              fill={past ? '#fca5a5' : '#fafafa'}
+              opacity="0.85"
+            >
+              {i}
+            </text>
+          );
+        })}
+
+        {/* Horse tokens — animated along the oval, stacked tangentially per space */}
+        {horses.map((h, i) => {
+          if (h.finished) return null;
+          const horseNum = i + 1;
+          const animPos = animated[i] ?? h.position;
+          const angle = angleForPosition(animPos);
+          // Find this horse's index within its space group for tangential offset
+          const group = byPos.get(h.position) ?? [horseNum];
+          const stackIdx = group.indexOf(horseNum);
+          const stackCount = group.length;
+          // Spread up to 6 horses tangentially within ±18px; collapse beyond that
+          const spacing = stackCount > 1 ? Math.min(11, 36 / Math.max(1, stackCount - 1)) : 0;
+          const tangentOffset = (stackIdx - (stackCount - 1) / 2) * spacing;
+          const center = pointOnOval(angle, TRACK_RX, TRACK_RY);
+          const tan = tangentAt(angle, TRACK_RX, TRACK_RY);
+          const x = center.x + tan.x * tangentOffset;
+          const y = center.y + tan.y * tangentOffset;
+          return (
+            <g key={`horse-${horseNum}`}>
+              <circle cx={x} cy={y} r="9" fill={HORSE_COLORS[horseNum - 1]} stroke="#0a0a0a" strokeWidth="1.25" />
+              <text x={x} y={y + 3.5} fontSize="10.5" textAnchor="middle" fontWeight="bold"
+                fill={horseNum === 2 ? '#0a0a0a' : '#fafafa'}>
+                {horseNum}
+              </text>
             </g>
           );
         })}
