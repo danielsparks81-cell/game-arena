@@ -9,7 +9,7 @@ import { type C4State, C4_COLS, C4_ROWS } from '@/lib/games/connect4';
 import { sounds, unlockAudio } from '@/lib/sounds';
 import MembersPanel from '@/components/MembersPanel';
 import {
-  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch,
+  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch, startGame,
 } from './actions';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
@@ -155,6 +155,15 @@ export default function RoomClient({
           />
         )}
 
+        {room.game_type === 'longshot' && (
+          <LongShotPlaceholder
+            room={room}
+            currentUserId={currentUserId}
+            pending={pending}
+            onStart={() => startTransition(() => { startGame(roomId); })}
+          />
+        )}
+
         {finished && imSeated && (
           <div className="mt-6 flex flex-col items-center gap-2 rounded-xl border border-emerald-900/40 bg-emerald-500/5 p-5">
             <p className="text-sm text-neutral-300">Rematch? Both players need to agree.</p>
@@ -247,23 +256,29 @@ function countMoves(s: unknown): number {
   return (obj.board as unknown[]).filter(c => c !== null).length;
 }
 
-const SEAT_LABELS: Record<string, [string, string]> = {
+const SEAT_LABELS: Record<string, string[]> = {
   tictactoe: ['X', 'O'],
   connect4:  ['Red', 'Yellow'],
 };
 
 function Seats({ room, currentUserId }: { room: Room; currentUserId: string }) {
-  const labels = SEAT_LABELS[room.game_type] ?? ['Seat 1', 'Seat 2'];
+  const labels = SEAT_LABELS[room.game_type];
   const seated = [...room.room_players].sort((a, b) => a.seat - b.seat);
   const slots = Array.from({ length: room.max_players }, (_, i) => seated.find(p => p.seat === i));
+  // For larger games (Long Shot up to 8), use a grid so seats wrap; for 2-player games keep a row.
+  const grid = room.max_players > 2
+    ? 'grid grid-cols-2 gap-2 sm:grid-cols-4'
+    : 'flex gap-2';
   return (
-    <div className="mb-4 flex gap-2">
+    <div className={`mb-4 ${grid}`}>
       {slots.map((p, i) => (
-        <div key={i} className={`flex-1 rounded-lg border px-3 py-2 text-sm ${
+        <div key={i} className={`rounded-lg border px-3 py-2 text-sm ${room.max_players <= 2 ? 'flex-1' : ''} ${
           p ? 'border-neutral-700 bg-neutral-900' : 'border-dashed border-neutral-800 text-neutral-500'
         }`}>
-          <div className="text-xs text-neutral-500">Seat {i + 1} ({labels[i] ?? `P${i + 1}`})</div>
-          <div className={p?.player_id === currentUserId ? 'font-semibold text-emerald-400' : ''}>
+          <div className="text-xs text-neutral-500">
+            Seat {i + 1}{labels?.[i] ? ` (${labels[i]})` : ''}
+          </div>
+          <div className={`truncate ${p?.player_id === currentUserId ? 'font-semibold text-emerald-400' : ''}`}>
             {p?.profiles?.username || 'Waiting…'}
           </div>
         </div>
@@ -405,6 +420,56 @@ function ConnectFourBoard({
           })}
         </div>
       </div>
+    </div>
+  );
+}
+
+function LongShotPlaceholder({
+  room, currentUserId, pending, onStart,
+}: {
+  room: Room;
+  currentUserId: string;
+  pending: boolean;
+  onStart: () => void;
+}) {
+  const isHost = room.host_id === currentUserId;
+  const playerCount = room.room_players.length;
+  const canStart = isHost && room.status === 'waiting' && playerCount >= 1;
+
+  return (
+    <div className="space-y-4 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
+      {room.status === 'waiting' ? (
+        <>
+          <div>
+            <h3 className="text-lg font-semibold">Waiting for players</h3>
+            <p className="mt-1 text-sm text-neutral-400">
+              Up to {room.max_players} players. Share the room link or invite friends from the panel.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {canStart ? (
+              <button
+                onClick={onStart}
+                disabled={pending}
+                className="rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
+              >
+                Start race ({playerCount} {playerCount === 1 ? 'player' : 'players'})
+              </button>
+            ) : isHost ? (
+              <span className="text-sm text-neutral-500">Need at least 1 seated player to start.</span>
+            ) : (
+              <span className="text-sm text-neutral-500">Waiting for the host to start the race…</span>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="rounded-lg border border-dashed border-neutral-700 p-6 text-center">
+          <h3 className="text-lg font-semibold">🏇 Race in progress</h3>
+          <p className="mt-2 text-sm text-neutral-400">
+            The Long Shot race UI ships in the next deploy. Game state is being tracked in the background.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

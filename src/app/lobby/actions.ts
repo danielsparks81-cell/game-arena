@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getGame } from '@/lib/games/registry';
 import { initialState as tttInitial } from '@/lib/games/tictactoe';
 import { initialState as c4Initial } from '@/lib/games/connect4';
+import { initialState as lsInitial, addPlayer as lsAddPlayer } from '@/lib/games/longshot';
 
 export async function createRoom(formData: FormData) {
   const gameType = String(formData.get('gameType') || '');
@@ -15,10 +16,15 @@ export async function createRoom(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not signed in');
 
+  const { data: profile } = await supabase
+    .from('profiles').select('username').eq('id', user.id).single();
+  const hostUsername = profile?.username ?? 'player';
+
   // Initial state with host seated as the first player
   const state =
     gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
     gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
+    gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
     {};
 
   const { data: room, error } = await supabase
@@ -54,11 +60,16 @@ export async function inviteToGame(targetUserId: string, gameType: string): Prom
     .from('profiles').select('id').eq('id', targetUserId).maybeSingle();
   if (!target) throw new Error('User not found');
 
+  const { data: profile } = await supabase
+    .from('profiles').select('username').eq('id', user.id).single();
+  const hostUsername = profile?.username ?? 'player';
+
   // Host seats themselves; invitee joins themselves when they click the notification
   // (RLS only allows users to insert their own room_players rows).
   const state =
     gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
     gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
+    gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
     {};
 
   const { data: room, error } = await supabase

@@ -5,6 +5,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
 import { applyMove as applyMoveTTT, initialState as tttInitial, type TTTState } from '@/lib/games/tictactoe';
 import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } from '@/lib/games/connect4';
+import {
+  addPlayer as lsAddPlayer,
+  startRace as lsStartRace,
+  type LSState,
+} from '@/lib/games/longshot';
 
 /**
  * Push a "room changed" event over Supabase Realtime broadcast so every connected client
@@ -59,17 +64,57 @@ export async function joinRoom(roomId: string) {
     .insert({ room_id: roomId, player_id: user.id, seat });
   if (insErr) throw new Error(insErr.message);
 
-  const state = (room.state || {}) as Record<string, unknown> & { seats?: Record<string, string> };
-  const seats = { ...(state.seats || {}) };
-  if (seat === 1) {
-    if (room.game_type === 'tictactoe' && !seats.O) seats.O = user.id;
-    if (room.game_type === 'connect4'  && !seats.Y) seats.Y = user.id;
+  if (room.game_type === 'longshot') {
+    // Long Shot: stay in 'waiting' until host clicks Start. Add player to game state.
+    const { data: profile } = await supabase
+      .from('profiles').select('username').eq('id', user.id).single();
+    const username = profile?.username ?? 'player';
+    const newState = lsAddPlayer((room.state || {}) as LSState, user.id, username, seat);
+    await supabase.from('rooms').update({ state: newState }).eq('id', roomId);
+  } else {
+    // Tic-Tac-Toe / Connect Four: auto-start when 2nd player joins.
+    const state = (room.state || {}) as Record<string, unknown> & { seats?: Record<string, string> };
+    const seats = { ...(state.seats || {}) };
+    if (seat === 1) {
+      if (room.game_type === 'tictactoe' && !seats.O) seats.O = user.id;
+      if (room.game_type === 'connect4'  && !seats.Y) seats.Y = user.id;
+    }
+    await supabase
+      .from('rooms')
+      .update({ status: 'playing', state: { ...state, seats } })
+      .eq('id', roomId);
   }
 
-  await supabase
+  await notifyRoom(roomId);
+  revalidatePath(`/rooms/${roomId}`);
+}
+
+/** Host flips a waiting Long Shot room to 'playing'. */
+export async function startGame(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
     .from('rooms')
-    .update({ status: 'playing', state: { ...state, seats } })
-    .eq('id', roomId);
+    .select('id, game_type, status, state, host_id, room_players(player_id)')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.host_id !== user.id) throw new Error('Only the host can start the game');
+  if (room.status !== 'waiting') throw new Error('Game already started');
+  if (room.room_players.length < 1) throw new Error('Need at least 1 player');
+
+  if (room.game_type === 'longshot') {
+    const next = lsStartRace((room.state || {}) as LSState);
+    if ('error' in next) throw new Error(next.error);
+    await supabase
+      .from('rooms')
+      .update({ status: 'playing', state: next })
+      .eq('id', roomId);
+  } else {
+    await supabase.from('rooms').update({ status: 'playing' }).eq('id', roomId);
+  }
 
   await notifyRoom(roomId);
   revalidatePath(`/rooms/${roomId}`);

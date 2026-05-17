@@ -3,6 +3,7 @@
 export function GameThumbnail({ gameId, className }: { gameId: string; className?: string }) {
   if (gameId === 'tictactoe') return <TicTacToeThumb className={className} />;
   if (gameId === 'connect4')  return <ConnectFourThumb className={className} />;
+  if (gameId === 'longshot')  return <LongShotThumb className={className} />;
   return <PlaceholderThumb className={className} />;
 }
 
@@ -109,6 +110,51 @@ function ConnectFourThumb({ className }: { className?: string }) {
           );
         })
       )}
+    </svg>
+  );
+}
+
+function LongShotThumb({ className }: { className?: string }) {
+  // Oval racetrack with 4 colored "horses" mid-race
+  return (
+    <svg viewBox="0 0 140 100" className={className} role="img" aria-label="Long Shot">
+      <defs>
+        <linearGradient id="ls-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#0c4a6e" />
+          <stop offset="1" stopColor="#082f49" />
+        </linearGradient>
+        <linearGradient id="ls-turf" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#a16207" />
+          <stop offset="1" stopColor="#78350f" />
+        </linearGradient>
+      </defs>
+      <rect width="140" height="100" rx="10" fill="url(#ls-sky)" />
+      {/* Outer track (oval) */}
+      <ellipse cx="70" cy="55" rx="60" ry="32" fill="url(#ls-turf)" />
+      {/* Inner field (grass) */}
+      <ellipse cx="70" cy="55" rx="34" ry="14" fill="#166534" />
+      {/* Finish line */}
+      <line x1="10" y1="55" x2="36" y2="55" stroke="#fff" strokeWidth="1.5" strokeDasharray="2 1.5" />
+      {/* Horses around the track (small colored arcs) */}
+      <g>
+        <circle cx="46" cy="33" r="3" fill="#dc2626" />
+        <circle cx="72" cy="25" r="3" fill="#2563eb" />
+        <circle cx="100" cy="36" r="3" fill="#eab308" />
+        <circle cx="114" cy="62" r="3" fill="#22c55e" />
+        <circle cx="92" cy="80" r="3" fill="#a855f7" />
+      </g>
+      {/* Dice */}
+      <g transform="translate(112 10)">
+        <rect width="14" height="14" rx="2" fill="#fafafa" />
+        <circle cx="4" cy="4"  r="1.4" fill="#0a0a0a" />
+        <circle cx="10" cy="4" r="1.4" fill="#0a0a0a" />
+        <circle cx="4" cy="10" r="1.4" fill="#0a0a0a" />
+        <circle cx="10" cy="10" r="1.4" fill="#0a0a0a" />
+      </g>
+      <g transform="translate(96 10)">
+        <rect width="14" height="14" rx="2" fill="#fbbf24" />
+        <text x="7" y="11" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#0a0a0a" fontFamily="system-ui">5</text>
+      </g>
     </svg>
   );
 }

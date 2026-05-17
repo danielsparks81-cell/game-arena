@@ -21,6 +21,13 @@ export const GAMES: Record<string, GameDef> = {
     minPlayers: 2,
     maxPlayers: 2,
   },
+  longshot: {
+    id: 'longshot',
+    name: 'Long Shot',
+    description: 'Horse-racing dice game. Buy, bet, and influence the race. (Beta)',
+    minPlayers: 1,
+    maxPlayers: 8,
+  },
 };
 
 export function getGame(id: string): GameDef | undefined {
