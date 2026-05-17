@@ -77,22 +77,16 @@ export const CONCESSION_BONUSES = [
 ] as const;
 
 /**
- * Placeholder secondary-movement bars: when horse N is rolled, every entry in
- * SECONDARY_BARS[N] also advances 1 space (the "pre-printed X's"). Real card data
- * lands in Phase 4. Players can mark ADDITIONAL X's via the Jersey action — those
- * extras live in each player's jerseyMarks (not here).
+ * Default secondary-movement bars are empty — all secondary movement comes from
+ * jerseyMarks (player-placed marks). Players start with a small number of pre-marked
+ * jerseys (see genStartingJerseys) so there is some cascading from round 1.
  */
 export const SECONDARY_BARS: number[][] = [
-  [],
-  [2, 3, 4],
-  [1, 3, 5],
-  [1, 4, 6],
-  [2, 5, 7],
-  [3, 4, 8],
-  [1, 5, 7],
-  [2, 6, 8],
-  [3, 5, 7],
+  [], [], [], [], [], [], [], [], [],
 ];
+
+/** Number of jersey marks each player starts the race with (one per jersey horse). */
+export const STARTING_JERSEYS = 3;
 
 export type HorseFinish = 1 | 2 | 3 | null;
 
@@ -291,10 +285,14 @@ export function startRace(state: LSState): LSState | { error: string } {
     }
     if (pairKey) usedPairs.add(pairKey);
 
+    const startingJerseys = genStartingJerseys();
+
     return {
       ...p,
       concessionMarks,
       bets,
+      jerseys: startingJerseys.jerseys,
+      jerseyMarks: startingJerseys.jerseyMarks,
       bonusesClaimed: Array.from({ length: CONCESSION_BONUSES.length }, () => false),
     };
   });
@@ -343,6 +341,32 @@ function tryGenStartingBets(
   bets[lo - 1] = split[0];
   bets[hi - 1] = split[1];
   return { bets, pairKey: `${lo}-${hi}` };
+}
+
+/**
+ * Pick STARTING_JERSEYS distinct jersey horses for a player; each gets a single
+ * markHorse (random other horse). Returns the jerseys/jerseyMarks arrays ready to
+ * drop into the LSPlayer struct.
+ */
+function genStartingJerseys(): { jerseys: number[]; jerseyMarks: number[][] } {
+  const jerseys = Array.from({ length: NUM_HORSES }, () => 0);
+  const jerseyMarks: number[][] = Array.from({ length: NUM_HORSES }, () => []);
+
+  // Fisher-Yates shuffle to pick STARTING_JERSEYS distinct jersey horses
+  const horses = Array.from({ length: NUM_HORSES }, (_, i) => i + 1);
+  for (let i = horses.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [horses[i], horses[j]] = [horses[j], horses[i]];
+  }
+  const jerseyHorses = horses.slice(0, STARTING_JERSEYS);
+
+  for (const jh of jerseyHorses) {
+    jerseys[jh - 1] = 1;
+    const candidates = Array.from({ length: NUM_HORSES }, (_, i) => i + 1).filter(n => n !== jh);
+    const mh = candidates[Math.floor(Math.random() * candidates.length)];
+    jerseyMarks[jh - 1] = [mh];
+  }
+  return { jerseys, jerseyMarks };
 }
 
 /**
