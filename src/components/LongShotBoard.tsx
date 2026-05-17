@@ -501,13 +501,13 @@ function ActionPanel({
         <ActionBtn label={`Buy ($${HORSE_COSTS[horseIdx]})`} icon="🏠" disabled={disabled || !canBuy}
           tip={!canBuy ? (finished ? 'Horse is finished' : !state.market.includes(rolledHorse) ? 'Not in market' : 'Not enough money') : undefined}
           onClick={() => { closeAll(); send({ type: 'buy' }); }} />
-        <ActionBtn label="Refresh Wilds" icon="✨" disabled={disabled || !canRefreshWilds}
+        <ActionBtn label="Refresh Wild" icon="✨" disabled={disabled || !canRefreshWilds}
           tip={!canRefreshWilds
             ? (me.wildsUsed === 0
-                ? 'No wilds to refresh'
+                ? 'No wild to refresh'
                 : 'Only available when you have no legal action on the rolled horse')
-            : 'Reset all wilds — spends your action'}
-          onClick={() => { closeAll(); onAction({ type: 'refresh_wilds' }); }} />
+            : 'Recover one Wild — spends your action'}
+          onClick={() => { closeAll(); onAction({ type: 'refresh_wild' }); }} />
       </div>
 
       {open === 'bet' && (

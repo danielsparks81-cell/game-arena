@@ -538,7 +538,7 @@ export type ActionPayload = (
   | { type: 'helmet' }
   | { type: 'jersey'; markHorse: number }           // horse number (1-8) to mark on rolled horse's bar
   | { type: 'concession'; cellIdx: number }         // 0..CONCESSION_CELLS-1
-  | { type: 'refresh_wilds' }                       // spend your turn to reset all wilds; only legal when stuck
+  | { type: 'refresh_wild' }                        // spend your turn to recover ONE wild; only legal when stuck
   | { type: 'claim_bonus'; bonusId: string;
       horse?: number;                               // single-horse bonuses
       horse2?: number;                              // second horse for back/forward 2-x-2
@@ -603,7 +603,7 @@ export function takeAction(
   // Wild Numbers: if the player chose to use a wild, validate and consume one
   let effectiveHorse = state.horseDie!;
   let wildConsumed = false;
-  if (payload.type !== 'claim_bonus' && payload.type !== 'refresh_wilds' && payload.wild !== undefined) {
+  if (payload.type !== 'claim_bonus' && payload.type !== 'refresh_wild' && payload.wild !== undefined) {
     if (player.wildsUsed >= MAX_WILDS) return { error: 'No wilds remaining' };
     if (!Number.isInteger(payload.wild) || payload.wild < 1 || payload.wild > NUM_HORSES) {
       return { error: 'Wild horse number must be 1-8' };
@@ -743,15 +743,15 @@ export function takeAction(
       return { error: 'No bonus to claim right now' };
     }
 
-    case 'refresh_wilds': {
+    case 'refresh_wild': {
       // Only available when the player has no legal action on the rolled horse
-      // and has at least one wild that's been used.
+      // and has at least one wild that's been used. Recovers ONE wild.
       if (player.wildsUsed === 0) return { error: 'No wilds to refresh' };
       if (hasValidActionOnHorse(state, player, state.horseDie!)) {
         return { error: 'You still have valid actions on the rolled horse — no refresh needed' };
       }
-      updatedPlayer = { ...updatedPlayer, wildsUsed: 0 };
-      log.push(`✨ ${player.username} spends the turn to refresh all wilds.`);
+      updatedPlayer = { ...updatedPlayer, wildsUsed: player.wildsUsed - 1 };
+      log.push(`✨ ${player.username} spends the turn to refresh one Wild.`);
       break;
     }
   }
