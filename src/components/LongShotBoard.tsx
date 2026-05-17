@@ -989,8 +989,8 @@ function PlayerSheet({ state, me, action, bonus }: {
       {/* BOTTOM: 4-column row — Concessions · Bonuses · Wilds · Money. All titles centered.
           Concessions sets the row height via its aspect-square 4×4 grid; the other three
           columns are `flex h-full` so their inner content stretches to match. */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(200px,240px)_minmax(0,1fr)_minmax(70px,90px)_minmax(80px,110px)]">
-        <div>
+      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-around">
+        <div className="w-full sm:w-60">
           <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
           <ConcessionGrid
             grid={state.concessionGrid}
@@ -1000,18 +1000,16 @@ function PlayerSheet({ state, me, action, bonus }: {
             fullWidth
           />
         </div>
-        <div className="flex h-full flex-col">
+        <div className="flex w-full flex-col sm:w-80">
           <div className="mb-1 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wider">
             <span className="text-neutral-500">Bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
-          {/* The wrapper above is h-full → matches the concessions wrapper height via grid-row stretch.
-              flex-1 here makes the inner grid fill the remaining height after the header, and the
-              row template (1fr each) splits that height into 3 equal rows. */}
+          {/* Wrapper is width-matched so the centered title above lands directly over the box.
+              flex-1 here makes the inner grid fill remaining height after the header. */}
           <div
             className="grid w-full flex-1 grid-flow-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2"
             style={{
-              maxWidth: '320px',
               gridTemplateRows: 'repeat(3, minmax(0, 1fr))',
               gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
             }}
@@ -1068,7 +1066,7 @@ function PlayerSheet({ state, me, action, bonus }: {
 
         {/* WILDS — 3 individual horseshoe tiles. Available tiles enter Wild-pick mode on click;
             used tiles show a refresh ↺ overlay and click-to-recover (spends your action). */}
-        <div className="flex h-full flex-col">
+        <div className="flex w-full flex-col sm:w-24">
           <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Wilds</div>
           <div className="flex flex-1 flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             {Array.from({ length: MAX_WILDS }, (_, idx) => {
@@ -1128,7 +1126,7 @@ function PlayerSheet({ state, me, action, bonus }: {
         </div>
 
         {/* MONEY — big green dollar amount, matches the column heights */}
-        <div className="flex h-full flex-col">
+        <div className="flex w-full flex-col sm:w-28">
           <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Money</div>
           <div className="flex flex-1 items-center justify-center rounded-md border-2 border-emerald-500/50 bg-emerald-500/10 p-2">
             <span className="font-mono text-2xl font-bold text-emerald-400">${me.money}</span>
