@@ -213,6 +213,12 @@ export default function RoomClient({
         <MembersPanel
           currentUserId={currentUserId}
           currentUsername={currentUsername}
+          currentRoom={{
+            id: roomId,
+            gameType: room.game_type,
+            status: room.status,
+            openSeats: Math.max(0, room.max_players - room.room_players.length),
+          }}
           className="lg:max-h-[320px] lg:overflow-y-auto"
         />
       <aside className="flex h-80 flex-col rounded-xl border border-neutral-800 bg-neutral-900 lg:h-[480px]">

@@ -17,11 +17,17 @@ export default function MembersPanel({
   currentUsername,
   initialStats = [],
   className = '',
+  currentRoom,
 }: {
   currentUserId: string;
   currentUsername: string;
   initialStats?: UserStat[];
   className?: string;
+  /**
+   * If provided AND the room is `waiting` with at least one open seat, the Invite button
+   * will pull the friend into THIS room instead of creating a new one.
+   */
+  currentRoom?: { id: string; gameType: string; status: string; openSeats: number };
 }) {
   const supabase = createClient();
   const router = useRouter();
@@ -105,24 +111,45 @@ export default function MembersPanel({
       .sort((a, b) => a.username.localeCompare(b.username));
   }, [stats, online, currentUserId]);
 
+  const canInviteToCurrent =
+    !!currentRoom && currentRoom.status === 'waiting' && currentRoom.openSeats > 0;
+
   async function doInvite(target: OnlineUser, gameType: string) {
     setInviteError(null);
     startTransition(async () => {
       try {
-        const { roomId } = await inviteToGame(target.id, gameType);
+        let roomId: string;
+        let game: string;
+        let createdNewRoom = false;
+
+        if (canInviteToCurrent && currentRoom) {
+          // Pull the friend into the room we're already in
+          roomId = currentRoom.id;
+          game = currentRoom.gameType;
+        } else {
+          // Spin up a new room for the chosen game
+          const res = await inviteToGame(target.id, gameType);
+          roomId = res.roomId;
+          game = gameType;
+          createdNewRoom = true;
+        }
+
+        // Broadcast the invite toast to the target's user channel
         const notify = supabase.channel(`user:${target.id}`);
         notify.subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
             await notify.send({
               type: 'broadcast',
               event: 'invite',
-              payload: { from: currentUsername, roomId, game: gameType },
+              payload: { from: currentUsername, roomId, game },
             });
             supabase.removeChannel(notify);
           }
         });
+
         setInvitee(null);
-        router.push(`/rooms/${roomId}`);
+        // Only navigate if we actually created a new room (don't bounce out of the current one)
+        if (createdNewRoom) router.push(`/rooms/${roomId}`);
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Could not send invite';
         setInviteError(msg);
@@ -169,20 +196,40 @@ export default function MembersPanel({
             onClick={e => e.stopPropagation()}
           >
             <h3 className="text-lg font-semibold">Invite {invitee.username}</h3>
-            <p className="mt-1 text-sm text-neutral-400">Pick a game:</p>
-            <div className="mt-4 grid gap-2">
-              {Object.values(GAMES).map(g => (
+
+            {canInviteToCurrent && currentRoom ? (
+              <>
+                <p className="mt-1 text-sm text-neutral-400">
+                  Add them to this <span className="text-emerald-400">{GAMES[currentRoom.gameType]?.name ?? currentRoom.gameType}</span> room
+                  ({currentRoom.openSeats} {currentRoom.openSeats === 1 ? 'seat' : 'seats'} open).
+                </p>
                 <button
-                  key={g.id}
                   disabled={pending}
-                  onClick={() => doInvite(invitee, g.id)}
-                  className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-left transition hover:border-emerald-500 disabled:opacity-50"
+                  onClick={() => doInvite(invitee, currentRoom.gameType)}
+                  className="mt-4 w-full rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
                 >
-                  <div className="font-medium">{g.name}</div>
-                  <div className="text-xs text-neutral-400">{g.description}</div>
+                  Invite to this room
                 </button>
-              ))}
-            </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-neutral-400">Pick a game:</p>
+                <div className="mt-4 grid gap-2">
+                  {Object.values(GAMES).map(g => (
+                    <button
+                      key={g.id}
+                      disabled={pending}
+                      onClick={() => doInvite(invitee, g.id)}
+                      className="rounded-lg border border-neutral-800 bg-neutral-950 p-3 text-left transition hover:border-emerald-500 disabled:opacity-50"
+                    >
+                      <div className="font-medium">{g.name}</div>
+                      <div className="text-xs text-neutral-400">{g.description}</div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+
             {inviteError && (
               <p className="mt-3 rounded-md border border-red-900/40 bg-red-500/10 px-3 py-2 text-sm text-red-400">
                 {inviteError}
