@@ -585,10 +585,10 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                       </span>
                     </td>
                     <td className="px-2 py-1.5 text-center">
-                      <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon="⛑️" />
+                      <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
                     </td>
                     <td className="px-2 py-1.5 text-center">
-                      <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon="🏁" />
+                      <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
                     </td>
                     <td className="px-2 py-1.5 text-center font-mono">
                       {me.bets[i] > 0 ? <span className="text-emerald-400">${me.bets[i]}</span> : <span className="text-neutral-700">—</span>}
@@ -626,13 +626,39 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
   );
 }
 
-function SlotRow({ count, max, icon }: { count: number; max: number; icon: string }) {
+function SlotRow({ count, max, icon }: { count: number; max: number; icon: React.ReactNode }) {
   return (
-    <span className="inline-flex items-center gap-0.5 font-mono text-xs">
+    <span className="inline-flex items-center justify-center gap-0.5 font-mono text-xs">
       {Array.from({ length: max }, (_, i) => (
-        <span key={i} className={i < count ? '' : 'opacity-20 grayscale'}>{icon}</span>
+        <span key={i} className={`inline-flex items-center ${i < count ? '' : 'opacity-20 grayscale'}`}>{icon}</span>
       ))}
     </span>
+  );
+}
+
+/**
+ * Stylized racing silk (jersey) icon — short-sleeved shirt silhouette filled with a
+ * checker pattern. Sized via className (default 16×16). The black/white checker keeps
+ * the visual feel of the original 🏁 emoji but on a shirt shape.
+ */
+function JerseyIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className ?? 'h-4 w-4'} role="img" aria-label="jersey">
+      <defs>
+        <pattern id="silk-checker" width="3" height="3" patternUnits="userSpaceOnUse">
+          <rect width="3" height="3" fill="#ffffff" />
+          <rect width="1.5" height="1.5" fill="#0a0a0a" />
+          <rect x="1.5" y="1.5" width="1.5" height="1.5" fill="#0a0a0a" />
+        </pattern>
+      </defs>
+      <path
+        d="M 8 3 Q 12 5 16 3 L 18 4 L 21 7 L 21 11 L 17 11 L 17 21 L 7 21 L 7 11 L 3 11 L 3 7 L 6 4 Z"
+        fill="url(#silk-checker)"
+        stroke="#0a0a0a"
+        strokeWidth="0.6"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
