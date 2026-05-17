@@ -1397,26 +1397,44 @@ function Track({ state, bonusPick }: {
           const animPos = positions[i] ?? 0;
           const intPos = Math.round(animPos);
 
-          // --- On-track position: stack diagonally so the lowest-numbered horse on a
-          // shared space sits closest to the infield AND closest to the next space's
-          // boundary (i.e. front-inner). Higher numbers fall back-outer.
+          // --- On-track position. For 1-3 horses on a space: diagonal stack (lowest # = front-inner).
+          // For 4+ horses: tight 2D grid (max 3 per row, multiple rows stacked radially) so we
+          // don't overflow into adjacent spaces.
           const ovalAngle = angleForPosition(animPos);
           const ovalCenter = pointOnOval(ovalAngle, TRACK_RX, TRACK_RY);
           const ovalTan = tangentAt(ovalAngle, TRACK_RX, TRACK_RY); // points "backward" (against travel)
           const group = (byPos.get(intPos) ?? [horseNum]).slice().sort((a, b) => a - b);
           const stackIdx = group.indexOf(horseNum);                  // 0 = lowest horse num
           const stackCount = group.length;
-          // Horse tokens are radius 10 (diameter 20). Diagonal step distance between
-          // neighbors = STACK_STEP * √2. Picking 15 gives ~21px separation — no overlap.
-          const STACK_STEP = stackCount > 1 ? 15 : 0;
-          // centerOffset > 0 → forward + inner; < 0 → backward + outer
-          const centerOffset = (stackCount - 1) / 2 - stackIdx;
-          // Forward direction = -tangent (tangentAt points opposite to direction of travel)
-          const forwardX = -ovalTan.x * centerOffset * STACK_STEP;
-          const forwardY = -ovalTan.y * centerOffset * STACK_STEP;
-          // Inner direction = toward the oval center (negate the outward radial)
-          const innerX = -Math.cos(ovalAngle) * centerOffset * STACK_STEP;
-          const innerY = -Math.sin(ovalAngle) * centerOffset * STACK_STEP;
+
+          let forwardX = 0, forwardY = 0, innerX = 0, innerY = 0;
+          if (stackCount > 3) {
+            // Grid layout: max 3 per row, rows stacked radially inner→outer
+            const PER_ROW = 3;
+            const STEP = 15;
+            const rowCount = Math.ceil(stackCount / PER_ROW);
+            const rowIdx = Math.floor(stackIdx / PER_ROW);
+            const colIdx = stackIdx % PER_ROW;
+            const colsInThisRow = rowIdx === rowCount - 1
+              ? stackCount - rowIdx * PER_ROW
+              : PER_ROW;
+            // Inwardness: positive = closer to infield, negative = closer to outer rail
+            const inwardness = (rowCount - 1) / 2 - rowIdx;
+            innerX = -Math.cos(ovalAngle) * inwardness * STEP;
+            innerY = -Math.sin(ovalAngle) * inwardness * STEP;
+            // Forwardness within row: positive = toward next space, negative = toward previous
+            const forwardness = (colsInThisRow - 1) / 2 - colIdx;
+            forwardX = -ovalTan.x * forwardness * STEP;
+            forwardY = -ovalTan.y * forwardness * STEP;
+          } else {
+            // Diagonal stack (existing behavior for 1-3 horses)
+            const STACK_STEP = stackCount > 1 ? 15 : 0;
+            const centerOffset = (stackCount - 1) / 2 - stackIdx;
+            forwardX = -ovalTan.x * centerOffset * STACK_STEP;
+            forwardY = -ovalTan.y * centerOffset * STACK_STEP;
+            innerX = -Math.cos(ovalAngle) * centerOffset * STACK_STEP;
+            innerY = -Math.sin(ovalAngle) * centerOffset * STACK_STEP;
+          }
           const ovalX = ovalCenter.x + forwardX + innerX;
           const ovalY = ovalCenter.y + forwardY + innerY;
 
