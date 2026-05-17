@@ -1040,13 +1040,15 @@ function PlayerSheet({ state, me, action, bonus }: {
             <span className="text-neutral-500">Row/Column bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
-          {/* Cap width so the 3-row × 4-col grid ends at ~the concessions height */}
-          <div className="grid max-w-[300px] grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
+          {/* 3-row × 4-col grid sized to roughly match the 4-row concessions height.
+              Rows are fixed at 3.25rem (~52px) so the whole grid lands near 200px tall. */}
+          <div className="grid max-w-[320px] grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2"
+               style={{ gridAutoRows: '3.25rem', gridTemplateRows: 'repeat(3, 3.25rem)' }}>
             {CONCESSION_BONUSES.map((b, i) => {
               const claimed = me.bonusesClaimed[i];
               const isPickable = !!bonus && !claimed;
               const isSelected = !!bonus && bonus.picking === b.id;
-              const baseTile = `relative flex aspect-square flex-col items-center justify-center rounded-md border px-1 py-1 text-center transition`;
+              const baseTile = `relative flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-md border px-1 py-1 text-center transition`;
               if (isPickable) {
                 return (
                   <button
