@@ -171,9 +171,15 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
 
   // Step 2: move the rolled horse `movementDie` spaces (skipped if it's already finished)
   if (!next.horses[rolledIdx].finished) {
+    const before = next.horses[rolledIdx];
     next = moveHorseForward(next, rolledIdx, movementDie);
-    const h = next.horses[rolledIdx];
-    if (h.finished) log.push(`Horse ${rolledHorse} crossed the line — ${ordinal(h.finished)} place!`);
+    const after = next.horses[rolledIdx];
+    const moved = after.position - before.position;
+    if (after.finished) {
+      log.push(`🏇 Horse ${rolledHorse} advances ${moved} → crosses the line, ${ordinal(after.finished)} place!`);
+    } else if (moved > 0) {
+      log.push(`🏇 Horse ${rolledHorse} advances ${moved} (now at space ${after.position}).`);
+    }
   } else {
     log.push(`Horse ${rolledHorse} already finished; only secondary movement applies.`);
   }
@@ -183,10 +189,17 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
   const bar = [...(SECONDARY_BARS[rolledHorse] ?? [])].sort((a, b) => a - b);
   for (const n of bar) {
     const before = next.horses[n - 1];
+    if (before.finished) {
+      log.push(`↳ Horse ${n} already finished; skipped.`);
+      continue;
+    }
     next = moveHorseForward(next, n - 1, 1);
     const after = next.horses[n - 1];
-    if (!before.finished && after.finished) {
-      log.push(`Horse ${n} crossed the line — ${ordinal(after.finished!)} place!`);
+    const moved = after.position - before.position;
+    if (after.finished) {
+      log.push(`↳ Horse ${n} advances ${moved} → crosses the line, ${ordinal(after.finished)} place!`);
+    } else if (moved > 0) {
+      log.push(`↳ Horse ${n} advances ${moved} (now at space ${after.position}).`);
     }
   }
 
