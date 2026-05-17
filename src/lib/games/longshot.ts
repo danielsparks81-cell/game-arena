@@ -255,10 +255,12 @@ export function startRace(state: LSState): LSState | { error: string } {
   const startSeat = state.players[Math.floor(Math.random() * state.players.length)].seat;
   const startName = state.players.find(p => p.seat === startSeat)!.username;
   const concessionGrid = genConcessionGrid();
-  // Pre-mark 4 cells per player: 1 per row, 1 per column, all 4 horse numbers distinct.
+  // Each player gets pre-placed marks AND starting bets — randomized, so every player
+  // begins the race with a different setup (the spirit of the Starting Card draw).
   const players = state.players.map(p => ({
     ...p,
     concessionMarks: genStartingMarks(concessionGrid),
+    bets: genStartingBets(),
   }));
   return {
     ...state,
@@ -271,6 +273,21 @@ export function startRace(state: LSState): LSState | { error: string } {
     players,
     log: [`Race begins! ${startName} rolls first.`],
   };
+}
+
+/**
+ * Random starting bets: one $2 bet and one $4 bet on two different horses.
+ * These are "free" — they don't deduct from the player's $12 starting money.
+ */
+function genStartingBets(): number[] {
+  const bets = Array.from({ length: NUM_HORSES }, () => 0);
+  // Pick two distinct horse indices
+  const horseA = Math.floor(Math.random() * NUM_HORSES);
+  let horseB = Math.floor(Math.random() * NUM_HORSES);
+  while (horseB === horseA) horseB = Math.floor(Math.random() * NUM_HORSES);
+  bets[horseA] = 2;
+  bets[horseB] = 4;
+  return bets;
 }
 
 /**
