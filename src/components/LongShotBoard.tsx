@@ -539,15 +539,18 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
           </div>
           <div>
             <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Row/Column bonuses</div>
-            <ul className="space-y-0.5 text-[11px] leading-tight text-neutral-400">
+            <div className="grid grid-cols-3 gap-1">
               {CONCESSION_BONUSES.map(b => (
-                <li key={b.id} className="flex items-center gap-2" title={b.desc}>
-                  <span className="inline-block w-14 shrink-0 font-mono text-neutral-300">{b.label}</span>
-                  <span className="truncate">{b.desc}</span>
-                </li>
+                <div
+                  key={b.id}
+                  title={b.desc}
+                  className="flex aspect-square flex-col items-center justify-center rounded-md border border-neutral-800 bg-neutral-950 px-1 py-1 text-center"
+                >
+                  <span className="text-[10px] font-mono font-bold leading-tight text-neutral-200">{b.label}</span>
+                </div>
               ))}
-            </ul>
-            <p className="mt-1 text-[10px] italic text-neutral-600">Bonuses fire in Phase 3.</p>
+            </div>
+            <p className="mt-1 text-[10px] italic text-neutral-600">Hover for effect · fires in Phase 3</p>
           </div>
         </div>
 
