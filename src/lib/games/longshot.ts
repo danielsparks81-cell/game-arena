@@ -8,8 +8,8 @@ export const NO_BET_SPACE = 12;
 export const STARTING_MONEY = 12;
 export const FINISH_POSITIONS = 3;
 
-export const MAX_HELMETS_PER_HORSE = 3;
-export const MAX_JERSEYS_PER_HORSE = 3;
+export const MAX_HELMETS_PER_HORSE = 1;
+export const MAX_JERSEYS_PER_HORSE = 1;
 export const MAX_WILDS = 4;
 export const MAX_BET_PER_ACTION = 3;
 
