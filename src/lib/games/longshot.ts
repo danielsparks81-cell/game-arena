@@ -2,8 +2,8 @@
 // Phase 1: race loop (roll dice, move horse, secondary movement, finish line). No actions yet.
 
 export const NUM_HORSES = 8;
-export const TRACK_LENGTH = 14;     // track spaces (placeholder; tune later from board)
-export const NO_BET_SPACE = 10;     // past this index, no new bets without a helmet
+export const TRACK_LENGTH = 16;     // total track spaces around the oval
+export const NO_BET_SPACE = 12;     // line sits between space 11 and 12; positions >= 12 are past it
 export const STARTING_MONEY = 12;
 export const FINISH_POSITIONS = 3;  // race ends after 3 horses cross
 
