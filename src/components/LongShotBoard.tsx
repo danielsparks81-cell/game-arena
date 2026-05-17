@@ -514,17 +514,6 @@ function ActionPanel({
           onClick={() => { closeAll(); onAction({ type: 'refresh_wild' }); }} />
       </div>
 
-      {/* Hint when concession picking is active */}
-      {pickingConcession && (
-        <div className="flex items-center justify-between gap-2 rounded-md border border-emerald-700 bg-emerald-900/20 px-3 py-2 text-xs text-emerald-300">
-          <span>🎪 Pick a highlighted circle in <strong>Your Sheet</strong> below showing horse {rolledHorse}.</span>
-          <button onClick={() => setPickingConcession(false)}
-            className="rounded border border-emerald-600 px-2 py-0.5 text-emerald-300 hover:bg-emerald-900/40">
-            Cancel
-          </button>
-        </div>
-      )}
-
       {open === 'bet' && (
         <div className="rounded-md border border-neutral-800 bg-neutral-900 p-3">
           <div className="mb-2 text-xs uppercase tracking-wider text-neutral-400">Bet amount</div>
