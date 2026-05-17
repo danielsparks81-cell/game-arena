@@ -529,29 +529,21 @@ export default function LongShotBoard({
         </div>
       )}
 
-      {/* Main grid: track left, actions+sheet right on desktop; stacked on mobile/tablet */}
+      {/* Main grid: track + phase panel left, sheet right on desktop; stacked on mobile/tablet */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
-        {/* LEFT: track */}
-        <Track state={state} bonusPick={trackBonusPick} />
-
-        {/* RIGHT: actions on top, sheet below (stacked) */}
+        {/* LEFT: track on top, roll/action-phase panel directly below */}
         <div className="space-y-3">
-          {/* Waiting-on-X notice when in action phase but not my turn (sheet stays read-only) */}
-          {state.step === 'action' && me && !state.pendingBonus && !isMyTurnToAct && (
-            <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-3 text-sm text-neutral-300">
-              Action phase — waiting on <span className="font-semibold text-amber-400">{currentTurnPlayer?.username ?? 'someone'}</span>…
-            </div>
-          )}
-          {/* Roll-phase panel: large centered Roll button (only the active player can roll) */}
+          <Track state={state} bonusPick={trackBonusPick} />
+          {/* Roll-phase panel — compact, below the track */}
           {state.step === 'roll' && (
-            <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-neutral-800 bg-neutral-900/60 p-8 text-center">
+            <div className="flex items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-center">
               {isMyTurnToRoll ? (
                 <>
                   <p className="text-sm text-neutral-400">Your turn — roll the dice to start the round.</p>
                   <button
                     onClick={onRoll}
                     disabled={disabled}
-                    className="rounded-xl bg-emerald-500 px-12 py-6 text-3xl font-bold text-neutral-950 shadow-lg transition hover:scale-105 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:scale-100"
+                    className="rounded-lg bg-emerald-500 px-6 py-2 text-lg font-bold text-neutral-950 shadow-md transition hover:scale-105 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:scale-100"
                   >
                     🎲 Roll
                   </button>
@@ -563,8 +555,16 @@ export default function LongShotBoard({
               )}
             </div>
           )}
-          {me && <PlayerSheet state={state} me={me} action={sheetAction} bonus={sheetBonus} />}
+          {/* Waiting-on-X notice when in action phase but not my turn (sheet stays read-only) */}
+          {state.step === 'action' && me && !state.pendingBonus && !isMyTurnToAct && (
+            <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 px-4 py-2 text-center text-sm text-neutral-300">
+              Action phase — waiting on <span className="font-semibold text-amber-400">{currentTurnPlayer?.username ?? 'someone'}</span>…
+            </div>
+          )}
         </div>
+
+        {/* RIGHT: player sheet only */}
+        {me && <PlayerSheet state={state} me={me} action={sheetAction} bonus={sheetBonus} />}
       </div>
 
       {/* Event log (collapsed by default to save space) */}
