@@ -753,10 +753,26 @@ function applyBonusClaim(
   let next: LSState = state;
   let updatedPlayer: LSPlayer = { ...player };
   const log: string[] = [];
+  /** Horse moves to animate (only populated by movement bonuses). */
+  const animMoves: LSMove[] = [];
 
   const requireHorse = (h?: number, label = 'horse'): number | { error: string } => {
     if (!Number.isInteger(h) || (h as number) < 1 || (h as number) > NUM_HORSES) return { error: `Pick a ${label} (1-8)` };
     return h as number;
+  };
+
+  /** Move a horse and record the from→to transition for the client to animate. */
+  const moveAndRecord = (horseNum: number, dist: number) => {
+    const before = next.horses[horseNum - 1];
+    next = moveHorse(next, horseNum - 1, dist, false);
+    const after = next.horses[horseNum - 1];
+    if (after.position !== before.position || after.finished !== before.finished) {
+      animMoves.push({
+        horseIdx: horseNum - 1,
+        fromPos: before.position, toPos: after.position,
+        fromFinished: before.finished, toFinished: after.finished,
+      });
+    }
   };
 
   switch (bonus.id) {
@@ -778,7 +794,7 @@ function applyBonusClaim(
       const dist = bonus.id === 'back2x2' ? -2 : 2;
       // Move lowest-numbered first per rules
       const order = [a, b].sort((x, y) => x - y);
-      for (const h of order) next = moveHorse(next, h - 1, dist, false);
+      for (const h of order) moveAndRecord(h, dist);
       log.push(`${dist < 0 ? '↩️' : '↪️'} ${player.username} moves horses ${order[0]} and ${order[1]} ${dist < 0 ? 'back' : 'forward'} 2 each.`);
       break;
     }
@@ -788,7 +804,7 @@ function applyBonusClaim(
       const h = requireHorse(payload.horse);
       if (typeof h === 'object') return h;
       const dist = bonus.id === 'back3' ? -3 : 3;
-      next = moveHorse(next, h - 1, dist, false);
+      moveAndRecord(h, dist);
       log.push(`${dist < 0 ? '↩️' : '↪️'} ${player.username} moves horse ${h} ${dist < 0 ? 'back' : 'forward'} 3.`);
       break;
     }
@@ -860,6 +876,12 @@ function applyBonusClaim(
   const players = next.players.slice();
   players[playerIdx] = updatedPlayer;
   next = { ...next, players };
+
+  // If this bonus moved any horses, push the moves through the animation pipeline
+  // by replacing lastSequence and bumping rollId — the client will replay them.
+  if (animMoves.length > 0) {
+    next = { ...next, lastSequence: animMoves, rollId: next.rollId + 1 };
+  }
 
   // Decrement the pending count; if zero, clear pendingBonus and advance the action turn
   const remaining = state.pendingBonus.count - 1;
