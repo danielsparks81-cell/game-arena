@@ -1203,23 +1203,63 @@ function WinnersCircle({ state }: { state: LSState }) {
 }
 
 /**
- * End-of-race scoring panel — shown once the third horse crosses the finish line.
- * Tallies each player's score across four categories: Purse · Bonus · Bets · Money.
- * Players are ranked by total; medals on the top three.
+ * End-of-race scoring panel — reveals categories one at a time for dramatic effect:
+ *   step 1: Purse only (5s)
+ *   step 2: +Bonus (5s)
+ *   step 3: +Bets (5s)
+ *   step 4: +Money → final standings
+ * Player order is re-sorted by the running revealed total at each step.
  */
 function FinalScoringPanel({ state }: { state: LSState }) {
-  const ranked = [...calculateFinalScores(state)].sort((a, b) => b.total - a.total);
-  const winner = ranked[0];
+  const allScores = useMemo(() => calculateFinalScores(state), [state]);
+  const [step, setStep] = useState(1);
+
+  useEffect(() => {
+    if (step >= 4) return;
+    const t = setTimeout(() => setStep(s => s + 1), 5000);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  const runningTotal = (s: typeof allScores[number]) =>
+    s.purse
+    + (step >= 2 ? s.bonus : 0)
+    + (step >= 3 ? s.bets : 0)
+    + (step >= 4 ? s.money : 0);
+
+  const ranked = [...allScores].sort((a, b) => {
+    const diff = runningTotal(b) - runningTotal(a);
+    return diff !== 0 ? diff : a.seat - b.seat; // tiebreak by seat order so it's stable
+  });
+
+  const cats: Array<{
+    key: 'purse' | 'bonus' | 'bets' | 'money';
+    label: string;
+    title: string;
+    color: string;
+    visibleAt: number;
+  }> = [
+    { key: 'purse', label: 'Purse', title: 'Purse for owned horses on the podium ($35 / $25 / $15)',  color: 'text-amber-300',   visibleAt: 1 },
+    { key: 'bonus', label: 'Bonus', title: '$5 per completed helmet + jersey combo',                  color: 'text-sky-300',     visibleAt: 2 },
+    { key: 'bets',  label: 'Bets',  title: 'Bet payouts (place odds + past-No-Bet consolation)',      color: 'text-emerald-400', visibleAt: 3 },
+    { key: 'money', label: 'Money', title: 'Cash on hand at race end',                                color: 'text-emerald-400', visibleAt: 4 },
+  ];
+
+  const winner = step >= 4 ? ranked[0] : null;
   const medals = ['🥇', '🥈', '🥉'];
+  const currentLabel = cats[step - 1]?.label;
 
   return (
     <div className="rounded-xl border-2 border-amber-500/60 bg-amber-500/5 p-4">
       <div className="mb-3 text-center">
         <h2 className="text-xl font-bold text-amber-400">🏁 Final Scoring</h2>
-        {winner && (
+        {winner ? (
           <p className="text-sm text-neutral-300">
             Winner: <span className="font-semibold text-amber-300">{winner.username}</span>
             <span className="ml-2 font-mono">${winner.total}</span>
+          </p>
+        ) : (
+          <p className="text-xs text-neutral-400">
+            Tallying… revealed: <span className="font-semibold text-emerald-300">{currentLabel}</span> ({step}/4)
           </p>
         )}
       </div>
@@ -1228,36 +1268,42 @@ function FinalScoringPanel({ state }: { state: LSState }) {
           <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
             <tr>
               <th className="px-2 py-1 text-left">Player</th>
-              <th className="px-2 py-1 text-center" title="Purse for owned horses on the podium ($35 / $25 / $15)">Purse</th>
-              <th className="px-2 py-1 text-center" title="$5 per completed helmet + jersey combo">Bonus</th>
-              <th className="px-2 py-1 text-center" title="Bet payouts (place odds + past-No-Bet consolation)">Bets</th>
-              <th className="px-2 py-1 text-center" title="Cash on hand at race end">Money</th>
+              {cats.map(c => (
+                <th
+                  key={c.key}
+                  className={`px-2 py-1 text-center transition ${step >= c.visibleAt ? '' : 'opacity-30'}`}
+                  title={c.title}
+                >
+                  {c.label}
+                </th>
+              ))}
               <th className="px-2 py-1 text-center">Total</th>
             </tr>
           </thead>
           <tbody>
             {ranked.map((s, idx) => (
-              <tr key={s.playerId} className="border-t border-neutral-800/60">
+              <tr key={s.playerId} className="border-t border-neutral-800/60 transition">
                 <td className="px-2 py-2">
                   <span className="font-medium">
-                    <span className="mr-1">{medals[idx] ?? ''}</span>
+                    <span className="mr-1">{step >= 4 ? (medals[idx] ?? '') : ''}</span>
                     {s.username}
                   </span>
                 </td>
-                <td className="px-2 py-2 text-center font-mono">
-                  {s.purse > 0 ? <span className="text-amber-300">${s.purse}</span> : <span className="text-neutral-600">$0</span>}
-                </td>
-                <td className="px-2 py-2 text-center font-mono">
-                  {s.bonus > 0 ? <span className="text-sky-300">${s.bonus}</span> : <span className="text-neutral-600">$0</span>}
-                </td>
-                <td className="px-2 py-2 text-center font-mono">
-                  {s.bets > 0 ? <span className="text-emerald-400">${s.bets}</span> : <span className="text-neutral-600">$0</span>}
-                </td>
-                <td className="px-2 py-2 text-center font-mono">
-                  <span className="text-emerald-400">${s.money}</span>
-                </td>
-                <td className="px-2 py-2 text-center font-mono text-lg font-bold text-amber-400">
-                  ${s.total}
+                {cats.map(c => {
+                  const visible = step >= c.visibleAt;
+                  const v = s[c.key];
+                  return (
+                    <td key={c.key} className="px-2 py-2 text-center font-mono transition">
+                      {visible
+                        ? (v > 0
+                            ? <span className={c.color}>${v}</span>
+                            : <span className="text-neutral-600">$0</span>)
+                        : <span className="text-neutral-700">—</span>}
+                    </td>
+                  );
+                })}
+                <td className="px-2 py-2 text-center font-mono text-lg font-bold text-amber-400 transition">
+                  ${runningTotal(s)}
                 </td>
               </tr>
             ))}
