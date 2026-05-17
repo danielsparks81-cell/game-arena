@@ -112,8 +112,8 @@ function tangentAt(angle: number, rx: number, ry: number) {
  */
 function useSequencedRace(
   state: LSState,
-  moveDurationMs = 550,
-  gapMs = 120,
+  moveDurationMs = 825,
+  gapMs = 180,
 ): { positions: number[]; finished: HorseFinish[] } {
   const [positions, setPositions] = useState<number[]>(() => state.horses.map(h => h.position));
   const [finished, setFinished] = useState<HorseFinish[]>(() => state.horses.map(h => h.finished));
