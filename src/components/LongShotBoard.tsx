@@ -608,6 +608,20 @@ function BonusPicker({
   const horsesForBetOrJersey = liveHorses; // all live horses are valid (No-Bet checked server-side)
   const marketHorses = state.market;
 
+  // For Free $3 Bet bonuses: horses past the No-Bet line are unbettable unless the
+  // player already has a helmet on them. We surface this in the picker by greying out.
+  const isFreeBet = picking === 'freebet3_a' || picking === 'freebet3_b';
+  const noBetDisabled = useMemo(() => {
+    const set = new Set<number>();
+    if (!isFreeBet) return set;
+    state.horses.forEach((h, i) => {
+      if (!h.finished && h.position >= NO_BET_SPACE && me.helmets[i] === 0) {
+        set.add(i + 1);
+      }
+    });
+    return set;
+  }, [isFreeBet, state.horses, me.helmets]);
+
   const needs2 = picking === 'back2x2' || picking === 'forward2x2';
   const needsHorse = picking !== null && (
     picking === 'back3' || picking === 'forward3' ||
@@ -674,6 +688,8 @@ function BonusPicker({
             value={horse1}
             onChange={setHorse1}
             options={picking === 'free_horse' ? marketHorses : horsesForBetOrJersey.map(h => h.num)}
+            disabledHorses={isFreeBet ? noBetDisabled : undefined}
+            disabledReason="Past the No-Bet line — you need a helmet on this horse first"
           />
 
           {needs2 && (
@@ -711,27 +727,38 @@ function BonusPicker({
 }
 
 function HorsePicker({
-  label, value, onChange, options,
+  label, value, onChange, options, disabledHorses, disabledReason,
 }: {
   label: string;
   value: number | null;
   onChange: (n: number) => void;
   options: number[];
+  disabledHorses?: Set<number>;
+  disabledReason?: string;
 }) {
   return (
     <div>
       <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">{label}</div>
       <div className="flex flex-wrap gap-1">
         {options.length === 0 && <span className="text-neutral-500">No valid horses</span>}
-        {options.map(n => (
-          <button key={n} onClick={() => onChange(n)}
-            className={`rounded-md px-2 py-1 transition ${
-              value === n ? 'bg-emerald-500 text-neutral-950'
-              : 'bg-neutral-950 text-neutral-300 hover:bg-emerald-900/30'
-            }`}>
-            <HorseDot num={n} />
-          </button>
-        ))}
+        {options.map(n => {
+          const isDisabled = disabledHorses?.has(n) ?? false;
+          return (
+            <button
+              key={n}
+              disabled={isDisabled}
+              onClick={() => onChange(n)}
+              title={isDisabled ? disabledReason : undefined}
+              className={`rounded-md px-2 py-1 transition ${
+                isDisabled ? 'cursor-not-allowed opacity-25 grayscale'
+                : value === n ? 'bg-emerald-500 text-neutral-950'
+                : 'bg-neutral-950 text-neutral-300 hover:bg-emerald-900/30'
+              }`}
+            >
+              <HorseDot num={n} />
+            </button>
+          );
+        })}
       </div>
     </div>
   );
