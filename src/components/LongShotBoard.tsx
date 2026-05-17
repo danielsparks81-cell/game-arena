@@ -696,7 +696,22 @@ function PlayerSheet({ state, me, action, bonus }: {
 
       {/* TOP: horse table (full width — sub-pickers are inline in their respective cells) */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse text-center text-sm">
+        {/* Fixed table-layout + explicit column widths so cells don't reflow when an
+            ActionCell wraps inactive content or a row goes into pick-mode. */}
+        <table
+          className="w-full min-w-[640px] border-collapse text-center text-sm"
+          style={{ tableLayout: 'fixed' }}
+        >
+          <colgroup>
+            <col style={{ width: '36px'  }} /> {/* # */}
+            <col style={{ width: '60px'  }} /> {/* Helmets */}
+            <col style={{ width: '44px'  }} /> {/* Jersey */}
+            <col style={{ width: '44px'  }} /> {/* Bonus */}
+            <col style={{ width: '170px' }} /> {/* Marks (8 dots) */}
+            <col style={{ width: '120px' }} /> {/* Bet (3-button picker fits here) */}
+            <col style={{ width: '76px'  }} /> {/* Odds 1·2·3·N/B */}
+            <col style={{ width: '90px'  }} /> {/* Market */}
+          </colgroup>
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
               <tr>
                 <th className="px-2 py-1 text-center">#</th>
@@ -729,7 +744,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                 const highlightWild = !!action && action.pickingWild && canWild;
 
                 return (
-                  <tr key={num} className={`border-t border-neutral-800/60 ${isActive ? 'bg-emerald-500/[0.04]' : ''}`}>
+                  <tr key={num} className={`h-11 border-t border-neutral-800/60 ${isActive ? 'bg-emerald-500/[0.04]' : ''}`}>
                     {/* # — clickable when this is a wild candidate */}
                     <td className="px-2 py-1.5 text-center">
                       {canWild ? (
@@ -737,7 +752,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                           onClick={() => action!.setWildHorse(wildSelected ? null : num)}
                           disabled={action!.disabled}
                           title={wildSelected ? 'Clear Wild selection' : `Use a Wild to act on horse ${num}`}
-                          className={`group/wild inline-flex items-center justify-center rounded-full p-0.5 transition hover:scale-110 ${
+                          className={`group/wild inline-flex items-center justify-center rounded-full p-0.5 transition ${
                             wildSelected
                               ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-neutral-900'
                               : highlightWild
@@ -858,7 +873,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                                       onClick={() => onPickMark(n)}
                                       disabled={isBonusJerseyAnyRow ? bonus!.disabled : action!.disabled}
                                       title={`Add H${n} to horse ${num}'s jersey bar`}
-                                      className="inline-flex items-center justify-center rounded-full p-0.5 ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 opacity-40 grayscale transition hover:scale-110 hover:opacity-100 hover:grayscale-0 disabled:opacity-50"
+                                      className="inline-flex items-center justify-center rounded-full p-0.5 ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 opacity-40 grayscale transition hover:opacity-100 hover:grayscale-0 disabled:opacity-50"
                                     >
                                       <HorseDot num={n} />
                                     </button>
@@ -1049,7 +1064,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                     className={`${baseTile} ${
                       isSelected
                         ? 'border-emerald-300 bg-emerald-500/25 ring-2 ring-emerald-300'
-                        : 'border-emerald-400 bg-emerald-500/5 ring-2 ring-emerald-400 hover:bg-emerald-500/15 hover:scale-[1.03]'
+                        : 'border-emerald-400 bg-emerald-500/5 ring-2 ring-emerald-400 hover:bg-emerald-500/15'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
                     {renderLabel()}
@@ -1102,7 +1117,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                   className={`flex flex-1 flex-col items-center justify-around rounded-md border-2 p-2 transition disabled:opacity-50 ${
                     isActive
                       ? 'border-amber-300 bg-amber-500/20 ring-2 ring-amber-300'
-                      : 'border-amber-600 bg-neutral-950 hover:bg-amber-900/20 hover:scale-[1.02]'
+                      : 'border-amber-600 bg-neutral-950 hover:bg-amber-900/20'
                   }`}
                 >
                   {inner}
@@ -1200,7 +1215,7 @@ function ActionCell({ children, active, disabled, onClick, title }: {
       className={`inline-flex w-full items-center justify-center rounded-md px-2 py-1 transition ring-2 ring-offset-1 ring-offset-neutral-900 disabled:opacity-50 disabled:cursor-not-allowed ${
         active
           ? 'bg-emerald-500/25 ring-emerald-300'
-          : 'bg-emerald-500/5 ring-emerald-400 hover:bg-emerald-500/15 hover:scale-[1.03]'
+          : 'bg-emerald-500/5 ring-emerald-400 hover:bg-emerald-500/15'
       }`}
     >
       {children}
@@ -1297,7 +1312,7 @@ function ConcessionGrid({
               disabled={!canClick}
               onClick={() => onPick?.(i)}
               className={`relative flex items-center justify-center rounded text-sm font-semibold text-white transition ${sizeCls} ${
-                canClick ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-950 hover:scale-105' : 'cursor-default'
+                canClick ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-950' : 'cursor-default'
               } ${marked ? 'opacity-30' : ''}`}
               style={{ backgroundColor: HORSE_COLORS[n - 1] }}
             >
