@@ -752,7 +752,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                 <th className="px-2 py-1 text-center">Jersey</th>
                 <th className="px-2 py-1 text-center">Marks</th>
                 <th className="px-2 py-1 text-center">Bet</th>
-                <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1·2·3·N-B</span></th>
+                <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1·2·3·N/B</span></th>
                 <th className="px-2 py-1 text-center">Market</th>
               </tr>
             </thead>
@@ -1040,7 +1040,7 @@ function PlayerSheet({ state, me, action, bonus }: {
             <span className="text-neutral-500">Row/Column bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
-          <div className="grid w-full grid-cols-6 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2 sm:grid-cols-6">
+          <div className="grid w-full grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             {CONCESSION_BONUSES.map((b, i) => {
               const claimed = me.bonusesClaimed[i];
               const isPickable = !!bonus && !claimed;

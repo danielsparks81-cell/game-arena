@@ -52,25 +52,27 @@ export const BET_ODDS: number[][] = [
 ];
 
 /**
- * Concession bonuses (ID + short label). Rendered in a 3×4 grid (3 cols, 4 rows).
- * The two Free $3 bet tiles are intentionally placed at indices 4 and 7 — the two
- * center squares of the grid (middle column, rows 1 and 2).
- * Effects are implemented in Phase 3.
+ * Concession bonuses (ID + short label). Listed in column-major order for a 3-row × 4-col
+ * grid (grid-flow-col):
+ *   col 1: three +$7
+ *   col 2: +2/+2 · Free $3 bet · −2/−2
+ *   col 3: +3   · Free $3 bet · −3
+ *   col 4: Helmet · Jersey · Free Horse
  */
 export const CONCESSION_BONUSES = [
-  // Row 0 (top): three $7
+  // col 1
   { id: 'cash7_a',      label: '+$7',         desc: 'Gain $7' },
   { id: 'cash7_b',      label: '+$7',         desc: 'Gain $7' },
   { id: 'cash7_c',      label: '+$7',         desc: 'Gain $7' },
-  // Row 1: back2x2, FREE BET (center), forward2x2
-  { id: 'back2x2',      label: '−2 / −2',     desc: 'Move any 2 Horses back 2 each' },
-  { id: 'freebet3_a',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any Horse' },
+  // col 2
   { id: 'forward2x2',   label: '+2 / +2',     desc: 'Move any 2 Horses forward 2 each' },
-  // Row 2: back3, FREE BET (center), forward3
-  { id: 'back3',        label: '−3',          desc: 'Move 1 Horse back 3' },
-  { id: 'freebet3_b',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any Horse' },
+  { id: 'freebet3_a',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any Horse' },
+  { id: 'back2x2',      label: '−2 / −2',     desc: 'Move any 2 Horses back 2 each' },
+  // col 3
   { id: 'forward3',     label: '+3',          desc: 'Move 1 Horse forward 3' },
-  // Row 3 (bottom): helmet, jersey, free horse
+  { id: 'freebet3_b',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any Horse' },
+  { id: 'back3',        label: '−3',          desc: 'Move 1 Horse back 3' },
+  // col 4
   { id: 'helmet_any',   label: 'Helmet',      desc: 'Take Helmet action for any Horse' },
   { id: 'jersey_any',   label: 'Jersey',      desc: 'Take Jersey action for any Horse' },
   { id: 'free_horse',   label: 'Free Horse',  desc: 'Take any Horse from the market for free' },
