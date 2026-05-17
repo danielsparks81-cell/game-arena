@@ -872,11 +872,9 @@ function PlayerSheet({ state, me, action, bonus }: {
                               <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
                             )}
 
-                            {/* Always-visible 8 horse dots. Jersey marks are now globally unique —
-                                a slot is "chosen" if anyone (or the default bar) has it. Chosen
-                                slots show a bright number; unchosen slots show the colored circle
-                                with a greyed-out number (so the slot is still visible and clickable
-                                when this row is in pick-mode). */}
+                            {/* Always-visible 8 horse dots. Chosen (default or any player's mark)
+                                = bright horse color. Not chosen = greyed out entirely. When this
+                                row is in pick mode, the greyed dot also gets an emerald ring. */}
                             <div className="flex gap-0.5">
                               {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
                                 const isDefaultMark = (SECONDARY_BARS[num] ?? []).includes(n);
@@ -896,9 +894,9 @@ function PlayerSheet({ state, me, action, bonus }: {
                                       onClick={() => onPickMark(n)}
                                       disabled={isBonusMarkRow ? bonus!.disabled : action!.disabled}
                                       title={`Add H${n} to horse ${num}'s jersey bar`}
-                                      className="inline-flex items-center justify-center rounded-full p-0.5 ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 transition hover:scale-110 disabled:opacity-50"
+                                      className="inline-flex items-center justify-center rounded-full p-0.5 ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 opacity-40 grayscale transition hover:scale-110 hover:opacity-100 hover:grayscale-0 disabled:opacity-50"
                                     >
-                                      <HorseDot num={n} muted />
+                                      <HorseDot num={n} />
                                     </button>
                                   );
                                 }
@@ -911,9 +909,11 @@ function PlayerSheet({ state, me, action, bonus }: {
                                       : isDefaultMark ? `H${n} pre-marked on horse ${num}'s bar`
                                       : `H${n} available on horse ${num}'s bar`
                                     }
-                                    className="inline-flex items-center justify-center rounded-full p-0.5"
+                                    className={`inline-flex items-center justify-center rounded-full p-0.5 ${
+                                      chosen ? '' : 'opacity-25 grayscale'
+                                    }`}
                                   >
-                                    <HorseDot num={n} muted={!chosen} />
+                                    <HorseDot num={n} />
                                   </span>
                                 );
                               })}
@@ -1272,12 +1272,10 @@ function Die({ label, value, color, horseDie }: {
   );
 }
 
-function HorseDot({ num, muted }: { num: number; muted?: boolean }) {
+function HorseDot({ num }: { num: number }) {
   return (
     <span
-      className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold shadow ${
-        muted ? 'text-white/25' : 'text-white'
-      }`}
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white shadow"
       style={{ backgroundColor: HORSE_COLORS[num - 1] }}
     >
       {num}
