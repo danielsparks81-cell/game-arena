@@ -143,14 +143,41 @@ export type LSState = {
 // ---------- Setup ----------
 
 function genConcessionGrid(): number[] {
-  // 4 × 4 = 16 cells. Each horse number 1-8 appears exactly twice; full grid is shuffled.
-  // Mirrors the spirit of the Starting Cards (every player gets a unique balanced layout).
-  const cells = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
-  for (let i = cells.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [cells[i], cells[j]] = [cells[j], cells[i]];
+  // 4 × 4 = 16 cells. Each horse number 1-8 appears exactly twice. Additional
+  // constraint: no number repeats in any row or column.
+  const base = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8];
+
+  const isValid = (cells: number[]): boolean => {
+    for (let r = 0; r < CONCESSION_ROWS; r++) {
+      const row = cells.slice(r * CONCESSION_COLS, (r + 1) * CONCESSION_COLS);
+      if (new Set(row).size !== row.length) return false;
+    }
+    for (let c = 0; c < CONCESSION_COLS; c++) {
+      const col: number[] = [];
+      for (let r = 0; r < CONCESSION_ROWS; r++) col.push(cells[r * CONCESSION_COLS + c]);
+      if (new Set(col).size !== col.length) return false;
+    }
+    return true;
+  };
+
+  // Generate-and-test with a high retry limit. The constraint is loose enough that
+  // most random shuffles satisfy it, so this almost always converges in a handful of tries.
+  for (let attempt = 0; attempt < 5000; attempt++) {
+    const cells = base.slice();
+    for (let i = cells.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [cells[i], cells[j]] = [cells[j], cells[i]];
+    }
+    if (isValid(cells)) return cells;
   }
-  return cells;
+
+  // Fallback: known-good arrangement (uncopyrighted; constructed by hand to satisfy the rule).
+  return [
+    1, 2, 3, 4,
+    5, 6, 7, 8,
+    2, 1, 4, 3,
+    6, 5, 8, 7,
+  ];
 }
 
 export function initialState(): LSState {
