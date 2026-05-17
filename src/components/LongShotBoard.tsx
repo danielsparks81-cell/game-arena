@@ -533,7 +533,22 @@ export default function LongShotBoard({
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
         {/* LEFT: track on top, roll/action-phase panel directly below */}
         <div className="space-y-3">
-          <Track state={state} bonusPick={trackBonusPick} />
+          <Track
+            state={state}
+            bonusPick={trackBonusPick}
+            infieldMessage={
+              state.step === 'action' && state.horseDie
+                ? {
+                    effectiveHorse: effectiveHorse || state.horseDie,
+                    // wildHorse + clear only meaningful for the acting player's own view
+                    wildHorse: isMyTurnToAct ? wildHorse : null,
+                    onClearWild: isMyTurnToAct && wildHorse !== null
+                      ? () => setWildHorse(null)
+                      : undefined,
+                  }
+                : undefined
+            }
+          />
           {/* Roll-phase panel — compact, below the track */}
           {state.step === 'roll' && (
             <div className="flex items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-center">
@@ -677,25 +692,7 @@ function PlayerSheet({ state, me, action, bonus }: {
 
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-      {/* Compact "acting on horse N" indicator — only when it's the player's action turn */}
-      {action && (
-        <div className="mb-2 text-center text-xs text-emerald-400">
-          Acting on horse <HorseDot num={action.effectiveHorse} />
-          {action.wildHorse !== null && (
-            <>
-              <span className="ml-1 text-amber-400">(Wild)</span>
-              <button
-                onClick={() => action.setWildHorse(null)}
-                disabled={action.disabled}
-                title="Clear Wild selection"
-                className="ml-2 rounded border border-amber-600 px-1.5 py-0 text-[10px] text-amber-400 hover:bg-amber-900/30"
-              >
-                ✕
-              </button>
-            </>
-          )}
-        </div>
-      )}
+      {/* "Acting on horse N" indicator moved to the track infield (Track component). */}
 
       {/* TOP: horse table (full width — sub-pickers are inline in their respective cells) */}
       <div className="overflow-x-auto">
@@ -1350,10 +1347,13 @@ function HorseDot({ num }: { num: number }) {
   );
 }
 
-function Track({ state, bonusPick }: {
+function Track({ state, bonusPick, infieldMessage }: {
   state: LSState;
   /** When set, horses whose number is in `eligible` are clickable (movement-bonus selection). */
   bonusPick?: { eligible: Set<number>; onPick: (horseNum: number) => void };
+  /** Effective horse for the current action turn (rolled or wild). Renders the
+   *  "When the [N] horse moves…" tagline in the infield. */
+  infieldMessage?: { effectiveHorse: number; wildHorse: number | null; onClearWild?: () => void };
 }) {
   // Sequenced animation: rolled horse first, then each secondary-bar horse, one at a time.
   const { positions, finished } = useSequencedRace(state);
@@ -1527,6 +1527,32 @@ function Track({ state, bonusPick }: {
             </g>
           );
         })}
+
+        {/* Infield message: "When the [N] horse moves…" — sits in the green center of the oval */}
+        {infieldMessage && (
+          <foreignObject
+            x={TRACK_CX - 110}
+            y={TRACK_CY - 18}
+            width="220"
+            height="36"
+            style={{ overflow: 'visible' }}
+          >
+            <div className="flex h-full items-center justify-center gap-1.5 text-center text-[13px] font-medium text-white drop-shadow">
+              <span>When the</span>
+              <HorseDot num={infieldMessage.effectiveHorse} />
+              <span>horse moves…</span>
+              {infieldMessage.wildHorse !== null && infieldMessage.onClearWild && (
+                <button
+                  onClick={infieldMessage.onClearWild}
+                  title="Clear Wild — go back to the rolled horse"
+                  className="ml-1 rounded border border-amber-300 bg-amber-500/30 px-1.5 py-0 text-[10px] font-semibold text-amber-100 hover:bg-amber-500/60"
+                >
+                  Wild ✕
+                </button>
+              )}
+            </div>
+          </foreignObject>
+        )}
       </svg>
 
       <div className="mt-2 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[10px] text-neutral-500">
