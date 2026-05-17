@@ -821,12 +821,17 @@ function applyBonusClaim(
       if (typeof b === 'object') return b;
       if (a === b) return { error: 'Pick two different horses' };
       const dist = bonus.id === 'back2x2' ? -2 : 2;
-      // Forward bonuses can't be wasted: refuse a horse already at the last space
-      // (its movement would be capped to 0 since bonuses can't cross the finish line).
+      // Forward/back bonuses can't be wasted on horses pinned at the track ends.
       if (dist > 0) {
         for (const h of [a, b]) {
           if (next.horses[h - 1].position >= TRACK_LENGTH - 1) {
             return { error: `Horse ${h} is already at the finish line — +${dist} would be wasted` };
+          }
+        }
+      } else {
+        for (const h of [a, b]) {
+          if (next.horses[h - 1].position <= 0) {
+            return { error: `Horse ${h} is still in the starting gate — ${dist} would be wasted` };
           }
         }
       }
@@ -844,6 +849,9 @@ function applyBonusClaim(
       const dist = bonus.id === 'back3' ? -3 : 3;
       if (dist > 0 && next.horses[h - 1].position >= TRACK_LENGTH - 1) {
         return { error: `Horse ${h} is already at the finish line — +${dist} would be wasted` };
+      }
+      if (dist < 0 && next.horses[h - 1].position <= 0) {
+        return { error: `Horse ${h} is still in the starting gate — ${dist} would be wasted` };
       }
       moveAndRecord(h, dist);
       log.push(`${dist < 0 ? '↩️' : '↪️'} ${player.username} moves horse ${h} ${dist < 0 ? 'back' : 'forward'} 3.`);

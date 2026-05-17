@@ -673,6 +673,18 @@ function BonusPicker({
     return set;
   }, [isForwardMove, state.horses]);
 
+  // For backward movement bonuses: refuse horses still in the starting gate (position 0) —
+  // they can't move back before the start line, so the bonus would be wasted.
+  const isBackMove = picking === 'back2x2' || picking === 'back3';
+  const atStartDisabled = useMemo(() => {
+    const set = new Set<number>();
+    if (!isBackMove) return set;
+    state.horses.forEach((h, i) => {
+      if (!h.finished && h.position <= 0) set.add(i + 1);
+    });
+    return set;
+  }, [isBackMove, state.horses]);
+
   const needs2 = picking === 'back2x2' || picking === 'forward2x2';
   const needsHorse = picking !== null && (
     picking === 'back3' || picking === 'forward3' ||
@@ -742,11 +754,13 @@ function BonusPicker({
             disabledHorses={
               isFreeBet ? noBetDisabled
               : isForwardMove ? atFinishDisabled
+              : isBackMove ? atStartDisabled
               : undefined
             }
             disabledReason={
               isFreeBet ? 'Past the No-Bet line — you need a helmet on this horse first'
               : isForwardMove ? 'Already at the finish line — forward bonus would be wasted'
+              : isBackMove ? 'Still in the starting gate — can\'t move back'
               : undefined
             }
           />
@@ -757,8 +771,16 @@ function BonusPicker({
               value={horse2}
               onChange={setHorse2}
               options={horsesForBetOrJersey.map(h => h.num).filter(n => n !== horse1)}
-              disabledHorses={isForwardMove ? atFinishDisabled : undefined}
-              disabledReason={isForwardMove ? 'Already at the finish line — forward bonus would be wasted' : undefined}
+              disabledHorses={
+                isForwardMove ? atFinishDisabled
+                : isBackMove ? atStartDisabled
+                : undefined
+              }
+              disabledReason={
+                isForwardMove ? 'Already at the finish line — forward bonus would be wasted'
+                : isBackMove ? 'Still in the starting gate — can\'t move back'
+                : undefined
+              }
             />
           )}
           {needsMarkHorse && (
