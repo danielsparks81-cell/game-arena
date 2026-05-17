@@ -744,14 +744,15 @@ function PlayerSheet({ state, me, action, bonus }: {
 
       {/* TOP: horse table (full width — sub-pickers are inline in their respective cells) */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px] border-collapse text-center text-sm">
+        <table className="w-full min-w-[600px] border-collapse text-center text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
               <tr>
                 <th className="px-2 py-1 text-center">#</th>
                 <th className="px-2 py-1 text-center">Helmets</th>
-                <th className="px-2 py-1 text-center">Jersey · Marks</th>
+                <th className="px-2 py-1 text-center">Jersey</th>
+                <th className="px-2 py-1 text-center">Marks</th>
                 <th className="px-2 py-1 text-center">Bet</th>
-                <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1st·2nd·3rd</span></th>
+                <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1·2·3·N-B</span></th>
                 <th className="px-2 py-1 text-center">Market</th>
               </tr>
             </thead>
@@ -833,7 +834,12 @@ function PlayerSheet({ state, me, action, bonus }: {
                       )}
                     </td>
 
-                    {/* Jersey · Marks — jersey indicator + 8 always-visible horse dots */}
+                    {/* Jersey — just the placement indicator */}
+                    <td className="px-2 py-1.5 text-center">
+                      <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                    </td>
+
+                    {/* Marks — 8 always-visible horse dots */}
                     <td className="px-2 py-1.5 text-center">
                       {(() => {
                         // Pickable contexts for this row's jersey marks:
@@ -860,8 +866,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                         };
 
                         return (
-                          <div className="flex items-center justify-center gap-1.5">
-                            <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                          <div className="flex items-center justify-center">
 
                             {/* Always-visible 8 horse dots. Chosen (default or any player's mark)
                                 = bright horse color. Not chosen = greyed out entirely. When this
@@ -961,9 +966,12 @@ function PlayerSheet({ state, me, action, bonus }: {
                       })()}
                     </td>
 
-                    {/* Odds */}
-                    <td className="px-2 py-1.5 text-center font-mono text-[11px] text-neutral-300">
-                      {odds[0]}·{odds[1]}·{odds[2]}
+                    {/* Odds — 1st · 2nd · 3rd · past-No-Bet consolation (1×) */}
+                    <td
+                      className="px-2 py-1.5 text-center font-mono text-[11px] text-neutral-300"
+                      title="Payout multipliers: 1st · 2nd · 3rd · past No-Bet (consolation, bet back)"
+                    >
+                      {odds[0]}·{odds[1]}·{odds[2]}·{odds[3]}
                     </td>
 
                     {/* Market */}
