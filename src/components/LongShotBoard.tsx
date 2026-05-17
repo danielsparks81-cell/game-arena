@@ -6,7 +6,6 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
-  hasValidActionOnHorse,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -216,14 +215,14 @@ export default function LongShotBoard({
     .filter(h => h.finished)
     .sort((a, b) => (a.finished ?? 0) - (b.finished ?? 0));
 
-  // --- Lifted action state so ActionPanel (button) can drive PlayerSheet (concession grid) ---
+  // --- Lifted action state — the PlayerSheet itself is now the action surface ---
   const [wildHorse, setWildHorse] = useState<number | null>(null);
-  const [pickingConcession, setPickingConcession] = useState(false);
+  const [subPicker, setSubPicker] = useState<'bet' | 'jersey' | null>(null);
 
   // Reset on round/turn change so leftover state doesn't carry across turns
   useEffect(() => {
     setWildHorse(null);
-    setPickingConcession(false);
+    setSubPicker(null);
   }, [state.rollId, state.currentTurnSeat]);
 
   const effectiveHorse = wildHorse ?? state.horseDie ?? 0;
@@ -240,15 +239,37 @@ export default function LongShotBoard({
     if (wildHorse !== null) onAction({ ...payload, wild: wildHorse } as ActionPayload);
     else onAction(payload);
     setWildHorse(null);
-    setPickingConcession(false);
+    setSubPicker(null);
   };
 
-  // Pickable cells handed to the PlayerSheet so it can light them up in place
-  const sheetConcessionPick = isMyTurnToAct && pickingConcession && concessionCellsAvailable.length > 0
-    ? {
-        pickable: concessionCellsAvailable,
-        onPick: (idx: number) => sendAction({ type: 'concession', cellIdx: idx }),
-      }
+  // Build the action context handed to PlayerSheet. Undefined when the sheet is read-only
+  // (not my action turn, or a bonus is pending, or no rolled horse yet).
+  const sheetAction = isMyTurnToAct && me && !state.pendingBonus && effectiveHorse > 0
+    ? (() => {
+        const horseIdx = effectiveHorse - 1;
+        const horse = state.horses[horseIdx];
+        const past = horse.position >= NO_BET_SPACE;
+        const finished = !!horse.finished;
+        const hasHelmet = me.helmets[horseIdx] > 0;
+        return {
+          effectiveHorse,
+          rolledHorse: state.horseDie ?? 0,
+          wildHorse,
+          setWildHorse,
+          wildsLeft: MAX_WILDS - me.wildsUsed,
+          canHelmet: !finished && me.helmets[horseIdx] < MAX_HELMETS_PER_HORSE,
+          canJersey: !finished && me.jerseys[horseIdx] < MAX_JERSEYS_PER_HORSE
+                    && (me.jerseyMarks[horseIdx]?.length ?? 0) < NUM_HORSES,
+          canBet: !finished && me.money >= 1 && (!past || hasHelmet),
+          canBuy: !finished && state.market.includes(effectiveHorse) && me.money >= HORSE_COSTS[horseIdx],
+          concessionCells: concessionCellsAvailable,
+          subPicker,
+          setSubPicker,
+          send: sendAction,
+          refreshWild: me.wildsUsed > 0 ? () => onAction({ type: 'refresh_wild' }) : undefined,
+          disabled,
+        };
+      })()
     : undefined;
 
   return (
@@ -331,21 +352,11 @@ export default function LongShotBoard({
               onAction={onAction}
             />
           )}
-          {state.step === 'action' && me && !state.pendingBonus && (
-            <ActionPanel
-              state={state}
-              me={me}
-              isMyTurn={!!isMyTurnToAct}
-              currentTurnUsername={currentTurnPlayer?.username ?? 'someone'}
-              disabled={disabled}
-              wildHorse={wildHorse}
-              setWildHorse={setWildHorse}
-              pickingConcession={pickingConcession}
-              setPickingConcession={setPickingConcession}
-              concessionAvailable={concessionCellsAvailable.length > 0}
-              sendAction={sendAction}
-              onAction={onAction}
-            />
+          {/* Waiting-on-X notice when in action phase but not my turn (sheet stays read-only) */}
+          {state.step === 'action' && me && !state.pendingBonus && !isMyTurnToAct && (
+            <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-3 text-sm text-neutral-300">
+              Action phase — waiting on <span className="font-semibold text-amber-400">{currentTurnPlayer?.username ?? 'someone'}</span>…
+            </div>
           )}
           {/* Roll-phase panel: large centered Roll button (only the active player can roll) */}
           {state.step === 'roll' && (
@@ -368,7 +379,7 @@ export default function LongShotBoard({
               )}
             </div>
           )}
-          {me && <PlayerSheet state={state} me={me} concessionPick={sheetConcessionPick} />}
+          {me && <PlayerSheet state={state} me={me} action={sheetAction} />}
         </div>
       </div>
 
@@ -384,180 +395,6 @@ export default function LongShotBoard({
             ))}
           </ul>
         </details>
-      )}
-    </div>
-  );
-}
-
-// =====================================================================
-// Action picker
-// =====================================================================
-
-function ActionPanel({
-  state, me, isMyTurn, currentTurnUsername, disabled,
-  wildHorse, setWildHorse, pickingConcession, setPickingConcession,
-  concessionAvailable, sendAction, onAction,
-}: {
-  state: LSState;
-  me: LSPlayer;
-  isMyTurn: boolean;
-  currentTurnUsername: string;
-  disabled: boolean;
-  wildHorse: number | null;
-  setWildHorse: (n: number | null) => void;
-  pickingConcession: boolean;
-  setPickingConcession: (b: boolean) => void;
-  concessionAvailable: boolean;
-  sendAction: (payload: ActionPayload) => void;
-  onAction: (payload: ActionPayload) => void;
-}) {
-  const wildsLeft = MAX_WILDS - me.wildsUsed;
-  const effectiveHorse = wildHorse ?? state.horseDie!;
-  const rolledHorse = effectiveHorse;
-  const horseIdx = rolledHorse - 1;
-  const horse = state.horses[horseIdx];
-  const past = horse.position >= NO_BET_SPACE;
-  const finished = !!horse.finished;
-  const hasHelmet = me.helmets[horseIdx] > 0;
-
-  const canHelmet     = me.helmets[horseIdx] < MAX_HELMETS_PER_HORSE;
-  const canJersey     = me.jerseys[horseIdx] < MAX_JERSEYS_PER_HORSE
-                       && (me.jerseyMarks[horseIdx]?.length ?? 0) < NUM_HORSES;
-  const canBet        = !finished && me.money >= 1 && (!past || hasHelmet);
-  const canBuy        = !finished && state.market.includes(rolledHorse) && me.money >= HORSE_COSTS[horseIdx];
-  // Refresh Wild: available any time the player has used at least one wild
-  const canRefreshWilds = me.wildsUsed > 0;
-
-  // Sub-pickers for bet / jersey (concession is now picked directly from PlayerSheet)
-  const [open, setOpen] = useState<'bet' | 'jersey' | null>(null);
-
-  if (!isMyTurn) {
-    return (
-      <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-4 text-sm text-neutral-300">
-        Action phase — waiting on <span className="font-semibold text-amber-400">{currentTurnUsername}</span>…
-      </div>
-    );
-  }
-
-  const closeAll = () => { setOpen(null); setPickingConcession(false); };
-
-  return (
-    <div className="space-y-3 rounded-xl border border-emerald-900/40 bg-emerald-500/5 p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-300">
-        <span>
-          Your action this round — must use horse <HorseDot num={rolledHorse} />
-          {wildHorse !== null && <span className="ml-1 text-xs text-amber-400">(via Wild)</span>}
-          {wildHorse === null && <span className="ml-1 text-xs text-neutral-500">(rolled die)</span>}
-        </span>
-        <span className="text-xs text-neutral-400">
-          Wilds left: <span className="font-mono text-amber-400">{wildsLeft}/{MAX_WILDS}</span>
-        </span>
-      </div>
-
-      {/* Wild Number selector */}
-      <div className="rounded-md border border-amber-900/40 bg-amber-500/5 p-2 text-xs">
-        <div className="mb-1 flex items-center gap-2 text-neutral-400">
-          <span>✨ Use a Wild Number to act on a different horse:</span>
-          {wildHorse !== null && (
-            <button onClick={() => setWildHorse(null)}
-              className="rounded border border-amber-700 px-2 py-0.5 text-amber-400 hover:bg-amber-900/30">
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-1">
-          {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
-            const selected = wildHorse === n;
-            const isRolled = n === state.horseDie;
-            return (
-              <button key={n}
-                disabled={disabled || wildsLeft <= 0 || isRolled}
-                onClick={() => setWildHorse(n)}
-                title={isRolled ? 'This is the rolled horse already' : wildsLeft <= 0 ? 'No wilds left' : `Act on horse ${n} instead`}
-                className={`flex items-center gap-1 rounded px-2 py-0.5 transition disabled:opacity-30 ${
-                  selected ? 'bg-amber-500 text-neutral-950' : 'bg-neutral-900 text-neutral-300 hover:bg-amber-900/30'
-                }`}>
-                <HorseDot num={n} />
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-        {/* Concession: don't disable when already in picking mode, so user can cancel */}
-        <ActionBtn label="Concession" icon="🎪"
-          disabled={disabled || (!concessionAvailable && !pickingConcession)}
-          active={pickingConcession}
-          tip={
-            pickingConcession ? 'Click again to cancel'
-            : !concessionAvailable ? 'No unmarked cell on your sheet for that horse'
-            : 'Pick a circle on Your Sheet'
-          }
-          onClick={() => { setOpen(null); setPickingConcession(!pickingConcession); }} />
-        <ActionBtn label="Helmet" icon="⛑️" disabled={disabled || !canHelmet}
-          tip={!canHelmet ? `Already at ${MAX_HELMETS_PER_HORSE} helmets on this horse` : undefined}
-          onClick={() => { closeAll(); sendAction({ type: 'helmet' }); }} />
-        <ActionBtn label="Jersey" icon={<JerseyIcon className="h-6 w-6" />} disabled={disabled || !canJersey}
-          tip={!canJersey ? 'No jersey slots left' : undefined}
-          onClick={() => { setPickingConcession(false); setOpen('jersey'); }} />
-        <ActionBtn label="Bet" icon="💰" disabled={disabled || !canBet}
-          tip={!canBet ? (finished ? 'Horse is finished' : past && !hasHelmet ? 'Past No-Bet line — need a helmet first' : 'Not enough money') : undefined}
-          onClick={() => { setPickingConcession(false); setOpen('bet'); }} />
-        <ActionBtn label={`Buy ($${HORSE_COSTS[horseIdx]})`} icon="🏠" disabled={disabled || !canBuy}
-          tip={!canBuy ? (finished ? 'Horse is finished' : !state.market.includes(rolledHorse) ? 'Not in market' : 'Not enough money') : undefined}
-          onClick={() => { closeAll(); sendAction({ type: 'buy' }); }} />
-        <ActionBtn label="Refresh Wild" icon="✨" disabled={disabled || !canRefreshWilds}
-          tip={!canRefreshWilds
-            ? 'All wilds already available — nothing to refresh'
-            : 'Recover one Wild — spends your action'}
-          onClick={() => { closeAll(); onAction({ type: 'refresh_wild' }); }} />
-      </div>
-
-      {open === 'bet' && (
-        <div className="rounded-md border border-neutral-800 bg-neutral-900 p-3">
-          <div className="mb-2 text-xs uppercase tracking-wider text-neutral-400">Bet amount</div>
-          <div className="flex gap-2">
-            {[1, 2, 3].map(amt => (
-              <button key={amt} disabled={disabled || me.money < amt}
-                onClick={() => { closeAll(); sendAction({ type: 'bet', amount: amt }); }}
-                className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40">
-                ${amt}
-              </button>
-            ))}
-            <button onClick={closeAll}
-              className="rounded-md border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800">
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {open === 'jersey' && (
-        <div className="rounded-md border border-neutral-800 bg-neutral-900 p-3">
-          <div className="mb-2 text-xs uppercase tracking-wider text-neutral-400">
-            Mark a horse on horse {rolledHorse}&apos;s secondary movement bar
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
-              const alreadyMarked = (me.jerseyMarks[horseIdx] ?? []).includes(n);
-              return (
-                <button key={n} disabled={disabled || alreadyMarked}
-                  onClick={() => { closeAll(); sendAction({ type: 'jersey', markHorse: n }); }}
-                  className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition disabled:opacity-30 ${
-                    alreadyMarked ? 'bg-neutral-800 text-neutral-500' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
-                  }`}>
-                  <HorseDot num={n} /> Horse {n}
-                  {alreadyMarked && <span className="text-[10px]">(marked)</span>}
-                </button>
-              );
-            })}
-          </div>
-          <button onClick={closeAll}
-            className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">
-            Cancel
-          </button>
-        </div>
       )}
     </div>
   );
@@ -805,50 +642,67 @@ function HorsePicker({
   );
 }
 
-function ActionBtn({
-  label, icon, disabled, onClick, tip, active,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-  tip?: string;
-  /** Highlight the button while a multi-step pick (e.g. concession) is in progress */
-  active?: boolean;
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled} title={tip}
-      className={`flex flex-col items-center gap-1 rounded-md border px-2 py-3 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
-        active
-          ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100 ring-1 ring-emerald-400'
-          : 'border-neutral-800 bg-neutral-950 hover:border-emerald-500 hover:bg-neutral-900 disabled:hover:border-neutral-800 disabled:hover:bg-neutral-950'
-      }`}>
-      <span className="flex h-6 items-center justify-center text-xl">{icon}</span>
-      <span className="font-medium">{label}</span>
-    </button>
-  );
-}
-
 // =====================================================================
 // Player sheet (own)
 // =====================================================================
 
-function PlayerSheet({ state, me, concessionPick }: {
+type SheetAction = {
+  effectiveHorse: number;
+  rolledHorse: number;
+  wildHorse: number | null;
+  setWildHorse: (n: number | null) => void;
+  wildsLeft: number;
+  canHelmet: boolean;
+  canJersey: boolean;
+  canBet: boolean;
+  canBuy: boolean;
+  concessionCells: number[];
+  subPicker: 'bet' | 'jersey' | null;
+  setSubPicker: (s: 'bet' | 'jersey' | null) => void;
+  send: (payload: ActionPayload) => void;
+  refreshWild?: () => void;
+  disabled: boolean;
+};
+
+function PlayerSheet({ state, me, action }: {
   state: LSState;
   me: LSPlayer;
-  /** When present, the concession grid lights up its pickable cells and clicks fire onPick. */
-  concessionPick?: { pickable: number[]; onPick: (idx: number) => void };
+  /** When present, the sheet is the interactive action surface for the current player's turn. */
+  action?: SheetAction;
 }) {
-  // Jockey set = at least one helmet AND at least one jersey on the same horse
   const jockeySets = me.helmets.reduce((acc, h, i) => acc + (h > 0 && me.jerseys[i] > 0 ? 1 : 0), 0);
+  const effHorseIdx = action ? action.effectiveHorse - 1 : -1;
+
+  const onConcessionPick = action
+    ? (idx: number) => { action.setSubPicker(null); action.send({ type: 'concession', cellIdx: idx }); }
+    : undefined;
+
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Your sheet</div>
+        <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
+          Your sheet
+          {action && (
+            <span className="ml-2 normal-case tracking-normal text-emerald-400">
+              · acting on horse <HorseDot num={action.effectiveHorse} />
+              {action.wildHorse !== null && <span className="ml-1 text-amber-400">(Wild)</span>}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2 text-xs">
-          <span className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
             <span className="text-neutral-500">Wilds </span>
             <span className="font-mono text-amber-400">{MAX_WILDS - me.wildsUsed}/{MAX_WILDS}</span>
+            {action?.refreshWild && (
+              <button
+                onClick={action.refreshWild}
+                disabled={action.disabled}
+                title="Spend your action to recover one Wild"
+                className="rounded border border-amber-600 px-1.5 py-0 text-[10px] text-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
+              >
+                ↺ Refresh
+              </button>
+            )}
           </span>
           <span className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
             <span className="text-neutral-500">Jockey sets </span>
@@ -862,20 +716,15 @@ function PlayerSheet({ state, me, concessionPick }: {
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[195px_1fr]">
-        {/* LEFT: concession grid + bonuses (both fill the column width so their edges line up) */}
+        {/* LEFT: concession grid + bonuses */}
         <div className="space-y-3">
           <div>
-            <div className="mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
-              <span className="text-neutral-500">Concessions</span>
-              {concessionPick && (
-                <span className="normal-case tracking-normal text-emerald-400">pick one ↓</span>
-              )}
-            </div>
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
             <ConcessionGrid
               grid={state.concessionGrid}
               marks={me.concessionMarks}
-              clickable={concessionPick?.pickable}
-              onPick={concessionPick?.onPick}
+              clickable={action?.concessionCells}
+              onPick={onConcessionPick}
               fullWidth
             />
           </div>
@@ -908,7 +757,7 @@ function PlayerSheet({ state, me, concessionPick }: {
           </div>
         </div>
 
-        {/* RIGHT: horse rows with helmet/jersey/bet/odds/cost */}
+        {/* RIGHT: horse rows */}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse text-center text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
@@ -931,59 +780,209 @@ function PlayerSheet({ state, me, concessionPick }: {
                 const otherOwner = !owned && !inMarket
                   ? state.players.find(p => p.ownedHorses.includes(num))
                   : undefined;
-                // Who owns this horse (if anyone) — used to suffix the place when finished
                 const anyOwner = state.players.find(p => p.ownedHorses.includes(num));
+
+                const isActive = !!action && num === action.effectiveHorse;
+                // Clickable horse # = Wild Number selector (act on a different horse via Wild)
+                const isRolled = !!action && num === action.rolledHorse;
+                const canWild = !!action && !isRolled && action.wildsLeft > 0;
+                const wildSelected = !!action && action.wildHorse === num;
+
                 return (
-                  <tr key={num} className="border-t border-neutral-800/60">
+                  <tr key={num} className={`border-t border-neutral-800/60 ${isActive ? 'bg-emerald-500/[0.04]' : ''}`}>
+                    {/* # — clickable when this is a wild candidate */}
                     <td className="px-2 py-1.5 text-center">
-                      <span className="inline-block">
-                        <HorseDot num={num} />
-                      </span>
+                      {canWild ? (
+                        <button
+                          onClick={() => action!.setWildHorse(wildSelected ? null : num)}
+                          disabled={action!.disabled}
+                          title={wildSelected ? 'Clear Wild selection' : `Use a Wild to act on horse ${num}`}
+                          className={`inline-flex items-center justify-center rounded-full p-0.5 transition hover:scale-110 ${
+                            wildSelected ? 'ring-2 ring-amber-400 ring-offset-1 ring-offset-neutral-900' : ''
+                          }`}
+                        >
+                          <HorseDot num={num} />
+                        </button>
+                      ) : (
+                        <span className={`inline-flex items-center justify-center rounded-full p-0.5 ${
+                          isActive ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900' : ''
+                        }`}>
+                          <HorseDot num={num} />
+                        </span>
+                      )}
                     </td>
+
+                    {/* Helmets */}
                     <td className="px-2 py-1.5 text-center">
-                      <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
+                      {isActive && action!.canHelmet ? (
+                        <ActionCell
+                          disabled={action!.disabled}
+                          onClick={() => action!.send({ type: 'helmet' })}
+                          title="Add a helmet to this horse"
+                        >
+                          <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
+                        </ActionCell>
+                      ) : (
+                        <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon={<span className="text-base leading-none">⛑️</span>} />
+                      )}
                     </td>
+
+                    {/* Jerseys */}
                     <td className="px-2 py-1.5 text-center">
-                      <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                      {isActive && action!.canJersey ? (
+                        <ActionCell
+                          disabled={action!.disabled}
+                          active={action!.subPicker === 'jersey'}
+                          onClick={() => action!.setSubPicker(action!.subPicker === 'jersey' ? null : 'jersey')}
+                          title="Mark a horse on this horse's secondary bar"
+                        >
+                          <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                        </ActionCell>
+                      ) : (
+                        <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                      )}
                     </td>
+
+                    {/* Bet */}
                     <td className="px-2 py-1.5 text-center font-mono">
-                      {me.bets[i] > 0 ? <span className="text-emerald-400">${me.bets[i]}</span> : <span className="text-neutral-700">—</span>}
+                      {isActive && action!.canBet ? (
+                        <ActionCell
+                          disabled={action!.disabled}
+                          active={action!.subPicker === 'bet'}
+                          onClick={() => action!.setSubPicker(action!.subPicker === 'bet' ? null : 'bet')}
+                          title="Place a bet on this horse"
+                        >
+                          {me.bets[i] > 0
+                            ? <span className="text-emerald-400">${me.bets[i]}</span>
+                            : <span className="text-emerald-300">$+</span>}
+                        </ActionCell>
+                      ) : (
+                        me.bets[i] > 0 ? <span className="text-emerald-400">${me.bets[i]}</span> : <span className="text-neutral-700">—</span>
+                      )}
                     </td>
+
+                    {/* Odds */}
                     <td className="px-2 py-1.5 text-center font-mono text-[11px] text-neutral-300">
                       {odds[0]}·{odds[1]}·{odds[2]}
                     </td>
+
+                    {/* Market */}
                     <td className="px-2 py-1.5 text-center text-[11px]">
-                      {finished
-                        ? (
-                          <span className="text-amber-400">
-                            {finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}
-                            {anyOwner && <span className="ml-1 text-sky-400">— {anyOwner.username}</span>}
-                          </span>
-                        )
-                        : owned
-                          ? <span className="text-emerald-400">owned 🏠</span>
-                          : otherOwner
-                            ? <span className="truncate text-sky-400">{otherOwner.username}</span>
-                            : <span className="text-neutral-400">${HORSE_COSTS[i]}</span>}
+                      {finished ? (
+                        <span className="text-amber-400">
+                          {finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}
+                          {anyOwner && <span className="ml-1 text-sky-400">— {anyOwner.username}</span>}
+                        </span>
+                      ) : owned ? (
+                        <span className="text-emerald-400">owned 🏠</span>
+                      ) : otherOwner ? (
+                        <span className="truncate text-sky-400">{otherOwner.username}</span>
+                      ) : isActive && action!.canBuy ? (
+                        <ActionCell
+                          disabled={action!.disabled}
+                          onClick={() => action!.send({ type: 'buy' })}
+                          title={`Buy horse ${num} for $${HORSE_COSTS[i]}`}
+                        >
+                          <span className="text-emerald-300">${HORSE_COSTS[i]}</span>
+                        </ActionCell>
+                      ) : (
+                        <span className="text-neutral-400">${HORSE_COSTS[i]}</span>
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+
+          {/* Sub-picker: bet amount */}
+          {action?.subPicker === 'bet' && (
+            <div className="mt-3 rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
+              <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
+                Bet amount for horse {action.effectiveHorse}
+              </div>
+              <div className="flex gap-2">
+                {[1, 2, 3].map(amt => (
+                  <button
+                    key={amt}
+                    disabled={action.disabled || me.money < amt}
+                    onClick={() => action.send({ type: 'bet', amount: amt })}
+                    className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40"
+                  >
+                    ${amt}
+                  </button>
+                ))}
+                <button
+                  onClick={() => action.setSubPicker(null)}
+                  className="rounded-md border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Sub-picker: jersey horse to mark */}
+          {action?.subPicker === 'jersey' && (
+            <div className="mt-3 rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
+              <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
+                Mark a horse on horse {action.effectiveHorse}&apos;s secondary bar
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
+                  const alreadyMarked = (me.jerseyMarks[effHorseIdx] ?? []).includes(n);
+                  return (
+                    <button
+                      key={n}
+                      disabled={action.disabled || alreadyMarked}
+                      onClick={() => action.send({ type: 'jersey', markHorse: n })}
+                      className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition disabled:opacity-30 ${
+                        alreadyMarked
+                          ? 'bg-neutral-800 text-neutral-500'
+                          : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
+                      }`}
+                    >
+                      <HorseDot num={n} /> H{n}
+                      {alreadyMarked && <span className="text-[10px]">(marked)</span>}
+                    </button>
+                  );
+                })}
+                <button
+                  onClick={() => action.setSubPicker(null)}
+                  className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Actions reference */}
-      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-neutral-800 pt-3 text-[11px] text-neutral-400 sm:grid-cols-3 lg:grid-cols-6">
-        <span className="inline-flex items-center gap-1"><span>🎪</span>Concession: mark cell</span>
-        <span className="inline-flex items-center gap-1"><span>⛑️</span>Helmet: bet past No-Bet</span>
-        <span className="inline-flex items-center gap-1"><JerseyIcon className="h-3.5 w-3.5" />Jersey: + secondary mark</span>
-        <span className="inline-flex items-center gap-1"><span>💰</span>Bet: up to $3</span>
-        <span className="inline-flex items-center gap-1"><span>🏠</span>Buy: own the horse</span>
-        <span className="inline-flex items-center gap-1"><span>⏭️</span>Pass</span>
-      </div>
     </div>
+  );
+}
+
+/** A table cell rendered as a clickable green-ringed button — the shared "actionable" style. */
+function ActionCell({ children, active, disabled, onClick, title }: {
+  children: React.ReactNode;
+  active?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  title?: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`inline-flex w-full items-center justify-center rounded-md px-2 py-1 transition ring-2 ring-offset-1 ring-offset-neutral-900 disabled:opacity-50 disabled:cursor-not-allowed ${
+        active
+          ? 'bg-emerald-500/25 ring-emerald-300'
+          : 'bg-emerald-500/5 ring-emerald-400 hover:bg-emerald-500/15 hover:scale-[1.03]'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
