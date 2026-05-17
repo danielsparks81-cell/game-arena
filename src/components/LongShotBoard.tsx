@@ -849,17 +849,29 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
           <div>
             <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Row/Column bonuses</div>
             <div className="grid w-full grid-cols-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
-              {CONCESSION_BONUSES.map(b => (
-                <div
-                  key={b.id}
-                  title={b.desc}
-                  className="flex aspect-square flex-col items-center justify-center rounded-md border border-neutral-800 bg-neutral-900 px-1 py-1 text-center"
-                >
-                  <span className="text-[11px] font-mono font-bold leading-tight text-neutral-200">{b.label}</span>
-                </div>
-              ))}
+              {CONCESSION_BONUSES.map((b, i) => {
+                const claimed = me.bonusesClaimed[i];
+                return (
+                  <div
+                    key={b.id}
+                    title={claimed ? `${b.desc} (claimed)` : b.desc}
+                    className={`relative flex aspect-square flex-col items-center justify-center rounded-md border px-1 py-1 text-center ${
+                      claimed ? 'border-neutral-800/60 bg-neutral-950' : 'border-neutral-800 bg-neutral-900'
+                    }`}
+                  >
+                    <span className={`text-[11px] font-mono font-bold leading-tight ${
+                      claimed ? 'text-neutral-600 line-through' : 'text-neutral-200'
+                    }`}>{b.label}</span>
+                    {claimed && (
+                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl font-bold text-red-500/80">
+                        ✕
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            <p className="mt-1 text-[10px] italic text-neutral-600">Hover for effect · fires in Phase 3</p>
+            <p className="mt-1 text-[10px] italic text-neutral-600">Hover for effect</p>
           </div>
         </div>
 
