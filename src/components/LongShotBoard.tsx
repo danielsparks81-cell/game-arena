@@ -1023,8 +1023,10 @@ function PlayerSheet({ state, me, action, bonus }: {
         {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
       </div>
 
-      {/* BOTTOM: concessions (lower-left) + Row/Column bonuses (right of concessions) */}
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(180px,220px)_minmax(0,1fr)]">
+      {/* BOTTOM: concessions (lower-left) + Row/Column bonuses (right of concessions).
+          Concessions bumped to ~240px so its 4-row aspect-square grid ends near the bonuses'
+          3-row grid (capped at max-w-xs ≈ 320px), giving matching heights at the section bottom. */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(200px,240px)_minmax(0,1fr)]">
         <div>
           <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
           <ConcessionGrid
@@ -1040,15 +1042,14 @@ function PlayerSheet({ state, me, action, bonus }: {
             <span className="text-neutral-500">Row/Column bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
-          {/* 3-row × 4-col grid sized to roughly match the 4-row concessions height.
-              Rows are fixed at 3.25rem (~52px) so the whole grid lands near 200px tall. */}
-          <div className="grid max-w-[320px] grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2"
-               style={{ gridAutoRows: '3.25rem', gridTemplateRows: 'repeat(3, 3.25rem)' }}>
+          {/* 3-row × 4-col grid; aspect-square cells, text wraps onto multiple lines.
+              Cap matches the concessions height (concessions container bumped slightly). */}
+          <div className="grid w-full max-w-xs grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             {CONCESSION_BONUSES.map((b, i) => {
               const claimed = me.bonusesClaimed[i];
               const isPickable = !!bonus && !claimed;
               const isSelected = !!bonus && bonus.picking === b.id;
-              const baseTile = `relative flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-md border px-1 py-1 text-center transition`;
+              const baseTile = `relative flex aspect-square flex-col items-center justify-center rounded-md border px-1 py-1 text-center transition`;
               if (isPickable) {
                 return (
                   <button
