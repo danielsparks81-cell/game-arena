@@ -1040,7 +1040,8 @@ function PlayerSheet({ state, me, action, bonus }: {
             <span className="text-neutral-500">Row/Column bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
           </div>
-          <div className="grid w-full grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
+          {/* Cap width so the 3-row × 4-col grid ends at ~the concessions height */}
+          <div className="grid max-w-[300px] grid-flow-col grid-rows-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             {CONCESSION_BONUSES.map((b, i) => {
               const claimed = me.bonusesClaimed[i];
               const isPickable = !!bonus && !claimed;
