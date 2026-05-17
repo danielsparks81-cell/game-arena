@@ -571,6 +571,9 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                 const inMarket = state.market.includes(num);
                 const finished = state.horses[i].finished;
                 const odds = BET_ODDS[i];
+                const otherOwner = !owned && !inMarket
+                  ? state.players.find(p => p.ownedHorses.includes(num))
+                  : undefined;
                 return (
                   <tr key={num} className="border-t border-neutral-800/60">
                     <td className="px-2 py-1.5">
@@ -595,8 +598,8 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                         ? <span className="text-amber-400">{finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}</span>
                         : owned
                           ? <span className="text-emerald-400">owned 🏠</span>
-                          : !inMarket
-                            ? <span className="text-neutral-500">sold</span>
+                          : otherOwner
+                            ? <span className="text-sky-400">owned by {otherOwner.username}</span>
                             : <span className="text-neutral-400">market · ${HORSE_COSTS[i]}</span>}
                     </td>
                   </tr>
