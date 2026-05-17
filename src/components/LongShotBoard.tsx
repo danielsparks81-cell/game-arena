@@ -696,12 +696,13 @@ function PlayerSheet({ state, me, action, bonus }: {
 
       {/* TOP: horse table (full width — sub-pickers are inline in their respective cells) */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[600px] border-collapse text-center text-sm">
+        <table className="w-full min-w-[640px] border-collapse text-center text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
               <tr>
                 <th className="px-2 py-1 text-center">#</th>
                 <th className="px-2 py-1 text-center">Helmets</th>
                 <th className="px-2 py-1 text-center">Jersey</th>
+                <th className="px-2 py-1 text-center">Bonus</th>
                 <th className="px-2 py-1 text-center">Marks</th>
                 <th className="px-2 py-1 text-center">Bet</th>
                 <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1·2·3·N/B</span></th>
@@ -789,6 +790,21 @@ function PlayerSheet({ state, me, action, bonus }: {
                     {/* Jersey — just the placement indicator */}
                     <td className="px-2 py-1.5 text-center">
                       <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
+                    </td>
+
+                    {/* Bonus — $5 jockey-set bonus, dim until BOTH helmet + jersey are placed */}
+                    <td className="px-2 py-1.5 text-center font-mono">
+                      {(() => {
+                        const hasSet = me.helmets[i] > 0 && me.jerseys[i] > 0;
+                        return (
+                          <span
+                            title={hasSet ? 'Jockey set complete — +$5 at end of race' : 'Place both a helmet and a jersey to earn $5'}
+                            className={hasSet ? 'font-bold text-sky-300' : 'text-neutral-700'}
+                          >
+                            $5
+                          </span>
+                        );
+                      })()}
                     </td>
 
                     {/* Marks — 8 always-visible horse dots */}
