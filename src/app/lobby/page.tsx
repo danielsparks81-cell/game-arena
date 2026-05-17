@@ -1,10 +1,7 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import { GAMES } from '@/lib/games/registry';
 import TopBar from '@/components/TopBar';
-import { GameThumbnail } from '@/components/GameThumbnail';
 import LobbyClient from './LobbyClient';
-import { createRoom } from './actions';
 
 export default async function LobbyPage() {
   const supabase = await createClient();
@@ -31,39 +28,6 @@ export default async function LobbyPage() {
 
   const username = profile?.username ?? user.email ?? 'player';
 
-  // Render the "Start a new game" section server-side and pass it to the client
-  // component so the online panel can sit at the same top as the first game tile.
-  const newGameSection = (
-    <section>
-      <h2 className="mb-3 text-xl font-semibold">Start a new game</h2>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {Object.values(GAMES).map(g => (
-          <form key={g.id} action={createRoom}>
-            <input type="hidden" name="gameType" value={g.id} />
-            <button
-              type="submit"
-              className="group relative w-full overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 text-left transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-lg hover:shadow-emerald-500/10"
-            >
-              <GameThumbnail gameId={g.id} className="block aspect-[7/5] w-full" />
-              <div className="p-4">
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">{g.name}</div>
-                  <span className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 opacity-0 transition group-hover:opacity-100">
-                    Start →
-                  </span>
-                </div>
-                <div className="mt-1 text-sm text-neutral-400">{g.description}</div>
-                <div className="mt-2 text-xs text-neutral-500">
-                  {g.minPlayers === g.maxPlayers ? `${g.minPlayers} players` : `${g.minPlayers}–${g.maxPlayers} players`}
-                </div>
-              </div>
-            </button>
-          </form>
-        ))}
-      </div>
-    </section>
-  );
-
   return (
     <div className="flex min-h-screen flex-col">
       <TopBar username={username} />
@@ -73,7 +37,6 @@ export default async function LobbyPage() {
           initialStats={(stats ?? []) as Parameters<typeof LobbyClient>[0]['initialStats']}
           currentUserId={user.id}
           currentUsername={username}
-          newGameSection={newGameSection}
         />
       </main>
     </div>
