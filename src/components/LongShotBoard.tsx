@@ -737,67 +737,13 @@ function PlayerSheet({ state, me, action, bonus }: {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[195px_1fr]">
-        {/* LEFT: concession grid + bonuses */}
-        <div className="space-y-3">
-          <div>
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
-            <ConcessionGrid
-              grid={state.concessionGrid}
-              marks={me.concessionMarks}
-              clickable={concessionPickable}
-              onPick={onConcessionPick}
-              fullWidth
-            />
-          </div>
-          <div>
-            <div className="mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
-              <span className="text-neutral-500">Row/Column bonuses</span>
-              {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
-            </div>
-            <div className="grid w-full grid-cols-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
-              {CONCESSION_BONUSES.map((b, i) => {
-                const claimed = me.bonusesClaimed[i];
-                const isPickable = !!bonus && !claimed;
-                const isSelected = !!bonus && bonus.picking === b.id;
-                const baseTile = `relative flex aspect-square flex-col items-center justify-center rounded-md border px-1 py-1 text-center transition`;
-                if (isPickable) {
-                  return (
-                    <button
-                      key={b.id}
-                      disabled={bonus.disabled}
-                      onClick={() => bonus.onTileClick(b.id)}
-                      title={b.desc}
-                      className={`${baseTile} ${
-                        isSelected
-                          ? 'border-emerald-300 bg-emerald-500/25 ring-2 ring-emerald-300'
-                          : 'border-emerald-400 bg-emerald-500/5 ring-2 ring-emerald-400 hover:bg-emerald-500/15 hover:scale-[1.03]'
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      <span className="text-[11px] font-mono font-bold leading-tight text-emerald-100">{b.label}</span>
-                    </button>
-                  );
-                }
-                return (
-                  <div
-                    key={b.id}
-                    title={claimed ? `${b.desc} (claimed)` : b.desc}
-                    className={`${baseTile} ${
-                      claimed ? 'border-neutral-800/60 bg-neutral-950' : 'border-neutral-800 bg-neutral-900'
-                    }`}
-                  >
-                    <span className={`text-[11px] font-mono font-bold leading-tight ${
-                      claimed ? 'text-neutral-600 line-through' : 'text-neutral-200'
-                    }`}>{b.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="mt-1 text-[10px] italic text-neutral-600">Hover for effect</p>
-          </div>
-        </div>
-
-        {/* RIGHT: horse rows */}
+      {/* TOP: horse table + (side panel on the right when a sub-picker is active) */}
+      {(() => null)() /* helper to keep this block readable */}
+      <div className={`grid grid-cols-1 gap-4 ${
+        (action?.subPicker || (bonus?.targets?.jerseyMark && bonus.horse1 !== null))
+          ? 'lg:grid-cols-[1fr_minmax(0,260px)]'
+          : ''
+      }`}>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] border-collapse text-center text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
@@ -1011,97 +957,158 @@ function PlayerSheet({ state, me, action, bonus }: {
 
           {/* Bet winnings — shown when the race is over (Phase 4 will fold this into full settlement) */}
           {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
+        </div>
 
-          {/* Bonus inline picker: jersey-step-2 (pick which horse to add to bar) */}
-          {bonus?.targets?.jerseyMark && bonus.horse1 !== null && (
-            <div className="mt-3 rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
-              <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
-                Pick a horse to add to horse {bonus.horse1}&apos;s jersey bar
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
-                  const pickable = bonus.targets!.jerseyMark!.has(n);
-                  return (
+        {/* RIGHT-SIDE PANEL: sub-pickers (bet amount, jersey horse, bonus jerseyMark) */}
+        {(action?.subPicker || (bonus?.targets?.jerseyMark && bonus.horse1 !== null)) && (
+          <div className="space-y-3">
+            {action?.subPicker === 'bet' && (
+              <div className="rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
+                <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
+                  Bet amount for horse {action.effectiveHorse}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {[1, 2, 3].map(amt => (
                     <button
-                      key={n}
-                      disabled={bonus.disabled || !pickable}
-                      onClick={() => bonus.onPick(n)}
-                      className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition disabled:opacity-30 ${
-                        pickable
-                          ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
-                          : 'bg-neutral-800 text-neutral-500'
-                      }`}
+                      key={amt}
+                      disabled={action.disabled || me.money < amt}
+                      onClick={() => action.send({ type: 'bet', amount: amt })}
+                      className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40"
                     >
-                      <HorseDot num={n} /> H{n}
-                      {!pickable && <span className="text-[10px]">(marked)</span>}
+                      ${amt}
                     </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Sub-picker: bet amount */}
-          {action?.subPicker === 'bet' && (
-            <div className="mt-3 rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
-              <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
-                Bet amount for horse {action.effectiveHorse}
-              </div>
-              <div className="flex gap-2">
-                {[1, 2, 3].map(amt => (
+                  ))}
                   <button
-                    key={amt}
-                    disabled={action.disabled || me.money < amt}
-                    onClick={() => action.send({ type: 'bet', amount: amt })}
-                    className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40"
+                    onClick={() => action.setSubPicker(null)}
+                    className="rounded-md border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800"
                   >
-                    ${amt}
+                    Cancel
                   </button>
-                ))}
-                <button
-                  onClick={() => action.setSubPicker(null)}
-                  className="rounded-md border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800"
-                >
-                  Cancel
-                </button>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Sub-picker: jersey horse to mark */}
-          {action?.subPicker === 'jersey' && (
-            <div className="mt-3 rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
-              <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
-                Mark a horse on horse {action.effectiveHorse}&apos;s secondary bar
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
-                  const alreadyMarked = (me.jerseyMarks[effHorseIdx] ?? []).includes(n);
-                  return (
-                    <button
-                      key={n}
-                      disabled={action.disabled || alreadyMarked}
-                      onClick={() => action.send({ type: 'jersey', markHorse: n })}
-                      className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition disabled:opacity-30 ${
-                        alreadyMarked
-                          ? 'bg-neutral-800 text-neutral-500'
-                          : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
-                      }`}
-                    >
-                      <HorseDot num={n} /> H{n}
-                      {alreadyMarked && <span className="text-[10px]">(marked)</span>}
-                    </button>
-                  );
-                })}
+            {action?.subPicker === 'jersey' && (
+              <div className="rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
+                <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
+                  Add a horse to horse {action.effectiveHorse}&apos;s secondary bar
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
+                    const alreadyMarked = (me.jerseyMarks[effHorseIdx] ?? []).includes(n);
+                    return (
+                      <button
+                        key={n}
+                        disabled={action.disabled || alreadyMarked}
+                        onClick={() => action.send({ type: 'jersey', markHorse: n })}
+                        title={alreadyMarked ? 'Already marked' : `Add H${n}`}
+                        className={`flex items-center gap-1 rounded-md p-1.5 text-sm transition disabled:opacity-30 ${
+                          alreadyMarked
+                            ? 'bg-neutral-800 text-neutral-500'
+                            : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
+                        }`}
+                      >
+                        <HorseDot num={n} />
+                      </button>
+                    );
+                  })}
+                </div>
                 <button
                   onClick={() => action.setSubPicker(null)}
-                  className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
+                  className="mt-2 w-full rounded-md border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800"
                 >
                   Cancel
                 </button>
               </div>
-            </div>
-          )}
+            )}
+
+            {bonus?.targets?.jerseyMark && bonus.horse1 !== null && (
+              <div className="rounded-md border border-emerald-500 bg-emerald-500/10 p-3">
+                <div className="mb-2 text-xs uppercase tracking-wider text-emerald-300">
+                  Add a horse to horse {bonus.horse1}&apos;s jersey bar
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
+                    const pickable = bonus.targets!.jerseyMark!.has(n);
+                    return (
+                      <button
+                        key={n}
+                        disabled={bonus.disabled || !pickable}
+                        onClick={() => bonus.onPick(n)}
+                        title={pickable ? `Add H${n}` : 'Already marked'}
+                        className={`flex items-center gap-1 rounded-md p-1.5 text-sm transition disabled:opacity-30 ${
+                          pickable
+                            ? 'bg-emerald-500/10 text-emerald-400 ring-1 ring-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
+                            : 'bg-neutral-800 text-neutral-500'
+                        }`}
+                      >
+                        <HorseDot num={n} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* BOTTOM: concessions (lower-left) + Row/Column bonuses (right of concessions) */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-[minmax(180px,220px)_minmax(0,1fr)]">
+        <div>
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
+          <ConcessionGrid
+            grid={state.concessionGrid}
+            marks={me.concessionMarks}
+            clickable={concessionPickable}
+            onPick={onConcessionPick}
+            fullWidth
+          />
+        </div>
+        <div>
+          <div className="mb-1 flex items-center justify-between text-xs font-semibold uppercase tracking-wider">
+            <span className="text-neutral-500">Row/Column bonuses</span>
+            {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
+          </div>
+          <div className="grid w-full grid-cols-6 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2 sm:grid-cols-6">
+            {CONCESSION_BONUSES.map((b, i) => {
+              const claimed = me.bonusesClaimed[i];
+              const isPickable = !!bonus && !claimed;
+              const isSelected = !!bonus && bonus.picking === b.id;
+              const baseTile = `relative flex aspect-square flex-col items-center justify-center rounded-md border px-1 py-1 text-center transition`;
+              if (isPickable) {
+                return (
+                  <button
+                    key={b.id}
+                    disabled={bonus.disabled}
+                    onClick={() => bonus.onTileClick(b.id)}
+                    title={b.desc}
+                    className={`${baseTile} ${
+                      isSelected
+                        ? 'border-emerald-300 bg-emerald-500/25 ring-2 ring-emerald-300'
+                        : 'border-emerald-400 bg-emerald-500/5 ring-2 ring-emerald-400 hover:bg-emerald-500/15 hover:scale-[1.03]'
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    <span className="text-[11px] font-mono font-bold leading-tight text-emerald-100">{b.label}</span>
+                  </button>
+                );
+              }
+              return (
+                <div
+                  key={b.id}
+                  title={claimed ? `${b.desc} (claimed)` : b.desc}
+                  className={`${baseTile} ${
+                    claimed ? 'border-neutral-800/60 bg-neutral-950' : 'border-neutral-800 bg-neutral-900'
+                  }`}
+                >
+                  <span className={`text-[11px] font-mono font-bold leading-tight ${
+                    claimed ? 'text-neutral-600 line-through' : 'text-neutral-200'
+                  }`}>{b.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-[10px] italic text-neutral-600">Hover for effect</p>
         </div>
       </div>
     </div>
