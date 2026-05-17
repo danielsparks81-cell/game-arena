@@ -31,7 +31,15 @@ function SignupForm() {
     e.preventDefault();
     setError(null); setInfo(null);
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        // Pin the confirmation-email redirect to the origin the user actually signed up on,
+        // so it never falls back to the Supabase project's Site URL (which may be localhost).
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
+    });
     setLoading(false);
     if (error) { setError(error.message); return; }
     if (data.session) {
