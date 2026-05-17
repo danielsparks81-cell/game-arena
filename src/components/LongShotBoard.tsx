@@ -287,18 +287,8 @@ export default function LongShotBoard({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" caption="d8" />
-          <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" caption="1·2·2·2·3·3" />
-          {state.phase === 'playing' && state.step === 'roll' && (
-            <button
-              onClick={onRoll}
-              disabled={disabled || !isMyTurnToRoll}
-              className="rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 transition hover:bg-emerald-400 disabled:opacity-40"
-              title={isMyTurnToRoll ? 'Roll both dice' : 'Not your turn'}
-            >
-              🎲 Roll
-            </button>
-          )}
+          <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" horseDie />
+          <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" />
           {state.phase === 'finished' && (
             <span className="rounded-md bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-400">
               🏁 Race over
@@ -390,13 +380,25 @@ export default function LongShotBoard({
               onAction={onAction}
             />
           )}
-          {/* Hint when we're in roll phase so the right column isn't empty */}
+          {/* Roll-phase panel: large centered Roll button (only the active player can roll) */}
           {state.step === 'roll' && (
-            <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 text-sm text-neutral-400">
-              {isMyTurnToRoll
-                ? 'Your turn — roll the dice to start the round.'
-                : <>Waiting on <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span> to roll…</>
-              }
+            <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-neutral-800 bg-neutral-900/60 p-8 text-center">
+              {isMyTurnToRoll ? (
+                <>
+                  <p className="text-sm text-neutral-400">Your turn — roll the dice to start the round.</p>
+                  <button
+                    onClick={onRoll}
+                    disabled={disabled}
+                    className="rounded-xl bg-emerald-500 px-12 py-6 text-3xl font-bold text-neutral-950 shadow-lg transition hover:scale-105 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:scale-100"
+                  >
+                    🎲 Roll
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm text-neutral-400">
+                  Waiting on <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span> to roll…
+                </p>
+              )}
             </div>
           )}
           {me && <PlayerSheet state={state} me={me} concessionPick={sheetConcessionPick} />}
@@ -1107,7 +1109,37 @@ function ConcessionGrid({
   );
 }
 
-function Die({ label, value, color, caption }: { label: string; value: number | null; color: string; caption: string }) {
+function Die({ label, value, color, horseDie }: {
+  label: string;
+  value: number | null;
+  color: string;
+  /** When true and `value` is a horse number, render as a diamond using that horse's color. */
+  horseDie?: boolean;
+}) {
+  // Horse die showing a result: diamond shape in the rolled horse's color
+  if (horseDie && value !== null) {
+    const horseColor = HORSE_COLORS[value - 1];
+    // Horse 2 is yellow — needs dark text for contrast
+    const textColor = value === 2 ? '#0a0a0a' : '#ffffff';
+    return (
+      <div className="flex flex-col items-center">
+        <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
+        <div className="mt-0.5 flex h-9 w-9 items-center justify-center">
+          <div
+            className="relative h-6 w-6 rotate-45 rounded-sm shadow-md"
+            style={{ backgroundColor: horseColor }}
+          >
+            <span
+              className="absolute inset-0 flex -rotate-45 items-center justify-center text-sm font-bold leading-none"
+              style={{ color: textColor }}
+            >
+              {value}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col items-center">
       <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
@@ -1116,7 +1148,6 @@ function Die({ label, value, color, caption }: { label: string; value: number | 
       }`}>
         {value ?? '?'}
       </div>
-      <span className="mt-0.5 text-[9px] text-neutral-600">{caption}</span>
     </div>
   );
 }
