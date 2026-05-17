@@ -829,6 +829,8 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                 const otherOwner = !owned && !inMarket
                   ? state.players.find(p => p.ownedHorses.includes(num))
                   : undefined;
+                // Who owns this horse (if anyone) — used to suffix the place when finished
+                const anyOwner = state.players.find(p => p.ownedHorses.includes(num));
                 return (
                   <tr key={num} className="border-t border-neutral-800/60">
                     <td className="px-2 py-1.5 text-center">
@@ -850,7 +852,12 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                     </td>
                     <td className="px-2 py-1.5 text-center text-[11px]">
                       {finished
-                        ? <span className="text-amber-400">{finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}</span>
+                        ? (
+                          <span className="text-amber-400">
+                            {finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}
+                            {anyOwner && <span className="ml-1 text-sky-400">— {anyOwner.username}</span>}
+                          </span>
+                        )
                         : owned
                           ? <span className="text-emerald-400">owned 🏠</span>
                           : otherOwner
