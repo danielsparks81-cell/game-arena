@@ -6,7 +6,7 @@ import {
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
-  calculateBetWinnings,
+  SECONDARY_BARS, calculateBetWinnings,
 } from '@/lib/games/longshot';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
@@ -870,12 +870,14 @@ function PlayerSheet({ state, me, action, bonus }: {
                               <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
                             )}
 
-                            {/* Always-visible 8 horse dots: colored if marked, grey if not.
-                                When this row is pickable for the jersey action (or bonus step 2),
+                            {/* Always-visible 8 horse dots. Colored if marked (default pre-print
+                                OR player-added), grey if not. On the active/wild/bonus-pick row,
                                 unmarked dots get an emerald ring and become clickable. */}
                             <div className="flex gap-0.5">
                               {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
-                                const marked = (me.jerseyMarks[i] ?? []).includes(n);
+                                const isDefaultMark = (SECONDARY_BARS[num] ?? []).includes(n);
+                                const isPlayerMark = (me.jerseyMarks[i] ?? []).includes(n);
+                                const marked = isDefaultMark || isPlayerMark;
                                 const pickable = !marked && (
                                   (isBonusMarkRow && bonus!.targets!.jerseyMark!.has(n)) ||
                                   (canActionPickHere && !(state.horses[i].finished))
@@ -896,7 +898,11 @@ function PlayerSheet({ state, me, action, bonus }: {
                                 return (
                                   <span
                                     key={n}
-                                    title={marked ? `Horse ${n} marked on horse ${num}'s bar` : `Horse ${n} not on horse ${num}'s bar`}
+                                    title={
+                                      isPlayerMark ? `H${n} marked by you on horse ${num}'s bar`
+                                      : isDefaultMark ? `H${n} pre-marked on horse ${num}'s bar`
+                                      : `H${n} not on horse ${num}'s bar`
+                                    }
                                     className={`inline-flex items-center justify-center rounded-full p-0.5 ${
                                       marked ? '' : 'opacity-25 grayscale'
                                     }`}

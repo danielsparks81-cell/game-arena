@@ -77,12 +77,21 @@ export const CONCESSION_BONUSES = [
 ] as const;
 
 /**
- * Default secondary-movement bars are empty — all secondary movement comes from
- * jerseyMarks (player-placed marks). Starting jersey marks per player will be
- * specified later — until then, players start with no jerseys.
+ * Pre-printed jersey marks on each horse's secondary bar — shared by all players,
+ * independent of any Jersey actions taken in-game. When horse N is rolled, every horse
+ * in SECONDARY_BARS[N] also advances 1 space. Players can add more via Jersey action
+ * (those live in each player's jerseyMarks and stack via a Set, no duplicates).
  */
 export const SECONDARY_BARS: number[][] = [
-  [], [], [], [], [], [], [], [], [],
+  [],         // index 0 unused (horses are 1-indexed)
+  [6],        // horse 1 → +6
+  [5],        // horse 2 → +5
+  [1],        // horse 3 → +1
+  [2],        // horse 4 → +2
+  [1, 4],     // horse 5 → +1 +4
+  [2, 3],     // horse 6 → +2 +3
+  [1, 3],     // horse 7 → +1 +3
+  [2, 4],     // horse 8 → +2 +4
 ];
 
 export type HorseFinish = 1 | 2 | 3 | null;
