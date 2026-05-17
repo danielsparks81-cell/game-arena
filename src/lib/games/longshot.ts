@@ -18,13 +18,13 @@ export const MOVEMENT_DIE_MAX = 3;
 /** Distinct colors per horse (1-indexed via HORSE_COLORS[n-1]). */
 export const HORSE_COLORS = [
   '#dc2626', // 1 - red
-  '#2563eb', // 2 - blue
-  '#eab308', // 3 - yellow
-  '#22c55e', // 4 - green
-  '#a855f7', // 5 - purple
-  '#f97316', // 6 - orange
-  '#06b6d4', // 7 - cyan
-  '#ec4899', // 8 - pink
+  '#eab308', // 2 - yellow
+  '#1e3a8a', // 3 - navy blue
+  '#c084fc', // 4 - light purple
+  '#22c55e', // 5 - green
+  '#38bdf8', // 6 - light blue
+  '#f97316', // 7 - orange
+  '#6b21a8', // 8 - deep purple
 ];
 
 /**
