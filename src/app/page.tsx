@@ -11,9 +11,9 @@ export default function Home() {
         <div className="absolute right-1/4 top-0 h-[400px] w-[400px] rounded-full bg-rose-500/10 blur-3xl" />
       </div>
 
-      <div className="grid w-full max-w-5xl items-center gap-10 lg:grid-cols-[1fr_1fr]">
+      <div className="grid w-full max-w-5xl items-center gap-8 sm:gap-10 lg:grid-cols-[1fr_1fr]">
         <div className="text-center lg:text-left">
-          <h1 className="bg-gradient-to-br from-emerald-300 via-sky-300 to-violet-300 bg-clip-text text-5xl font-bold tracking-tight text-transparent sm:text-6xl">
+          <h1 className="bg-gradient-to-br from-emerald-300 via-sky-300 to-violet-300 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl lg:text-6xl">
             Game Arena
           </h1>
           <p className="mt-4 text-lg text-neutral-400">
@@ -37,7 +37,7 @@ export default function Home() {
             Currently featuring <span className="text-emerald-400">Tic-Tac-Toe</span> and <span className="text-amber-400">Connect Four</span>. More games coming soon.
           </p>
         </div>
-        <div className="mx-auto w-full max-w-md">
+        <div className="mx-auto w-full max-w-xs sm:max-w-md">
           <HeroIllustration className="h-auto w-full" />
         </div>
       </div>

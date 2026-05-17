@@ -215,7 +215,7 @@ export default function LobbyClient({
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_280px]">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-[1fr_260px] lg:grid-cols-[1fr_280px]">
         {/* LEFT: active rooms */}
         <section>
           <div className="mb-3 flex items-baseline justify-between">

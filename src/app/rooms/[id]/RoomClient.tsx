@@ -119,17 +119,17 @@ export default function RoomClient({
   const otherVoted = otherSeated ? room.rematch_votes?.includes(otherSeated.player_id) : false;
 
   return (
-    <main className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-6 p-6 lg:grid-cols-[1fr_320px]">
+    <main className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px]">
       <section>
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">{gameName}</h1>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold sm:text-2xl">{gameName}</h1>
             <p className="text-sm text-neutral-400">Room <code className="text-neutral-300">{roomId.slice(0, 8)}</code> · {room.status}</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <ShareButton roomId={roomId} />
             <Link href="/lobby" className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-900">
-              Back to lobby
+              ← Lobby
             </Link>
           </div>
         </div>
@@ -188,7 +188,7 @@ export default function RoomClient({
         )}
       </section>
 
-      <aside className="flex h-[600px] flex-col rounded-xl border border-neutral-800 bg-neutral-900">
+      <aside className="flex h-80 flex-col rounded-xl border border-neutral-800 bg-neutral-900 lg:h-[600px]">
         <div className="border-b border-neutral-800 px-4 py-2 text-sm font-medium">Chat</div>
         <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3 text-sm">
           {messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
@@ -377,7 +377,7 @@ function ConnectFourBoard({
                 key={idx}
                 disabled={disabled || !yourTurn || colFull(c)}
                 onClick={() => onMove(c)}
-                className="aspect-square w-10 rounded-full bg-blue-950 shadow-inner transition sm:w-12 disabled:cursor-default"
+                className="aspect-square w-9 rounded-full bg-blue-950 shadow-inner transition sm:w-12 disabled:cursor-default"
               >
                 {cell ? (
                   <span

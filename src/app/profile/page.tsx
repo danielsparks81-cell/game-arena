@@ -60,10 +60,10 @@ export default async function ProfilePage() {
   return (
     <div className="flex min-h-screen flex-col">
       <TopBar username={username} />
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
-        <div className="mb-6 flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold">{username}</h1>
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-semibold">{username}</h1>
             <p className="mt-1 text-sm text-neutral-400">
               Record:{' '}
               <span className="font-mono text-emerald-400">{wins}W</span>
@@ -79,7 +79,7 @@ export default async function ProfilePage() {
               )}
             </p>
           </div>
-          <Link href="/lobby" className="text-sm text-emerald-400 hover:underline">← Back to lobby</Link>
+          <Link href="/lobby" className="shrink-0 text-sm text-emerald-400 hover:underline">← Back to lobby</Link>
         </div>
 
         <section className="mb-6 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
