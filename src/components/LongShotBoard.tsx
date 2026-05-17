@@ -270,35 +270,19 @@ export default function LongShotBoard({
 
   return (
     <div className="space-y-3">
-      {/* Status bar — round/turn info + dice + roll button */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2">
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-neutral-500">
-            Round {state.round} · {state.step === 'roll' ? 'Roll phase' : state.step === 'action' ? 'Action phase' : 'Race over'}
-          </div>
-          <div className="text-sm">
-            {state.step === 'roll' && (
-              <>Active: <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span>{isMyTurnToRoll && <span className="ml-2 text-xs text-emerald-400">(you roll)</span>}</>
-            )}
-            {state.step === 'action' && (
-              <>Turn: <span className="font-semibold text-emerald-400">{currentTurnPlayer?.username ?? '—'}</span>{isMyTurnToAct && <span className="ml-2 text-xs text-emerald-400">(your action)</span>}</>
-            )}
-            {state.step === 'done' && <span className="text-amber-400">Final scoring coming in Phase 4</span>}
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" horseDie />
-          <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" />
-          {state.phase === 'finished' && (
-            <span className="rounded-md bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-400">
-              🏁 Race over
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Players compact strip */}
-      <div className="flex flex-wrap gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-2 py-1.5">
+      {/* Players strip + compact round/dice readout (replaces the old phase bar) */}
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-2 py-1.5">
+        <span className="rounded-md bg-neutral-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+          Round {state.round}
+        </span>
+        <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" horseDie />
+        <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" />
+        {state.phase === 'finished' && (
+          <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-400">
+            🏁 Race over
+          </span>
+        )}
+        <span className="mx-1 hidden h-6 w-px bg-neutral-800 sm:inline-block" />
         {state.players.map(p => {
           const isActive = p.seat === state.activePlayerSeat;
           const isTurn   = state.step === 'action' && p.seat === state.currentTurnSeat;
@@ -1116,39 +1100,35 @@ function Die({ label, value, color, horseDie }: {
   /** When true and `value` is a horse number, render as a diamond using that horse's color. */
   horseDie?: boolean;
 }) {
-  // Horse die showing a result: diamond shape in the rolled horse's color
+  // Compact inline die used in the players strip — no label, smaller footprint
   if (horseDie && value !== null) {
     const horseColor = HORSE_COLORS[value - 1];
-    // Horse 2 is yellow — needs dark text for contrast
     const textColor = value === 2 ? '#0a0a0a' : '#ffffff';
     return (
-      <div className="flex flex-col items-center">
-        <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
-        <div className="mt-0.5 flex h-9 w-9 items-center justify-center">
-          <div
-            className="relative h-6 w-6 rotate-45 rounded-sm shadow-md"
-            style={{ backgroundColor: horseColor }}
+      <span className="inline-flex h-6 w-6 items-center justify-center" title={`${label}: ${value}`}>
+        <span
+          className="relative inline-flex h-4 w-4 rotate-45 rounded-sm shadow"
+          style={{ backgroundColor: horseColor }}
+        >
+          <span
+            className="absolute inset-0 flex -rotate-45 items-center justify-center text-[10px] font-bold leading-none"
+            style={{ color: textColor }}
           >
-            <span
-              className="absolute inset-0 flex -rotate-45 items-center justify-center text-sm font-bold leading-none"
-              style={{ color: textColor }}
-            >
-              {value}
-            </span>
-          </div>
-        </div>
-      </div>
+            {value}
+          </span>
+        </span>
+      </span>
     );
   }
   return (
-    <div className="flex flex-col items-center">
-      <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
-      <div className={`mt-0.5 flex h-9 w-9 items-center justify-center rounded-md font-bold shadow-md ${
+    <span
+      title={`${label}${value !== null ? `: ${value}` : ''}`}
+      className={`inline-flex h-6 w-6 items-center justify-center rounded-md text-xs font-bold shadow ${
         value !== null ? color : 'bg-neutral-800 text-neutral-600'
-      }`}>
-        {value ?? '?'}
-      </div>
-    </div>
+      }`}
+    >
+      {value ?? '?'}
+    </span>
   );
 }
 
