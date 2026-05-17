@@ -744,11 +744,6 @@ function PlayerSheet({ state, me, action }: {
                     <span className={`text-[11px] font-mono font-bold leading-tight ${
                       claimed ? 'text-neutral-600 line-through' : 'text-neutral-200'
                     }`}>{b.label}</span>
-                    {claimed && (
-                      <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-2xl font-bold text-red-500/80">
-                        ✕
-                      </span>
-                    )}
                   </div>
                 );
               })}
