@@ -126,19 +126,6 @@ export default function RoomClient({
       room.game_type === 'longshot' ? 'max-w-[1800px]' : 'max-w-6xl'
     }`}>
       <section>
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-xl font-semibold sm:text-2xl">{gameName}</h1>
-            <p className="text-sm text-neutral-400">Room <code className="text-neutral-300">{roomId.slice(0, 8)}</code> · {room.status}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <ShareButton roomId={roomId} />
-            <Link href="/lobby" className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-900">
-              ← Lobby
-            </Link>
-          </div>
-        </div>
-
         {/* Hide the seats grid for Long Shot during play — the in-board Players strip
             covers seated/turn info and the seats grid wastes vertical space. */}
         {!(room.game_type === 'longshot' && room.status === 'playing') && (
@@ -217,6 +204,20 @@ export default function RoomClient({
       </section>
 
       <div className="space-y-4">
+        {/* Game header — moved here from the left section so the board gets full width */}
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+          <h1 className="text-lg font-semibold sm:text-xl">{gameName}</h1>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            Room <code className="text-neutral-300">{roomId.slice(0, 8)}</code> · {room.status}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <ShareButton roomId={roomId} />
+            <Link href="/lobby" className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-900">
+              ← Lobby
+            </Link>
+          </div>
+        </div>
+
         <MembersPanel
           currentUserId={currentUserId}
           currentUsername={currentUsername}

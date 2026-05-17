@@ -294,13 +294,17 @@ export default function MembersPanel({
           </ul>
         </div>
 
-        <div className="border-t border-neutral-800 pt-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Offline</h2>
+        <details className="group border-t border-neutral-800 pt-4">
+          <summary className="mb-3 flex cursor-pointer list-none items-center justify-between select-none">
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wider text-neutral-500">
+              {/* Caret rotates 90° when the section is open */}
+              <span className="inline-block text-neutral-600 transition-transform group-open:rotate-90">▶</span>
+              Offline
+            </h2>
             <span className="rounded-full bg-neutral-700/40 px-2 py-0.5 text-xs font-medium text-neutral-400">
               {offline.length}
             </span>
-          </div>
+          </summary>
           {offline.length === 0 ? (
             <p className="rounded-md px-2 py-3 text-center text-xs text-neutral-500">
               Nobody else has signed up yet.
@@ -333,7 +337,7 @@ export default function MembersPanel({
               ))}
             </ul>
           )}
-        </div>
+        </details>
       </aside>
     </>
   );
