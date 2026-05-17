@@ -556,15 +556,15 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
 
         {/* RIGHT: horse rows with helmet/jersey/bet/odds/cost */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[480px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[480px] border-collapse text-center text-sm">
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
               <tr>
-                <th className="px-2 py-1">#</th>
-                <th className="px-2 py-1">Helmets</th>
-                <th className="px-2 py-1">Jerseys</th>
-                <th className="px-2 py-1">Bet</th>
+                <th className="px-2 py-1 text-center">#</th>
+                <th className="px-2 py-1 text-center">Helmets</th>
+                <th className="px-2 py-1 text-center">Jerseys</th>
+                <th className="px-2 py-1 text-center">Bet</th>
                 <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1st·2nd·3rd</span></th>
-                <th className="px-2 py-1">Status</th>
+                <th className="px-2 py-1 text-center">Market</th>
               </tr>
             </thead>
             <tbody>
@@ -579,22 +579,24 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                   : undefined;
                 return (
                   <tr key={num} className="border-t border-neutral-800/60">
-                    <td className="px-2 py-1.5">
-                      <HorseDot num={num} />
+                    <td className="px-2 py-1.5 text-center">
+                      <span className="inline-block">
+                        <HorseDot num={num} />
+                      </span>
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-2 py-1.5 text-center">
                       <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon="⛑️" />
                     </td>
-                    <td className="px-2 py-1.5">
+                    <td className="px-2 py-1.5 text-center">
                       <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon="🏁" />
                     </td>
-                    <td className="px-2 py-1.5 font-mono">
+                    <td className="px-2 py-1.5 text-center font-mono">
                       {me.bets[i] > 0 ? <span className="text-emerald-400">${me.bets[i]}</span> : <span className="text-neutral-700">—</span>}
                     </td>
                     <td className="px-2 py-1.5 text-center font-mono text-[11px] text-neutral-300">
                       {odds[0]}·{odds[1]}·{odds[2]}
                     </td>
-                    <td className="px-2 py-1.5 text-[11px]">
+                    <td className="px-2 py-1.5 text-center text-[11px]">
                       {finished
                         ? <span className="text-amber-400">{finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}</span>
                         : owned
