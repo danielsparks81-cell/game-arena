@@ -480,22 +480,22 @@ function ActionPanel({
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
-        <ActionBtn label="Concession" emoji="🎪" disabled={disabled || !canConcession}
+        <ActionBtn label="Concession" icon="🎪" disabled={disabled || !canConcession}
           tip={!canConcession ? 'No unmarked cell on your sheet for that horse' : undefined}
           onClick={() => setOpen('concession')} />
-        <ActionBtn label="Helmet" emoji="⛑️" disabled={disabled || !canHelmet}
+        <ActionBtn label="Helmet" icon="⛑️" disabled={disabled || !canHelmet}
           tip={!canHelmet ? `Already at ${MAX_HELMETS_PER_HORSE} helmets on this horse` : undefined}
           onClick={() => { closeAll(); send({ type: 'helmet' }); }} />
-        <ActionBtn label="Jersey" emoji="🏁" disabled={disabled || !canJersey}
+        <ActionBtn label="Jersey" icon={<JerseyIcon className="h-6 w-6" />} disabled={disabled || !canJersey}
           tip={!canJersey ? 'No jersey slots left' : undefined}
           onClick={() => setOpen('jersey')} />
-        <ActionBtn label="Bet" emoji="💰" disabled={disabled || !canBet}
+        <ActionBtn label="Bet" icon="💰" disabled={disabled || !canBet}
           tip={!canBet ? (finished ? 'Horse is finished' : past && !hasHelmet ? 'Past No-Bet line — need a helmet first' : 'Not enough money') : undefined}
           onClick={() => setOpen('bet')} />
-        <ActionBtn label={`Buy ($${HORSE_COSTS[horseIdx]})`} emoji="🏠" disabled={disabled || !canBuy}
+        <ActionBtn label={`Buy ($${HORSE_COSTS[horseIdx]})`} icon="🏠" disabled={disabled || !canBuy}
           tip={!canBuy ? (finished ? 'Horse is finished' : !state.market.includes(rolledHorse) ? 'Not in market' : 'Not enough money') : undefined}
           onClick={() => { closeAll(); send({ type: 'buy' }); }} />
-        <ActionBtn label="Pass" emoji="⏭️" disabled={disabled}
+        <ActionBtn label="Pass" icon="⏭️" disabled={disabled}
           onClick={() => { closeAll(); onAction({ type: 'pass' }); }} />
       </div>
 
@@ -738,10 +738,10 @@ function HorsePicker({
 }
 
 function ActionBtn({
-  label, emoji, disabled, onClick, tip,
+  label, icon, disabled, onClick, tip,
 }: {
   label: string;
-  emoji: string;
+  icon: React.ReactNode;
   disabled?: boolean;
   onClick: () => void;
   tip?: string;
@@ -749,7 +749,7 @@ function ActionBtn({
   return (
     <button onClick={onClick} disabled={disabled} title={tip}
       className="flex flex-col items-center gap-1 rounded-md border border-neutral-800 bg-neutral-950 px-2 py-3 text-sm transition hover:border-emerald-500 hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-neutral-800 disabled:hover:bg-neutral-950">
-      <span className="text-xl">{emoji}</span>
+      <span className="flex h-6 items-center justify-center text-xl">{icon}</span>
       <span className="font-medium">{label}</span>
     </button>
   );
@@ -867,12 +867,12 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
 
       {/* Actions reference */}
       <div className="mt-4 grid grid-cols-2 gap-2 border-t border-neutral-800 pt-3 text-[11px] text-neutral-400 sm:grid-cols-3 lg:grid-cols-6">
-        <span><span className="mr-1">🎪</span>Concession: mark cell</span>
-        <span><span className="mr-1">⛑️</span>Helmet: bet past No-Bet</span>
-        <span><span className="mr-1">🏁</span>Jersey: + secondary mark</span>
-        <span><span className="mr-1">💰</span>Bet: up to $3</span>
-        <span><span className="mr-1">🏠</span>Buy: own the horse</span>
-        <span><span className="mr-1">⏭️</span>Pass</span>
+        <span className="inline-flex items-center gap-1"><span>🎪</span>Concession: mark cell</span>
+        <span className="inline-flex items-center gap-1"><span>⛑️</span>Helmet: bet past No-Bet</span>
+        <span className="inline-flex items-center gap-1"><JerseyIcon className="h-3.5 w-3.5" />Jersey: + secondary mark</span>
+        <span className="inline-flex items-center gap-1"><span>💰</span>Bet: up to $3</span>
+        <span className="inline-flex items-center gap-1"><span>🏠</span>Buy: own the horse</span>
+        <span className="inline-flex items-center gap-1"><span>⏭️</span>Pass</span>
       </div>
     </div>
   );
