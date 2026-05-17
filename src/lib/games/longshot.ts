@@ -744,12 +744,9 @@ export function takeAction(
     }
 
     case 'refresh_wild': {
-      // Only available when the player has no legal action on the rolled horse
-      // and has at least one wild that's been used. Recovers ONE wild.
+      // Available whenever the player has at least one wild that's been used.
+      // No restriction on having other legal actions.
       if (player.wildsUsed === 0) return { error: 'No wilds to refresh' };
-      if (hasValidActionOnHorse(state, player, state.horseDie!)) {
-        return { error: 'You still have valid actions on the rolled horse — no refresh needed' };
-      }
       updatedPlayer = { ...updatedPlayer, wildsUsed: player.wildsUsed - 1 };
       log.push(`✨ ${player.username} spends the turn to refresh one Wild.`);
       break;

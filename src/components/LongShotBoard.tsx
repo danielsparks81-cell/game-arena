@@ -425,10 +425,9 @@ function ActionPanel({
   const canBet        = !finished && me.money >= 1 && (!past || hasHelmet);
   const canBuy        = !finished && state.market.includes(rolledHorse) && me.money >= HORSE_COSTS[horseIdx];
 
-  // Refresh Wilds: spend your turn to reset wildsUsed → 0. Only legal when stuck on the
-  // ROLLED horse (independent of wild-induced options) AND you have at least one wild used.
-  const stuckOnRolled = !hasValidActionOnHorse(state, me, state.horseDie!);
-  const canRefreshWilds = stuckOnRolled && me.wildsUsed > 0;
+  // Refresh Wild: spend your turn to recover ONE used wild. Available any time as long
+  // as the player isn't already full on wilds (i.e. has at least one used).
+  const canRefreshWilds = me.wildsUsed > 0;
 
   const [open, setOpen] = useState<'bet' | 'jersey' | 'concession' | null>(null);
 
@@ -503,9 +502,7 @@ function ActionPanel({
           onClick={() => { closeAll(); send({ type: 'buy' }); }} />
         <ActionBtn label="Refresh Wild" icon="✨" disabled={disabled || !canRefreshWilds}
           tip={!canRefreshWilds
-            ? (me.wildsUsed === 0
-                ? 'No wild to refresh'
-                : 'Only available when you have no legal action on the rolled horse')
+            ? 'All wilds already available — nothing to refresh'
             : 'Recover one Wild — spends your action'}
           onClick={() => { closeAll(); onAction({ type: 'refresh_wild' }); }} />
       </div>
