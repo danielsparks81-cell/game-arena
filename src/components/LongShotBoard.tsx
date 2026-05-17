@@ -1047,13 +1047,30 @@ function PlayerSheet({ state, me, action, bonus }: {
               weren't taking effect for some reason in production). */}
           <div
             className="grid w-full grid-flow-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2"
-            style={{ maxWidth: '300px', gridTemplateRows: 'repeat(3, 4.25rem)' }}
+            style={{
+              maxWidth: '300px',
+              gridTemplateRows: 'repeat(3, 4.25rem)',
+              gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',  // equal-width columns
+            }}
           >
             {CONCESSION_BONUSES.map((b, i) => {
               const claimed = me.bonusesClaimed[i];
               const isPickable = !!bonus && !claimed;
               const isSelected = !!bonus && bonus.picking === b.id;
               const baseTile = `relative flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-md border px-1 py-1 text-center transition`;
+              // Special-case rendering: bottom-row bonuses show their action icon instead of a text label
+              const renderLabel = () => {
+                if (b.id === 'helmet_any')  return <span className="text-2xl leading-none">⛑️</span>;
+                if (b.id === 'jersey_any')  return <JerseyIcon className="h-7 w-7" />;
+                if (b.id === 'free_horse')  return <span className="text-2xl leading-none">🐎</span>;
+                return (
+                  <span className={`text-[11px] font-mono font-bold leading-tight ${
+                    isPickable
+                      ? 'text-emerald-100'
+                      : claimed ? 'text-neutral-600 line-through' : 'text-neutral-200'
+                  }`}>{b.label}</span>
+                );
+              };
               if (isPickable) {
                 return (
                   <button
@@ -1067,7 +1084,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                         : 'border-emerald-400 bg-emerald-500/5 ring-2 ring-emerald-400 hover:bg-emerald-500/15 hover:scale-[1.03]'
                     } disabled:opacity-50 disabled:cursor-not-allowed`}
                   >
-                    <span className="text-[11px] font-mono font-bold leading-tight text-emerald-100">{b.label}</span>
+                    {renderLabel()}
                   </button>
                 );
               }
@@ -1076,17 +1093,14 @@ function PlayerSheet({ state, me, action, bonus }: {
                   key={b.id}
                   title={claimed ? `${b.desc} (claimed)` : b.desc}
                   className={`${baseTile} ${
-                    claimed ? 'border-neutral-800/60 bg-neutral-950' : 'border-neutral-800 bg-neutral-900'
+                    claimed ? 'border-neutral-800/60 bg-neutral-950 opacity-50' : 'border-neutral-800 bg-neutral-900'
                   }`}
                 >
-                  <span className={`text-[11px] font-mono font-bold leading-tight ${
-                    claimed ? 'text-neutral-600 line-through' : 'text-neutral-200'
-                  }`}>{b.label}</span>
+                  {renderLabel()}
                 </div>
               );
             })}
           </div>
-          <p className="mt-1 text-[10px] italic text-neutral-600">Hover for effect</p>
         </div>
       </div>
     </div>

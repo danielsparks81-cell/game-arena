@@ -66,11 +66,11 @@ export const CONCESSION_BONUSES = [
   { id: 'cash7_c',      label: '+$7',         desc: 'Gain $7' },
   // col 2
   { id: 'forward2x2',   label: '+2 / +2',     desc: 'Move any 2 Horses forward 2 each' },
-  { id: 'freebet3_a',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any Horse' },
+  { id: 'freebet3_a',   label: '$3 Bet',      desc: 'Place a free $3 bet on any Horse' },
   { id: 'back2x2',      label: '−2 / −2',     desc: 'Move any 2 Horses back 2 each' },
   // col 3
   { id: 'forward3',     label: '+3',          desc: 'Move 1 Horse forward 3' },
-  { id: 'freebet3_b',   label: 'Free $3 bet', desc: 'Place a free $3 bet on any Horse' },
+  { id: 'freebet3_b',   label: '$3 Bet',      desc: 'Place a free $3 bet on any Horse' },
   { id: 'back3',        label: '−3',          desc: 'Move 1 Horse back 3' },
   // col 4
   { id: 'helmet_any',   label: 'Helmet',      desc: 'Take Helmet action for any Horse' },
