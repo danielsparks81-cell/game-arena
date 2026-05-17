@@ -530,23 +530,23 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr]">
-        {/* LEFT: concession grid + bonuses */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_1fr]">
+        {/* LEFT: concession grid + bonuses (both fill the column width so their edges line up) */}
         <div className="space-y-3">
           <div>
             <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
-            <ConcessionGrid grid={state.concessionGrid} marks={me.concessionMarks} />
+            <ConcessionGrid grid={state.concessionGrid} marks={me.concessionMarks} fullWidth />
           </div>
           <div>
             <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">Row/Column bonuses</div>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid w-full grid-cols-3 gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
               {CONCESSION_BONUSES.map(b => (
                 <div
                   key={b.id}
                   title={b.desc}
-                  className="flex aspect-square flex-col items-center justify-center rounded-md border border-neutral-800 bg-neutral-950 px-1 py-1 text-center"
+                  className="flex aspect-square flex-col items-center justify-center rounded-md border border-neutral-800 bg-neutral-900 px-1 py-1 text-center"
                 >
-                  <span className="text-[10px] font-mono font-bold leading-tight text-neutral-200">{b.label}</span>
+                  <span className="text-[11px] font-mono font-bold leading-tight text-neutral-200">{b.label}</span>
                 </div>
               ))}
             </div>
@@ -635,34 +635,38 @@ function SlotRow({ count, max, icon }: { count: number; max: number; icon: strin
 }
 
 function ConcessionGrid({
-  grid, marks, clickable, onPick,
+  grid, marks, clickable, onPick, fullWidth = false,
 }: {
   grid: number[];
   marks: boolean[];
   clickable?: number[];
   onPick?: (idx: number) => void;
+  /** When true, the grid stretches to fill its parent container (cells become responsive squares). */
+  fullWidth?: boolean;
 }) {
   const clickSet = useMemo(() => new Set(clickable ?? []), [clickable]);
   return (
-    <div className="inline-block rounded-md border border-neutral-800 bg-neutral-950 p-2">
-      <div className="grid" style={{ gridTemplateColumns: `repeat(${CONCESSION_COLS}, minmax(0, 1fr))`, gap: '4px' }}>
+    <div className={`rounded-md border border-neutral-800 bg-neutral-950 p-2 ${fullWidth ? 'w-full' : 'inline-block'}`}>
+      <div className={`grid ${fullWidth ? 'w-full' : ''}`}
+        style={{ gridTemplateColumns: `repeat(${CONCESSION_COLS}, minmax(0, 1fr))`, gap: '4px' }}>
         {Array.from({ length: CONCESSION_ROWS * CONCESSION_COLS }, (_, i) => {
           const n = grid[i];
           const marked = marks[i];
           const canClick = clickSet.has(i);
+          const sizeCls = fullWidth ? 'aspect-square w-full' : 'h-7 w-7';
           return (
             <button
               key={i}
               disabled={!canClick}
               onClick={() => onPick?.(i)}
-              className={`relative flex h-7 w-7 items-center justify-center rounded text-xs font-semibold text-white transition ${
+              className={`relative flex items-center justify-center rounded text-sm font-semibold text-white transition ${sizeCls} ${
                 canClick ? 'ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-950 hover:scale-105' : 'cursor-default'
               } ${marked ? 'opacity-30' : ''}`}
               style={{ backgroundColor: HORSE_COLORS[n - 1] }}
             >
               <span className={n === 2 ? 'text-neutral-950' : 'text-white'}>{n}</span>
               {marked && (
-                <span className="absolute inset-0 flex items-center justify-center text-base font-bold text-neutral-950">✕</span>
+                <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-neutral-950">✕</span>
               )}
             </button>
           );
