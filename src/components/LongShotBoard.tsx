@@ -270,19 +270,22 @@ export default function LongShotBoard({
       )};
     }
     if (bonusPicking === 'jersey_any') {
-      // Step 1: pick the jersey horse. Step 2: pick which horse to add to its bar.
-      if (bonusHorse1 === null) {
-        return { jersey: new Set(
-          Array.from({ length: NUM_HORSES }, (_, i) => i + 1)
-            .filter(n => live(n - 1) && me.jerseys[n - 1] < MAX_JERSEYS_PER_HORSE)
-        )};
+      // One-click direct pick: for every horse that can still take a jersey, expose the
+      // not-yet-globally-chosen markHorses. The PlayerSheet renders each row's eligible
+      // markHorses as clickable dots; clicking fires the bonus immediately.
+      const jerseyMarks = new Map<number, Set<number>>();
+      for (let i = 0; i < NUM_HORSES; i++) {
+        const num = i + 1;
+        if (!live(i)) continue;
+        if (me.jerseys[i] >= MAX_JERSEYS_PER_HORSE) continue;
+        const taken = allMarksOnBar(state, num);
+        const candidates = new Set<number>();
+        for (let m = 1; m <= NUM_HORSES; m++) {
+          if (!taken.has(m)) candidates.add(m);
+        }
+        if (candidates.size > 0) jerseyMarks.set(num, candidates);
       }
-      // Jersey marks are now globally unique — exclude any horse already on this bar
-      // (default pre-print OR any player's existing mark).
-      const markedAlready = allMarksOnBar(state, bonusHorse1);
-      return { jerseyMark: new Set(
-        Array.from({ length: NUM_HORSES }, (_, i) => i + 1).filter(n => !markedAlready.has(n))
-      )};
+      return { jerseyMarks };
     }
     if (bonusPicking === 'freebet3_a' || bonusPicking === 'freebet3_b') {
       return { bet: new Set(
@@ -331,16 +334,7 @@ export default function LongShotBoard({
       return;
     }
 
-    // Two-pick bonuses (jersey: jersey horse → mark horse; movement2x2: horse1 → horse2)
-    if (bonusPicking === 'jersey_any') {
-      if (bonusHorse1 === null) {
-        setBonusHorse1(horseNum);
-      } else {
-        onAction({ type: 'claim_bonus', bonusId: bonusPicking, horse: bonusHorse1, markHorse: horseNum });
-        resetBonusPick();
-      }
-      return;
-    }
+    // Two-pick movement bonuses
     if (bonusPicking === 'back2x2' || bonusPicking === 'forward2x2') {
       if (bonusHorse1 === null) {
         setBonusHorse1(horseNum);
@@ -350,6 +344,13 @@ export default function LongShotBoard({
       }
       return;
     }
+  };
+
+  /** Direct jersey_any bonus pick: row dot identifies both the jersey horse and the markHorse. */
+  const handleBonusPickJerseyMark = (rowHorse: number, markHorse: number) => {
+    if (bonusPicking !== 'jersey_any') return;
+    onAction({ type: 'claim_bonus', bonusId: 'jersey_any', horse: rowHorse, markHorse });
+    resetBonusPick();
   };
 
   const effectiveHorse = wildHorse ?? state.horseDie ?? 0;
@@ -418,6 +419,7 @@ export default function LongShotBoard({
         horse1: bonusHorse1,
         onTileClick: handleBonusTileClick,
         onPick: handleBonusPick,
+        onPickJerseyMark: handleBonusPickJerseyMark,
         targets: bonusTargets,
         disabled,
       }
@@ -625,11 +627,11 @@ type SheetAction = {
 
 type BonusTargets = {
   helmet?: Set<number>;
-  jersey?: Set<number>;
-  jerseyMark?: Set<number>;
   bet?: Set<number>;
   market?: Set<number>;
   track?: Set<number>;
+  /** For jersey_any: row horse → set of pickable markHorses for that row. */
+  jerseyMarks?: Map<number, Set<number>>;
 };
 
 function PlayerSheet({ state, me, action, bonus }: {
@@ -643,6 +645,7 @@ function PlayerSheet({ state, me, action, bonus }: {
     horse1: number | null;
     onTileClick: (bonusId: string) => void;
     onPick: (horseNum: number) => void;
+    onPickJerseyMark: (rowHorse: number, markHorse: number) => void;
     targets: BonusTargets | null;
     disabled: boolean;
   };
@@ -836,17 +839,17 @@ function PlayerSheet({ state, me, action, bonus }: {
                         // Pickable contexts for this row's jersey marks:
                         // 1) Active row (rolled horse) and canJersey
                         // 2) Wild-target jersey row (uses a wild)
-                        // 3) Bonus jersey_any picking — but only on the row matching bonus.horse1 (step 2)
-                        const isBonusMarkRow = !!(bonus?.targets?.jerseyMark && bonus.horse1 === num);
-                        const isBonusJerseyPick = !!(bonus?.targets?.jersey?.has(num));
+                        // 3) Bonus jersey_any direct pick — every row with available markHorses
+                        const bonusJerseyMarksForRow = bonus?.targets?.jerseyMarks?.get(num);
+                        const isBonusJerseyAnyRow = !!bonusJerseyMarksForRow;
                         const canActionPickHere = !!action && (
                           (isActive && action.canJersey) ||
                           (action.wildTargets?.jersey.has(num) ?? false)
                         );
 
                         const onPickMark = (markN: number) => {
-                          if (isBonusMarkRow) {
-                            bonus!.onPick(markN);
+                          if (isBonusJerseyAnyRow) {
+                            bonus!.onPickJerseyMark(num, markN);
                           } else if (action) {
                             if (num === action.effectiveHorse) {
                               action.send({ type: 'jersey', markHorse: markN });
@@ -858,19 +861,7 @@ function PlayerSheet({ state, me, action, bonus }: {
 
                         return (
                           <div className="flex items-center justify-center gap-1.5">
-                            {/* Jersey-action indicator (still shown so the bonus jersey_any tile can highlight it) */}
-                            {isBonusJerseyPick ? (
-                              <ActionCell
-                                disabled={bonus!.disabled}
-                                active={bonus!.horse1 === num}
-                                onClick={() => bonus!.onPick(num)}
-                                title={`Pick horse ${num} as the jersey horse (bonus)`}
-                              >
-                                <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
-                              </ActionCell>
-                            ) : (
-                              <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
-                            )}
+                            <SlotRow count={me.jerseys[i]} max={MAX_JERSEYS_PER_HORSE} icon={<JerseyIcon className="h-4 w-4" />} />
 
                             {/* Always-visible 8 horse dots. Chosen (default or any player's mark)
                                 = bright horse color. Not chosen = greyed out entirely. When this
@@ -884,7 +875,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                                 );
                                 const chosen = isDefaultMark || isPlayerMark || isOtherPlayerMark;
                                 const pickable = !chosen && (
-                                  (isBonusMarkRow && bonus!.targets!.jerseyMark!.has(n)) ||
+                                  (isBonusJerseyAnyRow && bonusJerseyMarksForRow!.has(n)) ||
                                   (canActionPickHere && !(state.horses[i].finished))
                                 );
                                 if (pickable) {
@@ -892,7 +883,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                                     <button
                                       key={n}
                                       onClick={() => onPickMark(n)}
-                                      disabled={isBonusMarkRow ? bonus!.disabled : action!.disabled}
+                                      disabled={isBonusJerseyAnyRow ? bonus!.disabled : action!.disabled}
                                       title={`Add H${n} to horse ${num}'s jersey bar`}
                                       className="inline-flex items-center justify-center rounded-full p-0.5 ring-2 ring-emerald-400 ring-offset-1 ring-offset-neutral-900 opacity-40 grayscale transition hover:scale-110 hover:opacity-100 hover:grayscale-0 disabled:opacity-50"
                                     >
