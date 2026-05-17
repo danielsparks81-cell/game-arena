@@ -580,9 +580,7 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                 return (
                   <tr key={num} className="border-t border-neutral-800/60">
                     <td className="px-2 py-1.5">
-                      <span className="inline-flex items-center gap-2">
-                        <HorseDot num={num} /> {num}
-                      </span>
+                      <HorseDot num={num} />
                     </td>
                     <td className="px-2 py-1.5">
                       <SlotRow count={me.helmets[i]} max={MAX_HELMETS_PER_HORSE} icon="⛑️" />
@@ -603,7 +601,7 @@ function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
                           ? <span className="text-emerald-400">owned 🏠</span>
                           : otherOwner
                             ? <span className="truncate text-sky-400">{otherOwner.username}</span>
-                            : <span className="text-neutral-400">market · ${HORSE_COSTS[i]}</span>}
+                            : <span className="text-neutral-400">${HORSE_COSTS[i]}</span>}
                     </td>
                   </tr>
                 );
