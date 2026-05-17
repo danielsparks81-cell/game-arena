@@ -18,7 +18,7 @@ type Room = {
   room_players: RoomPlayer[];
 };
 type OnlineUser = { id: string; username: string };
-type UserStat = { user_id: string; wins: number; losses: number; draws: number; games: number };
+type UserStat = { user_id: string; username: string; wins: number; losses: number; draws: number; games: number };
 
 type PresencePayload = { user_id: string; username: string; online_at: string };
 
@@ -90,7 +90,7 @@ export default function LobbyClient({
     const refreshStats = async () => {
       const { data } = await supabase
         .from('user_stats')
-        .select('user_id, wins, losses, draws, games');
+        .select('user_id, username, wins, losses, draws, games');
       if (data) setStats(new Map(data.map(s => [s.user_id, s as UserStat])));
     };
     const sub = supabase
@@ -119,6 +119,12 @@ export default function LobbyClient({
   const open = useMemo(() => rooms.filter(r => r.status !== 'finished'), [rooms]);
   const finished = useMemo(() => rooms.filter(r => r.status === 'finished').slice(0, 5), [rooms]);
   const otherOnline = useMemo(() => online.filter(u => u.id !== currentUserId), [online, currentUserId]);
+  const offline = useMemo(() => {
+    const onlineIds = new Set(online.map(u => u.id));
+    return Array.from(stats.values())
+      .filter(s => !onlineIds.has(s.user_id) && s.user_id !== currentUserId)
+      .sort((a, b) => a.username.localeCompare(b.username));
+  }, [stats, online, currentUserId]);
 
   async function doInvite(target: OnlineUser, gameType: string) {
     setInviteError(null);
@@ -247,46 +253,82 @@ export default function LobbyClient({
           </section>
         </div>
 
-        {/* RIGHT: online users — sticks to the top of the grid row, aligned with games */}
-        <aside className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 md:sticky md:top-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-300">Online</h2>
-            <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400">
-              {online.length}
-            </span>
-          </div>
-          <ul className="space-y-1">
-            <li className="flex items-center justify-between rounded-md bg-neutral-950 px-2 py-1.5 text-sm">
-              <span className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                <span className="font-medium text-emerald-400">{currentUsername}</span>
-                <span className="text-xs text-neutral-500">(you)</span>
+        {/* RIGHT: online + offline users — sticks to the top of the grid row */}
+        <aside className="space-y-4 rounded-xl border border-neutral-800 bg-neutral-900 p-4 md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
+          <div>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-300">Online</h2>
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400">
+                {online.length}
               </span>
-              <WinRateBadge stat={stats.get(currentUserId)} />
-            </li>
-            {otherOnline.length === 0 ? (
-              <li className="rounded-md px-2 py-3 text-center text-xs text-neutral-500">
-                Nobody else online right now.
+            </div>
+            <ul className="space-y-1">
+              <li className="flex items-center justify-between rounded-md bg-neutral-950 px-2 py-1.5 text-sm">
+                <span className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                  <span className="font-medium text-emerald-400">{currentUsername}</span>
+                  <span className="text-xs text-neutral-500">(you)</span>
+                </span>
+                <WinRateBadge stat={stats.get(currentUserId)} />
               </li>
-            ) : (
-              otherOnline.map(u => (
-                <li key={u.id} className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition hover:bg-neutral-800/60">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
-                    <span className="truncate">{u.username}</span>
-                    <WinRateBadge stat={stats.get(u.id)} />
-                  </span>
-                  <button
-                    onClick={() => setInvitee(u)}
-                    disabled={pending}
-                    className="ml-2 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-50"
-                  >
-                    Invite
-                  </button>
+              {otherOnline.length === 0 ? (
+                <li className="rounded-md px-2 py-3 text-center text-xs text-neutral-500">
+                  Nobody else online right now.
                 </li>
-              ))
+              ) : (
+                otherOnline.map(u => (
+                  <li key={u.id} className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition hover:bg-neutral-800/60">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+                      <span className="truncate">{u.username}</span>
+                      <WinRateBadge stat={stats.get(u.id)} />
+                    </span>
+                    <button
+                      onClick={() => setInvitee(u)}
+                      disabled={pending}
+                      className="ml-2 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-50"
+                    >
+                      Invite
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+          </div>
+
+          <div className="border-t border-neutral-800 pt-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Offline</h2>
+              <span className="rounded-full bg-neutral-700/40 px-2 py-0.5 text-xs font-medium text-neutral-400">
+                {offline.length}
+              </span>
+            </div>
+            {offline.length === 0 ? (
+              <p className="rounded-md px-2 py-3 text-center text-xs text-neutral-500">
+                Nobody else has signed up yet.
+              </p>
+            ) : (
+              <ul className="space-y-1">
+                {offline.map(u => (
+                  <li key={u.user_id} className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm text-neutral-400 transition hover:bg-neutral-800/40">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-neutral-600" />
+                      <span className="truncate">{u.username}</span>
+                      <WinRateBadge stat={u} />
+                    </span>
+                    <button
+                      onClick={() => setInvitee({ id: u.user_id, username: u.username })}
+                      disabled={pending}
+                      title="They won't see a popup, but the room you create will appear in their lobby when they log in"
+                      className="ml-2 shrink-0 rounded-md border border-neutral-700 px-2 py-0.5 text-xs font-medium text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200 disabled:opacity-50"
+                    >
+                      Invite
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
-          </ul>
+          </div>
         </aside>
       </div>
     </>

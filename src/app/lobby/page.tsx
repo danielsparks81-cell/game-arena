@@ -27,7 +27,7 @@ export default async function LobbyPage() {
 
   const { data: stats } = await supabase
     .from('user_stats')
-    .select('user_id, wins, losses, draws, games');
+    .select('user_id, username, wins, losses, draws, games');
 
   const username = profile?.username ?? user.email ?? 'player';
 
