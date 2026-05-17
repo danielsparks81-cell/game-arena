@@ -62,7 +62,23 @@ export default async function ProfilePage() {
       <TopBar username={username} />
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Profile</h1>
+          <div>
+            <h1 className="text-2xl font-semibold">{username}</h1>
+            <p className="mt-1 text-sm text-neutral-400">
+              Record:{' '}
+              <span className="font-mono text-emerald-400">{wins}W</span>
+              <span className="text-neutral-600"> · </span>
+              <span className="font-mono text-red-400">{losses}L</span>
+              <span className="text-neutral-600"> · </span>
+              <span className="font-mono text-neutral-300">{draws}D</span>
+              {total > 0 && (
+                <>
+                  <span className="text-neutral-600"> · </span>
+                  <span className="font-mono text-sky-400">{winRate}%</span>
+                </>
+              )}
+            </p>
+          </div>
           <Link href="/lobby" className="text-sm text-emerald-400 hover:underline">← Back to lobby</Link>
         </div>
 

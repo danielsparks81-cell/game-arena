@@ -18,19 +18,24 @@ type Room = {
   room_players: RoomPlayer[];
 };
 type OnlineUser = { id: string; username: string };
+type UserStat = { user_id: string; wins: number; losses: number; draws: number; games: number };
 
 type PresencePayload = { user_id: string; username: string; online_at: string };
 
 export default function LobbyClient({
-  initialRooms, currentUserId, currentUsername,
+  initialRooms, initialStats, currentUserId, currentUsername,
 }: {
   initialRooms: Room[];
+  initialStats: UserStat[];
   currentUserId: string;
   currentUsername: string;
 }) {
   const supabase = createClient();
   const router = useRouter();
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
+  const [stats, setStats] = useState<Map<string, UserStat>>(
+    new Map(initialStats.map(s => [s.user_id, s]))
+  );
   const [online, setOnline] = useState<OnlineUser[]>([]);
   const [invitee, setInvitee] = useState<OnlineUser | null>(null);
   const [pending, startTransition] = useTransition();
@@ -70,9 +75,9 @@ export default function LobbyClient({
     return () => { supabase.removeChannel(presence); };
   }, [supabase, currentUserId, currentUsername]);
 
-  // Realtime room list updates
+  // Realtime room list updates + stats refresh when a game finishes
   useEffect(() => {
-    const refresh = async () => {
+    const refreshRooms = async () => {
       const { data } = await supabase
         .from('rooms')
         .select('id, game_type, status, host_id, created_at, room_players(player_id, seat, profiles(username))')
@@ -80,10 +85,17 @@ export default function LobbyClient({
         .limit(30);
       setRooms((data ?? []) as unknown as Room[]);
     };
+    const refreshStats = async () => {
+      const { data } = await supabase
+        .from('user_stats')
+        .select('user_id, wins, losses, draws, games');
+      if (data) setStats(new Map(data.map(s => [s.user_id, s as UserStat])));
+    };
     const sub = supabase
       .channel('lobby-rooms')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, refresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_players' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' },         refreshRooms)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'room_players' },  refreshRooms)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'game_history' }, refreshStats)
       .subscribe();
     return () => { supabase.removeChannel(sub); };
   }, [supabase]);
@@ -233,6 +245,7 @@ export default function LobbyClient({
                 <span className="font-medium text-emerald-400">{currentUsername}</span>
                 <span className="text-xs text-neutral-500">(you)</span>
               </span>
+              <WinRateBadge stat={stats.get(currentUserId)} />
             </li>
             {otherOnline.length === 0 ? (
               <li className="rounded-md px-2 py-3 text-center text-xs text-neutral-500">
@@ -241,14 +254,15 @@ export default function LobbyClient({
             ) : (
               otherOnline.map(u => (
                 <li key={u.id} className="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition hover:bg-neutral-800/60">
-                  <span className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                    <span>{u.username}</span>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+                    <span className="truncate">{u.username}</span>
+                    <WinRateBadge stat={stats.get(u.id)} />
                   </span>
                   <button
                     onClick={() => setInvitee(u)}
                     disabled={pending}
-                    className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-50"
+                    className="ml-2 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-50"
                   >
                     Invite
                   </button>
@@ -259,6 +273,25 @@ export default function LobbyClient({
         </aside>
       </div>
     </>
+  );
+}
+
+function WinRateBadge({ stat }: { stat?: UserStat }) {
+  if (!stat || stat.games === 0) {
+    return <span className="text-xs text-neutral-600" title="No games yet">—</span>;
+  }
+  const pct = Math.round((stat.wins / stat.games) * 100);
+  const tone =
+    pct >= 60 ? 'bg-emerald-500/15 text-emerald-400' :
+    pct >= 40 ? 'bg-sky-500/15 text-sky-400'         :
+                'bg-neutral-700/30 text-neutral-300';
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-medium ${tone}`}
+      title={`${stat.wins}W · ${stat.losses}L · ${stat.draws}D · ${stat.games} games`}
+    >
+      {pct}%
+    </span>
   );
 }
 

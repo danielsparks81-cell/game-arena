@@ -9,6 +9,9 @@ export default async function RoomPage({ params }: { params: Promise<{ id: strin
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
+  // Sweep stale rooms before rendering so this one doesn't linger if abandoned.
+  await supabase.rpc('cleanup_stale_rooms');
+
   const { data: profile } = await supabase
     .from('profiles')
     .select('id, username')
