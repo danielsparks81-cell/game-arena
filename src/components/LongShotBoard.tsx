@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type LSState, type LSMove, type LSPlayer, type HorseFinish, type ActionPayload,
-  TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES,
+  TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
   CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
 } from '@/lib/games/longshot';
@@ -225,6 +225,7 @@ export default function LongShotBoard({
   const me = state.players.find(p => p.playerId === currentUserId);
   const isMyTurnToRoll = me && state.activePlayerSeat === me.seat && state.step === 'roll';
   const isMyTurnToAct  = me && state.currentTurnSeat === me.seat && state.step === 'action';
+  const myBonusPending = !!(state.pendingBonus && me && state.pendingBonus.playerId === me.playerId);
 
   const winners = state.horses
     .map((h, i) => ({ num: i + 1, ...h }))
@@ -270,8 +271,28 @@ export default function LongShotBoard({
         </div>
       </div>
 
-      {/* Action picker */}
-      {state.step === 'action' && me && (
+      {/* Bonus picker (takes priority over normal action picker when active) */}
+      {state.step === 'action' && me && myBonusPending && state.pendingBonus && (
+        <BonusPicker
+          state={state}
+          me={me}
+          remaining={state.pendingBonus.count}
+          disabled={disabled}
+          onAction={onAction}
+        />
+      )}
+
+      {/* Pending-bonus notice for everyone else */}
+      {state.step === 'action' && state.pendingBonus && !myBonusPending && (
+        <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-4 text-sm text-neutral-300">
+          Waiting on <span className="font-semibold text-amber-400">
+            {state.players.find(p => p.playerId === state.pendingBonus!.playerId)?.username ?? 'a player'}
+          </span> to claim {state.pendingBonus.count} concession bonus{state.pendingBonus.count > 1 ? 'es' : ''}…
+        </div>
+      )}
+
+      {/* Normal action picker */}
+      {state.step === 'action' && me && !state.pendingBonus && (
         <ActionPanel
           state={state}
           me={me}
@@ -371,12 +392,22 @@ function ActionPanel({
   disabled: boolean;
   onAction: (payload: ActionPayload) => void;
 }) {
-  const rolledHorse = state.horseDie!;
+  // Wild Number: when set, treat the chosen horse number as if it were the rolled die
+  const [wildHorse, setWildHorse] = useState<number | null>(null);
+  const wildsLeft = MAX_WILDS - me.wildsUsed;
+  const effectiveHorse = wildHorse ?? state.horseDie!;
+  const rolledHorse = effectiveHorse;
   const horseIdx = rolledHorse - 1;
   const horse = state.horses[horseIdx];
   const past = horse.position >= NO_BET_SPACE;
   const finished = !!horse.finished;
   const hasHelmet = me.helmets[horseIdx] > 0;
+
+  const send = (payload: ActionPayload) => {
+    if (wildHorse !== null) onAction({ ...payload, wild: wildHorse } as ActionPayload);
+    else onAction(payload);
+    setWildHorse(null);
+  };
 
   const concessionCellsAvailable = useMemo(
     () => state.concessionGrid
@@ -407,8 +438,45 @@ function ActionPanel({
 
   return (
     <div className="space-y-3 rounded-xl border border-emerald-900/40 bg-emerald-500/5 p-4">
-      <div className="text-sm text-neutral-300">
-        Your action this round — must use horse <HorseDot num={rolledHorse} /> (the rolled die).
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-neutral-300">
+        <span>
+          Your action this round — must use horse <HorseDot num={rolledHorse} />
+          {wildHorse !== null && <span className="ml-1 text-xs text-amber-400">(via Wild)</span>}
+          {wildHorse === null && <span className="ml-1 text-xs text-neutral-500">(rolled die)</span>}
+        </span>
+        <span className="text-xs text-neutral-400">
+          Wilds left: <span className="font-mono text-amber-400">{wildsLeft}/{MAX_WILDS}</span>
+        </span>
+      </div>
+
+      {/* Wild Number selector */}
+      <div className="rounded-md border border-amber-900/40 bg-amber-500/5 p-2 text-xs">
+        <div className="mb-1 flex items-center gap-2 text-neutral-400">
+          <span>✨ Use a Wild Number to act on a different horse:</span>
+          {wildHorse !== null && (
+            <button onClick={() => setWildHorse(null)}
+              className="rounded border border-amber-700 px-2 py-0.5 text-amber-400 hover:bg-amber-900/30">
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(n => {
+            const selected = wildHorse === n;
+            const isRolled = n === state.horseDie;
+            return (
+              <button key={n}
+                disabled={disabled || wildsLeft <= 0 || isRolled}
+                onClick={() => setWildHorse(n)}
+                title={isRolled ? 'This is the rolled horse already' : wildsLeft <= 0 ? 'No wilds left' : `Act on horse ${n} instead`}
+                className={`flex items-center gap-1 rounded px-2 py-0.5 transition disabled:opacity-30 ${
+                  selected ? 'bg-amber-500 text-neutral-950' : 'bg-neutral-900 text-neutral-300 hover:bg-amber-900/30'
+                }`}>
+                <HorseDot num={n} />
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
@@ -417,7 +485,7 @@ function ActionPanel({
           onClick={() => setOpen('concession')} />
         <ActionBtn label="Helmet" emoji="⛑️" disabled={disabled || !canHelmet}
           tip={!canHelmet ? `Already at ${MAX_HELMETS_PER_HORSE} helmets on this horse` : undefined}
-          onClick={() => { closeAll(); onAction({ type: 'helmet' }); }} />
+          onClick={() => { closeAll(); send({ type: 'helmet' }); }} />
         <ActionBtn label="Jersey" emoji="🏁" disabled={disabled || !canJersey}
           tip={!canJersey ? 'No jersey slots left' : undefined}
           onClick={() => setOpen('jersey')} />
@@ -426,7 +494,7 @@ function ActionPanel({
           onClick={() => setOpen('bet')} />
         <ActionBtn label={`Buy ($${HORSE_COSTS[horseIdx]})`} emoji="🏠" disabled={disabled || !canBuy}
           tip={!canBuy ? (finished ? 'Horse is finished' : !state.market.includes(rolledHorse) ? 'Not in market' : 'Not enough money') : undefined}
-          onClick={() => { closeAll(); onAction({ type: 'buy' }); }} />
+          onClick={() => { closeAll(); send({ type: 'buy' }); }} />
         <ActionBtn label="Pass" emoji="⏭️" disabled={disabled}
           onClick={() => { closeAll(); onAction({ type: 'pass' }); }} />
       </div>
@@ -437,7 +505,7 @@ function ActionPanel({
           <div className="flex gap-2">
             {[1, 2, 3].map(amt => (
               <button key={amt} disabled={disabled || me.money < amt}
-                onClick={() => { closeAll(); onAction({ type: 'bet', amount: amt }); }}
+                onClick={() => { closeAll(); send({ type: 'bet', amount: amt }); }}
                 className="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40">
                 ${amt}
               </button>
@@ -460,7 +528,7 @@ function ActionPanel({
               const alreadyMarked = (me.jerseyMarks[horseIdx] ?? []).includes(n);
               return (
                 <button key={n} disabled={disabled || alreadyMarked}
-                  onClick={() => { closeAll(); onAction({ type: 'jersey', markHorse: n }); }}
+                  onClick={() => { closeAll(); send({ type: 'jersey', markHorse: n }); }}
                   className={`flex items-center gap-1 rounded-md px-3 py-1.5 text-sm transition disabled:opacity-30 ${
                     alreadyMarked ? 'bg-neutral-800 text-neutral-500' : 'bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-neutral-950'
                   }`}>
@@ -486,7 +554,7 @@ function ActionPanel({
             grid={state.concessionGrid}
             marks={me.concessionMarks}
             clickable={concessionCellsAvailable}
-            onPick={(idx) => { closeAll(); onAction({ type: 'concession', cellIdx: idx }); }}
+            onPick={(idx) => { closeAll(); send({ type: 'concession', cellIdx: idx }); }}
           />
           <button onClick={closeAll}
             className="mt-2 rounded-md border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">
@@ -494,6 +562,177 @@ function ActionPanel({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// =====================================================================
+// Bonus picker (shown when the player has unclaimed concession bonuses)
+// =====================================================================
+
+function BonusPicker({
+  state, me, remaining, disabled, onAction,
+}: {
+  state: LSState;
+  me: LSPlayer;
+  remaining: number;
+  disabled: boolean;
+  onAction: (payload: ActionPayload) => void;
+}) {
+  const [picking, setPicking] = useState<string | null>(null);
+  const [horse1, setHorse1] = useState<number | null>(null);
+  const [horse2, setHorse2] = useState<number | null>(null);
+  const [markHorse, setMarkHorse] = useState<number | null>(null);
+
+  const reset = () => { setPicking(null); setHorse1(null); setHorse2(null); setMarkHorse(null); };
+
+  const fire = (bonusId: string, extra: { horse?: number; horse2?: number; markHorse?: number } = {}) => {
+    onAction({ type: 'claim_bonus', bonusId, ...extra });
+    reset();
+  };
+
+  const handlePick = (bonusId: string) => {
+    // Bonuses that need no further input — fire immediately
+    if (bonusId === 'cash7_a' || bonusId === 'cash7_b' || bonusId === 'cash7_c') {
+      fire(bonusId);
+      return;
+    }
+    reset();
+    setPicking(bonusId);
+  };
+
+  const liveHorses = state.horses
+    .map((h, i) => ({ num: i + 1, finished: !!h.finished, position: h.position }))
+    .filter(h => !h.finished);
+
+  const horsesForBetOrJersey = liveHorses; // all live horses are valid (No-Bet checked server-side)
+  const marketHorses = state.market;
+
+  const needs2 = picking === 'back2x2' || picking === 'forward2x2';
+  const needsHorse = picking !== null && (
+    picking === 'back3' || picking === 'forward3' ||
+    picking === 'freebet3_a' || picking === 'freebet3_b' ||
+    picking === 'helmet_any' || picking === 'jersey_any' ||
+    picking === 'free_horse' || needs2
+  );
+  const needsMarkHorse = picking === 'jersey_any';
+
+  const canSubmit = picking && (
+    needs2 ? (horse1 && horse2 && horse1 !== horse2)
+    : needsMarkHorse ? (horse1 && markHorse)
+    : needsHorse ? !!horse1
+    : true
+  );
+
+  const submit = () => {
+    if (!picking) return;
+    fire(picking, { horse: horse1 ?? undefined, horse2: horse2 ?? undefined, markHorse: markHorse ?? undefined });
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-lg font-semibold text-amber-400">🎉 Bonus time</h3>
+        <span className="text-sm text-neutral-400">{remaining} bonus{remaining > 1 ? 'es' : ''} left to claim</span>
+      </div>
+
+      {/* Bonus tiles */}
+      <div className="grid grid-cols-3 gap-2 rounded-md bg-neutral-950 p-2 sm:grid-cols-4 lg:grid-cols-6">
+        {CONCESSION_BONUSES.map((b, i) => {
+          const claimed = me.bonusesClaimed[i];
+          const selected = picking === b.id;
+          return (
+            <button
+              key={b.id}
+              disabled={disabled || claimed}
+              onClick={() => handlePick(b.id)}
+              title={claimed ? 'Already claimed' : b.desc}
+              className={`flex flex-col items-center justify-center rounded-md border px-2 py-2 text-center text-[11px] font-mono font-bold transition ${
+                claimed ? 'border-neutral-800 bg-neutral-900 text-neutral-700 line-through'
+                : selected ? 'border-emerald-400 bg-emerald-500/15 text-emerald-300'
+                : 'border-neutral-800 bg-neutral-900 text-neutral-200 hover:border-amber-500'
+              }`}
+            >
+              {b.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Sub-pickers for whichever bonus was selected */}
+      {picking && needsHorse && (
+        <div className="space-y-2 rounded-md border border-neutral-800 bg-neutral-900 p-3 text-xs">
+          <div className="text-neutral-300">
+            {needs2 ? 'Pick two different horses' :
+             needsMarkHorse ? 'Pick the jersey horse, then a horse to add to its bar' :
+             picking === 'free_horse' ? 'Pick a horse from the market' :
+             'Pick a horse'}
+          </div>
+
+          <HorsePicker
+            label={needs2 ? 'First horse' : needsMarkHorse ? 'Jersey horse' : 'Horse'}
+            value={horse1}
+            onChange={setHorse1}
+            options={picking === 'free_horse' ? marketHorses : horsesForBetOrJersey.map(h => h.num)}
+          />
+
+          {needs2 && (
+            <HorsePicker
+              label="Second horse"
+              value={horse2}
+              onChange={setHorse2}
+              options={horsesForBetOrJersey.map(h => h.num).filter(n => n !== horse1)}
+            />
+          )}
+          {needsMarkHorse && (
+            <HorsePicker
+              label="Horse to add to bar"
+              value={markHorse}
+              onChange={setMarkHorse}
+              options={Array.from({ length: NUM_HORSES }, (_, i) => i + 1)}
+            />
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button disabled={disabled || !canSubmit}
+              onClick={submit}
+              className="rounded-md bg-emerald-500 px-4 py-1.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-40">
+              Claim bonus
+            </button>
+            <button onClick={reset}
+              className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HorsePicker({
+  label, value, onChange, options,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (n: number) => void;
+  options: number[];
+}) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">{label}</div>
+      <div className="flex flex-wrap gap-1">
+        {options.length === 0 && <span className="text-neutral-500">No valid horses</span>}
+        {options.map(n => (
+          <button key={n} onClick={() => onChange(n)}
+            className={`rounded-md px-2 py-1 transition ${
+              value === n ? 'bg-emerald-500 text-neutral-950'
+              : 'bg-neutral-950 text-neutral-300 hover:bg-emerald-900/30'
+            }`}>
+            <HorseDot num={n} />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -521,12 +760,25 @@ function ActionBtn({
 // =====================================================================
 
 function PlayerSheet({ state, me }: { state: LSState; me: LSPlayer }) {
+  // Jockey set = at least one helmet AND at least one jersey on the same horse
+  const jockeySets = me.helmets.reduce((acc, h, i) => acc + (h > 0 && me.jerseys[i] > 0 ? 1 : 0), 0);
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="text-xs font-semibold uppercase tracking-wider text-neutral-400">Your sheet</div>
-        <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-emerald-500/50 bg-emerald-500/10 font-mono text-sm font-bold text-emerald-400">
-          ${me.money}
+        <div className="flex items-center gap-2 text-xs">
+          <span className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
+            <span className="text-neutral-500">Wilds </span>
+            <span className="font-mono text-amber-400">{MAX_WILDS - me.wildsUsed}/{MAX_WILDS}</span>
+          </span>
+          <span className="rounded-md border border-neutral-700 bg-neutral-950 px-2 py-1">
+            <span className="text-neutral-500">Jockey sets </span>
+            <span className="font-mono text-sky-400">{jockeySets}</span>
+            <span className="text-neutral-600"> · ${jockeySets * 5}</span>
+          </span>
+          <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-emerald-500/50 bg-emerald-500/10 font-mono text-sm font-bold text-emerald-400">
+            ${me.money}
+          </div>
         </div>
       </div>
 

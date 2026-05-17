@@ -118,6 +118,7 @@ export type LSPlayer = {
   jerseyMarks: number[][];
   wildsUsed: number;            // 0..MAX_WILDS
   concessionMarks: boolean[];   // length CONCESSION_CELLS, true = marked (per-player marks on the shared grid)
+  bonusesClaimed: boolean[];    // length CONCESSION_BONUSES.length; mirrors the bonus pool order
   actedThisRound: boolean;
 };
 
@@ -150,6 +151,11 @@ export type LSState = {
    * Length = CONCESSION_CELLS; each entry is a horse number 1..NUM_HORSES.
    */
   concessionGrid: number[];
+  /**
+   * When set, the named player has just completed a row and/or column on their
+   * concession grid and must claim that many bonuses before the round can advance.
+   */
+  pendingBonus: { playerId: string; count: number } | null;
 };
 
 // ---------- Setup ----------
@@ -227,6 +233,7 @@ export function initialState(): LSState {
     rollId: 0,
     lastSequence: [],
     concessionGrid: [],   // populated when the race starts
+    pendingBonus: null,
   };
 }
 
@@ -243,6 +250,7 @@ export function addPlayer(state: LSState, playerId: string, username: string, se
     jerseyMarks: Array.from({ length: NUM_HORSES }, () => [] as number[]),
     wildsUsed: 0,
     concessionMarks: Array.from({ length: CONCESSION_CELLS }, () => false),
+    bonusesClaimed: Array.from({ length: CONCESSION_BONUSES.length }, () => false),
     actedThisRound: false,
   };
   const players = [...state.players, player].sort((a, b) => a.seat - b.seat);
@@ -283,7 +291,12 @@ export function startRace(state: LSState): LSState | { error: string } {
     }
     if (pairKey) usedPairs.add(pairKey);
 
-    return { ...p, concessionMarks, bets };
+    return {
+      ...p,
+      concessionMarks,
+      bets,
+      bonusesClaimed: Array.from({ length: CONCESSION_BONUSES.length }, () => false),
+    };
   });
 
   return {
@@ -361,17 +374,25 @@ function genStartingMarks(grid: number[]): boolean[] {
 
 // ---------- Race mechanics ----------
 
-function moveHorseForward(state: LSState, horseIndex: number, spaces: number): LSState {
+/**
+ * Move a single horse `signedSpaces` (positive = forward, negative = backward).
+ * `allowFinish` controls whether the horse may cross the finish line — true for dice
+ * rolls and secondary movement, false for concession-bonus movement (those stop one
+ * space before the line, any extra wasted). Backward movement clamps at position 0.
+ */
+function moveHorse(state: LSState, horseIndex: number, signedSpaces: number, allowFinish: boolean): LSState {
   const h = state.horses[horseIndex];
   if (h.finished) return state;
 
   const horses = state.horses.map(x => ({ ...x }));
-  let pos = horses[horseIndex].position + spaces;
+  let pos = horses[horseIndex].position + signedSpaces;
   let finished: HorseFinish = null;
   let finishedCount = state.finishedCount;
 
-  if (pos >= TRACK_LENGTH) {
-    if (finishedCount < FINISH_POSITIONS) {
+  if (pos < 0) {
+    pos = 0;
+  } else if (pos >= TRACK_LENGTH) {
+    if (allowFinish && finishedCount < FINISH_POSITIONS) {
       finishedCount += 1;
       finished = (finishedCount as HorseFinish);
       pos = TRACK_LENGTH;
@@ -382,6 +403,11 @@ function moveHorseForward(state: LSState, horseIndex: number, spaces: number): L
 
   horses[horseIndex] = { position: pos, finished };
   return { ...state, horses, finishedCount };
+}
+
+/** Backwards-compatible wrapper used by the dice-roll path (allows finishing). */
+function moveHorseForward(state: LSState, horseIndex: number, spaces: number): LSState {
+  return moveHorse(state, horseIndex, spaces, true);
 }
 
 /** Combine the default secondary-bar with any Jersey-marked X's across all players. */
@@ -506,13 +532,26 @@ function advanceActionTurn(state: LSState, justActedSeat: number, log: string[])
 
 // ---------- Actions ----------
 
-export type ActionPayload =
+export type ActionPayload = (
   | { type: 'bet'; amount: number }                 // amount 1, 2, or 3
   | { type: 'buy' }
   | { type: 'helmet' }
   | { type: 'jersey'; markHorse: number }           // horse number (1-8) to mark on rolled horse's bar
   | { type: 'concession'; cellIdx: number }         // 0..CONCESSION_CELLS-1
-  | { type: 'pass' };                               // forfeit turn (use this if no valid action)
+  | { type: 'pass' }                                // forfeit turn (use this if no valid action)
+  | { type: 'claim_bonus'; bonusId: string;
+      horse?: number;                               // single-horse bonuses
+      horse2?: number;                              // second horse for back/forward 2-x-2
+      markHorse?: number;                           // for jersey_any: which horse to mark on the bar
+    }
+) & {
+  /**
+   * Optional Wild Number override: use this horse number (1..8) instead of the rolled die
+   * to validate / take the action. Costs one wild from the player's pool of 4.
+   * Not applicable to claim_bonus or pass.
+   */
+  wild?: number;
+};
 
 export function takeAction(
   state: LSState,
@@ -523,18 +562,42 @@ export function takeAction(
   if (state.step !== 'action') return { error: 'Not in action phase' };
   if (state.currentTurnSeat === null) return { error: 'No active turn' };
 
+  // If a bonus is pending for someone, only that player can act, and only with claim_bonus.
+  if (state.pendingBonus) {
+    if (state.pendingBonus.playerId !== playerId) return { error: 'A bonus is pending for another player' };
+    if (payload.type !== 'claim_bonus') return { error: 'You must claim your concession bonus first' };
+    return applyBonusClaim(state, playerId, payload);
+  }
+
   const playerIdx = state.players.findIndex(p => p.playerId === playerId);
   if (playerIdx < 0) return { error: 'Not a seated player' };
   const player = state.players[playerIdx];
   if (player.seat !== state.currentTurnSeat) return { error: 'Not your turn' };
   if (player.actedThisRound) return { error: 'You already acted this round' };
 
-  const rolledHorse = state.horseDie!;
+  // Wild Numbers: if the player chose to use a wild, validate and consume one
+  let effectiveHorse = state.horseDie!;
+  let wildConsumed = false;
+  if (payload.type !== 'claim_bonus' && payload.type !== 'pass' && payload.wild !== undefined) {
+    if (player.wildsUsed >= MAX_WILDS) return { error: 'No wilds remaining' };
+    if (!Number.isInteger(payload.wild) || payload.wild < 1 || payload.wild > NUM_HORSES) {
+      return { error: 'Wild horse number must be 1-8' };
+    }
+    effectiveHorse = payload.wild;
+    wildConsumed = true;
+  }
+
+  const rolledHorse = effectiveHorse;
   const horseIdx = rolledHorse - 1;
   const horse = state.horses[horseIdx];
   const log: string[] = [];
+  if (wildConsumed) log.push(`✨ ${player.username} burns a Wild to act on horse ${rolledHorse}.`);
 
-  let updatedPlayer: LSPlayer = { ...player, actedThisRound: true };
+  let updatedPlayer: LSPlayer = {
+    ...player,
+    actedThisRound: true,
+    wildsUsed: wildConsumed ? player.wildsUsed + 1 : player.wildsUsed,
+  };
 
   switch (payload.type) {
     case 'bet': {
@@ -614,12 +677,45 @@ export function takeAction(
         return { error: `That cell shows horse ${state.concessionGrid[cell]}, not ${rolledHorse}` };
       }
       if (player.concessionMarks[cell]) return { error: 'Cell already marked' };
-      updatedPlayer = {
-        ...updatedPlayer,
-        concessionMarks: player.concessionMarks.map((m, i) => (i === cell ? true : m)),
-      };
+
+      const newMarks = player.concessionMarks.slice();
+      newMarks[cell] = true;
+      updatedPlayer = { ...updatedPlayer, concessionMarks: newMarks };
       log.push(`🎪 ${player.username} marks a concession cell for horse ${rolledHorse}.`);
+
+      // Detect row/column completions from this fresh mark
+      const row = Math.floor(cell / CONCESSION_COLS);
+      const col = cell % CONCESSION_COLS;
+      let rowComplete = true;
+      for (let c = 0; c < CONCESSION_COLS; c++) {
+        if (!newMarks[row * CONCESSION_COLS + c]) { rowComplete = false; break; }
+      }
+      let colComplete = true;
+      for (let r = 0; r < CONCESSION_ROWS; r++) {
+        if (!newMarks[r * CONCESSION_COLS + col]) { colComplete = false; break; }
+      }
+      const bonusCount = (rowComplete ? 1 : 0) + (colComplete ? 1 : 0);
+
+      if (bonusCount > 0) {
+        // Apply the cell mark + wild + log, set pendingBonus, BUT do NOT advance turn yet.
+        const players = state.players.slice();
+        players[playerIdx] = updatedPlayer;
+        log.push(`🎉 ${player.username} completed a ${
+          rowComplete && colComplete ? 'row & column'
+          : rowComplete ? 'row' : 'column'
+        } — choose ${bonusCount} bonus${bonusCount > 1 ? 'es' : ''}!`);
+        return {
+          ...state,
+          players,
+          pendingBonus: { playerId: player.playerId, count: bonusCount },
+          log: [...state.log, ...log].slice(-50),
+        };
+      }
       break;
+    }
+
+    case 'claim_bonus': {
+      return { error: 'No bonus to claim right now' };
     }
 
     case 'pass': {
@@ -629,6 +725,154 @@ export function takeAction(
   }
 
   return commitTurn(state, playerIdx, updatedPlayer, log);
+}
+
+// ---------- Bonus claim ----------
+
+/**
+ * Resolve a pending concession bonus. Player must have a bonus pending; bonusId must
+ * be unclaimed by this player. Some bonuses require additional params (horses).
+ */
+function applyBonusClaim(
+  state: LSState,
+  playerId: string,
+  payload: Extract<ActionPayload, { type: 'claim_bonus' }>,
+): LSState | { error: string } {
+  if (!state.pendingBonus || state.pendingBonus.playerId !== playerId) {
+    return { error: 'No bonus pending' };
+  }
+  const playerIdx = state.players.findIndex(p => p.playerId === playerId);
+  if (playerIdx < 0) return { error: 'Not a seated player' };
+  const player = state.players[playerIdx];
+
+  const bonusIdx = CONCESSION_BONUSES.findIndex(b => b.id === payload.bonusId);
+  if (bonusIdx < 0) return { error: 'Unknown bonus' };
+  if (player.bonusesClaimed[bonusIdx]) return { error: 'Bonus already claimed' };
+  const bonus = CONCESSION_BONUSES[bonusIdx];
+
+  let next: LSState = state;
+  let updatedPlayer: LSPlayer = { ...player };
+  const log: string[] = [];
+
+  const requireHorse = (h?: number, label = 'horse'): number | { error: string } => {
+    if (!Number.isInteger(h) || (h as number) < 1 || (h as number) > NUM_HORSES) return { error: `Pick a ${label} (1-8)` };
+    return h as number;
+  };
+
+  switch (bonus.id) {
+    case 'cash7_a':
+    case 'cash7_b':
+    case 'cash7_c': {
+      updatedPlayer.money += 7;
+      log.push(`💵 ${player.username} claims +$7.`);
+      break;
+    }
+
+    case 'back2x2':
+    case 'forward2x2': {
+      const a = requireHorse(payload.horse,  'first horse');
+      if (typeof a === 'object') return a;
+      const b = requireHorse(payload.horse2, 'second horse');
+      if (typeof b === 'object') return b;
+      if (a === b) return { error: 'Pick two different horses' };
+      const dist = bonus.id === 'back2x2' ? -2 : 2;
+      // Move lowest-numbered first per rules
+      const order = [a, b].sort((x, y) => x - y);
+      for (const h of order) next = moveHorse(next, h - 1, dist, false);
+      log.push(`${dist < 0 ? '↩️' : '↪️'} ${player.username} moves horses ${order[0]} and ${order[1]} ${dist < 0 ? 'back' : 'forward'} 2 each.`);
+      break;
+    }
+
+    case 'back3':
+    case 'forward3': {
+      const h = requireHorse(payload.horse);
+      if (typeof h === 'object') return h;
+      const dist = bonus.id === 'back3' ? -3 : 3;
+      next = moveHorse(next, h - 1, dist, false);
+      log.push(`${dist < 0 ? '↩️' : '↪️'} ${player.username} moves horse ${h} ${dist < 0 ? 'back' : 'forward'} 3.`);
+      break;
+    }
+
+    case 'freebet3_a':
+    case 'freebet3_b': {
+      const h = requireHorse(payload.horse);
+      if (typeof h === 'object') return h;
+      const horseObj = next.horses[h - 1];
+      if (horseObj.finished) return { error: 'Cannot bet on a finished horse' };
+      const past = horseObj.position >= NO_BET_SPACE;
+      if (past && updatedPlayer.helmets[h - 1] === 0) {
+        return { error: `Horse ${h} is past the No-Bet line — need a helmet first` };
+      }
+      updatedPlayer.bets = updatedPlayer.bets.map((amt, i) => (i === h - 1 ? amt + 3 : amt));
+      log.push(`💰 ${player.username} places a free $3 bet on horse ${h}.`);
+      break;
+    }
+
+    case 'helmet_any': {
+      const h = requireHorse(payload.horse);
+      if (typeof h === 'object') return h;
+      if (updatedPlayer.helmets[h - 1] >= MAX_HELMETS_PER_HORSE) {
+        return { error: `Already have a helmet on horse ${h}` };
+      }
+      updatedPlayer.helmets = updatedPlayer.helmets.map((c, i) => (i === h - 1 ? c + 1 : c));
+      log.push(`⛑️ ${player.username} marks a helmet on horse ${h}.`);
+      break;
+    }
+
+    case 'jersey_any': {
+      const h = requireHorse(payload.horse, 'jersey horse');
+      if (typeof h === 'object') return h;
+      const m = requireHorse(payload.markHorse, 'horse to add to bar');
+      if (typeof m === 'object') return m;
+      if (updatedPlayer.jerseys[h - 1] >= MAX_JERSEYS_PER_HORSE) {
+        return { error: `Already have a jersey on horse ${h}` };
+      }
+      if ((updatedPlayer.jerseyMarks[h - 1] ?? []).includes(m)) {
+        return { error: `Horse ${m} is already marked on horse ${h}'s bar` };
+      }
+      updatedPlayer.jerseys = updatedPlayer.jerseys.map((c, i) => (i === h - 1 ? c + 1 : c));
+      updatedPlayer.jerseyMarks = updatedPlayer.jerseyMarks.map((arr, i) =>
+        i === h - 1 ? [...arr, m] : arr,
+      );
+      log.push(`🏁 ${player.username} marks a jersey on horse ${h} (+ horse ${m} on its bar).`);
+      break;
+    }
+
+    case 'free_horse': {
+      const h = requireHorse(payload.horse);
+      if (typeof h === 'object') return h;
+      if (!next.market.includes(h)) return { error: `Horse ${h} is not in the market` };
+      updatedPlayer.ownedHorses = [...updatedPlayer.ownedHorses, h].sort((a, b) => a - b);
+      next = { ...next, market: next.market.filter(n => n !== h) };
+      log.push(`🏠 ${player.username} takes horse ${h} from the market for free.`);
+      break;
+    }
+
+    default:
+      return { error: 'Unhandled bonus' };
+  }
+
+  // Mark the bonus as claimed and commit the player update
+  updatedPlayer = {
+    ...updatedPlayer,
+    bonusesClaimed: updatedPlayer.bonusesClaimed.map((c, i) => (i === bonusIdx ? true : c)),
+  };
+  const players = next.players.slice();
+  players[playerIdx] = updatedPlayer;
+  next = { ...next, players };
+
+  // Decrement the pending count; if zero, clear pendingBonus and advance the action turn
+  const remaining = state.pendingBonus.count - 1;
+  if (remaining > 0) {
+    return {
+      ...next,
+      pendingBonus: { ...state.pendingBonus, count: remaining },
+      log: [...next.log, ...log].slice(-50),
+    };
+  }
+  // All bonuses resolved — clear, and advance the turn
+  const cleared: LSState = { ...next, pendingBonus: null };
+  return advanceActionTurn(cleared, player.seat, log);
 }
 
 function commitTurn(
