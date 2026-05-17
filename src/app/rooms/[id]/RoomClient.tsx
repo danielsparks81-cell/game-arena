@@ -7,6 +7,7 @@ import { GAMES } from '@/lib/games/registry';
 import type { TTTState } from '@/lib/games/tictactoe';
 import { type C4State, C4_COLS, C4_ROWS } from '@/lib/games/connect4';
 import { sounds, unlockAudio } from '@/lib/sounds';
+import MembersPanel from '@/components/MembersPanel';
 import {
   joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch,
 } from './actions';
@@ -188,7 +189,13 @@ export default function RoomClient({
         )}
       </section>
 
-      <aside className="flex h-80 flex-col rounded-xl border border-neutral-800 bg-neutral-900 lg:h-[600px]">
+      <div className="space-y-4">
+        <MembersPanel
+          currentUserId={currentUserId}
+          currentUsername={currentUsername}
+          className="lg:max-h-[320px] lg:overflow-y-auto"
+        />
+      <aside className="flex h-80 flex-col rounded-xl border border-neutral-800 bg-neutral-900 lg:h-[480px]">
         <div className="border-b border-neutral-800 px-4 py-2 text-sm font-medium">Chat</div>
         <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3 text-sm">
           {messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
@@ -223,6 +230,7 @@ export default function RoomClient({
           >Send</button>
         </form>
       </aside>
+      </div>
     </main>
   );
 }
