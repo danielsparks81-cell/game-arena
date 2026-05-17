@@ -122,7 +122,9 @@ export default function RoomClient({
   const otherVoted = otherSeated ? room.rematch_votes?.includes(otherSeated.player_id) : false;
 
   return (
-    <main className="mx-auto grid w-full max-w-6xl flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px]">
+    <main className={`mx-auto grid w-full flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px] ${
+      room.game_type === 'longshot' ? 'max-w-[1800px]' : 'max-w-6xl'
+    }`}>
       <section>
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
@@ -137,7 +139,11 @@ export default function RoomClient({
           </div>
         </div>
 
-        <Seats room={room} currentUserId={currentUserId} />
+        {/* Hide the seats grid for Long Shot during play — the in-board Players strip
+            covers seated/turn info and the seats grid wastes vertical space. */}
+        {!(room.game_type === 'longshot' && room.status === 'playing') && (
+          <Seats room={room} currentUserId={currentUserId} />
+        )}
 
         {room.game_type === 'tictactoe' && (
           <TicTacToeBoard

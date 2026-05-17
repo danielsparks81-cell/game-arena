@@ -323,12 +323,12 @@ export default function LongShotBoard({
         </div>
       )}
 
-      {/* Main grid: track left, actions right on desktop; stacked on mobile/tablet */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_1fr]">
+      {/* Main grid: track left, actions+sheet right on desktop; stacked on mobile/tablet */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
         {/* LEFT: track */}
         <Track state={state} />
 
-        {/* RIGHT: bonus picker takes priority over normal action picker when active */}
+        {/* RIGHT: actions on top, sheet below (stacked) */}
         <div className="space-y-3">
           {state.step === 'action' && me && myBonusPending && state.pendingBonus && (
             <BonusPicker
@@ -351,18 +351,16 @@ export default function LongShotBoard({
           )}
           {/* Hint when we're in roll phase so the right column isn't empty */}
           {state.step === 'roll' && (
-            <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm text-neutral-400">
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-3 text-sm text-neutral-400">
               {isMyTurnToRoll
                 ? 'Your turn — roll the dice to start the round.'
                 : <>Waiting on <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span> to roll…</>
               }
             </div>
           )}
+          {me && <PlayerSheet state={state} me={me} />}
         </div>
       </div>
-
-      {/* Player sheet (own) — full width below */}
-      {me && <PlayerSheet state={state} me={me} />}
 
       {/* Event log (collapsed by default to save space) */}
       {state.log.length > 0 && (
