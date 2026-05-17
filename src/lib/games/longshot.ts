@@ -197,7 +197,7 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
     if (after.finished) {
       log.push(`🏇 Horse ${rolledHorse} advances ${moved} → crosses the line, ${ordinal(after.finished)} place!`);
     } else if (moved > 0) {
-      log.push(`🏇 Horse ${rolledHorse} advances ${moved} (now at space ${after.position}).`);
+      log.push(`🏇 Horse ${rolledHorse} advances ${moved}.`);
     }
   } else {
     log.push(`Horse ${rolledHorse} already finished; only secondary movement applies.`);
@@ -223,7 +223,7 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
     if (after.finished) {
       log.push(`↳ Horse ${n} advances ${moved} → crosses the line, ${ordinal(after.finished)} place!`);
     } else if (moved > 0) {
-      log.push(`↳ Horse ${n} advances ${moved} (now at space ${after.position}).`);
+      log.push(`↳ Horse ${n} advances ${moved}.`);
     }
   }
 
