@@ -234,11 +234,11 @@ export default function LongShotBoard({
     .sort((a, b) => (a.finished ?? 0) - (b.finished ?? 0));
 
   return (
-    <div className="space-y-4">
-      {/* Status bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+    <div className="space-y-3">
+      {/* Status bar — round/turn info + dice + roll button */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2">
         <div>
-          <div className="text-xs uppercase tracking-wider text-neutral-500">
+          <div className="text-[10px] uppercase tracking-wider text-neutral-500">
             Round {state.round} · {state.step === 'roll' ? 'Roll phase' : state.step === 'action' ? 'Action phase' : 'Race over'}
           </div>
           <div className="text-sm">
@@ -272,45 +272,45 @@ export default function LongShotBoard({
         </div>
       </div>
 
-      {/* Bonus picker (takes priority over normal action picker when active) */}
-      {state.step === 'action' && me && myBonusPending && state.pendingBonus && (
-        <BonusPicker
-          state={state}
-          me={me}
-          remaining={state.pendingBonus.count}
-          disabled={disabled}
-          onAction={onAction}
-        />
-      )}
+      {/* Players compact strip */}
+      <div className="flex flex-wrap gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-2 py-1.5">
+        {state.players.map(p => {
+          const isActive = p.seat === state.activePlayerSeat;
+          const isTurn   = state.step === 'action' && p.seat === state.currentTurnSeat;
+          const isYou    = p.playerId === currentUserId;
+          return (
+            <div
+              key={p.playerId}
+              className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs ${
+                isTurn ? 'border-amber-500/60 bg-amber-500/10'
+                : isActive ? 'border-emerald-500/50 bg-emerald-500/10'
+                : 'border-neutral-800 bg-neutral-950'
+              }`}
+            >
+              <span className="truncate">{p.username}</span>
+              {isYou && <span className="text-[10px] text-neutral-500">(you)</span>}
+              {isTurn && <span className="text-[10px] text-amber-400">acting…</span>}
+              {isActive && state.step === 'roll' && <span className="text-[10px] text-emerald-400">rolling…</span>}
+              {p.actedThisRound && state.step === 'action' && !isTurn && <span className="text-[10px] text-neutral-500">✓</span>}
+              <span className="font-mono text-emerald-400">${p.money}</span>
+            </div>
+          );
+        })}
+      </div>
 
-      {/* Pending-bonus notice for everyone else */}
+      {/* Pending-bonus notice for everyone else (full width) */}
       {state.step === 'action' && state.pendingBonus && !myBonusPending && (
-        <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-4 text-sm text-neutral-300">
+        <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-3 text-sm text-neutral-300">
           Waiting on <span className="font-semibold text-amber-400">
             {state.players.find(p => p.playerId === state.pendingBonus!.playerId)?.username ?? 'a player'}
           </span> to claim {state.pendingBonus.count} concession bonus{state.pendingBonus.count > 1 ? 'es' : ''}…
         </div>
       )}
 
-      {/* Normal action picker */}
-      {state.step === 'action' && me && !state.pendingBonus && (
-        <ActionPanel
-          state={state}
-          me={me}
-          isMyTurn={!!isMyTurnToAct}
-          currentTurnUsername={currentTurnPlayer?.username ?? 'someone'}
-          disabled={disabled}
-          onAction={onAction}
-        />
-      )}
-
-      {/* Track */}
-      <Track state={state} />
-
-      {/* Winners */}
+      {/* Winners (full width) */}
       {winners.length > 0 && (
-        <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-4">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-400">Winner&apos;s Circle</div>
+        <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-2">
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400">Winner&apos;s Circle</div>
           <div className="flex flex-wrap gap-4 text-sm">
             {winners.map(w => (
               <div key={w.num} className="flex items-center gap-2">
@@ -323,43 +323,50 @@ export default function LongShotBoard({
         </div>
       )}
 
-      {/* Players */}
-      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-400">Players</div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {state.players.map(p => {
-            const isActive = p.seat === state.activePlayerSeat;
-            const isTurn   = state.step === 'action' && p.seat === state.currentTurnSeat;
-            const isYou    = p.playerId === currentUserId;
-            return (
-              <div
-                key={p.playerId}
-                className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm ${
-                  isTurn ? 'border-amber-500/60 bg-amber-500/5'
-                  : isActive ? 'border-emerald-500/50 bg-emerald-500/5'
-                  : 'border-neutral-800 bg-neutral-950'
-                }`}
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate">{p.username}</span>
-                  {isYou && <span className="text-xs text-neutral-500">(you)</span>}
-                  {isTurn && <span className="text-xs text-amber-400">acting…</span>}
-                  {isActive && state.step === 'roll' && <span className="text-xs text-emerald-400">rolling…</span>}
-                  {p.actedThisRound && state.step === 'action' && !isTurn && <span className="text-xs text-neutral-500">✓</span>}
-                </div>
-                <span className="font-mono text-emerald-400">${p.money}</span>
-              </div>
-            );
-          })}
+      {/* Main grid: track left, actions right on desktop; stacked on mobile/tablet */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_1fr]">
+        {/* LEFT: track */}
+        <Track state={state} />
+
+        {/* RIGHT: bonus picker takes priority over normal action picker when active */}
+        <div className="space-y-3">
+          {state.step === 'action' && me && myBonusPending && state.pendingBonus && (
+            <BonusPicker
+              state={state}
+              me={me}
+              remaining={state.pendingBonus.count}
+              disabled={disabled}
+              onAction={onAction}
+            />
+          )}
+          {state.step === 'action' && me && !state.pendingBonus && (
+            <ActionPanel
+              state={state}
+              me={me}
+              isMyTurn={!!isMyTurnToAct}
+              currentTurnUsername={currentTurnPlayer?.username ?? 'someone'}
+              disabled={disabled}
+              onAction={onAction}
+            />
+          )}
+          {/* Hint when we're in roll phase so the right column isn't empty */}
+          {state.step === 'roll' && (
+            <div className="rounded-xl border border-neutral-800 bg-neutral-900/60 p-4 text-sm text-neutral-400">
+              {isMyTurnToRoll
+                ? 'Your turn — roll the dice to start the round.'
+                : <>Waiting on <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span> to roll…</>
+              }
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Player sheet (own) */}
+      {/* Player sheet (own) — full width below */}
       {me && <PlayerSheet state={state} me={me} />}
 
-      {/* Event log */}
+      {/* Event log (collapsed by default to save space) */}
       {state.log.length > 0 && (
-        <details className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm" open>
+        <details className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm">
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-400">
             Race log
           </summary>
@@ -370,11 +377,6 @@ export default function LongShotBoard({
           </ul>
         </details>
       )}
-
-      {/* Phase 2 disclaimer */}
-      <p className="text-center text-xs text-neutral-600">
-        Phase 2 build: actions live. Concession bonuses, wilds, horse abilities, and final scoring come next.
-      </p>
     </div>
   );
 }
@@ -484,7 +486,7 @@ function ActionPanel({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-6">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
         <ActionBtn label="Concession" icon="🎪" disabled={disabled || !canConcession}
           tip={!canConcession ? 'No unmarked cell on your sheet for that horse' : undefined}
           onClick={() => setOpen('concession')} />
