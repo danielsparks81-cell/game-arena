@@ -256,34 +256,40 @@ export async function reportError(params: {
       };
     }
 
-    // Email (best-effort — dynamic import so the action stays loadable even if the
-    // resend package fails to import for some reason)
-    const apiKey = process.env.RESEND_API_KEY;
-    const to = process.env.BUG_REPORT_EMAIL;
-    let emailed = false;
-    if (apiKey && to) {
+    // Discord webhook (best-effort — only fires if DISCORD_BUG_WEBHOOK_URL is set)
+    const discordUrl = process.env.DISCORD_BUG_WEBHOOK_URL;
+    let delivered = false;
+    if (discordUrl) {
       try {
-        const { Resend } = await import('resend');
-        const resend = new Resend(apiKey);
-        const from = process.env.BUG_REPORT_FROM ?? 'Game Arena <onboarding@resend.dev>';
-        await resend.emails.send({
-          from, to,
-          subject: `[Game Arena] Bug report from ${reporterUsername ?? user.id}`,
-          text:
-            `Reporter: ${reporterUsername ?? '(no username)'} (${user.id})\n`
-            + `Room: ${roomId ?? '(none)'}\n`
-            + `Game: ${gameType ?? '(unknown)'}\n`
-            + `URL: ${url ?? '(none)'}\n`
-            + `User-Agent: ${userAgent ?? '(unknown)'}\n`
-            + `\n--- Description ---\n${description.trim()}`,
+        const res = await fetch(discordUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: 'Game Arena',
+            embeds: [
+              {
+                title: `🐞 Bug report from ${reporterUsername ?? '(unknown)'}`,
+                description: description.trim().slice(0, 4000),
+                color: 0xef4444, // red
+                fields: [
+                  ...(gameType ? [{ name: 'Game', value: gameType, inline: true }] : []),
+                  ...(roomId ? [{ name: 'Room', value: roomId.slice(0, 8), inline: true }] : []),
+                  ...(url ? [{ name: 'URL', value: url.slice(0, 1000) }] : []),
+                  ...(userAgent ? [{ name: 'User-Agent', value: userAgent.slice(0, 1000) }] : []),
+                ],
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          }),
         });
-        emailed = true;
+        if (res.ok) delivered = true;
+        else console.error('[reportError] discord webhook returned', res.status, await res.text().catch(() => ''));
       } catch (e) {
-        console.error('[reportError] email failed:', e);
+        console.error('[reportError] discord webhook failed:', e);
       }
     }
 
-    return { ok: true, emailed };
+    return { ok: true, emailed: delivered };
   } catch (e) {
     console.error('[reportError] unexpected:', e);
     return { ok: false, error: e instanceof Error ? e.message : 'Unknown error' };
