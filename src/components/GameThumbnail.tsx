@@ -6,7 +6,69 @@ export function GameThumbnail({ gameId, className }: { gameId: string; className
   if (gameId === 'longshot')  return <LongShotThumb className={className} />;
   if (gameId === 'checkers')  return <CheckersThumb className={className} />;
   if (gameId === 'battleship') return <BattleshipThumb className={className} />;
+  if (gameId === 'boggle')     return <BoggleThumb className={className} />;
   return <PlaceholderThumb className={className} />;
+}
+
+function BoggleThumb({ className }: { className?: string }) {
+  // 4×4 grid of letter dice. Highlight a word path "BIRD".
+  const letters = ['B', 'A', 'C', 'D', 'I', 'R', 'L', 'M', 'S', 'T', 'E', 'O', 'N', 'F', 'G', 'H'];
+  // BIRD path: indices 0 (B), 4 (I), 5 (R), 6 ... let me just pick valid neighbors:
+  // B(0) → I(4) ↓, I(4) → R(5) →, R(5) → D... D is at index 3. R(5) → D(3)? not adjacent (5 and 3 same row, diff 2). Let me adjust.
+  // Place B at 0, I at 5 (diag), R at 6 (right of I), D at 2 (above R). All adjacent.
+  const grid = ['B', 'A', 'D', '_', '_', 'I', 'R', '_', '_', '_', '_', '_', '_', '_', '_', '_'];
+  // Fill the gaps with the rest of the letters
+  const fillLetters = ['A', 'C', 'L', 'M', 'S', 'T', 'E', 'O', 'N', 'F', 'G', 'H'];
+  let li = 0;
+  const finalGrid = grid.map(c => c === '_' ? fillLetters[li++] : c);
+  const pathSet = new Set([0, 5, 6, 2]); // B, I, R, D
+  void letters; // unused but kept for reference
+  return (
+    <svg viewBox="0 0 140 100" className={className} role="img" aria-label="Boggle">
+      <defs>
+        <linearGradient id="bg-bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#1c1917" />
+          <stop offset="1" stopColor="#0c0a09" />
+        </linearGradient>
+        <linearGradient id="bg-die" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fef3c7" />
+          <stop offset="1" stopColor="#fcd34d" />
+        </linearGradient>
+        <linearGradient id="bg-die-active" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#34d399" />
+          <stop offset="1" stopColor="#10b981" />
+        </linearGradient>
+      </defs>
+      <rect width="140" height="100" rx="10" fill="url(#bg-bg)" />
+      {/* 4×4 grid centered at 70,50 with cells 16×16 */}
+      {finalGrid.map((letter, i) => {
+        const r = Math.floor(i / 4);
+        const c = i % 4;
+        const x = 38 + c * 17;
+        const y = 18 + r * 17;
+        const active = pathSet.has(i);
+        return (
+          <g key={i}>
+            <rect
+              x={x} y={y} width="15" height="15" rx="2"
+              fill={active ? 'url(#bg-die-active)' : 'url(#bg-die)'}
+              stroke="#92400e" strokeWidth="0.5"
+            />
+            <text
+              x={x + 7.5} y={y + 11}
+              textAnchor="middle" fontSize="9" fontWeight="bold"
+              fill={active ? '#052e16' : '#451a03'}
+            >
+              {letter}
+            </text>
+          </g>
+        );
+      })}
+      {/* Timer pill */}
+      <rect x={100} y={5} width="34" height="11" rx="5" fill="#16a34a" />
+      <text x={117} y={13} textAnchor="middle" fontSize="7" fontWeight="bold" fill="#fff">3:00</text>
+    </svg>
+  );
 }
 
 function BattleshipThumb({ className }: { className?: string }) {

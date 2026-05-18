@@ -35,6 +35,13 @@ export const GAMES: Record<string, GameDef> = {
     minPlayers: 2,
     maxPlayers: 2,
   },
+  boggle: {
+    id: 'boggle',
+    name: 'Boggle',
+    description: '4×4 letter grid, 3-minute race to find the most words. 2–6 players.',
+    minPlayers: 2,
+    maxPlayers: 6,
+  },
   longshot: {
     id: 'longshot',
     name: 'Long Shot',

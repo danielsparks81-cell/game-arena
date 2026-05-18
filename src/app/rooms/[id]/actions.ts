@@ -8,6 +8,16 @@ import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } fro
 import { applyMove as applyMoveCK, initialState as ckInitial, type CheckersState } from '@/lib/games/checkers';
 import { applyMove as applyMoveBS, initialState as bsInitial, type BSState, type BSPayload } from '@/lib/games/battleship';
 import {
+  initialState as bgInitial,
+  addPlayer as bgAddPlayer,
+  startGame as bgStartGame,
+  submitWord as bgSubmitWord,
+  finalize as bgFinalize,
+  msRemaining as bgMsRemaining,
+  type BoggleState,
+} from '@/lib/games/boggle';
+import { isWord as bgIsWord } from '@/lib/games/boggleDictionary';
+import {
   addPlayer as lsAddPlayer,
   initialState as lsInitialState,
   startRace as lsStartRace,
@@ -79,6 +89,13 @@ export async function joinRoom(roomId: string) {
       .from('profiles').select('username').eq('id', user.id).single();
     const username = profile?.username ?? 'player';
     const newState = lsAddPlayer((room.state || {}) as LSState, user.id, username, seat);
+    await supabase.from('rooms').update({ state: newState }).eq('id', roomId);
+  } else if (room.game_type === 'boggle') {
+    // Boggle: same join model — wait in lobby for the host to roll the board
+    const { data: profile } = await supabase
+      .from('profiles').select('username').eq('id', user.id).single();
+    const username = profile?.username ?? 'player';
+    const newState = bgAddPlayer((room.state || {}) as BoggleState, user.id, username, seat);
     await supabase.from('rooms').update({ state: newState }).eq('id', roomId);
   } else {
     // Tic-Tac-Toe / Connect Four: auto-start when 2nd player joins.
@@ -178,6 +195,13 @@ export async function startGame(roomId: string) {
 
   if (room.game_type === 'longshot') {
     const next = lsStartRace((room.state || {}) as LSState);
+    if ('error' in next) throw new Error(next.error);
+    await supabase
+      .from('rooms')
+      .update({ status: 'playing', state: next })
+      .eq('id', roomId);
+  } else if (room.game_type === 'boggle') {
+    const next = bgStartGame((room.state || {}) as BoggleState);
     if ('error' in next) throw new Error(next.error);
     await supabase
       .from('rooms')
@@ -403,6 +427,90 @@ export async function makeMoveCheckers(roomId: string, from: [number, number], t
   await notifyRoom(roomId);
 }
 
+/**
+ * Submit a Boggle word. Validates time, adjacency (engine), then the dictionary
+ * (server-only Set lookup). Returns a structured result so the UI can show why
+ * a word was rejected instead of throwing a generic production error.
+ */
+export async function submitWordBoggle(
+  roomId: string,
+  word: string,
+): Promise<{ ok: true; word: string } | { ok: false; error: string }> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return { ok: false, error: 'Not signed in' };
+
+    const { data: room, error } = await supabase
+      .from('rooms')
+      .select('id, state, status, game_type')
+      .eq('id', roomId)
+      .single();
+    if (error || !room) return { ok: false, error: 'Room not found' };
+    if (room.game_type !== 'boggle') return { ok: false, error: 'Wrong game type' };
+    if (room.status !== 'playing')   return { ok: false, error: 'Round not in progress' };
+
+    const state = (room.state || {}) as BoggleState;
+
+    // Engine-side checks (time, length, adjacency, dupes)
+    const next = bgSubmitWord(state, user.id, word);
+    if ('error' in next) return { ok: false, error: next.error };
+
+    // Dictionary check — only after the engine accepts the word
+    const upper = word.trim().toUpperCase();
+    const valid = await bgIsWord(upper);
+    if (!valid) return { ok: false, error: `"${upper}" is not in the dictionary` };
+
+    await supabase.from('rooms').update({ state: next }).eq('id', roomId);
+    await notifyRoom(roomId);
+    return { ok: true, word: upper };
+  } catch (e) {
+    console.error('[submitWordBoggle]', e);
+    return { ok: false, error: e instanceof Error ? e.message : 'Unknown error' };
+  }
+}
+
+/**
+ * Called by clients when the round timer hits 0. The first caller wins the race
+ * to finalize; subsequent callers no-op because phase is already 'finished'.
+ * Records game history with the winner (highest total; null on tie).
+ */
+export async function finalizeBoggleIfExpired(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (!room || room.game_type !== 'boggle') return;
+  if (room.status === 'finished') return;
+
+  const state = (room.state || {}) as BoggleState;
+  if (bgMsRemaining(state) > 0) return; // not actually expired yet
+
+  const finished = bgFinalize(state);
+  await supabase
+    .from('rooms')
+    .update({ state: finished, status: 'finished', rematch_votes: [] })
+    .eq('id', roomId);
+
+  // Record history — winner = highest total; null on tie
+  const ranked = [...(finished.results ?? [])].sort((a, b) => b.total - a.total);
+  if (ranked.length > 0) {
+    const tie = ranked.length > 1 && ranked[0].total === ranked[1].total;
+    await supabase.from('game_history').insert({
+      room_id: roomId,
+      game_type: 'boggle',
+      winner_id: tie ? null : ranked[0].playerId,
+      player_ids: ranked.map(r => r.playerId),
+    });
+  }
+  await notifyRoom(roomId);
+}
+
 export async function makeMoveBattleship(roomId: string, payload: BSPayload) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -506,7 +614,7 @@ export async function proposeRematch(roomId: string) {
   }
 
   // Reset the board.
-  let newState: TTTState | C4State | CheckersState | BSState | LSState;
+  let newState: TTTState | C4State | CheckersState | BSState | BoggleState | LSState;
   if (room.game_type === 'tictactoe') {
     const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
     newState = { ...tttInitial(), seats: { X: oldSeats.O ?? '', O: oldSeats.X ?? '' } };
@@ -529,6 +637,16 @@ export async function proposeRematch(roomId: string) {
       lsState = lsAddPlayer(lsState, p.playerId, p.username, p.seat);
     }
     const started = lsStartRace(lsState);
+    if ('error' in started) throw new Error(started.error);
+    newState = started;
+  } else if (room.game_type === 'boggle') {
+    // Reset Boggle to lobby phase with same seated players + a fresh roll on next Start
+    const oldState = (room.state || {}) as BoggleState;
+    let bgState = bgInitial();
+    for (const p of [...oldState.players].sort((a, b) => a.seat - b.seat)) {
+      bgState = bgAddPlayer(bgState, p.playerId, p.username, p.seat);
+    }
+    const started = bgStartGame(bgState);
     if ('error' in started) throw new Error(started.error);
     newState = started;
   } else {

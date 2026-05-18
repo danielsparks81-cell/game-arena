@@ -11,11 +11,14 @@ import MembersPanel from '@/components/MembersPanel';
 import LongShotBoard from '@/components/LongShotBoard';
 import CheckersBoard from '@/components/CheckersBoard';
 import BattleshipBoard from '@/components/BattleshipBoard';
+import BoggleBoard from '@/components/BoggleBoard';
 import type { LSState } from '@/lib/games/longshot';
 import type { CheckersState } from '@/lib/games/checkers';
 import type { BSState } from '@/lib/games/battleship';
+import type { BoggleState } from '@/lib/games/boggle';
 import {
   joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, makeMoveCheckers, makeMoveBattleship,
+  submitWordBoggle, finalizeBoggleIfExpired,
   sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
 } from './actions';
 
@@ -183,6 +186,18 @@ export default function RoomClient({
             currentUserId={currentUserId}
             disabled={pending || room.status === 'finished'}
             onMove={(payload) => { unlockAudio(); startTransition(() => { makeMoveBattleship(roomId, payload); }); }}
+          />
+        )}
+
+        {room.game_type === 'boggle' && (
+          <BoggleBoard
+            state={room.state as BoggleState}
+            currentUserId={currentUserId}
+            isHost={room.host_id === currentUserId}
+            disabled={pending}
+            onStart={() => { unlockAudio(); startTransition(() => { startGame(roomId); }); }}
+            onSubmitWord={(word) => submitWordBoggle(roomId, word)}
+            onFinalize={() => finalizeBoggleIfExpired(roomId)}
           />
         )}
 
