@@ -52,7 +52,7 @@ export default function LobbyClient({
   const finished = useMemo(() => rooms.filter(r => r.status === 'finished').slice(0, 5), [rooms]);
 
   return (
-    <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[1fr_260px] lg:grid-cols-[1fr_280px]">
+    <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[1fr_280px] lg:grid-cols-[1fr_320px]">
       {/* LEFT: new game tiles + active rooms */}
       <div className="space-y-8">
         {newGameSection}

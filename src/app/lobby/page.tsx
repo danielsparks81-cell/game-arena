@@ -33,7 +33,7 @@ export default async function LobbyPage() {
 
   const newGameSection = (
     <section>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {Object.values(GAMES).map(g => (
           <form key={g.id} action={createRoom}>
             <input type="hidden" name="gameType" value={g.id} />
@@ -64,7 +64,7 @@ export default async function LobbyPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <TopBar username={username} />
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="mx-auto w-full max-w-[1800px] flex-1 px-4 py-6 sm:px-6 sm:py-8">
         <LobbyClient
           initialRooms={(rooms ?? []) as unknown as Parameters<typeof LobbyClient>[0]['initialRooms']}
           initialStats={(stats ?? []) as Parameters<typeof LobbyClient>[0]['initialStats']}
