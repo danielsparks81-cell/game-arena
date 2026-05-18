@@ -19,6 +19,9 @@ export default function CheckersBoard({
     : state.seats.B === currentUserId ? 'B'
     : null;
   const yourTurn = !!yourColor && state.turn === yourColor && !state.winner && !disabled;
+  // Flip the board 180° for the Black player so their pieces are always at the bottom.
+  // Spectators get the default (Red at bottom) view.
+  const flip = yourColor === 'B';
 
   // Selected piece (row, col) — null = no selection
   const [selected, setSelected] = useState<[number, number] | null>(null);
@@ -89,8 +92,12 @@ export default function CheckersBoard({
         className="mx-auto inline-grid overflow-hidden rounded-lg border-2 border-neutral-800 shadow-lg"
         style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`, width: 'min(100%, 480px)' }}
       >
-        {state.board.flatMap((row, r) =>
-          row.map((cell, c) => {
+        {Array.from({ length: ROWS }).flatMap((_, dr) =>
+          Array.from({ length: COLS }, (_, dc) => {
+            // Translate display (dr, dc) → data (r, c). Selection + onMove always use data coords.
+            const r = flip ? ROWS - 1 - dr : dr;
+            const c = flip ? COLS - 1 - dc : dc;
+            const cell = state.board[r][c];
             const isDark = (r + c) % 2 === 1;
             const isSelected = selected && selected[0] === r && selected[1] === c;
             const isLegal = legalMoves.some(([lr, lc]) => lr === r && lc === c);
