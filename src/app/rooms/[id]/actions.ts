@@ -11,10 +11,13 @@ import {
   initialState as bgInitial,
   addPlayer as bgAddPlayer,
   startGame as bgStartGame,
+  nextRound as bgNextRound,
+  setGameMode as bgSetGameMode,
   submitWord as bgSubmitWord,
   finalize as bgFinalize,
   msRemaining as bgMsRemaining,
   type BoggleState,
+  type BoggleGameMode,
 } from '@/lib/games/boggle';
 import { isWord as bgIsWord } from '@/lib/games/boggleDictionary';
 import {
@@ -427,6 +430,50 @@ export async function makeMoveCheckers(roomId: string, from: [number, number], t
   await notifyRoom(roomId);
 }
 
+/** Host-only: change the Boggle game mode while still in the lobby. */
+export async function setBoggleMode(roomId: string, mode: BoggleGameMode) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type, host_id')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'boggle') throw new Error('Wrong game type');
+  if (room.host_id !== user.id) throw new Error('Only the host can change the mode');
+
+  const next = bgSetGameMode((room.state || {}) as BoggleState, mode);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase.from('rooms').update({ state: next }).eq('id', roomId);
+  await notifyRoom(roomId);
+}
+
+/** Host-only: start the next Boggle round from the between-rounds break. */
+export async function startBoggleNextRound(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type, host_id')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'boggle') throw new Error('Wrong game type');
+  if (room.host_id !== user.id) throw new Error('Only the host can start the next round');
+
+  const next = bgNextRound((room.state || {}) as BoggleState);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase.from('rooms').update({ state: next }).eq('id', roomId);
+  await notifyRoom(roomId);
+}
+
 /**
  * Submit a Boggle word. Validates time, adjacency (engine), then the dictionary
  * (server-only Set lookup). Returns a structured result so the UI can show why
@@ -491,22 +538,27 @@ export async function finalizeBoggleIfExpired(roomId: string) {
   const state = (room.state || {}) as BoggleState;
   if (bgMsRemaining(state) > 0) return; // not actually expired yet
 
-  const finished = bgFinalize(state);
+  const finalized = bgFinalize(state);
+  // Multi-round modes go to 'between-rounds' first; only the final round flips
+  // the room status to 'finished'.
+  const roomStatus = finalized.phase === 'finished' ? 'finished' : 'playing';
   await supabase
     .from('rooms')
-    .update({ state: finished, status: 'finished', rematch_votes: [] })
+    .update({ state: finalized, status: roomStatus, rematch_votes: [] })
     .eq('id', roomId);
 
-  // Record history — winner = highest total; null on tie
-  const ranked = [...(finished.results ?? [])].sort((a, b) => b.total - a.total);
-  if (ranked.length > 0) {
-    const tie = ranked.length > 1 && ranked[0].total === ranked[1].total;
-    await supabase.from('game_history').insert({
-      room_id: roomId,
-      game_type: 'boggle',
-      winner_id: tie ? null : ranked[0].playerId,
-      player_ids: ranked.map(r => r.playerId),
-    });
+  // Record game history only once, when the multi-round game actually ends
+  if (finalized.phase === 'finished') {
+    const ranked = [...(finalized.finalResults ?? [])].sort((a, b) => b.total - a.total);
+    if (ranked.length > 0) {
+      const tie = ranked.length > 1 && ranked[0].total === ranked[1].total;
+      await supabase.from('game_history').insert({
+        room_id: roomId,
+        game_type: 'boggle',
+        winner_id: tie ? null : ranked[0].playerId,
+        player_ids: ranked.map(r => r.playerId),
+      });
+    }
   }
   await notifyRoom(roomId);
 }

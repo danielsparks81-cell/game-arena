@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import {
   BOARD_SIZE, MIN_WORD_LEN, pointsFor, msRemaining,
-  type BoggleState,
+  GAME_MODE_LABELS, aggregateTotals,
+  type BoggleState, type BoggleGameMode,
 } from '@/lib/games/boggle';
 
 export default function BoggleBoard({
-  state, currentUserId, isHost, disabled, onSubmitWord, onStart, onFinalize,
+  state, currentUserId, isHost, disabled, onSubmitWord, onStart, onSetMode, onNextRound, onFinalize,
 }: {
   state: BoggleState;
   currentUserId: string;
@@ -15,6 +16,8 @@ export default function BoggleBoard({
   disabled: boolean;
   onSubmitWord: (word: string) => Promise<{ ok: true; word: string } | { ok: false; error: string }>;
   onStart: () => void;
+  onSetMode: (mode: BoggleGameMode) => void;
+  onNextRound: () => void;
   onFinalize: () => Promise<void>;
 }) {
   const me = state.players.find(p => p.playerId === currentUserId);
@@ -45,7 +48,7 @@ export default function BoggleBoard({
     return (
       <div className="space-y-3">
         <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 text-sm">
-          <p className="font-medium">Waiting for the host to start the round.</p>
+          <p className="font-medium">Waiting for the host to start the game.</p>
           <p className="mt-1 text-xs text-neutral-400">
             Players seated: <span className="text-emerald-400">{playerCount}</span> — need at least 2.
           </p>
@@ -54,14 +57,41 @@ export default function BoggleBoard({
               <li key={p.playerId} className="text-neutral-300">• {p.username}</li>
             ))}
           </ul>
-          <div className="mt-3">
+
+          {/* Mode selector (host only) */}
+          <div className="mt-4">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+              Game mode {isHost ? '' : '(host picks)'}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+              {(Object.keys(GAME_MODE_LABELS) as BoggleGameMode[]).map(m => {
+                const selected = state.mode === m;
+                return (
+                  <button
+                    key={m}
+                    onClick={() => onSetMode(m)}
+                    disabled={!isHost || disabled || selected}
+                    className={`rounded-md border px-2 py-2 text-xs transition disabled:cursor-not-allowed ${
+                      selected
+                        ? 'border-emerald-400 bg-emerald-500/15 font-semibold text-emerald-200'
+                        : 'border-neutral-700 bg-neutral-950 text-neutral-300 hover:bg-neutral-800 disabled:opacity-50'
+                    }`}
+                  >
+                    {GAME_MODE_LABELS[m]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="mt-4">
             {canStart ? (
               <button
                 onClick={onStart}
                 disabled={disabled}
                 className="rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
               >
-                Start round ({playerCount} {playerCount === 1 ? 'player' : 'players'})
+                Start game ({playerCount} {playerCount === 1 ? 'player' : 'players'})
               </button>
             ) : isHost ? (
               <span className="text-sm text-neutral-500">Need at least 2 seated players to start.</span>
@@ -76,6 +106,11 @@ export default function BoggleBoard({
         </p>
       </div>
     );
+  }
+
+  // ---------- Between rounds ----------
+  if (state.phase === 'between-rounds') {
+    return <BetweenRoundsView state={state} me={me?.playerId ?? null} isHost={isHost} disabled={disabled} onNextRound={onNextRound} />;
   }
 
   // ---------- Finished ----------
@@ -367,64 +402,185 @@ function FoundList({ words }: { words: string[] }) {
   );
 }
 
-function ScoringPanel({ state, me }: { state: BoggleState; me: string | null }) {
-  const results = state.results ?? [];
-  const ranked = [...results].sort((a, b) => b.total - a.total);
-  const medals = ['🥇', '🥈', '🥉'];
-  const winner = ranked[0];
+function RoundScoresBlock({ scores, me, medals = false }: {
+  scores: { playerId: string; username: string; breakdown: { word: string; points: number; duplicate: boolean }[]; total: number }[];
+  me: string | null;
+  medals?: boolean;
+}) {
+  const ranked = [...scores].sort((a, b) => b.total - a.total);
+  const medalEmoji = ['🥇', '🥈', '🥉'];
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      {ranked.map((r, idx) => (
+        <div
+          key={r.playerId}
+          className={`rounded-md border p-3 text-sm ${
+            r.playerId === me
+              ? 'border-emerald-500/50 bg-emerald-500/5'
+              : 'border-neutral-800 bg-neutral-900'
+          }`}
+        >
+          <div className="mb-2 flex items-baseline justify-between">
+            <span className="font-medium">
+              {medals && <span className="mr-1">{medalEmoji[idx] ?? ''}</span>}
+              {r.username}
+            </span>
+            <span className="font-mono text-lg font-bold text-amber-400">{r.total}</span>
+          </div>
+          {r.breakdown.length === 0 ? (
+            <p className="text-xs text-neutral-500">No words submitted.</p>
+          ) : (
+            <ul className="flex flex-wrap gap-1.5">
+              {[...r.breakdown].sort((a, b) => b.word.length - a.word.length || a.word.localeCompare(b.word)).map(b => (
+                <li
+                  key={b.word}
+                  className={`rounded px-2 py-0.5 font-mono text-xs ${
+                    b.duplicate
+                      ? 'bg-neutral-800 text-neutral-500 line-through'
+                      : 'bg-emerald-500/10 text-emerald-300'
+                  }`}
+                  title={b.duplicate ? 'Cancelled — another player also found it' : `+${b.points}`}
+                >
+                  {b.word} <span className="text-neutral-500">·{b.points}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BetweenRoundsView({
+  state, me, isHost, disabled, onNextRound,
+}: {
+  state: BoggleState; me: string | null; isHost: boolean; disabled: boolean; onNextRound: () => void;
+}) {
+  const lastRound = state.rounds[state.rounds.length - 1];
+  const totals = aggregateTotals(state);
+  const standings = [...totals].sort((a, b) => b.total - a.total);
+  const target = state.mode === 'to-50' ? 50 : state.mode === 'to-100' ? 100 : null;
+  const roundsLabel = state.mode === '3-rounds'
+    ? `Round ${state.round} of 3`
+    : target
+      ? `Race to ${target} pts`
+      : `Round ${state.round}`;
   return (
     <div className="space-y-3">
-      <BoardGrid board={state.board} />
+      <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3 text-center">
+        <h2 className="text-lg font-bold text-amber-400">⏱ Round {state.round} complete</h2>
+        <p className="text-xs text-neutral-400">{roundsLabel} · {GAME_MODE_LABELS[state.mode]}</p>
+      </div>
+
+      {/* This round's per-word breakdown */}
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          Round {state.round} scores
+        </div>
+        {lastRound && <RoundScoresBlock scores={lastRound.scores} me={me} />}
+      </div>
+
+      {/* Cumulative standings so far */}
+      <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          Running totals
+        </div>
+        <table className="w-full text-sm">
+          <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
+            <tr>
+              <th className="px-2 py-1 text-left">Player</th>
+              {state.rounds.map(r => <th key={r.round} className="px-2 py-1 text-center">R{r.round}</th>)}
+              <th className="px-2 py-1 text-center">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standings.map(s => (
+              <tr key={s.playerId} className={`border-t border-neutral-800/60 ${s.playerId === me ? 'bg-emerald-500/5' : ''}`}>
+                <td className="px-2 py-1.5 font-medium">{s.username}</td>
+                {s.perRound.map((p, i) => <td key={i} className="px-2 py-1.5 text-center font-mono text-neutral-300">{p}</td>)}
+                <td className="px-2 py-1.5 text-center font-mono text-lg font-bold text-amber-400">{s.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {target && (
+          <p className="mt-2 text-center text-[11px] text-neutral-500">
+            First to {target} wins. Leader: <span className="text-amber-300">{standings[0]?.username}</span> at {standings[0]?.total}.
+          </p>
+        )}
+      </div>
+
+      <div className="text-center">
+        {isHost ? (
+          <button
+            onClick={onNextRound}
+            disabled={disabled}
+            className="rounded-md bg-emerald-500 px-6 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
+          >
+            Start round {state.round + 1}
+          </button>
+        ) : (
+          <p className="text-sm text-neutral-400">Waiting for the host to start the next round…</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScoringPanel({ state, me }: { state: BoggleState; me: string | null }) {
+  const standings = [...(state.finalResults ?? [])].sort((a, b) => b.total - a.total);
+  const medals = ['🥇', '🥈', '🥉'];
+  const winner = standings[0];
+  return (
+    <div className="space-y-3">
       <div className="rounded-xl border-2 border-amber-500/60 bg-amber-500/5 p-4">
         <div className="mb-3 text-center">
-          <h2 className="text-xl font-bold text-amber-400">🏁 Time&apos;s up!</h2>
+          <h2 className="text-xl font-bold text-amber-400">🏁 Game over!</h2>
+          <p className="text-xs text-neutral-400">{GAME_MODE_LABELS[state.mode]} · {state.rounds.length} round{state.rounds.length === 1 ? '' : 's'}</p>
           {winner && (
-            <p className="text-sm text-neutral-300">
+            <p className="mt-1 text-sm text-neutral-300">
               Winner: <span className="font-semibold text-amber-300">{winner.username}</span>{' '}
               <span className="font-mono">({winner.total} pts)</span>
             </p>
           )}
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {ranked.map((r, idx) => (
-            <div
-              key={r.playerId}
-              className={`rounded-md border p-3 text-sm ${
-                r.playerId === me
-                  ? 'border-emerald-500/50 bg-emerald-500/5'
-                  : 'border-neutral-800 bg-neutral-900'
-              }`}
-            >
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="font-medium">
-                  <span className="mr-1">{medals[idx] ?? ''}</span>{r.username}
-                </span>
-                <span className="font-mono text-lg font-bold text-amber-400">{r.total}</span>
-              </div>
-              {r.breakdown.length === 0 ? (
-                <p className="text-xs text-neutral-500">No words submitted.</p>
-              ) : (
-                <ul className="flex flex-wrap gap-1.5">
-                  {[...r.breakdown].sort((a, b) => b.word.length - a.word.length || a.word.localeCompare(b.word)).map(b => (
-                    <li
-                      key={b.word}
-                      className={`rounded px-2 py-0.5 font-mono text-xs ${
-                        b.duplicate
-                          ? 'bg-neutral-800 text-neutral-500 line-through'
-                          : 'bg-emerald-500/10 text-emerald-300'
-                      }`}
-                      title={b.duplicate ? 'Cancelled — another player also found it' : `+${b.points}`}
-                    >
-                      {b.word} <span className="text-neutral-500">·{b.points}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
+
+        {/* Aggregate standings */}
+        <table className="mb-4 w-full text-sm">
+          <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
+            <tr>
+              <th className="px-2 py-1 text-left">Player</th>
+              {state.rounds.map(r => <th key={r.round} className="px-2 py-1 text-center">R{r.round}</th>)}
+              <th className="px-2 py-1 text-center">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standings.map((s, idx) => (
+              <tr key={s.playerId} className={`border-t border-neutral-800/60 ${s.playerId === me ? 'bg-emerald-500/5' : ''}`}>
+                <td className="px-2 py-1.5 font-medium">
+                  <span className="mr-1">{medals[idx] ?? ''}</span>{s.username}
+                </td>
+                {s.perRound.map((p, i) => <td key={i} className="px-2 py-1.5 text-center font-mono text-neutral-300">{p}</td>)}
+                <td className="px-2 py-1.5 text-center font-mono text-lg font-bold text-amber-400">{s.total}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        {/* Per-round expandable breakdowns */}
+        {state.rounds.map(r => (
+          <details key={r.round} className="mt-3 rounded-md border border-neutral-800 bg-neutral-900 p-2 text-sm">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-400">
+              Round {r.round} word breakdown
+            </summary>
+            <div className="mt-2">
+              <RoundScoresBlock scores={r.scores} me={me} />
             </div>
-          ))}
-        </div>
+          </details>
+        ))}
         <p className="mt-3 text-center text-[11px] italic text-neutral-500">
-          Words found by more than one player are crossed out (cancel each other out).
+          Words found by more than one player in the same round cancel each other out.
         </p>
       </div>
     </div>

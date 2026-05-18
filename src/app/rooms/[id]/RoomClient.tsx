@@ -18,7 +18,7 @@ import type { BSState } from '@/lib/games/battleship';
 import type { BoggleState } from '@/lib/games/boggle';
 import {
   joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, makeMoveCheckers, makeMoveBattleship,
-  submitWordBoggle, finalizeBoggleIfExpired,
+  submitWordBoggle, finalizeBoggleIfExpired, setBoggleMode, startBoggleNextRound,
   sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
 } from './actions';
 
@@ -196,6 +196,8 @@ export default function RoomClient({
             isHost={room.host_id === currentUserId}
             disabled={pending}
             onStart={() => { unlockAudio(); startTransition(() => { startGame(roomId); }); }}
+            onSetMode={(mode) => startTransition(() => { setBoggleMode(roomId, mode); })}
+            onNextRound={() => { unlockAudio(); startTransition(() => { startBoggleNextRound(roomId); }); }}
             onSubmitWord={(word) => submitWordBoggle(roomId, word)}
             onFinalize={() => finalizeBoggleIfExpired(roomId)}
           />

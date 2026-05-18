@@ -36,23 +36,50 @@ export type BogglePlayer = {
   playerId: string;
   username: string;
   seat: number;
-  /** Words this player has submitted (uppercase, deduped per player). */
+  /** Words this player has submitted THIS ROUND (uppercase, deduped per player). */
   words: string[];
 };
 
-export type BoggleState = {
-  phase: 'lobby' | 'playing' | 'finished';
-  board: string[];                    // 16 letters, board[row*4 + col]
-  startedAt: number | null;           // unix-ms when play started; null in lobby
-  duration: number;                   // ms remaining = startedAt + duration - now
-  players: BogglePlayer[];
-  /** Computed at end of game so clients can render a static scoreboard. */
-  results: {
+/** Game-mode = stop condition. Picked by the host in the lobby before starting. */
+export type BoggleGameMode = '1-round' | '3-rounds' | 'to-50' | 'to-100';
+
+export const GAME_MODE_LABELS: Record<BoggleGameMode, string> = {
+  '1-round':  '1 round',
+  '3-rounds': 'Best of 3 rounds',
+  'to-50':    'First to 50 points',
+  'to-100':   'First to 100 points',
+};
+
+export type RoundResult = {
+  round: number;
+  board: string[];
+  /** Per-word breakdown for each player in this specific round. */
+  scores: {
     playerId: string;
     username: string;
     seat: number;
-    /** Per-word breakdown: word, points awarded, duplicate (cancels out). */
     breakdown: { word: string; points: number; duplicate: boolean }[];
+    total: number;
+  }[];
+};
+
+export type BoggleState = {
+  phase: 'lobby' | 'playing' | 'between-rounds' | 'finished';
+  mode: BoggleGameMode;
+  /** Current round number (1-indexed). 0 while in lobby. */
+  round: number;
+  board: string[];                    // 16 letters, board[row*4 + col]
+  startedAt: number | null;           // unix-ms when current round started
+  duration: number;                   // ms per round
+  players: BogglePlayer[];
+  /** History of all completed rounds, in order. */
+  rounds: RoundResult[];
+  /** Final aggregated standings — set only when phase === 'finished'. */
+  finalResults: {
+    playerId: string;
+    username: string;
+    seat: number;
+    perRound: number[];
     total: number;
   }[] | null;
 };
@@ -64,12 +91,21 @@ export type BoggleState = {
 export function initialState(): BoggleState {
   return {
     phase: 'lobby',
+    mode: '1-round',
+    round: 0,
     board: [],
     startedAt: null,
     duration: DEFAULT_DURATION_MS,
     players: [],
-    results: null,
+    rounds: [],
+    finalResults: null,
   };
+}
+
+/** Host changes the game mode while still in the lobby. */
+export function setGameMode(state: BoggleState, mode: BoggleGameMode): BoggleState | { error: string } {
+  if (state.phase !== 'lobby') return { error: 'Game already started' };
+  return { ...state, mode };
 }
 
 export function addPlayer(state: BoggleState, playerId: string, username: string, seat: number): BoggleState {
@@ -107,8 +143,23 @@ export function startGame(state: BoggleState, now: number = Date.now()): BoggleS
   return {
     ...state,
     phase: 'playing',
+    round: 1,
     board: rollBoard(),
     startedAt: now,
+    players: state.players.map(p => ({ ...p, words: [] })),
+  };
+}
+
+/** Start the next round (called between rounds, only when game isn't over). */
+export function nextRound(state: BoggleState, now: number = Date.now()): BoggleState | { error: string } {
+  if (state.phase !== 'between-rounds') return { error: 'Not between rounds' };
+  return {
+    ...state,
+    phase: 'playing',
+    round: state.round + 1,
+    board: rollBoard(),
+    startedAt: now,
+    players: state.players.map(p => ({ ...p, words: [] })),
   };
 }
 
@@ -214,10 +265,10 @@ export function submitWord(
 }
 
 /**
- * Compute final scores. Words submitted by more than one player are flagged
+ * Compute this round's scores. Words submitted by more than one player are flagged
  * `duplicate: true` and earn 0 points (standard Boggle "cancels out" rule).
  */
-export function computeResults(state: BoggleState): BoggleState['results'] {
+export function computeRoundScores(state: BoggleState): RoundResult['scores'] {
   const counts = new Map<string, number>();
   for (const p of state.players) {
     for (const w of p.words) counts.set(w, (counts.get(w) ?? 0) + 1);
@@ -239,8 +290,52 @@ export function computeResults(state: BoggleState): BoggleState['results'] {
   });
 }
 
-/** Called by the action layer when time has expired to lock in results. */
+/** Aggregate per-round scores into final standings (sum across rounds). */
+export function aggregateTotals(state: BoggleState): NonNullable<BoggleState['finalResults']> {
+  return state.players.map(p => {
+    const perRound = state.rounds.map(r =>
+      r.scores.find(s => s.playerId === p.playerId)?.total ?? 0,
+    );
+    return {
+      playerId: p.playerId,
+      username: p.username,
+      seat: p.seat,
+      perRound,
+      total: perRound.reduce((sum, t) => sum + t, 0),
+    };
+  });
+}
+
+/** Does the game stop now given the mode and the current round's results? */
+function isGameOver(state: BoggleState): boolean {
+  if (state.mode === '1-round')  return state.round >= 1;
+  if (state.mode === '3-rounds') return state.round >= 3;
+  const totals = aggregateTotals(state);
+  if (state.mode === 'to-50')  return totals.some(t => t.total >= 50);
+  if (state.mode === 'to-100') return totals.some(t => t.total >= 100);
+  return true;
+}
+
+/**
+ * Called by the action layer when the current round's timer expires. Records the
+ * round into `rounds[]` then decides whether to transition to `between-rounds`
+ * (more to play) or `finished` (mode's stop condition reached).
+ */
 export function finalize(state: BoggleState): BoggleState {
   if (state.phase !== 'playing') return state;
-  return { ...state, phase: 'finished', results: computeResults(state) };
+  const roundResult: RoundResult = {
+    round: state.round,
+    board: state.board,
+    scores: computeRoundScores(state),
+  };
+  const withRound: BoggleState = { ...state, rounds: [...state.rounds, roundResult] };
+
+  if (isGameOver(withRound)) {
+    return {
+      ...withRound,
+      phase: 'finished',
+      finalResults: aggregateTotals(withRound),
+    };
+  }
+  return { ...withRound, phase: 'between-rounds' };
 }
