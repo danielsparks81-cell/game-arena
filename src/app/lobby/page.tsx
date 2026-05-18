@@ -33,16 +33,17 @@ export default async function LobbyPage() {
 
   const newGameSection = (
     <section>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+      <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
         {Object.values(GAMES).map(g => (
-          <form key={g.id} action={createRoom}>
+          <form key={g.id} action={createRoom} className="h-full">
             <input type="hidden" name="gameType" value={g.id} />
             <button
               type="submit"
-              className="group relative w-full overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 text-left transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-lg hover:shadow-emerald-500/10"
+              className="group relative flex h-full w-full flex-col overflow-hidden rounded-xl border border-neutral-800 bg-neutral-900 text-left transition hover:-translate-y-0.5 hover:border-emerald-500 hover:shadow-lg hover:shadow-emerald-500/10"
             >
               <GameThumbnail gameId={g.id} className="block aspect-[7/5] w-full" />
-              <div className="p-2.5">
+              {/* flex-1 + flex-col so the player-count line is pushed to the bottom of every tile */}
+              <div className="flex flex-1 flex-col p-2.5">
                 <div className="flex items-center justify-between gap-1">
                   <div className="truncate text-sm font-medium">{g.name}</div>
                   <span className="shrink-0 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-400 opacity-0 transition group-hover:opacity-100">
@@ -50,7 +51,7 @@ export default async function LobbyPage() {
                   </span>
                 </div>
                 <div className="mt-0.5 line-clamp-2 text-xs text-neutral-400">{g.description}</div>
-                <div className="mt-1 text-[10px] text-neutral-500">
+                <div className="mt-auto pt-1 text-[10px] text-neutral-500">
                   {g.minPlayers === g.maxPlayers ? `${g.minPlayers} players` : `${g.minPlayers}–${g.maxPlayers} players`}
                 </div>
               </div>
