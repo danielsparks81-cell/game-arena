@@ -142,9 +142,7 @@ export default function RoomClient({
   const unvotedOthers = otherSeated.filter(p => !room.rematch_votes?.includes(p.player_id));
 
   return (
-    <main className={`mx-auto grid w-full flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px] ${
-      room.game_type === 'longshot' ? 'max-w-[1800px]' : 'max-w-6xl'
-    }`}>
+    <main className="mx-auto grid w-full max-w-[1800px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px]">
       <section>
         {/* Hide the seats grid for Long Shot during play — the in-board Players strip
             covers seated/turn info and the seats grid wastes vertical space. */}
