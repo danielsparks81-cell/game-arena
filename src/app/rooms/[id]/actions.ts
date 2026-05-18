@@ -10,6 +10,7 @@ import {
   startRace as lsStartRace,
   rollDice as lsRollDice,
   takeAction as lsTakeAction,
+  calculateFinalScores as lsCalculateFinalScores,
   MOVEMENT_DIE_FACES,
   type LSState,
   type ActionPayload,
@@ -115,6 +116,7 @@ export async function takeActionLS(roomId: string, payload: ActionPayload) {
   if (next.phase === 'finished') updates.status = 'finished';
 
   await supabase.from('rooms').update(updates).eq('id', roomId);
+  if (next.phase === 'finished') await recordLongShotHistory(supabase, roomId, next);
   await notifyRoom(roomId);
 }
 
@@ -148,6 +150,7 @@ export async function rollDiceLS(roomId: string) {
   if (next.phase === 'finished') updates.status = 'finished';
 
   await supabase.from('rooms').update(updates).eq('id', roomId);
+  if (next.phase === 'finished') await recordLongShotHistory(supabase, roomId, next);
   await notifyRoom(roomId);
 }
 
@@ -206,6 +209,26 @@ async function recordHistory(
     game_type: gameType,
     winner_id: winnerId,
     player_ids: playerIds,
+  });
+}
+
+/**
+ * Long Shot history record — winner = player with the highest final score.
+ * On a tie at the top, winner_id is null (treated as a draw for W/L stats).
+ */
+async function recordLongShotHistory(
+  supabase: SupabaseClient,
+  roomId: string,
+  state: LSState,
+) {
+  const scores = [...lsCalculateFinalScores(state)].sort((a, b) => b.total - a.total);
+  if (scores.length === 0) return;
+  const isTie = scores.length > 1 && scores[0].total === scores[1].total;
+  await supabase.from('game_history').insert({
+    room_id: roomId,
+    game_type: 'longshot',
+    winner_id: isTie ? null : scores[0].playerId,
+    player_ids: scores.map(s => s.playerId),
   });
 }
 
