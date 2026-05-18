@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import {
-  BOARD_SIZE, MIN_WORD_LEN, findPath, pointsFor, msRemaining,
+  BOARD_SIZE, MIN_WORD_LEN, pointsFor, msRemaining,
   type BoggleState,
 } from '@/lib/games/boggle';
 
@@ -87,16 +87,11 @@ export default function BoggleBoard({
   return (
     <div className="space-y-3">
       <TimerBar remaining={remaining} duration={state.duration} />
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_240px]">
-        <BoardGrid board={state.board} />
-        <WordEntry
-          board={state.board}
-          alreadyFound={myWords}
-          onSubmitWord={onSubmitWord}
-        />
-      </div>
-
+      <TraceBoard
+        board={state.board}
+        alreadyFound={myWords}
+        onSubmitWord={onSubmitWord}
+      />
       <FoundList words={myWords} />
     </div>
   );
@@ -130,6 +125,9 @@ function TimerBar({ remaining, duration }: { remaining: number; duration: number
   );
 }
 
+/**
+ * Static read-only board (used in lobby preview / scoring panel).
+ */
 function BoardGrid({ board, highlightPath }: { board: string[]; highlightPath?: number[] }) {
   return (
     <div
@@ -138,15 +136,12 @@ function BoardGrid({ board, highlightPath }: { board: string[]; highlightPath?: 
     >
       {board.map((letter, i) => {
         const active = highlightPath?.includes(i);
-        // Position in the highlight path (0-indexed) — shown so the user can see direction
         const pathPos = highlightPath?.indexOf(i);
         return (
           <div
             key={i}
-            className={`relative flex aspect-square items-center justify-center rounded-md text-xl font-bold transition ${
-              active
-                ? 'bg-emerald-500 text-neutral-950 shadow-md'
-                : 'bg-amber-100 text-amber-900 shadow'
+            className={`relative flex aspect-square items-center justify-center rounded-md text-xl font-bold ${
+              active ? 'bg-emerald-500 text-neutral-950 shadow-md' : 'bg-amber-100 text-amber-900 shadow'
             }`}
           >
             {letter}
@@ -162,92 +157,171 @@ function BoardGrid({ board, highlightPath }: { board: string[]; highlightPath?: 
   );
 }
 
-function WordEntry({
+/** True if two board indices are adjacent (h/v/diag) on the 4×4 grid. */
+function isAdjacent(a: number, b: number): boolean {
+  if (a === b) return false;
+  const ar = Math.floor(a / BOARD_SIZE), ac = a % BOARD_SIZE;
+  const br = Math.floor(b / BOARD_SIZE), bc = b % BOARD_SIZE;
+  return Math.max(Math.abs(ar - br), Math.abs(ac - bc)) === 1;
+}
+
+/**
+ * Interactive board — drag to trace a word. Press anywhere on a letter to start,
+ * drag (mouse or touch) over adjacent letters to extend, release to submit.
+ * Works on desktop (mouse) and mobile (touch) via Pointer Events.
+ */
+function TraceBoard({
   board, alreadyFound, onSubmitWord,
 }: {
   board: string[];
   alreadyFound: string[];
   onSubmitWord: (word: string) => Promise<{ ok: true; word: string } | { ok: false; error: string }>;
 }) {
-  const [text, setText] = useState('');
+  const [path, setPath] = useState<number[]>([]);
+  const [tracing, setTracing] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  const boardRef = useRef<HTMLDivElement>(null);
 
-  // Live adjacency preview as the user types
-  const preview = useMemo(() => {
-    const w = text.trim().toUpperCase();
-    if (w.length < 2) return null;
-    return findPath(board, w);
-  }, [text, board]);
+  const currentWord = path.map(i => board[i]).join('');
 
-  const submit = (e: React.FormEvent) => {
+  // Find which cell a screen point falls into. Uses elementFromPoint and our data-cell-idx attr.
+  const cellAtPoint = useCallback((x: number, y: number): number | null => {
+    const el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    const cell = (el as Element).closest('[data-cell-idx]');
+    if (!cell) return null;
+    const idx = (cell as HTMLElement).dataset.cellIdx;
+    return idx !== undefined ? Number(idx) : null;
+  }, []);
+
+  // Extend (or backtrack) the path with a newly-entered cell.
+  const tryExtend = useCallback((idx: number) => {
+    setPath(prev => {
+      if (prev.length === 0) return [idx];
+      const last = prev[prev.length - 1];
+      if (idx === last) return prev;
+      // Backtrack — entering the previous cell pops the last segment
+      if (prev.length >= 2 && idx === prev[prev.length - 2]) {
+        return prev.slice(0, -1);
+      }
+      if (prev.includes(idx)) return prev;
+      if (!isAdjacent(last, idx)) return prev;
+      return [...prev, idx];
+    });
+  }, []);
+
+  // ---- Pointer handlers ----
+  const onPointerDown = (e: React.PointerEvent, idx: number) => {
     e.preventDefault();
-    const word = text.trim();
+    setTracing(true);
+    setPath([idx]);
+    setFeedback(null);
+    // Capture the pointer so we keep getting move events even if the finger leaves the cell
+    (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!tracing) return;
+    const idx = cellAtPoint(e.clientX, e.clientY);
+    if (idx === null) return;
+    tryExtend(idx);
+  };
+
+  const finalize = useCallback(() => {
+    if (!tracing) return;
+    setTracing(false);
+    const word = path.map(i => board[i]).join('').toUpperCase();
+    const clear = () => setPath([]);
+
     if (word.length < MIN_WORD_LEN) {
-      setFeedback({ kind: 'err', msg: `Need ≥${MIN_WORD_LEN} letters` });
+      setFeedback({ kind: 'err', msg: `Word too short (${word.length}/${MIN_WORD_LEN})` });
+      clear();
       return;
     }
-    if (alreadyFound.includes(word.toUpperCase())) {
+    if (alreadyFound.includes(word)) {
       setFeedback({ kind: 'err', msg: 'Already found' });
-      return;
-    }
-    if (!findPath(board, word)) {
-      setFeedback({ kind: 'err', msg: "Can't trace on the board" });
+      clear();
       return;
     }
     startTransition(async () => {
       const res = await onSubmitWord(word);
       if (res.ok) {
         setFeedback({ kind: 'ok', msg: `+${pointsFor(res.word)} ${res.word}` });
-        setText('');
       } else {
         setFeedback({ kind: 'err', msg: res.error });
       }
+      clear();
     });
-  };
+  }, [tracing, path, board, alreadyFound, onSubmitWord]);
+
+  // Listen for pointer-up anywhere — releasing outside the board still submits.
+  useEffect(() => {
+    if (!tracing) return;
+    const up = () => finalize();
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, [tracing, finalize]);
 
   return (
-    <div className="space-y-2">
-      <form onSubmit={submit} className="space-y-2 rounded-xl border border-neutral-800 bg-neutral-900 p-3">
-        <label className="block">
-          <span className="block text-xs text-neutral-400">Type a word, press Enter</span>
-          <input
-            value={text}
-            onChange={e => { setText(e.target.value); setFeedback(null); }}
-            placeholder="e.g. DICE"
-            autoFocus
-            autoComplete="off"
-            spellCheck={false}
-            className={`mt-1 w-full rounded-md border bg-neutral-950 px-3 py-2 text-base font-mono uppercase outline-none ${
-              preview === null && text.length >= 2
-                ? 'border-rose-500/60 focus:border-rose-400'
-                : preview && text.length >= MIN_WORD_LEN
-                  ? 'border-emerald-500/60 focus:border-emerald-400'
-                  : 'border-neutral-700 focus:border-emerald-500'
-            }`}
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={pending || text.trim().length < MIN_WORD_LEN}
-          className="w-full rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
-        >
-          Submit
-        </button>
+    <div className="space-y-3">
+      {/* Current-word banner — shows what's being traced + recent submit feedback */}
+      <div className="flex items-baseline justify-between rounded-xl border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm">
+        <span className="text-neutral-500">
+          {tracing
+            ? <>Tracing: <span className="font-mono font-bold text-emerald-300">{currentWord || '—'}</span></>
+            : 'Press a letter and drag to spell a word. Release to submit.'}
+        </span>
         {feedback && (
-          <p className={`text-xs ${feedback.kind === 'ok' ? 'text-emerald-400' : 'text-rose-400'}`}>
+          <span className={feedback.kind === 'ok' ? 'text-emerald-400' : 'text-rose-400'}>
             {feedback.msg}
-          </p>
+          </span>
         )}
-      </form>
+      </div>
 
-      {/* Live preview board reusing the same component for clarity */}
-      {preview && text.length >= 2 && (
-        <div className="text-center text-[10px] text-neutral-500">Preview path (live):</div>
-      )}
-      {preview && text.length >= 2 && (
-        <BoardGrid board={board} highlightPath={preview} />
-      )}
+      {/* Interactive board */}
+      <div
+        ref={boardRef}
+        onPointerMove={onPointerMove}
+        className="mx-auto inline-grid select-none overflow-hidden rounded-xl border-2 border-amber-800 bg-amber-950/40 p-2 shadow-lg"
+        style={{
+          gridTemplateColumns: `repeat(${BOARD_SIZE}, minmax(0, 1fr))`,
+          width: 'min(100%, 380px)',
+          gap: '6px',
+          touchAction: 'none',
+        }}
+      >
+        {board.map((letter, i) => {
+          const active = path.includes(i);
+          const pathPos = path.indexOf(i);
+          const isLast = path[path.length - 1] === i;
+          return (
+            <div
+              key={i}
+              data-cell-idx={i}
+              onPointerDown={(e) => onPointerDown(e, i)}
+              className={`relative flex aspect-square cursor-pointer items-center justify-center rounded-md text-xl font-bold transition select-none ${
+                active
+                  ? isLast
+                    ? 'bg-emerald-400 text-neutral-950 shadow-lg ring-2 ring-emerald-200'
+                    : 'bg-emerald-500 text-neutral-950 shadow-md'
+                  : 'bg-amber-100 text-amber-900 shadow hover:bg-amber-200'
+              } ${pending ? 'opacity-50' : ''}`}
+            >
+              {letter}
+              {active && (
+                <span className="absolute right-0.5 top-0.5 rounded bg-emerald-900/70 px-1 text-[9px] font-bold text-white">
+                  {pathPos + 1}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
