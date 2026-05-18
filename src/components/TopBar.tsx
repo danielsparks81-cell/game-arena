@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import BugInbox from './BugInbox';
+import ReportErrorButton from './ReportErrorButton';
 
 export default function TopBar({ username }: { username: string }) {
   return (
@@ -9,7 +10,8 @@ export default function TopBar({ username }: { username: string }) {
         <span>Game Arena</span>
       </Link>
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
-        {/* Admin-only bug-report inbox (renders nothing for non-admins) */}
+        {/* Bug-report button for everyone; admin-only bug-inbox alongside */}
+        <ReportErrorButton />
         <BugInbox />
         <Link
           href="/profile"

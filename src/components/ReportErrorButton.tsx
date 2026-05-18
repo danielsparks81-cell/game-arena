@@ -1,14 +1,24 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { usePathname } from 'next/navigation';
 import { reportError } from '@/app/rooms/[id]/actions';
 
 /**
  * Small red exclamation button that opens a modal for the user to describe a bug.
  * Submits to the `reportError` server action which saves to DB and (if configured)
- * emails the report.
+ * posts to a Discord webhook.
+ *
+ * If no `roomId` prop is passed (e.g., when mounted in the TopBar), the component
+ * auto-detects it from the URL when the user is inside a `/rooms/[id]` page.
  */
-export default function ReportErrorButton({ roomId }: { roomId: string | null }) {
+export default function ReportErrorButton({ roomId: explicitRoomId }: { roomId?: string | null } = {}) {
+  const pathname = usePathname();
+  const roomId = (() => {
+    if (explicitRoomId !== undefined) return explicitRoomId;
+    const m = pathname?.match(/^\/rooms\/([^/]+)/);
+    return m ? m[1] : null;
+  })();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [submitted, setSubmitted] = useState(false);

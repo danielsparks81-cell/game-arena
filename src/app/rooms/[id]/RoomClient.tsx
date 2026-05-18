@@ -11,7 +11,6 @@ import MembersPanel from '@/components/MembersPanel';
 import LongShotBoard from '@/components/LongShotBoard';
 import CheckersBoard from '@/components/CheckersBoard';
 import BattleshipBoard from '@/components/BattleshipBoard';
-import ReportErrorButton from '@/components/ReportErrorButton';
 import type { LSState } from '@/lib/games/longshot';
 import type { CheckersState } from '@/lib/games/checkers';
 import type { BSState } from '@/lib/games/battleship';
@@ -241,17 +240,13 @@ export default function RoomClient({
       </section>
 
       <div className="space-y-4">
-        {/* Game header — moved here from the left section so the board gets full width */}
+        {/* Game header — moved here from the left section so the board gets full width.
+            The bug-report button now lives in the TopBar (site-wide). */}
         <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-lg font-semibold sm:text-xl">{gameName}</h1>
-              <p className="mt-0.5 text-xs text-neutral-400">
-                Room <code className="text-neutral-300">{roomId.slice(0, 8)}</code> · {room.status}
-              </p>
-            </div>
-            <ReportErrorButton roomId={roomId} />
-          </div>
+          <h1 className="text-lg font-semibold sm:text-xl">{gameName}</h1>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            Room <code className="text-neutral-300">{roomId.slice(0, 8)}</code> · {room.status}
+          </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <ShareButton roomId={roomId} />
             <Link href="/lobby" className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-900">
