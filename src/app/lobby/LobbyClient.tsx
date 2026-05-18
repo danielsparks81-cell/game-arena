@@ -49,6 +49,7 @@ export default function LobbyClient({
   }, [supabase]);
 
   // ---- Filter / sort state ----
+  const [search, setSearch] = useState('');
   const [gameFilter, setGameFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'waiting' | 'playing'>('all');
   const [onlyOpen, setOnlyOpen] = useState(false);   // has at least one open seat
@@ -59,6 +60,14 @@ export default function LobbyClient({
 
   const open = useMemo(() => {
     let list = openAll;
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter(r => {
+        const gameName = (GAMES[r.game_type]?.name ?? r.game_type).toLowerCase();
+        if (gameName.includes(q)) return true;
+        return r.room_players.some(p => (p.profiles?.username ?? '').toLowerCase().includes(q));
+      });
+    }
     if (gameFilter !== 'all')     list = list.filter(r => r.game_type === gameFilter);
     if (statusFilter !== 'all')   list = list.filter(r => r.status === statusFilter);
     if (onlyOpen)                 list = list.filter(r => maxPlayersFor(r.game_type) > r.room_players.length);
@@ -69,22 +78,98 @@ export default function LobbyClient({
     if (sortBy === 'players-desc')  sorted.sort((a, b) => b.room_players.length - a.room_players.length);
     if (sortBy === 'players-asc')   sorted.sort((a, b) => a.room_players.length - b.room_players.length);
     return sorted;
-  }, [openAll, gameFilter, statusFilter, onlyOpen, onlyMine, sortBy, currentUserId]);
+  }, [openAll, search, gameFilter, statusFilter, onlyOpen, onlyMine, sortBy, currentUserId]);
 
   const finished = useMemo(() => rooms.filter(r => r.status === 'finished').slice(0, 5), [rooms]);
 
-  const filtersActive = gameFilter !== 'all' || statusFilter !== 'all' || onlyOpen || onlyMine;
+  const filtersActive = !!search.trim() || gameFilter !== 'all' || statusFilter !== 'all' || onlyOpen || onlyMine;
   const resetFilters = () => {
+    setSearch('');
     setGameFilter('all');
     setStatusFilter('all');
     setOnlyOpen(false);
     setOnlyMine(false);
   };
 
+  const toolbar = (
+    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900 p-2 text-xs">
+      {/* Search */}
+      <label className="flex min-w-[180px] flex-1 items-center gap-1.5">
+        <span className="text-neutral-500">🔍</span>
+        <input
+          type="search"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by game or player…"
+          className="w-full rounded border border-neutral-700 bg-neutral-950 px-2 py-1 outline-none focus:border-emerald-500"
+        />
+      </label>
+
+      {/* Game-type select */}
+      <label className="flex items-center gap-1">
+        <span className="text-neutral-500">Game:</span>
+        <select
+          value={gameFilter}
+          onChange={e => setGameFilter(e.target.value)}
+          className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
+        >
+          <option value="all">All</option>
+          {Object.values(GAMES).map(g => (
+            <option key={g.id} value={g.id}>{g.name}</option>
+          ))}
+        </select>
+      </label>
+
+      {/* Status select */}
+      <label className="flex items-center gap-1">
+        <span className="text-neutral-500">Status:</span>
+        <select
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+          className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
+        >
+          <option value="all">Any</option>
+          <option value="waiting">Waiting</option>
+          <option value="playing">Playing</option>
+        </select>
+      </label>
+
+      {/* Toggle chips */}
+      <ToggleChip active={onlyOpen} onClick={() => setOnlyOpen(v => !v)}>Open seats only</ToggleChip>
+      <ToggleChip active={onlyMine} onClick={() => setOnlyMine(v => !v)}>My rooms only</ToggleChip>
+
+      {/* Sort select (right-aligned) */}
+      <label className="ml-auto flex items-center gap-1">
+        <span className="text-neutral-500">Sort:</span>
+        <select
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value as typeof sortBy)}
+          className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="players-desc">Most players</option>
+          <option value="players-asc">Fewest players</option>
+        </select>
+      </label>
+
+      {filtersActive && (
+        <button
+          onClick={resetFilters}
+          className="rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-neutral-800"
+        >
+          Clear filters
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[1fr_280px] lg:grid-cols-[1fr_320px]">
-      {/* LEFT: new game tiles + active rooms */}
-      <div className="space-y-8">
+      {/* LEFT: filter toolbar, new game tiles, active rooms */}
+      <div className="space-y-6">
+        {toolbar}
+
         {newGameSection}
 
         <section>
@@ -93,66 +178,6 @@ export default function LobbyClient({
             <span className="text-sm text-neutral-400">
               {open.length}{filtersActive ? ` / ${openAll.length}` : ''} {open.length === 1 ? 'room' : 'rooms'}
             </span>
-          </div>
-
-          {/* Filter / sort toolbar */}
-          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900 p-2 text-xs">
-            {/* Game-type select */}
-            <label className="flex items-center gap-1">
-              <span className="text-neutral-500">Game:</span>
-              <select
-                value={gameFilter}
-                onChange={e => setGameFilter(e.target.value)}
-                className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
-              >
-                <option value="all">All</option>
-                {Object.values(GAMES).map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-            </label>
-
-            {/* Status select */}
-            <label className="flex items-center gap-1">
-              <span className="text-neutral-500">Status:</span>
-              <select
-                value={statusFilter}
-                onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
-                className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
-              >
-                <option value="all">Any</option>
-                <option value="waiting">Waiting</option>
-                <option value="playing">Playing</option>
-              </select>
-            </label>
-
-            {/* Toggle chips */}
-            <ToggleChip active={onlyOpen} onClick={() => setOnlyOpen(v => !v)}>Open seats only</ToggleChip>
-            <ToggleChip active={onlyMine} onClick={() => setOnlyMine(v => !v)}>My rooms only</ToggleChip>
-
-            {/* Sort select (right-aligned) */}
-            <label className="ml-auto flex items-center gap-1">
-              <span className="text-neutral-500">Sort:</span>
-              <select
-                value={sortBy}
-                onChange={e => setSortBy(e.target.value as typeof sortBy)}
-                className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
-              >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-                <option value="players-desc">Most players</option>
-                <option value="players-asc">Fewest players</option>
-              </select>
-            </label>
-
-            {filtersActive && (
-              <button
-                onClick={resetFilters}
-                className="rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-neutral-800"
-              >
-                Clear filters
-              </button>
-            )}
           </div>
 
           {open.length === 0 ? (
