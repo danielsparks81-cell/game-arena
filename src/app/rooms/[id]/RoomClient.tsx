@@ -9,9 +9,11 @@ import { type C4State, C4_COLS, C4_ROWS } from '@/lib/games/connect4';
 import { sounds, unlockAudio } from '@/lib/sounds';
 import MembersPanel from '@/components/MembersPanel';
 import LongShotBoard from '@/components/LongShotBoard';
+import CheckersBoard from '@/components/CheckersBoard';
 import type { LSState } from '@/lib/games/longshot';
+import type { CheckersState } from '@/lib/games/checkers';
 import {
-  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
+  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, makeMoveCheckers, sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
 } from './actions';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
@@ -162,6 +164,15 @@ export default function RoomClient({
             currentUserId={currentUserId}
             disabled={pending || room.status !== 'playing'}
             onMove={(col) => { unlockAudio(); startTransition(() => { makeMoveC4(roomId, col); }); }}
+          />
+        )}
+
+        {room.game_type === 'checkers' && (
+          <CheckersBoard
+            state={room.state as CheckersState}
+            currentUserId={currentUserId}
+            disabled={pending || room.status !== 'playing'}
+            onMove={(from, to) => { unlockAudio(); startTransition(() => { makeMoveCheckers(roomId, from, to); }); }}
           />
         )}
 

@@ -21,6 +21,13 @@ export const GAMES: Record<string, GameDef> = {
     minPlayers: 2,
     maxPlayers: 2,
   },
+  checkers: {
+    id: 'checkers',
+    name: 'Checkers',
+    description: 'Classic 8×8 checkers. Forced captures, kings, multi-jumps.',
+    minPlayers: 2,
+    maxPlayers: 2,
+  },
   longshot: {
     id: 'longshot',
     name: 'Long Shot',

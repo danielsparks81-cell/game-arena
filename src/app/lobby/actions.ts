@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server';
 import { getGame } from '@/lib/games/registry';
 import { initialState as tttInitial } from '@/lib/games/tictactoe';
 import { initialState as c4Initial } from '@/lib/games/connect4';
+import { initialState as ckInitial } from '@/lib/games/checkers';
 import { initialState as lsInitial, addPlayer as lsAddPlayer } from '@/lib/games/longshot';
 
 export async function createRoom(formData: FormData) {
@@ -24,6 +25,7 @@ export async function createRoom(formData: FormData) {
   const state =
     gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
     gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
+    gameType === 'checkers'  ? { ...ckInitial(),  seats: { R: user.id } } :
     gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
     {};
 
@@ -69,6 +71,7 @@ export async function inviteToGame(targetUserId: string, gameType: string): Prom
   const state =
     gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
     gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
+    gameType === 'checkers'  ? { ...ckInitial(),  seats: { R: user.id } } :
     gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
     {};
 

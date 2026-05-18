@@ -4,7 +4,69 @@ export function GameThumbnail({ gameId, className }: { gameId: string; className
   if (gameId === 'tictactoe') return <TicTacToeThumb className={className} />;
   if (gameId === 'connect4')  return <ConnectFourThumb className={className} />;
   if (gameId === 'longshot')  return <LongShotThumb className={className} />;
+  if (gameId === 'checkers')  return <CheckersThumb className={className} />;
   return <PlaceholderThumb className={className} />;
+}
+
+function CheckersThumb({ className }: { className?: string }) {
+  // 4×4 corner of an 8×8 board with a few pieces
+  const dark = '#7c2d12';
+  const light = '#fef3c7';
+  return (
+    <svg viewBox="0 0 140 100" className={className} role="img" aria-label="Checkers">
+      <defs>
+        <linearGradient id="ck-bg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#1c1917" />
+          <stop offset="1" stopColor="#0c0a09" />
+        </linearGradient>
+        <radialGradient id="ck-red" cx="0.35" cy="0.3" r="0.7">
+          <stop offset="0" stopColor="#fca5a5" />
+          <stop offset="1" stopColor="#b91c1c" />
+        </radialGradient>
+        <radialGradient id="ck-black" cx="0.35" cy="0.3" r="0.7">
+          <stop offset="0" stopColor="#525252" />
+          <stop offset="1" stopColor="#0a0a0a" />
+        </radialGradient>
+      </defs>
+      <rect width="140" height="100" rx="10" fill="url(#ck-bg)" />
+      {/* 8×8 board centered at (70, 50) with cells 11px */}
+      {Array.from({ length: 8 }).map((_, r) =>
+        Array.from({ length: 8 }).map((__, c) => {
+          const isDark = (r + c) % 2 === 1;
+          return (
+            <rect
+              key={`${r}-${c}`}
+              x={26 + c * 11}
+              y={6 + r * 11}
+              width="11" height="11"
+              fill={isDark ? dark : light}
+            />
+          );
+        })
+      )}
+      {/* Pieces (only on dark squares) */}
+      {[
+        // Black pieces top three rows (selected)
+        { r: 0, c: 1, color: 'B' }, { r: 0, c: 3, color: 'B' }, { r: 0, c: 7, color: 'B' },
+        { r: 1, c: 0, color: 'B' }, { r: 1, c: 4, color: 'B' }, { r: 1, c: 6, color: 'B' },
+        { r: 2, c: 3, color: 'B' },
+        // Red pieces bottom three rows (selected)
+        { r: 5, c: 4, color: 'R' },
+        { r: 6, c: 1, color: 'R' }, { r: 6, c: 5, color: 'R' }, { r: 6, c: 7, color: 'R' },
+        { r: 7, c: 0, color: 'R' }, { r: 7, c: 2, color: 'R' }, { r: 7, c: 6, color: 'R' },
+      ].map((p, i) => (
+        <circle
+          key={i}
+          cx={26 + p.c * 11 + 5.5}
+          cy={6 + p.r * 11 + 5.5}
+          r="3.8"
+          fill={p.color === 'R' ? 'url(#ck-red)' : 'url(#ck-black)'}
+          stroke="#0a0a0a"
+          strokeWidth="0.3"
+        />
+      ))}
+    </svg>
+  );
 }
 
 function TicTacToeThumb({ className }: { className?: string }) {
