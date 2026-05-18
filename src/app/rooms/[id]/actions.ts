@@ -11,6 +11,7 @@ import {
   rollDice as lsRollDice,
   takeAction as lsTakeAction,
   calculateFinalScores as lsCalculateFinalScores,
+  compareFinalScores as lsCompareFinalScores,
   MOVEMENT_DIE_FACES,
   type LSState,
   type ActionPayload,
@@ -221,9 +222,14 @@ async function recordLongShotHistory(
   roomId: string,
   state: LSState,
 ) {
-  const scores = [...lsCalculateFinalScores(state)].sort((a, b) => b.total - a.total);
+  const scores = [...lsCalculateFinalScores(state)].sort(lsCompareFinalScores);
   if (scores.length === 0) return;
-  const isTie = scores.length > 1 && scores[0].total === scores[1].total;
+  // After total + best-podium tiebreaker, only consider it a true tie if the top two
+  // are exactly equal on BOTH metrics.
+  const isTie =
+    scores.length > 1 &&
+    scores[0].total === scores[1].total &&
+    (scores[0].bestPodium ?? 4) === (scores[1].bestPodium ?? 4);
   await supabase.from('game_history').insert({
     room_id: roomId,
     game_type: 'longshot',

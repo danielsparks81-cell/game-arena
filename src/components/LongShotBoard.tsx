@@ -1228,7 +1228,12 @@ function FinalScoringPanel({ state }: { state: LSState }) {
 
   const ranked = [...allScores].sort((a, b) => {
     const diff = runningTotal(b) - runningTotal(a);
-    return diff !== 0 ? diff : a.seat - b.seat; // tiebreak by seat order so it's stable
+    if (diff !== 0) return diff;
+    // Tiebreaker: player whose owned horse finished higher (1st > 2nd > 3rd > no podium)
+    const aPodium = a.bestPodium ?? 4;
+    const bPodium = b.bestPodium ?? 4;
+    if (aPodium !== bPodium) return aPodium - bPodium;
+    return a.seat - b.seat; // final fallback: stable seat order
   });
 
   // --- FLIP animation: slide rows between their old and new positions on re-sort ---

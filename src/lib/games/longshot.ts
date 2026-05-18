@@ -1033,15 +1033,20 @@ export type FinalScore = {
   bets: number;
   money: number;
   total: number;
+  /** Best podium finish among horses this player owns (1/2/3), or null if none. Used as
+   *  a tiebreaker when totals are equal: lower (better) place wins. */
+  bestPodium: 1 | 2 | 3 | null;
 };
 
 export function calculateFinalScores(state: LSState): FinalScore[] {
   return state.players.map(player => {
     let purse = 0;
+    let bestPodium: 1 | 2 | 3 | null = null;
     for (const horseNum of player.ownedHorses) {
       const place = state.horses[horseNum - 1].finished;
       if (place === 1 || place === 2 || place === 3) {
         purse += PURSE[place - 1];
+        if (bestPodium === null || place < bestPodium) bestPodium = place;
       }
     }
     const jockeySets = player.helmets.reduce(
@@ -1060,6 +1065,20 @@ export function calculateFinalScores(state: LSState): FinalScore[] {
       bets,
       money,
       total: purse + bonus + bets + money,
+      bestPodium,
     };
   });
+}
+
+/**
+ * Comparator for sorting final scores from best → worst.
+ *   1) Higher total wins.
+ *   2) Tiebreaker: player whose owned horse finished in a HIGHER place wins
+ *      (1st > 2nd > 3rd > no podium). If still tied, considered an exact tie.
+ */
+export function compareFinalScores(a: FinalScore, b: FinalScore): number {
+  if (a.total !== b.total) return b.total - a.total;
+  const aPodium = a.bestPodium ?? 4;
+  const bPodium = b.bestPodium ?? 4;
+  return aPodium - bPodium;
 }
