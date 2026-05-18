@@ -1205,9 +1205,9 @@ function WinnersCircle({ state }: { state: LSState }) {
 /**
  * End-of-race scoring panel — reveals categories one at a time for dramatic effect:
  *   step 1: Purse only (5s)
- *   step 2: +Bonus (5s)
- *   step 3: +Bets (5s)
- *   step 4: +Money → final standings
+ *   step 2: +Money (5s)
+ *   step 3: +Bonus (5s)
+ *   step 4: +Bets → final standings
  * Player order is re-sorted by the running revealed total at each step.
  */
 function FinalScoringPanel({ state }: { state: LSState }) {
@@ -1222,9 +1222,9 @@ function FinalScoringPanel({ state }: { state: LSState }) {
 
   const runningTotal = (s: typeof allScores[number]) =>
     s.purse
-    + (step >= 2 ? s.bonus : 0)
-    + (step >= 3 ? s.bets : 0)
-    + (step >= 4 ? s.money : 0);
+    + (step >= 2 ? s.money : 0)
+    + (step >= 3 ? s.bonus : 0)
+    + (step >= 4 ? s.bets  : 0);
 
   const ranked = [...allScores].sort((a, b) => {
     const diff = runningTotal(b) - runningTotal(a);
@@ -1232,16 +1232,16 @@ function FinalScoringPanel({ state }: { state: LSState }) {
   });
 
   const cats: Array<{
-    key: 'purse' | 'bonus' | 'bets' | 'money';
+    key: 'purse' | 'money' | 'bonus' | 'bets';
     label: string;
     title: string;
     color: string;
     visibleAt: number;
   }> = [
     { key: 'purse', label: 'Purse', title: 'Purse for owned horses on the podium ($35 / $25 / $15)',  color: 'text-amber-300',   visibleAt: 1 },
-    { key: 'bonus', label: 'Bonus', title: '$5 per completed helmet + jersey combo',                  color: 'text-sky-300',     visibleAt: 2 },
-    { key: 'bets',  label: 'Bets',  title: 'Bet payouts (place odds + past-No-Bet consolation)',      color: 'text-emerald-400', visibleAt: 3 },
-    { key: 'money', label: 'Money', title: 'Cash on hand at race end',                                color: 'text-emerald-400', visibleAt: 4 },
+    { key: 'money', label: 'Money', title: 'Cash on hand at race end',                                color: 'text-emerald-400', visibleAt: 2 },
+    { key: 'bonus', label: 'Bonus', title: '$5 per completed helmet + jersey combo',                  color: 'text-sky-300',     visibleAt: 3 },
+    { key: 'bets',  label: 'Bets',  title: 'Bet payouts (place odds + past-No-Bet consolation)',      color: 'text-emerald-400', visibleAt: 4 },
   ];
 
   const winner = step >= 4 ? ranked[0] : null;
