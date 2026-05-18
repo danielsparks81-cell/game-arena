@@ -7,6 +7,7 @@ import { applyMove as applyMoveTTT, initialState as tttInitial, type TTTState } 
 import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } from '@/lib/games/connect4';
 import {
   addPlayer as lsAddPlayer,
+  initialState as lsInitialState,
   startRace as lsStartRace,
   rollDice as lsRollDice,
   takeAction as lsTakeAction,
@@ -319,8 +320,12 @@ export async function proposeRematch(roomId: string) {
   if (error || !room) throw new Error('Room not found');
   if (room.status !== 'finished') throw new Error('Game is not finished');
 
-  const seated = (room.room_players as { player_id: string; seat: number }[])
-    .filter(p => p.seat === 0 || p.seat === 1);
+  // For TTT/Connect4 only seats 0 and 1 are game seats; for Long Shot every seated
+  // player counts (up to 8).
+  const allSeated = room.room_players as { player_id: string; seat: number }[];
+  const seated = room.game_type === 'longshot'
+    ? allSeated
+    : allSeated.filter(p => p.seat === 0 || p.seat === 1);
   if (!seated.some(p => p.player_id === user.id)) throw new Error('Not a seated player');
 
   const votes = new Set((room.rematch_votes as string[]) || []);
@@ -333,15 +338,26 @@ export async function proposeRematch(roomId: string) {
     return { restarted: false };
   }
 
-  // Swap seats and reset the board.
-  const oldState = (room.state || {}) as { seats?: Record<string, string> };
-  const oldSeats = oldState.seats || {};
-
-  let newState: TTTState | C4State;
+  // Reset the board.
+  let newState: TTTState | C4State | LSState;
   if (room.game_type === 'tictactoe') {
+    const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
     newState = { ...tttInitial(), seats: { X: oldSeats.O ?? '', O: oldSeats.X ?? '' } };
   } else if (room.game_type === 'connect4') {
+    const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
     newState = { ...c4Initial(), seats: { R: oldSeats.Y ?? '', Y: oldSeats.R ?? '' } };
+  } else if (room.game_type === 'longshot') {
+    // Reset to a fresh Long Shot game with the same seated players. startRace re-randomizes
+    // the starting seat, the concession grid, and the pre-marked bets/concessions, so each
+    // rematch plays differently even with the same lineup.
+    const oldState = (room.state || {}) as LSState;
+    let lsState = lsInitialState();
+    for (const p of [...oldState.players].sort((a, b) => a.seat - b.seat)) {
+      lsState = lsAddPlayer(lsState, p.playerId, p.username, p.seat);
+    }
+    const started = lsStartRace(lsState);
+    if ('error' in started) throw new Error(started.error);
+    newState = started;
   } else {
     throw new Error('Unsupported game type');
   }

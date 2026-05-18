@@ -118,8 +118,10 @@ export default function RoomClient({
   const gameName = GAMES[room.game_type]?.name ?? room.game_type;
   const finished = room.status === 'finished';
   const iVoted = room.rematch_votes?.includes(currentUserId) ?? false;
-  const otherSeated = room.room_players.find(p => p.player_id !== currentUserId);
-  const otherVoted = otherSeated ? room.rematch_votes?.includes(otherSeated.player_id) : false;
+  const otherSeated = room.room_players.filter(p => p.player_id !== currentUserId);
+  const allOthersVoted = otherSeated.length > 0
+    && otherSeated.every(p => room.rematch_votes?.includes(p.player_id));
+  const unvotedOthers = otherSeated.filter(p => !room.rematch_votes?.includes(p.player_id));
 
   return (
     <main className={`mx-auto grid w-full flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px] ${
@@ -181,11 +183,11 @@ export default function RoomClient({
                 {iVoted ? '✓ You voted' : 'Rematch'}
               </button>
               <span className="text-sm text-neutral-400">
-                {otherSeated
-                  ? otherVoted
-                    ? `${otherSeated.profiles?.username ?? 'Opponent'} ready ✓`
-                    : `Waiting on ${otherSeated.profiles?.username ?? 'opponent'}…`
-                  : 'No opponent in room'}
+                {otherSeated.length === 0
+                  ? 'No opponents in room'
+                  : allOthersVoted
+                    ? 'All players ready ✓'
+                    : `Waiting on: ${unvotedOthers.map(p => p.profiles?.username ?? 'opponent').join(', ')}…`}
               </span>
             </div>
           </div>
