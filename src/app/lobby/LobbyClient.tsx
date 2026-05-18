@@ -48,8 +48,38 @@ export default function LobbyClient({
     return () => { supabase.removeChannel(sub); };
   }, [supabase]);
 
-  const open = useMemo(() => rooms.filter(r => r.status !== 'finished'), [rooms]);
+  // ---- Filter / sort state ----
+  const [gameFilter, setGameFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'waiting' | 'playing'>('all');
+  const [onlyOpen, setOnlyOpen] = useState(false);   // has at least one open seat
+  const [onlyMine, setOnlyMine] = useState(false);   // I'm seated in it
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'players-desc' | 'players-asc'>('newest');
+
+  const openAll = useMemo(() => rooms.filter(r => r.status !== 'finished'), [rooms]);
+
+  const open = useMemo(() => {
+    let list = openAll;
+    if (gameFilter !== 'all')     list = list.filter(r => r.game_type === gameFilter);
+    if (statusFilter !== 'all')   list = list.filter(r => r.status === statusFilter);
+    if (onlyOpen)                 list = list.filter(r => maxPlayersFor(r.game_type) > r.room_players.length);
+    if (onlyMine)                 list = list.filter(r => r.room_players.some(p => p.player_id === currentUserId));
+    const sorted = [...list];
+    if (sortBy === 'newest')        sorted.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    if (sortBy === 'oldest')        sorted.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    if (sortBy === 'players-desc')  sorted.sort((a, b) => b.room_players.length - a.room_players.length);
+    if (sortBy === 'players-asc')   sorted.sort((a, b) => a.room_players.length - b.room_players.length);
+    return sorted;
+  }, [openAll, gameFilter, statusFilter, onlyOpen, onlyMine, sortBy, currentUserId]);
+
   const finished = useMemo(() => rooms.filter(r => r.status === 'finished').slice(0, 5), [rooms]);
+
+  const filtersActive = gameFilter !== 'all' || statusFilter !== 'all' || onlyOpen || onlyMine;
+  const resetFilters = () => {
+    setGameFilter('all');
+    setStatusFilter('all');
+    setOnlyOpen(false);
+    setOnlyMine(false);
+  };
 
   return (
     <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[1fr_280px] lg:grid-cols-[1fr_320px]">
@@ -58,13 +88,78 @@ export default function LobbyClient({
         {newGameSection}
 
         <section>
-          <div className="mb-3 flex items-baseline justify-between">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-xl font-semibold">Active rooms</h2>
-            <span className="text-sm text-neutral-400">{open.length} active</span>
+            <span className="text-sm text-neutral-400">
+              {open.length}{filtersActive ? ` / ${openAll.length}` : ''} {open.length === 1 ? 'room' : 'rooms'}
+            </span>
           </div>
+
+          {/* Filter / sort toolbar */}
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-900 p-2 text-xs">
+            {/* Game-type select */}
+            <label className="flex items-center gap-1">
+              <span className="text-neutral-500">Game:</span>
+              <select
+                value={gameFilter}
+                onChange={e => setGameFilter(e.target.value)}
+                className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
+              >
+                <option value="all">All</option>
+                {Object.values(GAMES).map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </label>
+
+            {/* Status select */}
+            <label className="flex items-center gap-1">
+              <span className="text-neutral-500">Status:</span>
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value as typeof statusFilter)}
+                className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
+              >
+                <option value="all">Any</option>
+                <option value="waiting">Waiting</option>
+                <option value="playing">Playing</option>
+              </select>
+            </label>
+
+            {/* Toggle chips */}
+            <ToggleChip active={onlyOpen} onClick={() => setOnlyOpen(v => !v)}>Open seats only</ToggleChip>
+            <ToggleChip active={onlyMine} onClick={() => setOnlyMine(v => !v)}>My rooms only</ToggleChip>
+
+            {/* Sort select (right-aligned) */}
+            <label className="ml-auto flex items-center gap-1">
+              <span className="text-neutral-500">Sort:</span>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as typeof sortBy)}
+                className="rounded border border-neutral-700 bg-neutral-950 px-2 py-1"
+              >
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="players-desc">Most players</option>
+                <option value="players-asc">Fewest players</option>
+              </select>
+            </label>
+
+            {filtersActive && (
+              <button
+                onClick={resetFilters}
+                className="rounded border border-neutral-700 px-2 py-1 text-neutral-300 hover:bg-neutral-800"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+
           {open.length === 0 ? (
             <p className="rounded-lg border border-dashed border-neutral-800 p-6 text-center text-neutral-500">
-              No active rooms. Start a new game above or invite a friend from the right.
+              {filtersActive
+                ? 'No rooms match those filters.'
+                : 'No active rooms. Start a new game above or invite a friend from the right.'}
             </p>
           ) : (
             <ul className="divide-y divide-neutral-800 rounded-xl border border-neutral-800 bg-neutral-900">
@@ -97,18 +192,42 @@ export default function LobbyClient({
   );
 }
 
+function ToggleChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`rounded-full border px-2.5 py-1 transition ${
+        active
+          ? 'border-emerald-500 bg-emerald-500/15 text-emerald-300'
+          : 'border-neutral-700 bg-neutral-950 text-neutral-300 hover:bg-neutral-800'
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+function maxPlayersFor(gameId: string): number {
+  return GAMES[gameId]?.maxPlayers ?? 2;
+}
+
 function RoomRow({ room, currentUserId }: { room: Room; currentUserId: string }) {
   const game = GAMES[room.game_type]?.name ?? room.game_type;
+  const max = maxPlayersFor(room.game_type);
+  const seated = room.room_players.length;
   const players = room.room_players.map(p => p.profiles?.username || '???').join(', ') || '—';
   const im = room.room_players.some(p => p.player_id === currentUserId);
-  const full = room.room_players.length >= 2;
+  const full = seated >= max;
   const cta = im ? 'Open' : full || room.status !== 'waiting' ? 'Watch' : 'Join';
 
   return (
     <li className="flex items-center justify-between gap-4 px-4 py-3">
-      <div>
-        <div className="font-medium">{game}</div>
-        <div className="text-sm text-neutral-400">{players}</div>
+      <div className="min-w-0">
+        <div className="font-medium">
+          {game}
+          <span className="ml-2 text-xs font-normal text-neutral-500">{seated}/{max} {seated === 1 ? 'player' : 'players'}</span>
+        </div>
+        <div className="truncate text-sm text-neutral-400">{players}</div>
       </div>
       <div className="flex items-center gap-3">
         <span className={`rounded-full px-2 py-0.5 text-xs ${
