@@ -140,11 +140,13 @@ function BoardGrid({ board, highlightPath }: { board: string[]; highlightPath?: 
         return (
           <div
             key={i}
-            className={`relative flex aspect-square items-center justify-center rounded-md text-xl font-bold ${
+            className={`relative flex aspect-square items-center justify-center rounded-md font-bold ${
+              letter.length > 1 ? 'text-lg' : 'text-xl'
+            } ${
               active ? 'bg-emerald-500 text-neutral-950 shadow-md' : 'bg-amber-100 text-amber-900 shadow'
             }`}
           >
-            {letter}
+            <LetterFace letter={letter} />
             {active && pathPos !== undefined && (
               <span className="absolute right-0.5 top-0.5 rounded bg-emerald-900/70 px-1 text-[9px] font-bold text-white">
                 {pathPos + 1}
@@ -155,6 +157,19 @@ function BoardGrid({ board, highlightPath }: { board: string[]; highlightPath?: 
       })}
     </div>
   );
+}
+
+/** Renders a Boggle cell letter, formatting two-letter faces like "QU" as "Qu". */
+function LetterFace({ letter }: { letter: string }) {
+  if (letter.length === 2) {
+    return (
+      <span>
+        {letter[0]}
+        <span className="text-[0.7em] lowercase">{letter[1].toLowerCase()}</span>
+      </span>
+    );
+  }
+  return <>{letter}</>;
 }
 
 /** True if two board indices are adjacent (h/v/diag) on the 4×4 grid. */
@@ -304,7 +319,9 @@ function TraceBoard({
               key={i}
               data-cell-idx={i}
               onPointerDown={(e) => onPointerDown(e, i)}
-              className={`relative flex aspect-square cursor-pointer items-center justify-center rounded-md text-xl font-bold transition select-none ${
+              className={`relative flex aspect-square cursor-pointer items-center justify-center rounded-md font-bold transition select-none ${
+                letter.length > 1 ? 'text-lg' : 'text-xl'
+              } ${
                 active
                   ? isLast
                     ? 'bg-emerald-400 text-neutral-950 shadow-lg ring-2 ring-emerald-200'
@@ -312,7 +329,7 @@ function TraceBoard({
                   : 'bg-amber-100 text-amber-900 shadow hover:bg-amber-200'
               } ${pending ? 'opacity-50' : ''}`}
             >
-              {letter}
+              <LetterFace letter={letter} />
               {active && (
                 <span className="absolute right-0.5 top-0.5 rounded bg-emerald-900/70 px-1 text-[9px] font-bold text-white">
                   {pathPos + 1}

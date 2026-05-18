@@ -7,12 +7,29 @@ export const CELLS = BOARD_SIZE * BOARD_SIZE;
 export const MIN_WORD_LEN = 3;
 export const DEFAULT_DURATION_MS = 3 * 60 * 1000; // 3 minutes
 
-/** Original 1976 Boggle dice. Each die has 6 letters; one face is rolled per game. */
-export const DICE: string[] = [
-  'AAEEGN', 'ABBJOO', 'ACHOPS', 'AFFKPS',
-  'AOOTTW', 'CIMOTU', 'DEILRX', 'DELRVY',
-  'DISTTY', 'EEGHNW', 'EEINSU', 'EHRTVW',
-  'EIOSST', 'ELRTTY', 'HIMNUQ', 'HLNNRZ',
+/**
+ * Modern ("New") Hasbro Boggle dice — same letter pool as the 1976 set but die 11
+ * has the combined "Qu" face (since players never get any value out of a bare Q).
+ * Each entry is an array of 6 face strings; "Qu" is a 2-letter face that contributes
+ * both letters to any word that traces through it.
+ */
+export const DICE: string[][] = [
+  ['A','A','E','E','G','N'],
+  ['E','L','R','T','T','Y'],
+  ['A','O','O','T','T','W'],
+  ['A','B','B','J','O','O'],
+  ['E','H','R','T','V','W'],
+  ['C','I','M','O','T','U'],
+  ['D','I','S','T','T','Y'],
+  ['E','I','O','S','S','T'],
+  ['D','E','L','R','V','Y'],
+  ['A','C','H','O','P','S'],
+  ['H','I','M','N','U','Qu'],   // ← Qu combined face
+  ['E','E','I','N','S','U'],
+  ['E','E','G','H','N','W'],
+  ['A','F','F','K','P','S'],
+  ['H','L','N','N','R','Z'],
+  ['D','E','I','L','R','X'],
 ];
 
 export type BogglePlayer = {
@@ -74,10 +91,14 @@ function shuffle<T>(arr: T[]): T[] {
   return out;
 }
 
-/** Roll the 16 dice and place them in a random order to form a 4×4 board. */
+/**
+ * Roll the 16 dice and place them in a random order to form a 4×4 board.
+ * Cells are uppercased; "Qu" becomes "QU" (length 2). Adjacency works per-cell
+ * regardless of the cell's letter count.
+ */
 export function rollBoard(): string[] {
   const shuffled = shuffle(DICE);
-  return shuffled.map(die => die[Math.floor(Math.random() * die.length)]);
+  return shuffled.map(die => die[Math.floor(Math.random() * die.length)].toUpperCase());
 }
 
 export function startGame(state: BoggleState, now: number = Date.now()): BoggleState | { error: string } {
@@ -120,28 +141,30 @@ function neighbors(idx: number): number[] {
 
 /**
  * Can `word` be traced on `board` following adjacency rules, no cell reused?
- * Returns the path if found (cell indices), null otherwise.
+ * Returns the path (cell indices) if found, null otherwise. Handles multi-letter
+ * cells (e.g. "QU") — those contribute their full letters to the word at once.
  */
 export function findPath(board: string[], word: string): number[] | null {
   const upper = word.toUpperCase();
   if (upper.length < MIN_WORD_LEN) return null;
 
-  const dfs = (path: number[], remaining: string): number[] | null => {
-    if (remaining.length === 0) return path;
+  const dfs = (path: number[], pos: number): number[] | null => {
+    if (pos === upper.length) return path;
     const last = path[path.length - 1];
     const candidates = last === undefined
       ? board.map((_, i) => i)
       : neighbors(last);
     for (const idx of candidates) {
       if (path.includes(idx)) continue;
-      if (board[idx] !== remaining[0]) continue;
-      const result = dfs([...path, idx], remaining.slice(1));
+      const cell = board[idx];
+      if (upper.substring(pos, pos + cell.length) !== cell) continue;
+      const result = dfs([...path, idx], pos + cell.length);
       if (result) return result;
     }
     return null;
   };
 
-  return dfs([], upper);
+  return dfs([], 0);
 }
 
 /**
