@@ -6,6 +6,7 @@ import { getGame } from '@/lib/games/registry';
 import { initialState as tttInitial } from '@/lib/games/tictactoe';
 import { initialState as c4Initial } from '@/lib/games/connect4';
 import { initialState as ckInitial } from '@/lib/games/checkers';
+import { initialState as bsInitial } from '@/lib/games/battleship';
 import { initialState as lsInitial, addPlayer as lsAddPlayer } from '@/lib/games/longshot';
 
 export async function createRoom(formData: FormData) {
@@ -26,6 +27,7 @@ export async function createRoom(formData: FormData) {
     gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
     gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
     gameType === 'checkers'  ? { ...ckInitial(),  seats: { R: user.id } } :
+    gameType === 'battleship'? { ...bsInitial(),  seats: { A: user.id } } :
     gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
     {};
 
@@ -72,6 +74,7 @@ export async function inviteToGame(targetUserId: string, gameType: string): Prom
     gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
     gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
     gameType === 'checkers'  ? { ...ckInitial(),  seats: { R: user.id } } :
+    gameType === 'battleship'? { ...bsInitial(),  seats: { A: user.id } } :
     gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
     {};
 

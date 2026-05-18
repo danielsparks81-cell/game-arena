@@ -10,10 +10,13 @@ import { sounds, unlockAudio } from '@/lib/sounds';
 import MembersPanel from '@/components/MembersPanel';
 import LongShotBoard from '@/components/LongShotBoard';
 import CheckersBoard from '@/components/CheckersBoard';
+import BattleshipBoard from '@/components/BattleshipBoard';
 import type { LSState } from '@/lib/games/longshot';
 import type { CheckersState } from '@/lib/games/checkers';
+import type { BSState } from '@/lib/games/battleship';
 import {
-  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, makeMoveCheckers, sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
+  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, makeMoveCheckers, makeMoveBattleship,
+  sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
 } from './actions';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
@@ -173,6 +176,15 @@ export default function RoomClient({
             currentUserId={currentUserId}
             disabled={pending || room.status !== 'playing'}
             onMove={(from, to) => { unlockAudio(); startTransition(() => { makeMoveCheckers(roomId, from, to); }); }}
+          />
+        )}
+
+        {room.game_type === 'battleship' && (
+          <BattleshipBoard
+            state={room.state as BSState}
+            currentUserId={currentUserId}
+            disabled={pending || room.status === 'finished'}
+            onMove={(payload) => { unlockAudio(); startTransition(() => { makeMoveBattleship(roomId, payload); }); }}
           />
         )}
 

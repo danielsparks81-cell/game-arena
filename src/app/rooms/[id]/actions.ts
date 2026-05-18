@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server';
 import { applyMove as applyMoveTTT, initialState as tttInitial, type TTTState } from '@/lib/games/tictactoe';
 import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } from '@/lib/games/connect4';
 import { applyMove as applyMoveCK, initialState as ckInitial, type CheckersState } from '@/lib/games/checkers';
+import { applyMove as applyMoveBS, initialState as bsInitial, type BSState, type BSPayload } from '@/lib/games/battleship';
 import {
   addPlayer as lsAddPlayer,
   initialState as lsInitialState,
@@ -84,9 +85,10 @@ export async function joinRoom(roomId: string) {
     const state = (room.state || {}) as Record<string, unknown> & { seats?: Record<string, string> };
     const seats = { ...(state.seats || {}) };
     if (seat === 1) {
-      if (room.game_type === 'tictactoe' && !seats.O) seats.O = user.id;
-      if (room.game_type === 'connect4'  && !seats.Y) seats.Y = user.id;
-      if (room.game_type === 'checkers'  && !seats.B) seats.B = user.id;
+      if (room.game_type === 'tictactoe'  && !seats.O) seats.O = user.id;
+      if (room.game_type === 'connect4'   && !seats.Y) seats.Y = user.id;
+      if (room.game_type === 'checkers'   && !seats.B) seats.B = user.id;
+      if (room.game_type === 'battleship' && !seats.B) seats.B = user.id;
     }
     await supabase
       .from('rooms')
@@ -204,7 +206,7 @@ async function recordHistory(
   roomId: string,
   gameType: string,
   seats: Record<string, string>,
-  winner: 'X' | 'O' | 'R' | 'Y' | 'B' | 'draw',
+  winner: 'X' | 'O' | 'R' | 'Y' | 'A' | 'B' | 'draw',
 ) {
   const playerIds = Object.values(seats).filter(Boolean) as string[];
   const winnerId = winner === 'draw' ? null : seats[winner] ?? null;
@@ -296,6 +298,35 @@ export async function makeMoveCheckers(roomId: string, from: [number, number], t
   await notifyRoom(roomId);
 }
 
+export async function makeMoveBattleship(roomId: string, payload: BSPayload) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'battleship') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const next = applyMoveBS(room.state as BSState, user.id, payload);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase
+    .from('rooms')
+    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [] })
+    .eq('id', roomId);
+
+  if (next.winner) {
+    const seats = next.seats as Record<string, string>;
+    await recordHistory(supabase, roomId, 'battleship', seats, next.winner);
+  }
+  await notifyRoom(roomId);
+}
+
 export async function makeMoveC4(roomId: string, col: number) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -370,7 +401,7 @@ export async function proposeRematch(roomId: string) {
   }
 
   // Reset the board.
-  let newState: TTTState | C4State | CheckersState | LSState;
+  let newState: TTTState | C4State | CheckersState | BSState | LSState;
   if (room.game_type === 'tictactoe') {
     const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
     newState = { ...tttInitial(), seats: { X: oldSeats.O ?? '', O: oldSeats.X ?? '' } };
@@ -380,6 +411,9 @@ export async function proposeRematch(roomId: string) {
   } else if (room.game_type === 'checkers') {
     const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
     newState = { ...ckInitial(), seats: { R: oldSeats.B ?? '', B: oldSeats.R ?? '' } };
+  } else if (room.game_type === 'battleship') {
+    const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
+    newState = { ...bsInitial(), seats: { A: oldSeats.B ?? '', B: oldSeats.A ?? '' } };
   } else if (room.game_type === 'longshot') {
     // Reset to a fresh Long Shot game with the same seated players. startRace re-randomizes
     // the starting seat, the concession grid, and the pre-marked bets/concessions, so each

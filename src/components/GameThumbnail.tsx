@@ -5,7 +5,61 @@ export function GameThumbnail({ gameId, className }: { gameId: string; className
   if (gameId === 'connect4')  return <ConnectFourThumb className={className} />;
   if (gameId === 'longshot')  return <LongShotThumb className={className} />;
   if (gameId === 'checkers')  return <CheckersThumb className={className} />;
+  if (gameId === 'battleship') return <BattleshipThumb className={className} />;
   return <PlaceholderThumb className={className} />;
+}
+
+function BattleshipThumb({ className }: { className?: string }) {
+  // Ocean-blue grid with a couple of ships, hit and miss markers
+  return (
+    <svg viewBox="0 0 140 100" className={className} role="img" aria-label="Battleship">
+      <defs>
+        <linearGradient id="bs-sea" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#0c4a6e" />
+          <stop offset="1" stopColor="#082f49" />
+        </linearGradient>
+        <linearGradient id="bs-ship" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#9ca3af" />
+          <stop offset="1" stopColor="#4b5563" />
+        </linearGradient>
+      </defs>
+      <rect width="140" height="100" rx="10" fill="#020617" />
+      {/* Two boards side by side */}
+      {[18, 80].map((ox, boardIdx) => (
+        <g key={ox}>
+          <rect x={ox} y={10} width="42" height="80" rx="3" fill="url(#bs-sea)" />
+          {/* Grid lines (6×10 small) */}
+          {Array.from({ length: 7 }).map((_, i) => (
+            <line
+              key={`v-${boardIdx}-${i}`}
+              x1={ox + i * 7} y1={10}
+              x2={ox + i * 7} y2={90}
+              stroke="#0ea5e9" strokeWidth="0.3" opacity="0.4"
+            />
+          ))}
+          {Array.from({ length: 11 }).map((_, i) => (
+            <line
+              key={`h-${boardIdx}-${i}`}
+              x1={ox} y1={10 + i * 8}
+              x2={ox + 42} y2={10 + i * 8}
+              stroke="#0ea5e9" strokeWidth="0.3" opacity="0.4"
+            />
+          ))}
+        </g>
+      ))}
+      {/* Left board: own fleet — show ships + a few opponent shots */}
+      <rect x={18 + 1*7 + 1} y={10 + 2*8 + 1} width={3*7 - 2} height={8 - 2} rx="2" fill="url(#bs-ship)" />
+      <rect x={18 + 4*7 + 1} y={10 + 4*8 + 1} width={7 - 2} height={4*8 - 2} rx="2" fill="url(#bs-ship)" />
+      <circle cx={18 + 2*7 + 3.5} cy={10 + 2*8 + 4} r="1.2" fill="#dc2626" />
+      <circle cx={18 + 0*7 + 3.5} cy={10 + 5*8 + 4} r="1.2" fill="#fafafa" />
+      {/* Right board: opponent — only show hits and misses */}
+      <circle cx={80 + 3*7 + 3.5} cy={10 + 1*8 + 4} r="1.2" fill="#fafafa" />
+      <circle cx={80 + 1*7 + 3.5} cy={10 + 3*8 + 4} r="1.2" fill="#dc2626" />
+      <circle cx={80 + 2*7 + 3.5} cy={10 + 3*8 + 4} r="1.2" fill="#dc2626" />
+      <circle cx={80 + 5*7 + 3.5} cy={10 + 5*8 + 4} r="1.2" fill="#fafafa" />
+      <circle cx={80 + 4*7 + 3.5} cy={10 + 6*8 + 4} r="1.2" fill="#dc2626" />
+    </svg>
+  );
 }
 
 function CheckersThumb({ className }: { className?: string }) {

@@ -28,6 +28,13 @@ export const GAMES: Record<string, GameDef> = {
     minPlayers: 2,
     maxPlayers: 2,
   },
+  battleship: {
+    id: 'battleship',
+    name: 'Battleship',
+    description: 'Place your fleet, then take turns firing shots. Sink them all.',
+    minPlayers: 2,
+    maxPlayers: 2,
+  },
   longshot: {
     id: 'longshot',
     name: 'Long Shot',
