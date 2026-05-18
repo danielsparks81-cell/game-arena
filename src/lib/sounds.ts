@@ -48,6 +48,23 @@ function play(tones: Tone[], volume = 0.06) {
   }
 }
 
+/**
+ * Speak a phrase using the browser's built-in SpeechSynthesis API. No audio assets needed.
+ * Safe no-op on SSR or when speechSynthesis is unavailable.
+ */
+function speak(text: string, opts: { rate?: number; pitch?: number; volume?: number } = {}) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return;
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = opts.rate ?? 1.05;
+    u.pitch = opts.pitch ?? 1;
+    u.volume = opts.volume ?? 1;
+    // Cancel any in-progress utterance so the announcement isn't delayed
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch { /* no-op */ }
+}
+
 export const sounds = {
   click: () => play([
     { freq: 880, duration: 0.05, type: 'square' },
@@ -72,4 +89,6 @@ export const sounds = {
     { freq: 880, duration: 0.10, type: 'sine' },
     { freq: 1175, duration: 0.15, type: 'sine', delay: 0.08 },
   ], 0.07),
+  /** Spoken announcement at race start: "And they're off!" */
+  theyreOff: () => speak("And they're off!", { rate: 1.1, pitch: 1.05 }),
 };

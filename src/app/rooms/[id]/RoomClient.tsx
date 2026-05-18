@@ -115,6 +115,19 @@ export default function RoomClient({
     prevMoveRef.current = moveCount;
   }, [room.state, room.game_type]);
 
+  // "And they're off!" announcement when a Long Shot race transitions from waiting → playing
+  const prevStatusRef = useRef<string>(initialRoom.status);
+  useEffect(() => {
+    if (
+      prevStatusRef.current === 'waiting' &&
+      room.status === 'playing' &&
+      room.game_type === 'longshot'
+    ) {
+      sounds.theyreOff();
+    }
+    prevStatusRef.current = room.status;
+  }, [room.status, room.game_type]);
+
   const gameName = GAMES[room.game_type]?.name ?? room.game_type;
   const finished = room.status === 'finished';
   const iVoted = room.rematch_votes?.includes(currentUserId) ?? false;
