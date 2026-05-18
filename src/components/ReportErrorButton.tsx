@@ -29,13 +29,14 @@ export default function ReportErrorButton({ roomId }: { roomId: string | null })
     setError(null);
     startTransition(async () => {
       try {
-        await reportError({
+        const res = await reportError({
           roomId,
           description,
           userAgent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
           url: typeof window !== 'undefined' ? window.location.href : undefined,
         });
-        setSubmitted(true);
+        if (res.ok) setSubmitted(true);
+        else setError(res.error);
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not submit report');
       }
