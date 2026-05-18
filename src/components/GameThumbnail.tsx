@@ -39,7 +39,7 @@ function BoggleThumb({ className }: { className?: string }) {
           <stop offset="1" stopColor="#10b981" />
         </linearGradient>
       </defs>
-      <rect width="140" height="100" rx="10" fill="url(#bg-bg)" />
+      <rect width="140" height="100" fill="url(#bg-bg)" />
       {/* 4×4 grid centered at 70,50 with cells 16×16 */}
       {finalGrid.map((letter, i) => {
         const r = Math.floor(i / 4);
@@ -85,7 +85,7 @@ function BattleshipThumb({ className }: { className?: string }) {
           <stop offset="1" stopColor="#4b5563" />
         </linearGradient>
       </defs>
-      <rect width="140" height="100" rx="10" fill="#020617" />
+      <rect width="140" height="100" fill="#020617" />
       {/* Two boards side by side */}
       {[18, 80].map((ox, boardIdx) => (
         <g key={ox}>
@@ -144,7 +144,7 @@ function CheckersThumb({ className }: { className?: string }) {
           <stop offset="1" stopColor="#0a0a0a" />
         </radialGradient>
       </defs>
-      <rect width="140" height="100" rx="10" fill="url(#ck-bg)" />
+      <rect width="140" height="100" fill="url(#ck-bg)" />
       {/* 8×8 board centered at (70, 50) with cells 11px */}
       {Array.from({ length: 8 }).map((_, r) =>
         Array.from({ length: 8 }).map((__, c) => {
@@ -199,7 +199,7 @@ function TicTacToeThumb({ className }: { className?: string }) {
           <stop offset="1"  stopColor="#34d399" stopOpacity="0" />
         </linearGradient>
       </defs>
-      <rect width="140" height="100" rx="10" fill="url(#ttt-bg)" />
+      <rect width="140" height="100" fill="url(#ttt-bg)" />
       {/* grid (centered, 60x60) */}
       <g transform="translate(40 20)" stroke="#475569" strokeWidth="2" strokeLinecap="round">
         <line x1="20" y1="2"  x2="20" y2="58" />
@@ -266,7 +266,7 @@ function ConnectFourThumb({ className }: { className?: string }) {
           <stop offset="1" stopColor="#eab308" />
         </radialGradient>
       </defs>
-      <rect width="140" height="100" rx="10" fill="#0a0c12" />
+      <rect width="140" height="100" fill="#0a0c12" />
       <rect x="14" y="8" width="112" height="84" rx="8" fill="url(#c4-board)" />
       {board.map((row, r) =>
         row.map((cell, c) => {
@@ -306,7 +306,7 @@ function LongShotThumb({ className }: { className?: string }) {
           <stop offset="1" stopColor="#78350f" />
         </linearGradient>
       </defs>
-      <rect width="140" height="100" rx="10" fill="url(#ls-sky)" />
+      <rect width="140" height="100" fill="url(#ls-sky)" />
       {/* Outer track (oval) */}
       <ellipse cx="70" cy="55" rx="60" ry="32" fill="url(#ls-turf)" />
       {/* Inner field (grass) */}
@@ -340,7 +340,7 @@ function LongShotThumb({ className }: { className?: string }) {
 function PlaceholderThumb({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 140 100" className={className}>
-      <rect width="140" height="100" rx="10" fill="#1e293b" />
+      <rect width="140" height="100" fill="#1e293b" />
       <text x="70" y="58" textAnchor="middle" fill="#64748b" fontSize="14" fontFamily="system-ui">
         ?
       </text>
