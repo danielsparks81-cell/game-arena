@@ -180,9 +180,9 @@ function ConnectFourThumb({ className }: { className?: string }) {
     [_, _, _, R, _, _, _],
     [_, _, Y, R, Y, _, _],
     [_, Y, R, R, Y, _, _],
-    [_, Y, R, Y, R, Y, _],
+    [_, Y, R, R, R, Y, _],
   ];
-  const winning = new Set(['2-3','3-3','4-3','5-3']); // Red vertical in col 3
+  const winning = new Set(['2-3','3-3','4-3','5-3']); // Red vertical 4-in-a-row in col 3
 
   return (
     <svg viewBox="0 0 140 100" className={className} role="img" aria-label="Connect Four">
