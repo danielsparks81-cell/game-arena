@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   type LSState, type LSMove, type LSPlayer, type HorseFinish, type ActionPayload,
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
@@ -1231,6 +1231,30 @@ function FinalScoringPanel({ state }: { state: LSState }) {
     return diff !== 0 ? diff : a.seat - b.seat; // tiebreak by seat order so it's stable
   });
 
+  // --- FLIP animation: slide rows between their old and new positions on re-sort ---
+  const rowRefs = useRef<Map<string, HTMLTableRowElement | null>>(new Map());
+  const prevTops = useRef<Map<string, number>>(new Map());
+
+  useLayoutEffect(() => {
+    rowRefs.current.forEach((el, id) => {
+      if (!el) return;
+      const newTop = el.getBoundingClientRect().top;
+      const oldTop = prevTops.current.get(id);
+      if (oldTop !== undefined && oldTop !== newTop) {
+        const delta = oldTop - newTop;
+        // Invert: snap back to old position with no transition
+        el.style.transition = 'none';
+        el.style.transform = `translateY(${delta}px)`;
+        // Force a reflow so the browser commits the inverted transform before we animate back
+        void el.offsetHeight;
+        // Play: animate to the natural (new) position
+        el.style.transition = 'transform 900ms cubic-bezier(0.4, 0, 0.2, 1)';
+        el.style.transform = '';
+      }
+      prevTops.current.set(id, newTop);
+    });
+  });
+
   const cats: Array<{
     key: 'purse' | 'money' | 'bonus' | 'bets';
     label: string;
@@ -1282,7 +1306,11 @@ function FinalScoringPanel({ state }: { state: LSState }) {
           </thead>
           <tbody>
             {ranked.map((s, idx) => (
-              <tr key={s.playerId} className="border-t border-neutral-800/60 transition">
+              <tr
+                key={s.playerId}
+                ref={el => { rowRefs.current.set(s.playerId, el); }}
+                className="border-t border-neutral-800/60"
+              >
                 <td className="px-2 py-2">
                   <span className="font-medium">
                     <span className="mr-1">{step >= 4 ? (medals[idx] ?? '') : ''}</span>
