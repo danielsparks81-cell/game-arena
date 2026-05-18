@@ -44,8 +44,8 @@ export type BogglePlayer = {
 export type BoggleGameMode = '1-round' | '3-rounds' | 'to-50' | 'to-100';
 
 export const GAME_MODE_LABELS: Record<BoggleGameMode, string> = {
-  '1-round':  '1 round',
-  '3-rounds': 'Total points after 3 rounds',
+  '1-round':  '1 Round',
+  '3-rounds': '3 Rounds',
   'to-50':    'First to 50 points',
   'to-100':   'First to 100 points',
 };
