@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { Resend } from 'resend';
 import { createClient } from '@/lib/supabase/server';
 import { applyMove as applyMoveTTT, initialState as tttInitial, type TTTState } from '@/lib/games/tictactoe';
 import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } from '@/lib/games/connect4';
@@ -189,6 +190,74 @@ export async function startGame(roomId: string) {
 
   await notifyRoom(roomId);
   revalidatePath(`/rooms/${roomId}`);
+}
+
+/**
+ * Submit a bug report from inside a room. Always inserts into `bug_reports`; if
+ * `RESEND_API_KEY` and `BUG_REPORT_EMAIL` are set in env, ALSO emails the report
+ * to that address so the owner sees it without checking the dashboard.
+ */
+export async function reportError(params: {
+  roomId: string | null;
+  description: string;
+  userAgent?: string;
+  url?: string;
+}) {
+  const { roomId, description, userAgent, url } = params;
+  if (!description || description.trim().length === 0) throw new Error('Description is required');
+  if (description.length > 2000) throw new Error('Description too long (max 2000 chars)');
+
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  // Look up reporter username + the room's game type (best-effort)
+  const [{ data: profile }, room] = await Promise.all([
+    supabase.from('profiles').select('username').eq('id', user.id).single(),
+    roomId
+      ? supabase.from('rooms').select('game_type').eq('id', roomId).single()
+      : Promise.resolve({ data: null }),
+  ]);
+  const reporterUsername = profile?.username ?? null;
+  const gameType = (room as { data: { game_type?: string } | null })?.data?.game_type ?? null;
+
+  // Persist (always)
+  const { error: insErr } = await supabase.from('bug_reports').insert({
+    reporter_id: user.id,
+    reporter_username: reporterUsername,
+    room_id: roomId,
+    game_type: gameType,
+    description: description.trim(),
+    user_agent: userAgent ?? null,
+    url: url ?? null,
+  });
+  if (insErr) throw new Error(insErr.message);
+
+  // Email (best-effort — silently skip if not configured)
+  const apiKey = process.env.RESEND_API_KEY;
+  const to = process.env.BUG_REPORT_EMAIL;
+  const from = process.env.BUG_REPORT_FROM ?? 'Game Arena <onboarding@resend.dev>';
+  if (apiKey && to) {
+    try {
+      const resend = new Resend(apiKey);
+      await resend.emails.send({
+        from,
+        to,
+        subject: `[Game Arena] Bug report from ${reporterUsername ?? user.id}`,
+        text:
+          `Reporter: ${reporterUsername ?? '(no username)'} (${user.id})\n`
+          + `Room: ${roomId ?? '(none)'}\n`
+          + `Game: ${gameType ?? '(unknown)'}\n`
+          + `URL: ${url ?? '(none)'}\n`
+          + `User-Agent: ${userAgent ?? '(unknown)'}\n`
+          + `\n--- Description ---\n${description.trim()}`,
+      });
+    } catch {
+      // Email failure shouldn't fail the request — the report is already saved.
+    }
+  }
+
+  return { ok: true };
 }
 
 export async function leaveRoom(roomId: string) {
