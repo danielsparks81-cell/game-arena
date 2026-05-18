@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { GAMES } from '@/lib/games/registry';
 import MembersPanel from '@/components/MembersPanel';
+import GeneralChat from '@/components/GeneralChat';
 
 type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
 type Room = {
@@ -82,13 +83,15 @@ export default function LobbyClient({
         </section>
       </div>
 
-      {/* RIGHT: members panel — sticky on tablet+ */}
-      <div className="md:sticky md:top-4 md:max-h-[calc(100vh-2rem)] md:overflow-y-auto">
+      {/* RIGHT: members panel + lobby chat, mirroring the room layout */}
+      <div className="space-y-4 md:sticky md:top-4">
         <MembersPanel
           currentUserId={currentUserId}
           currentUsername={currentUsername}
           initialStats={initialStats}
+          className="md:max-h-[360px] md:overflow-y-auto"
         />
+        <GeneralChat currentUserId={currentUserId} currentUsername={currentUsername} />
       </div>
     </div>
   );
