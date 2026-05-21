@@ -958,8 +958,8 @@ type GenericCategory =
   | 'scheme_twist';
 
 const GENERIC_CATEGORIES: { id: GenericCategory; label: string; sub: string }[] = [
-  { id: 'trooper',       label: 'S.H.I.E.L.D. Trooper',   sub: 'Starter · 8× per player' },
-  { id: 'agent',         label: 'S.H.I.E.L.D. Agent',     sub: 'Starter · 4× per player' },
+  { id: 'trooper',       label: 'S.H.I.E.L.D. Trooper',   sub: 'Starter · 4× per player' },
+  { id: 'agent',         label: 'S.H.I.E.L.D. Agent',     sub: 'Starter · 8× per player' },
   { id: 'officer',       label: 'S.H.I.E.L.D. Officer',   sub: 'Pool card' },
   { id: 'sidekick',      label: 'Sidekick',                sub: 'Pool card' },
   { id: 'wound',         label: 'Wound',                   sub: 'System card' },
