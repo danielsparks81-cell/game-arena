@@ -23,13 +23,21 @@ function SignupForm() {
   const supabase = createClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Surface mismatch live (only after user has typed something in the confirm box).
+  const mismatch = confirm.length > 0 && confirm !== password;
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null); setInfo(null);
+    if (password !== confirm) {
+      setError("Passwords don't match");
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -69,13 +77,25 @@ function SignupForm() {
         <span className="mb-1 block text-sm text-neutral-400">Password (min 6 chars)</span>
         <input
           type="password" required minLength={6} value={password} onChange={e => setPassword(e.target.value)}
+          autoComplete="new-password"
           className="w-full rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 outline-none focus:border-emerald-500"
         />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-sm text-neutral-400">Confirm password</span>
+        <input
+          type="password" required minLength={6} value={confirm} onChange={e => setConfirm(e.target.value)}
+          autoComplete="new-password"
+          className={`w-full rounded-md border bg-neutral-950 px-3 py-2 outline-none focus:border-emerald-500 ${
+            mismatch ? 'border-red-500' : 'border-neutral-700'
+          }`}
+        />
+        {mismatch && <span className="mt-1 block text-xs text-red-400">Passwords don&rsquo;t match</span>}
       </label>
       {error && <p className="text-sm text-red-400">{error}</p>}
       {info  && <p className="text-sm text-emerald-400">{info}</p>}
       <button
-        type="submit" disabled={loading}
+        type="submit" disabled={loading || mismatch || confirm.length === 0}
         className="w-full rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
       >
         {loading ? 'Creating…' : 'Create account'}

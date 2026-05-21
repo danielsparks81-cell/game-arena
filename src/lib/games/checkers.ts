@@ -16,7 +16,12 @@ export type CheckersMove = {
   captured: [number, number][];
 };
 
+/** Bump and add a registry `migrateState` whenever you change this state's shape. */
+export const STATE_VERSION = 1;
+
 export type CheckersState = {
+  /** Engine state version — see STATE_VERSION + registry.migrateState. */
+  version?: number;
   board: Cell[][];                                // [row][col], 8×8
   turn: Color;
   winner: Color | 'draw' | null;
@@ -40,7 +45,7 @@ export function initialState(): CheckersState {
       if ((r + c) % 2 === 1) board[r][c] = { color: 'R', king: false };
     }
   }
-  return { board, turn: 'R', winner: null, seats: {}, lastMove: null, mustChainFrom: null };
+  return { version: STATE_VERSION, board, turn: 'R', winner: null, seats: {}, lastMove: null, mustChainFrom: null };
 }
 
 function inBounds(r: number, c: number) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
@@ -202,5 +207,6 @@ export function applyMove(
     winner = piece.color;
   }
 
-  return { board, turn: nextTurn, winner, seats: state.seats, lastMove, mustChainFrom: nextChain };
+  // Spread state first so version (and any future top-level field) survives.
+  return { ...state, board, turn: nextTurn, winner, lastMove, mustChainFrom: nextChain };
 }

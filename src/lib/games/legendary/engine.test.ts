@@ -1,0 +1,182 @@
+import { describe, it, expect } from 'vitest';
+import {
+  applyAction,
+  createInitialStateForHost,
+  addPlayer,
+  startGame,
+  projectStateForViewer,
+  HQ_SIZE,
+  CITY_SIZE,
+  STARTER_TROOPERS,
+  STARTER_AGENTS,
+  STARTING_HAND_SIZE,
+  getCard,
+  type LegendaryState,
+} from './index';
+
+function freshSinglePlayerGame(): LegendaryState {
+  const host = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+  const started = startGame(host);
+  if ('error' in started) throw new Error(started.error);
+  return started;
+}
+
+describe('legendary: setup', () => {
+  it('createInitialStateForHost seats the host at seat 0 in lobby phase', () => {
+    const s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    expect(s.phase).toBe('lobby');
+    expect(s.players).toHaveLength(1);
+    expect(s.players[0].seat).toBe(0);
+  });
+
+  it('addPlayer appends new players in seat order', () => {
+    const a = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    const ab = addPlayer(a, 'bob', 'Bob', 1);
+    expect(ab.players.map(p => p.username)).toEqual(['Alice', 'Bob']);
+  });
+
+  it('startGame populates HQ to 5, deals 6 to the active player, builds villain deck', () => {
+    const s = freshSinglePlayerGame();
+    expect(s.phase).toBe('playing');
+    expect(s.hq).toHaveLength(HQ_SIZE);
+    expect(s.hq.filter(c => c !== null)).toHaveLength(HQ_SIZE);
+    expect(s.city.every(c => c === null)).toBe(true); // city starts empty
+    expect(s.players[0].hand).toHaveLength(STARTING_HAND_SIZE);
+    expect(s.players[0].deck.length + s.players[0].discard.length + s.players[0].hand.length)
+      .toBe(STARTER_TROOPERS + STARTER_AGENTS);
+    expect(s.villainDeck.length).toBeGreaterThan(0);
+  });
+});
+
+describe('legendary: play card', () => {
+  it('playing a Trooper bumps Attack by 1', () => {
+    const s = freshSinglePlayerGame();
+    const trooper = s.players[0].hand.find(c => c.cardId === 'shield_trooper');
+    if (!trooper) {
+      // 8/12 starter cards are Troopers, so the opening hand of 6 is extremely
+      // unlikely to miss them; if it did this run, skip.
+      expect(true).toBe(true);
+      return;
+    }
+    const next = applyAction(s, 'alice', { kind: 'play_card', instanceId: trooper.instanceId }) as LegendaryState;
+    expect(next.thisTurn.attack).toBe(1);
+  });
+
+  it('playing an Agent bumps Recruit by 1', () => {
+    const s = freshSinglePlayerGame();
+    const agent = s.players[0].hand.find(c => c.cardId === 'shield_agent');
+    if (!agent) { expect(true).toBe(true); return; }
+    const next = applyAction(s, 'alice', { kind: 'play_card', instanceId: agent.instanceId }) as LegendaryState;
+    expect(next.thisTurn.recruit).toBe(1);
+  });
+
+  it("rejects play_card when it's not your turn", () => {
+    const a = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    const ab = addPlayer(a, 'bob', 'Bob', 1);
+    const started = startGame(ab);
+    if ('error' in started) throw new Error(started.error);
+    // Alice (seat 0) is the active player. Bob trying to play is rejected.
+    const result = applyAction(
+      started, 'bob',
+      { kind: 'play_card', instanceId: started.players[0].hand[0].instanceId },
+    );
+    expect('error' in result).toBe(true);
+  });
+});
+
+describe('legendary: recruit + fight', () => {
+  it('cannot recruit a hero you cannot afford', () => {
+    const s = freshSinglePlayerGame();
+    const result = applyAction(s, 'alice', { kind: 'recruit_hero', slot: 0 });
+    expect('error' in result).toBe(true); // 0 Recruit on a fresh turn
+  });
+
+  it('end_turn drains hand into discard, deals new 6, reveals a villain-deck card', () => {
+    const s = freshSinglePlayerGame();
+    const before = s.players[0].hand.length;
+    const beforeVD = s.villainDeck.length;
+    const next = applyAction(s, 'alice', { kind: 'end_turn' }) as LegendaryState;
+    // Hand reset to 6 (or fewer if deck is small — but starter has 12 so 6 is fine)
+    expect(next.players[0].hand).toHaveLength(STARTING_HAND_SIZE);
+    // Villain deck shrunk by 1
+    expect(next.villainDeck.length).toBe(beforeVD - 1);
+    // Turn counter advanced
+    expect(next.turn).toBe(2);
+    void before;
+  });
+});
+
+describe('legendary: hand privacy projection', () => {
+  it("hides another player's hand and deck contents from the viewer", () => {
+    const a = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    const ab = addPlayer(a, 'bob', 'Bob', 1);
+    const started = startGame(ab);
+    if ('error' in started) throw new Error(started.error);
+    const viewForAlice = projectStateForViewer(started, 'alice');
+    const alicePlayer = viewForAlice.players.find(p => p.playerId === 'alice')!;
+    const bobPlayer = viewForAlice.players.find(p => p.playerId === 'bob')!;
+    // Alice sees her own hand contents
+    expect(alicePlayer.hand.every(c => c.cardId !== '__hidden__')).toBe(true);
+    // Bob's hand and deck are scrubbed
+    expect(bobPlayer.hand.every(c => c.cardId === '__hidden__')).toBe(true);
+    expect(bobPlayer.deck.every(c => c.cardId === '__hidden__')).toBe(true);
+    // Alice's own deck is also scrubbed (deck is private even from owner)
+    expect(alicePlayer.deck.every(c => c.cardId === '__hidden__')).toBe(true);
+    // Villain deck is opaque to everyone
+    expect(viewForAlice.villainDeck.every(c => c.cardId === '__hidden__')).toBe(true);
+  });
+});
+
+describe('legendary: city + escape', () => {
+  it('a revealed villain enters slot 0 of the City', () => {
+    let s = freshSinglePlayerGame();
+    // End enough turns to surface a villain (some reveals might be twists/strikes/etc.)
+    for (let i = 0; i < 6; i++) {
+      const next = applyAction(s, 'alice', { kind: 'end_turn' }) as LegendaryState;
+      if ('error' in next) break;
+      s = next;
+      if (s.city.some(c => c !== null)) break;
+    }
+    const anyInCity = s.city.some(c => c !== null);
+    // Even with bad luck, by turn 6+ we should have something villain-shaped in the city.
+    expect(anyInCity).toBe(true);
+  });
+});
+
+describe('legendary: defeat mastermind → win', () => {
+  it('reaching the mastermind hit threshold sets phase=finished and result=win', () => {
+    let s = freshSinglePlayerGame();
+    const mmDef = getCard(s.mastermindId);
+    if (mmDef.kind !== 'mastermind') throw new Error('Bad mastermind id');
+    // Cheat the Attack pool up so we can land all hits in one turn (the
+    // engine doesn't care WHERE the attack came from — only that the
+    // current player has enough).
+    s.thisTurn.attack = mmDef.attack * mmDef.hits;
+    for (let i = 0; i < mmDef.hits; i++) {
+      const next = applyAction(s, 'alice', { kind: 'fight_mastermind' });
+      if ('error' in next) throw new Error(String(next.error));
+      s = next as LegendaryState;
+    }
+    expect(s.phase).toBe('finished');
+    expect(s.result).toBe('win');
+  });
+});
+
+describe('legendary: HQ slot count + Player VP', () => {
+  it('HQ stays at HQ_SIZE slots after a buy + refill', () => {
+    const s = freshSinglePlayerGame();
+    // Manually crank Recruit so we can buy.
+    s.thisTurn.recruit = 99;
+    // Find the cheapest hero in HQ and buy it.
+    const slot = s.hq.findIndex(c => {
+      const d = c ? getCard(c.cardId) : null;
+      return d?.kind === 'hero';
+    });
+    expect(slot).toBeGreaterThanOrEqual(0);
+    const next = applyAction(s, 'alice', { kind: 'recruit_hero', slot }) as LegendaryState;
+    expect(next.hq.filter(c => c !== null)).toHaveLength(HQ_SIZE);
+    expect(next.players[0].discard.length).toBe(1);
+  });
+});
+
+void CITY_SIZE;

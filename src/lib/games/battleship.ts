@@ -29,7 +29,12 @@ export type FleetState = {
   shots: (ShotResult | null)[][];
 };
 
+/** Bump and add a registry `migrateState` whenever you change this state's shape. */
+export const STATE_VERSION = 1;
+
 export type BSState = {
+  /** Engine state version — see STATE_VERSION + registry.migrateState. */
+  version?: number;
   phase: 'setup' | 'playing' | 'finished';
   turn: Player;
   seats: { A?: string; B?: string };
@@ -63,6 +68,7 @@ function newFleet(): FleetState {
 
 export function initialState(): BSState {
   return {
+    version: STATE_VERSION,
     phase: 'setup',
     turn: 'A',
     seats: {},

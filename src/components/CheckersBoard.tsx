@@ -44,6 +44,28 @@ export default function CheckersBoard({
     return [...captures, ...simple];
   }, [selected, yourTurn, state.board, state.turn, state.mustChainFrom]);
 
+  // When a capture is available, the player MUST take it — so flag every one of their
+  // pieces that can jump. We outline them so the user doesn't think they're stuck after
+  // clicking a piece with no legal simple move. (Mid-chain, only `mustChainFrom` glows.)
+  const forcedSources = useMemo<Set<string>>(() => {
+    const set = new Set<string>();
+    if (!yourTurn || !yourColor) return set;
+    if (state.mustChainFrom) {
+      set.add(`${state.mustChainFrom[0]},${state.mustChainFrom[1]}`);
+      return set;
+    }
+    if (!anyCapturesAvailable(state.board, yourColor)) return set;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const p = state.board[r][c];
+        if (p && p.color === yourColor && capturesFrom(state.board, r, c).length > 0) {
+          set.add(`${r},${c}`);
+        }
+      }
+    }
+    return set;
+  }, [yourTurn, yourColor, state.board, state.mustChainFrom]);
+
   const onCellClick = (r: number, c: number) => {
     if (!yourTurn) return;
     const piece = state.board[r][c];
@@ -71,7 +93,11 @@ export default function CheckersBoard({
       : `${state.winner === 'R' ? 'Red' : 'Black'} wins!`
     : !yourColor ? `Turn: ${state.turn === 'R' ? 'Red' : 'Black'} (watching)`
     : yourTurn
-      ? state.mustChainFrom ? 'Continue your capture chain!' : 'Your turn'
+      ? state.mustChainFrom
+          ? 'Continue your capture chain!'
+          : forcedSources.size > 0
+              ? 'Your turn — a capture is available, you must take it'
+              : 'Your turn'
       : `Waiting on ${state.turn === 'R' ? 'Red' : 'Black'}…`;
 
   const youAreLabel = yourColor === 'R' ? 'You are Red' : yourColor === 'B' ? 'You are Black' : 'Spectator';
@@ -89,7 +115,7 @@ export default function CheckersBoard({
 
       {/* Board */}
       <div
-        className="mx-auto inline-grid overflow-hidden rounded-lg border-2 border-neutral-800 shadow-lg"
+        className="mx-auto grid overflow-hidden rounded-lg border-2 border-neutral-800 shadow-lg"
         style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))`, width: 'min(100%, 480px)' }}
       >
         {Array.from({ length: ROWS }).flatMap((_, dr) =>
@@ -101,6 +127,7 @@ export default function CheckersBoard({
             const isDark = (r + c) % 2 === 1;
             const isSelected = selected && selected[0] === r && selected[1] === c;
             const isLegal = legalMoves.some(([lr, lc]) => lr === r && lc === c);
+            const isForcedSource = forcedSources.has(`${r},${c}`);
             const fromHighlight = state.lastMove && state.lastMove.from[0] === r && state.lastMove.from[1] === c;
             const toHighlight   = state.lastMove && state.lastMove.to[0]   === r && state.lastMove.to[1]   === c;
             return (
@@ -113,7 +140,9 @@ export default function CheckersBoard({
                     ? 'bg-[#7c2d12] hover:brightness-110'
                     : 'bg-[#fef3c7]'
                 } ${isLegal ? 'ring-4 ring-inset ring-emerald-400' : ''} ${
-                  isSelected ? 'ring-4 ring-inset ring-amber-300' : ''
+                  isSelected ? 'ring-4 ring-inset ring-amber-300'
+                  : isForcedSource ? 'ring-4 ring-inset ring-amber-400/70'
+                  : ''
                 } ${fromHighlight || toHighlight ? 'shadow-inner shadow-emerald-500/30' : ''}`}
                 aria-label={cell ? `${cell.color === 'R' ? 'Red' : 'Black'}${cell.king ? ' king' : ''} at row ${r + 1}, col ${c + 1}` : `Empty ${r + 1},${c + 1}`}
               >

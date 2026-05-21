@@ -3,12 +3,26 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { getGame } from '@/lib/games/registry';
-import { initialState as tttInitial } from '@/lib/games/tictactoe';
-import { initialState as c4Initial } from '@/lib/games/connect4';
-import { initialState as ckInitial } from '@/lib/games/checkers';
-import { initialState as bsInitial } from '@/lib/games/battleship';
-import { initialState as bgInitial, addPlayer as bgAddPlayer } from '@/lib/games/boggle';
-import { initialState as lsInitial, addPlayer as lsAddPlayer } from '@/lib/games/longshot';
+
+// Both `createRoom` and `inviteToGame` need the same thing: fetch the host's
+// profile and ask the registry to build an initial state with them seated.
+// Centralized so any new game just needs to register `createInitialStateForHost`
+// in its GameDef.
+async function buildHostSeatedState(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  hostUserId: string,
+  gameType: string,
+) {
+  const game = getGame(gameType);
+  if (!game) throw new Error('Unknown game');
+  const { data: profile } = await supabase
+    .from('profiles').select('username, accent_color').eq('id', hostUserId).single();
+  return game.createInitialStateForHost({
+    userId: hostUserId,
+    username: profile?.username ?? 'player',
+    accentColor: (profile?.accent_color as string | undefined),
+  });
+}
 
 export async function createRoom(formData: FormData) {
   const gameType = String(formData.get('gameType') || '');
@@ -19,19 +33,7 @@ export async function createRoom(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not signed in');
 
-  const { data: profile } = await supabase
-    .from('profiles').select('username').eq('id', user.id).single();
-  const hostUsername = profile?.username ?? 'player';
-
-  // Initial state with host seated as the first player
-  const state =
-    gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
-    gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
-    gameType === 'checkers'  ? { ...ckInitial(),  seats: { R: user.id } } :
-    gameType === 'battleship'? { ...bsInitial(),  seats: { A: user.id } } :
-    gameType === 'boggle'    ? bgAddPlayer(bgInitial(), user.id, hostUsername, 0) :
-    gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
-    {};
+  const state = await buildHostSeatedState(supabase, user.id, gameType);
 
   const { data: room, error } = await supabase
     .from('rooms')
@@ -66,20 +68,9 @@ export async function inviteToGame(targetUserId: string, gameType: string): Prom
     .from('profiles').select('id').eq('id', targetUserId).maybeSingle();
   if (!target) throw new Error('User not found');
 
-  const { data: profile } = await supabase
-    .from('profiles').select('username').eq('id', user.id).single();
-  const hostUsername = profile?.username ?? 'player';
-
   // Host seats themselves; invitee joins themselves when they click the notification
   // (RLS only allows users to insert their own room_players rows).
-  const state =
-    gameType === 'tictactoe' ? { ...tttInitial(), seats: { X: user.id } } :
-    gameType === 'connect4'  ? { ...c4Initial(),  seats: { R: user.id } } :
-    gameType === 'checkers'  ? { ...ckInitial(),  seats: { R: user.id } } :
-    gameType === 'battleship'? { ...bsInitial(),  seats: { A: user.id } } :
-    gameType === 'boggle'    ? bgAddPlayer(bgInitial(), user.id, hostUsername, 0) :
-    gameType === 'longshot'  ? lsAddPlayer(lsInitial(), user.id, hostUsername, 0) :
-    {};
+  const state = await buildHostSeatedState(supabase, user.id, gameType);
 
   const { data: room, error } = await supabase
     .from('rooms')

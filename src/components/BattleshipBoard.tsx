@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import {
-  SIZE, SHIP_NAMES, NUM_SHIPS, shipCells,
+  SIZE, SHIP_NAMES, SHIP_SIZES, NUM_SHIPS, shipCells,
   type BSState, type BSPayload, type Player, type Orientation, type ShotResult,
 } from '@/lib/games/battleship';
 
@@ -242,40 +242,256 @@ function SetupBoard({
   onCellClick: (r: number, c: number) => void;
   disabled: boolean;
 }) {
-  // Set of occupied cells (placed ships)
-  const occ = new Set<string>();
-  for (const s of fleet.ships) {
-    if (!s.placed || s.row === undefined || s.col === undefined || !s.orientation) continue;
-    for (const [r, c] of shipCells(s.row, s.col, s.size, s.orientation)) occ.add(`${r},${c}`);
-  }
+  const shipCellSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const sh of fleet.ships) {
+      if (!sh.placed || sh.row === undefined || sh.col === undefined || !sh.orientation) continue;
+      for (const [r, c] of shipCells(sh.row, sh.col, sh.size, sh.orientation)) s.add(`${r},${c}`);
+    }
+    return s;
+  }, [fleet.ships]);
+
   return (
     <div
-      className="mx-auto inline-grid overflow-hidden rounded-lg border-2 border-sky-800 bg-sky-950 shadow-lg"
-      style={{ gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))`, width: 'min(100%, 480px)' }}
+      className="relative mx-auto overflow-hidden rounded-lg border-2 border-sky-800 bg-sky-950 shadow-lg"
+      style={{ width: 'min(100%, 480px)' }}
     >
-      {Array.from({ length: SIZE }).map((_, r) =>
-        Array.from({ length: SIZE }).map((__, c) => {
-          const isOcc = occ.has(`${r},${c}`);
-          const isPreview = previewCells.has(`${r},${c}`);
-          return (
-            <button
-              key={`${r}-${c}`}
-              disabled={disabled}
-              onMouseEnter={() => onCellEnter(r, c)}
-              onMouseLeave={onCellLeave}
-              onClick={() => onCellClick(r, c)}
-              className={`aspect-square w-full border border-sky-900/40 transition ${
-                isOcc
-                  ? 'bg-neutral-500'
-                  : isPreview
+      <ShipOverlay ships={fleet.ships} shotsHidingShip={null} />
+      <div
+        className="relative grid"
+        style={{ gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))` }}
+      >
+        {Array.from({ length: SIZE }).map((_, r) =>
+          Array.from({ length: SIZE }).map((__, c) => {
+            const hasShip = shipCellSet.has(`${r},${c}`);
+            const isPreview = previewCells.has(`${r},${c}`);
+            return (
+              <button
+                key={`${r}-${c}`}
+                disabled={disabled}
+                onMouseEnter={() => onCellEnter(r, c)}
+                onMouseLeave={onCellLeave}
+                onClick={() => onCellClick(r, c)}
+                className={`relative aspect-square w-full border border-sky-900/40 transition ${
+                  isPreview
                     ? previewValid ? 'bg-emerald-500/40' : 'bg-red-500/40'
-                    : 'bg-sky-900/30 hover:bg-sky-800/40'
-              }`}
-            />
-          );
-        }),
-      )}
+                    : hasShip
+                      ? 'bg-transparent hover:bg-white/5'
+                      : 'bg-sky-900/30 hover:bg-sky-800/40'
+                }`}
+              />
+            );
+          }),
+        )}
+      </div>
     </div>
+  );
+}
+
+/**
+ * Renders all placed ships as SVG hulls positioned absolutely over the board.
+ * Lives BELOW the cell grid (no z-index needed — earlier in DOM) so that shot
+ * cells (opaque rose paint) cover the ship when it gets hit. Unshot ship cells
+ * are transparent in the grid, letting the SVG ship show through.
+ *
+ * `shotsHidingShip` is a 2D `ShotResult|null` array for the same fleet, used in
+ * the battle phase to mask hull segments that have been hit — we still want the
+ * fire/sink overlay (drawn by the cell button) to be the dominant signal.
+ */
+function ShipOverlay({
+  ships, shotsHidingShip,
+}: {
+  ships: BSState['fleets']['A']['ships'];
+  shotsHidingShip: (ShotResult | null)[][] | null;
+}) {
+  const placed = ships.filter(s => s.placed && s.row !== undefined && s.col !== undefined && s.orientation);
+  return (
+    <div className="pointer-events-none absolute inset-0">
+      {placed.map(s => {
+        // Skip rendering an SVG entirely if every cell of this ship is already
+        // shot — the cell paint covers it and the SVG would only smear edges.
+        if (shotsHidingShip) {
+          const allShot = shipCells(s.row!, s.col!, s.size, s.orientation!)
+            .every(([r, c]) => shotsHidingShip[r][c] !== null);
+          if (allShot) return null;
+        }
+        const isH = s.orientation === 'h';
+        const left = (s.col! / SIZE) * 100;
+        const top  = (s.row! / SIZE) * 100;
+        const width  = (isH ? s.size : 1) * (100 / SIZE);
+        const height = (isH ? 1 : s.size) * (100 / SIZE);
+        return (
+          <div
+            key={s.id}
+            className="absolute"
+            style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
+          >
+            <ShipSVG shipId={s.id} orientation={s.orientation!} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Top-down silhouette of a warship, scaled to fit its container exactly. Each
+ * ship class (Carrier / Battleship / Cruiser / Submarine / Destroyer) gets its
+ * own superstructure so the fleet reads at a glance: long flat deck w/ island
+ * for the Carrier, twin turrets for the Battleship, sleek hull + sail for the
+ * Submarine, etc.
+ */
+function ShipSVG({ shipId, orientation }: { shipId: number; orientation: Orientation }) {
+  const reactId = useId();
+  const size = SHIP_SIZES[shipId];
+  const isH = orientation === 'h';
+  const long = size * 10;
+  const short = 10;
+  const vb = isH ? `0 0 ${long} ${short}` : `0 0 ${short} ${long}`;
+  // Map (longPos, shortPos) → (x, y) coords.
+  const X = (lp: number, sp: number) => (isH ? lp : sp);
+  const Y = (lp: number, sp: number) => (isH ? sp : lp);
+  const xy = (lp: number, sp: number) => `${X(lp, sp)},${Y(lp, sp)}`;
+
+  // ----- Hull silhouettes -----
+  // Surface ship: bow pointed, stern flat.
+  const hullPath =
+    `M ${xy(0, 5)} ` +
+    `Q ${xy(0.3, 1.8)} ${xy(2, 1.5)} ` +
+    `L ${xy(long - 0.5, 1.5)} L ${xy(long, 2.4)} ` +
+    `L ${xy(long, 7.6)} L ${xy(long - 0.5, 8.5)} ` +
+    `L ${xy(2, 8.5)} Q ${xy(0.3, 8.2)} ${xy(0, 5)} Z`;
+  // Submarine: rounded both ends (cylindrical from above).
+  const subHullPath =
+    `M ${xy(0, 5)} ` +
+    `Q ${xy(0.5, 2.5)} ${xy(2, 2.5)} L ${xy(long - 2, 2.5)} ` +
+    `Q ${xy(long - 0.5, 2.5)} ${xy(long, 5)} ` +
+    `Q ${xy(long - 0.5, 7.5)} ${xy(long - 2, 7.5)} ` +
+    `L ${xy(2, 7.5)} Q ${xy(0.5, 7.5)} ${xy(0, 5)} Z`;
+  // Carrier: flat-edged rectangular deck (no pointed bow on the deck shape).
+  const carrierHullPath =
+    `M ${xy(0.5, 1.5)} L ${xy(long - 0.5, 1.5)} ` +
+    `Q ${xy(long, 1.5)} ${xy(long, 2.5)} ` +
+    `L ${xy(long, 7.5)} Q ${xy(long, 8.5)} ${xy(long - 0.5, 8.5)} ` +
+    `L ${xy(0.5, 8.5)} Q ${xy(0, 8.5)} ${xy(0, 7.5)} ` +
+    `L ${xy(0, 2.5)} Q ${xy(0, 1.5)} ${xy(0.5, 1.5)} Z`;
+
+  const usedHull = shipId === 0 ? carrierHullPath : shipId === 3 ? subHullPath : hullPath;
+
+  // ----- Helpers for orientation-aware shapes -----
+  const Rect = ({ lp, sp, lpW, spW, ...rest }: {
+    lp: number; sp: number; lpW: number; spW: number;
+  } & React.SVGProps<SVGRectElement>) => (
+    <rect
+      x={isH ? lp : sp}
+      y={isH ? sp : lp}
+      width={isH ? lpW : spW}
+      height={isH ? spW : lpW}
+      {...rest}
+    />
+  );
+  const Circle = ({ lp, sp, r, ...rest }: {
+    lp: number; sp: number; r: number;
+  } & React.SVGProps<SVGCircleElement>) => (
+    <circle cx={isH ? lp : sp} cy={isH ? sp : lp} r={r} {...rest} />
+  );
+
+  // ----- Superstructure per ship class -----
+  let supers: React.ReactNode = null;
+  switch (shipId) {
+    case 0: // Carrier — flat deck, offset island, helipad rings
+      supers = (
+        <>
+          {/* Deck stripe down the centerline */}
+          <path
+            d={`M ${xy(0.8, 5)} L ${xy(long - 0.8, 5)}`}
+            stroke="#d4d4d4" strokeWidth="0.3" strokeDasharray="1.2,0.6" opacity="0.6"
+          />
+          {/* Island superstructure offset to starboard, two-thirds aft */}
+          <Rect lp={long * 0.55} sp={7.3} lpW={long * 0.18} spW={1.7}
+                fill="#e5e7eb" stroke="#171717" strokeWidth="0.25" rx={0.3} />
+          {/* Smokestack on the island */}
+          <Circle lp={long * 0.62} sp={8.15} r={0.55} fill="#1f1f1f" />
+          {/* Helipad bullseyes */}
+          <Circle lp={long * 0.2} sp={4.5} r={1.3} fill="none" stroke="#e5e7eb" strokeWidth="0.25" />
+          <Circle lp={long * 0.2} sp={4.5} r={0.6} fill="none" stroke="#e5e7eb" strokeWidth="0.2" />
+          <Circle lp={long * 0.36} sp={4.5} r={1.1} fill="none" stroke="#e5e7eb" strokeWidth="0.2" />
+        </>
+      );
+      break;
+    case 1: // Battleship — large bridge, smokestack, twin turrets fore/aft
+      supers = (
+        <>
+          <Rect lp={long * 0.4} sp={3.4} lpW={long * 0.2} spW={3.2}
+                fill="#d4d4d4" stroke="#171717" strokeWidth="0.25" rx={0.3} />
+          {/* Smokestack */}
+          <Circle lp={long * 0.62} sp={5} r={1} fill="#171717" />
+          <Circle lp={long * 0.62} sp={5} r={0.5} fill="#525252" />
+          {/* Fore turret */}
+          <Circle lp={long * 0.18} sp={5} r={1.5} fill="#171717" stroke="#0a0a0a" strokeWidth="0.2" />
+          <Rect lp={long * 0.18 - 0.5} sp={4.6} lpW={long * 0.08} spW={0.8}
+                fill="#171717" />
+          {/* Aft turret */}
+          <Circle lp={long * 0.85} sp={5} r={1.4} fill="#171717" stroke="#0a0a0a" strokeWidth="0.2" />
+          <Rect lp={long * 0.85 + 0.4} sp={4.6} lpW={long * 0.06} spW={0.8}
+                fill="#171717" />
+        </>
+      );
+      break;
+    case 2: // Cruiser — bridge + single turret + smokestack
+      supers = (
+        <>
+          <Rect lp={long * 0.32} sp={3.5} lpW={long * 0.28} spW={3}
+                fill="#d4d4d4" stroke="#171717" strokeWidth="0.25" rx={0.3} />
+          <Circle lp={long * 0.65} sp={5} r={0.8} fill="#171717" />
+          <Circle lp={long * 0.15} sp={5} r={1.3} fill="#171717" stroke="#0a0a0a" strokeWidth="0.2" />
+          <Rect lp={long * 0.15 - 0.4} sp={4.65} lpW={long * 0.07} spW={0.7}
+                fill="#171717" />
+        </>
+      );
+      break;
+    case 3: // Submarine — conning tower (sail) + periscope
+      supers = (
+        <>
+          <Rect lp={long * 0.4} sp={3.6} lpW={long * 0.22} spW={2.8}
+                fill="#404040" stroke="#0a0a0a" strokeWidth="0.25" rx={0.8} />
+          {/* Periscope */}
+          <Circle lp={long * 0.51} sp={4.4} r={0.35} fill="#171717" />
+          <Rect lp={long * 0.5} sp={2.4} lpW={0.25} spW={1.4} fill="#171717" />
+        </>
+      );
+      break;
+    case 4: // Destroyer — small bridge + small aft gun
+    default:
+      supers = (
+        <>
+          <Rect lp={long * 0.32} sp={3.6} lpW={long * 0.36} spW={2.8}
+                fill="#d4d4d4" stroke="#171717" strokeWidth="0.25" rx={0.3} />
+          <Circle lp={long * 0.82} sp={5} r={0.9} fill="#171717" />
+          <Rect lp={long * 0.82 + 0.3} sp={4.7} lpW={long * 0.07} spW={0.6} fill="#171717" />
+        </>
+      );
+      break;
+  }
+
+  const gradId = `hullGrad-${reactId.replace(/:/g, '')}-${shipId}`;
+  return (
+    <svg viewBox={vb} className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={gradId}
+          x1={isH ? '0' : '0'} y1={isH ? '0' : '0'}
+          x2={isH ? '0' : '1'} y2={isH ? '1' : '0'}
+        >
+          <stop offset="0%"   stopColor="#1f1f1f" />
+          <stop offset="25%"  stopColor="#525252" />
+          <stop offset="50%"  stopColor="#a3a3a3" />
+          <stop offset="75%"  stopColor="#525252" />
+          <stop offset="100%" stopColor="#171717" />
+        </linearGradient>
+      </defs>
+      <path d={usedHull} fill={`url(#${gradId})`} stroke="#0a0a0a" strokeWidth="0.3" />
+      {supers}
+    </svg>
   );
 }
 
@@ -323,47 +539,58 @@ function FleetView({
   interactive: boolean;
   onCellClick?: (r: number, c: number) => void;
 }) {
-  // Map of (row,col) → owner ship id, so we can show our own ship outline.
-  const shipMap = new Map<string, number>();
-  for (const s of ships) {
-    if (!s.placed || s.row === undefined || s.col === undefined || !s.orientation) continue;
-    for (const [r, c] of shipCells(s.row, s.col, s.size, s.orientation)) shipMap.set(`${r},${c}`, s.id);
-  }
+  const shipCellSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of ships) {
+      if (!s.placed || s.row === undefined || s.col === undefined || !s.orientation) continue;
+      for (const [r, c] of shipCells(s.row, s.col, s.size, s.orientation)) set.add(`${r},${c}`);
+    }
+    return set;
+  }, [ships]);
+
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3">
       <div className="mb-2 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">{title}</div>
       <div
-        className="mx-auto inline-grid overflow-hidden rounded-md border-2 border-sky-800 bg-sky-950 shadow"
-        style={{ gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))`, width: 'min(100%, 360px)' }}
+        className="relative mx-auto overflow-hidden rounded-md border-2 border-sky-800 bg-sky-950 shadow"
+        style={{ width: 'min(100%, 360px)' }}
       >
-        {Array.from({ length: SIZE }).map((_, r) =>
-          Array.from({ length: SIZE }).map((__, c) => {
-            const shot = shots[r][c];
-            const hasShip = shipMap.has(`${r},${c}`);
-            const isLast = highlightLastShot && highlightLastShot.row === r && highlightLastShot.col === c;
-            return (
-              <button
-                key={`${r}-${c}`}
-                disabled={!interactive || shot !== null}
-                onClick={() => interactive && onCellClick?.(r, c)}
-                className={`group relative aspect-square w-full border border-sky-900/40 transition ${
-                  shot === 'miss' ? 'bg-sky-800/60'
-                  : shot === 'hit' ? 'bg-rose-700/80'
-                  : shot === 'sunk' ? 'bg-rose-900'
-                  : hasShip ? 'bg-neutral-500'
-                  : 'bg-sky-900/30'
-                } ${interactive && shot === null ? 'hover:bg-sky-700/40' : ''} ${
-                  isLast ? 'ring-2 ring-amber-300' : ''
-                }`}
-              >
-                {shot === 'miss' && <span className="pointer-events-none absolute inset-0 m-auto block h-1.5 w-1.5 rounded-full bg-white/70" />}
-                {(shot === 'hit' || shot === 'sunk') && (
-                  <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs">💥</span>
-                )}
-              </button>
-            );
-          }),
-        )}
+        {/* Ship hulls drawn beneath the cell grid. Shot cells are opaque, so the
+            ship "disappears" under fire/sink paint automatically. */}
+        <ShipOverlay ships={ships} shotsHidingShip={shots} />
+        <div
+          className="relative grid"
+          style={{ gridTemplateColumns: `repeat(${SIZE}, minmax(0, 1fr))` }}
+        >
+          {Array.from({ length: SIZE }).map((_, r) =>
+            Array.from({ length: SIZE }).map((__, c) => {
+              const shot = shots[r][c];
+              const hasShip = shipCellSet.has(`${r},${c}`);
+              const isLast = highlightLastShot && highlightLastShot.row === r && highlightLastShot.col === c;
+              return (
+                <button
+                  key={`${r}-${c}`}
+                  disabled={!interactive || shot !== null}
+                  onClick={() => interactive && onCellClick?.(r, c)}
+                  className={`group relative aspect-square w-full border border-sky-900/40 transition ${
+                    shot === 'miss' ? 'bg-sky-800/60'
+                    : shot === 'hit' ? 'bg-rose-700/80'
+                    : shot === 'sunk' ? 'bg-rose-900'
+                    : hasShip ? 'bg-transparent'
+                    : 'bg-sky-900/30'
+                  } ${interactive && shot === null ? 'hover:bg-sky-700/40' : ''} ${
+                    isLast ? 'ring-2 ring-amber-300' : ''
+                  }`}
+                >
+                  {shot === 'miss' && <span className="pointer-events-none absolute inset-0 m-auto block h-1.5 w-1.5 rounded-full bg-white/70" />}
+                  {(shot === 'hit' || shot === 'sunk') && (
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs">💥</span>
+                  )}
+                </button>
+              );
+            }),
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,11 @@
+/** Bump and add a registry `migrateState` whenever you change this state's shape. */
+export const STATE_VERSION = 1;
+
 export type C4Mark = 'R' | 'Y';
 export type C4Cell = C4Mark | null;
 export type C4State = {
+  /** Engine state version — see STATE_VERSION + registry.migrateState. */
+  version?: number;
   board: C4Cell[][];          // [row][col], 6 rows x 7 cols, row 0 = top
   turn: C4Mark;
   winner: C4Mark | 'draw' | null;
@@ -14,6 +19,7 @@ export const C4_COLS = 7;
 
 export function initialState(): C4State {
   return {
+    version: STATE_VERSION,
     board: Array.from({ length: C4_ROWS }, () => Array<C4Cell>(C4_COLS).fill(null)),
     turn: 'R',
     winner: null,
@@ -64,12 +70,13 @@ export function applyMove(state: C4State, col: number, playerId: string): C4Stat
   const allFull = board.every(r => r.every(c => c !== null));
   const winner: C4State['winner'] = win ? win.mark : allFull ? 'draw' : null;
 
+  // Spread state first so version (and any future top-level field) survives.
   return {
+    ...state,
     board,
     turn: state.turn === 'R' ? 'Y' : 'R',
     winner,
     winningLine: win ? win.line : null,
     lastMove: { r: row, c: col },
-    seats: state.seats,
   };
 }

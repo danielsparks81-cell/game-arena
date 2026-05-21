@@ -1,0 +1,222 @@
+'use client';
+
+// Central registry of per-game board renderers. Keeps the giant if/else out
+// of RoomClient and gives each game one self-contained place to define how
+// its board surfaces in the room.
+//
+// Every callback funnels through the single `gameMove(roomId, action)` server
+// action (registerGame Phase C), so adding a new game means: register the
+// board renderer here AND add the matching `action.kind` to GameAction in
+// actions.ts. No more importing 17 individual server actions per board.
+//
+// Board components are loaded LAZILY via next/dynamic. A player who's in a
+// Tic-Tac-Toe room never downloads Long Shot's 2400-line board or Boggle's
+// 178k-word dictionary. Critical for scaling the catalog past ~20 games.
+
+import type React from 'react';
+import dynamic from 'next/dynamic';
+import { unlockAudio as _unlockAudio } from '@/lib/sounds';
+
+// Lightweight placeholder shown while a board's chunk is downloading. Stays
+// minimal so the rest of the room UI (members panel, top bar) renders first.
+const BoardLoading = () => (
+  <div className="mx-auto flex h-64 max-w-md items-center justify-center text-sm text-neutral-500">
+    Loading board…
+  </div>
+);
+
+const TicTacToeBoard       = dynamic(() => import('@/components/TicTacToeBoard'),       { loading: BoardLoading, ssr: false });
+const ConnectFourBoard     = dynamic(() => import('@/components/ConnectFourBoard'),     { loading: BoardLoading, ssr: false });
+const CheckersBoard        = dynamic(() => import('@/components/CheckersBoard'),        { loading: BoardLoading, ssr: false });
+const BattleshipBoard      = dynamic(() => import('@/components/BattleshipBoard'),      { loading: BoardLoading, ssr: false });
+const BoggleBoard          = dynamic(() => import('@/components/BoggleBoard'),          { loading: BoardLoading, ssr: false });
+const LiarsDiceBoard       = dynamic(() => import('@/components/LiarsDiceBoard'),       { loading: BoardLoading, ssr: false });
+const YahtzeeBoard         = dynamic(() => import('@/components/YahtzeeBoard'),         { loading: BoardLoading, ssr: false });
+const LongShotBoard        = dynamic(() => import('@/components/LongShotBoard'),        { loading: BoardLoading, ssr: false });
+const LongShotPlaceholder  = dynamic(() => import('@/components/LongShotPlaceholder'),  { loading: BoardLoading, ssr: false });
+const RpsBoard             = dynamic(() => import('@/components/RpsBoard'),             { loading: BoardLoading, ssr: false });
+const SpellduelBoard       = dynamic(() => import('@/components/SpellduelBoard'),       { loading: BoardLoading, ssr: false });
+const LegendaryBoard       = dynamic(() => import('@/components/LegendaryBoard'),       { loading: BoardLoading, ssr: false });
+
+import type { TTTState } from './tictactoe';
+import type { C4State } from './connect4';
+import type { CheckersState } from './checkers';
+import type { BSState, BSPayload } from './battleship';
+import type { BoggleState, BoggleGameMode } from './boggle';
+import type { LDState } from './liarsdice';
+import type { YState, Category as YCategory } from './yahtzee';
+import type { LSState, ActionPayload } from './longshot';
+import type { RPSState, RPSChoice } from './rps';
+import type { SDState, ResolvedTarget as SDResolvedTarget } from './spellduel';
+import type { LegendaryState } from './legendary';
+
+import { gameMove } from '@/app/rooms/[id]/actions';
+
+/**
+ * Everything a board renderer needs from RoomClient. We pass the whole room
+ * because some games (Long Shot) toggle between waiting and playing UI based
+ * on the room status, not just the engine state.
+ */
+export type BoardRenderProps = {
+  roomId: string;
+  currentUserId: string;
+  isHost: boolean;
+  status: string;
+  state: unknown;
+  maxPlayers: number;
+  playerCount: number;
+  pending: boolean;
+  /** React 18+ startTransition — wraps server-action calls so the UI stays
+      responsive while the move is in flight. */
+  startTransition: (fn: () => void) => void;
+};
+
+type Renderer = (p: BoardRenderProps) => React.ReactNode;
+
+// Sound unlock + transition wrapper used by every "this is a move" callback.
+function unlockAndRun(
+  startTransition: (fn: () => void) => void,
+  fn: () => void,
+): void {
+  _unlockAudio();
+  startTransition(fn);
+}
+
+export const BOARD_RENDERERS: Record<string, Renderer> = {
+  tictactoe: ({ roomId, currentUserId, state, pending, status, startTransition }) => (
+    <TicTacToeBoard
+      state={state as TTTState}
+      currentUserId={currentUserId}
+      disabled={pending || status !== 'playing'}
+      onMove={(cell) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'tictactoe', kind: 'move', cell }); })}
+    />
+  ),
+
+  connect4: ({ roomId, currentUserId, state, pending, status, startTransition }) => (
+    <ConnectFourBoard
+      state={state as C4State}
+      currentUserId={currentUserId}
+      disabled={pending || status !== 'playing'}
+      onMove={(col) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'connect4', kind: 'move', col }); })}
+    />
+  ),
+
+  checkers: ({ roomId, currentUserId, state, pending, status, startTransition }) => (
+    <CheckersBoard
+      state={state as CheckersState}
+      currentUserId={currentUserId}
+      disabled={pending || status !== 'playing'}
+      onMove={(from, to) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'checkers', kind: 'move', from, to }); })}
+    />
+  ),
+
+  battleship: ({ roomId, currentUserId, state, pending, status, startTransition }) => (
+    <BattleshipBoard
+      state={state as BSState}
+      currentUserId={currentUserId}
+      // Setup phase is interactive even though status==='playing' only flips
+      // after both fleets are ready, so we keep enabled until finished.
+      disabled={pending || status === 'finished'}
+      onMove={(payload: BSPayload) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'battleship', kind: 'move', payload }); })}
+    />
+  ),
+
+  boggle: ({ roomId, currentUserId, isHost, state, pending, startTransition }) => (
+    <BoggleBoard
+      state={state as BoggleState}
+      currentUserId={currentUserId}
+      isHost={isHost}
+      disabled={pending}
+      onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'boggle', kind: 'startGame' }); })}
+      onSetMode={(mode: BoggleGameMode) => startTransition(() => { gameMove(roomId, { game: 'boggle', kind: 'setMode', mode }); })}
+      onNextRound={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'boggle', kind: 'nextRound' }); })}
+      onSubmitWord={(word: string) =>
+        // gameMove returns Promise<unknown>; the underlying submitWordBoggle
+        // resolves with the rich {ok, word} | {ok, error} shape BoggleBoard expects.
+        gameMove(roomId, { game: 'boggle', kind: 'submitWord', word }) as Promise<{ ok: true; word: string } | { ok: false; error: string }>
+      }
+      onFinalize={async () => { await gameMove(roomId, { game: 'boggle', kind: 'finalize' }); }}
+    />
+  ),
+
+  liarsdice: ({ roomId, currentUserId, isHost, state, pending, startTransition }) => (
+    <LiarsDiceBoard
+      state={state as LDState}
+      currentUserId={currentUserId}
+      isHost={isHost}
+      disabled={pending}
+      onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'liarsdice', kind: 'startGame' }); })}
+      onBid={(quantity: number, face: number) => startTransition(() => { gameMove(roomId, { game: 'liarsdice', kind: 'bid', quantity, face }); })}
+      onCallLiar={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'liarsdice', kind: 'callLiar' }); })}
+      onNextRound={() => startTransition(() => { gameMove(roomId, { game: 'liarsdice', kind: 'nextRound' }); })}
+    />
+  ),
+
+  yahtzee: ({ roomId, currentUserId, isHost, state, pending, startTransition }) => (
+    <YahtzeeBoard
+      state={state as YState}
+      currentUserId={currentUserId}
+      isHost={isHost}
+      disabled={pending}
+      onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'yahtzee', kind: 'startGame' }); })}
+      onRoll={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'yahtzee', kind: 'roll' }); })}
+      onToggleHold={(idx: number) => startTransition(() => { gameMove(roomId, { game: 'yahtzee', kind: 'toggleHold', idx }); })}
+      onScore={(category: YCategory) => startTransition(() => { gameMove(roomId, { game: 'yahtzee', kind: 'commitScore', category }); })}
+    />
+  ),
+
+  rps: ({ roomId, currentUserId, state, pending, status, startTransition }) => (
+    <RpsBoard
+      state={state as RPSState}
+      currentUserId={currentUserId}
+      disabled={pending || status === 'finished'}
+      onMove={(choice: RPSChoice) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'rps', kind: 'move', choice }); })}
+    />
+  ),
+
+  spellduel: ({ roomId, currentUserId, state, pending, status, startTransition }) => (
+    <SpellduelBoard
+      state={state as SDState}
+      currentUserId={currentUserId}
+      disabled={pending || status === 'finished'}
+      onPlay={(cardIdx, targets?: SDResolvedTarget[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'play', cardIdx, targets }); })}
+      onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'end_turn' }); })}
+    />
+  ),
+
+  legendary: ({ roomId, currentUserId, isHost, state, pending, startTransition }) => (
+    <LegendaryBoard
+      state={state as LegendaryState}
+      currentUserId={currentUserId}
+      isHost={isHost}
+      disabled={pending}
+      onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'startGame' }); })}
+      onPlay={(instanceId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'play_card', instanceId }); })}
+      onRecruit={(slot) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_hero', slot }); })}
+      onFightCity={(slot) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'fight_city', slot }); })}
+      onFightMastermind={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'fight_mastermind' }); })}
+      onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'end_turn' }); })}
+    />
+  ),
+
+  longshot: ({ roomId, currentUserId, isHost, state, pending, status, maxPlayers, playerCount, startTransition }) => (
+    status === 'waiting' ? (
+      <LongShotPlaceholder
+        status={status}
+        maxPlayers={maxPlayers}
+        playerCount={playerCount}
+        isHost={isHost}
+        pending={pending}
+        onStart={() => startTransition(() => { gameMove(roomId, { game: 'longshot', kind: 'startGame' }); })}
+      />
+    ) : (
+      <LongShotBoard
+        state={state as LSState}
+        currentUserId={currentUserId}
+        disabled={pending}
+        onRoll={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'longshot', kind: 'roll' }); })}
+        onAction={(payload: ActionPayload) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'longshot', kind: 'action', payload }); })}
+      />
+    )
+  ),
+};

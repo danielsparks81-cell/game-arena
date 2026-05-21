@@ -3,26 +3,19 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { GAMES } from '@/lib/games/registry';
-import type { TTTState } from '@/lib/games/tictactoe';
-import { type C4State, C4_COLS, C4_ROWS } from '@/lib/games/connect4';
-import { sounds, unlockAudio } from '@/lib/sounds';
+import { GAMES, displayName as gameDisplayName } from '@/lib/games/registry';
+import { sounds } from '@/lib/sounds';
 import MembersPanel from '@/components/MembersPanel';
-import LongShotBoard from '@/components/LongShotBoard';
-import CheckersBoard from '@/components/CheckersBoard';
-import BattleshipBoard from '@/components/BattleshipBoard';
-import BoggleBoard from '@/components/BoggleBoard';
-import type { LSState } from '@/lib/games/longshot';
-import type { CheckersState } from '@/lib/games/checkers';
-import type { BSState } from '@/lib/games/battleship';
-import type { BoggleState } from '@/lib/games/boggle';
-import {
-  joinRoom, leaveRoom, makeMoveTTT, makeMoveC4, makeMoveCheckers, makeMoveBattleship,
-  submitWordBoggle, finalizeBoggleIfExpired, setBoggleMode, startBoggleNextRound,
-  sendChat, proposeRematch, startGame, rollDiceLS, takeActionLS,
-} from './actions';
+import TopBar from '@/components/TopBar';
+import RoomTopBarActions from '@/components/RoomTopBarActions';
+import RematchToast from '@/components/RematchToast';
+import { BOARD_RENDERERS } from '@/lib/games/boards';
+import { getTurnInfo } from '@/lib/games/turnOrder';
+import { useTurnNotification } from '@/lib/useTurnNotification';
+import { safeAccent } from '@/lib/accentColors';
+import { fetchRoom, joinRoom, kickPlayer, sendChat } from './actions';
 
-type RoomPlayer = { player_id: string; seat: number; profiles: { username: string } | null };
+type RoomPlayer = { player_id: string; seat: number; profiles: { username: string; accent_color?: string | null } | null };
 type Room = {
   id: string;
   game_type: string;
@@ -31,22 +24,27 @@ type Room = {
   state: unknown;
   max_players: number;
   rematch_votes: string[];
+  abandon_votes: string[];
+  turn_started_at: string | null;
+  time_per_player: Record<string, number> | null;
   room_players: RoomPlayer[];
 };
 type ChatMsg = {
   id: number; body: string; created_at: string;
-  sender_id: string; profiles: { username: string } | null;
+  sender_id: string; profiles: { username: string; accent_color?: string | null } | null;
 };
 
-const ROOM_SELECT =
-  'id, game_type, status, host_id, state, max_players, rematch_votes, room_players(player_id, seat, profiles(username))';
+// ROOM_SELECT used to live here for the client-side refetch — moved into
+// fetchRoom (server action) along with the per-viewer state projection.
 
 export default function RoomClient({
-  roomId, currentUserId, currentUsername, initialRoom, initialMessages,
+  roomId, currentUserId, currentUsername, currentUserAccent, currentUserEmail, initialRoom, initialMessages,
 }: {
   roomId: string;
   currentUserId: string;
   currentUsername: string;
+  currentUserAccent?: string | null;
+  currentUserEmail: string | null;
   initialRoom: Room;
   initialMessages: ChatMsg[];
 }) {
@@ -68,14 +66,23 @@ export default function RoomClient({
   // Realtime subscriptions — broadcast is the primary channel, postgres_changes is a fallback.
   useEffect(() => {
     const refreshRoom = async () => {
-      const { data } = await supabase.from('rooms').select(ROOM_SELECT).eq('id', roomId).single();
-      if (data) setRoom(data as unknown as Room);
+      // Route through the server action so the private zones (opponent's hand,
+      // decks for games that hide them) get projected away before the row
+      // crosses the wire. A direct supabase.from('rooms')... here would leak
+      // raw state at the network layer.
+      try {
+        const data = await fetchRoom(roomId);
+        if (data) setRoom(data as Room);
+      } catch {
+        // Most likely cause: the room was deleted (e.g. stale-room sweep).
+        // Silently no-op; the postgres_changes fallback will sort us out.
+      }
     };
 
     const refreshMessages = async () => {
       const { data } = await supabase
         .from('chat_messages')
-        .select('id, body, created_at, sender_id, profiles(username)')
+        .select('id, body, created_at, sender_id, profiles(username, accent_color)')
         .eq('room_id', roomId)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -96,8 +103,8 @@ export default function RoomClient({
         async (payload) => {
           const m = payload.new as { id: number; body: string; created_at: string; sender_id: string };
           const { data: prof } = await supabase
-            .from('profiles').select('username').eq('id', m.sender_id).single();
-          setMessages(prev => prev.some(x => x.id === m.id) ? prev : [...prev, { ...m, profiles: prof ? { username: prof.username } : null }]);
+            .from('profiles').select('username, accent_color').eq('id', m.sender_id).single();
+          setMessages(prev => prev.some(x => x.id === m.id) ? prev : [...prev, { ...m, profiles: prof ? { username: prof.username, accent_color: prof.accent_color } : null }]);
         })
       .subscribe();
 
@@ -136,124 +143,86 @@ export default function RoomClient({
     prevStatusRef.current = room.status;
   }, [room.status, room.game_type]);
 
-  const gameName = GAMES[room.game_type]?.name ?? room.game_type;
+  const gameName = gameDisplayName(GAMES[room.game_type], room.game_type);
   const finished = room.status === 'finished';
+
+  // Ping the player when the turn cycles back to them (and the tab is in the
+  // background). No-op if they haven't granted browser-notification permission.
+  const activeIdNow = getTurnInfo(room.game_type, room.state).activeId;
+  useTurnNotification({
+    activeId: activeIdNow,
+    currentUserId,
+    gameName,
+    enabled: imSeated && room.status === 'playing',
+  });
+
   const iVoted = room.rematch_votes?.includes(currentUserId) ?? false;
   const otherSeated = room.room_players.filter(p => p.player_id !== currentUserId);
   const allOthersVoted = otherSeated.length > 0
     && otherSeated.every(p => room.rematch_votes?.includes(p.player_id));
   const unvotedOthers = otherSeated.filter(p => !room.rematch_votes?.includes(p.player_id));
 
+  // TopBar center actions are visible only mid-game to seated players. Resign is
+  // hidden in 3+ player games (use Propose Abandon there).
+  const showRoomActions = imSeated && room.status === 'playing';
+  const abandonVotes = (room.abandon_votes ?? []).length;
+  const iVotedAbandon = (room.abandon_votes ?? []).includes(currentUserId);
+
   return (
+    <div className="flex min-h-screen flex-col">
+      <TopBar
+        username={currentUsername || currentUserEmail || 'player'}
+        centerSlot={showRoomActions ? (
+          <RoomTopBarActions
+            roomId={roomId}
+            isTwoPlayerGame={room.max_players === 2}
+            abandonVotes={abandonVotes}
+            seatedCount={room.room_players.length}
+            iVoted={iVotedAbandon}
+          />
+        ) : undefined}
+      />
     <main className="mx-auto grid w-full max-w-[1800px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px]">
       <section>
-        {/* Hide the seats grid for Long Shot during play — the in-board Players strip
-            covers seated/turn info and the seats grid wastes vertical space. */}
-        {!(room.game_type === 'longshot' && room.status === 'playing') && (
-          <Seats room={room} currentUserId={currentUserId} />
-        )}
-
-        {room.game_type === 'tictactoe' && (
-          <TicTacToeBoard
-            state={room.state as TTTState}
-            currentUserId={currentUserId}
-            disabled={pending || room.status !== 'playing'}
-            onMove={(cell) => { unlockAudio(); startTransition(() => { makeMoveTTT(roomId, cell); }); }}
-          />
-        )}
-
-        {room.game_type === 'connect4' && (
-          <ConnectFourBoard
-            state={room.state as C4State}
-            currentUserId={currentUserId}
-            disabled={pending || room.status !== 'playing'}
-            onMove={(col) => { unlockAudio(); startTransition(() => { makeMoveC4(roomId, col); }); }}
-          />
-        )}
-
-        {room.game_type === 'checkers' && (
-          <CheckersBoard
-            state={room.state as CheckersState}
-            currentUserId={currentUserId}
-            disabled={pending || room.status !== 'playing'}
-            onMove={(from, to) => { unlockAudio(); startTransition(() => { makeMoveCheckers(roomId, from, to); }); }}
-          />
-        )}
-
-        {room.game_type === 'battleship' && (
-          <BattleshipBoard
-            state={room.state as BSState}
-            currentUserId={currentUserId}
-            disabled={pending || room.status === 'finished'}
-            onMove={(payload) => { unlockAudio(); startTransition(() => { makeMoveBattleship(roomId, payload); }); }}
-          />
-        )}
-
-        {room.game_type === 'boggle' && (
-          <BoggleBoard
-            state={room.state as BoggleState}
-            currentUserId={currentUserId}
-            isHost={room.host_id === currentUserId}
-            disabled={pending}
-            onStart={() => { unlockAudio(); startTransition(() => { startGame(roomId); }); }}
-            onSetMode={(mode) => startTransition(() => { setBoggleMode(roomId, mode); })}
-            onNextRound={() => { unlockAudio(); startTransition(() => { startBoggleNextRound(roomId); }); }}
-            onSubmitWord={(word) => submitWordBoggle(roomId, word)}
-            onFinalize={() => finalizeBoggleIfExpired(roomId)}
-          />
-        )}
-
-        {room.game_type === 'longshot' && room.status === 'waiting' && (
-          <LongShotPlaceholder
+        {/* Shared frame — every game board renders inside this so the template
+            size is consistent across PC / tablet / phone. Cap matches Long
+            Shot's natural max so it doesn't shrink; smaller games (TTT, C4,
+            Checkers, Battleship) just center within it at their own sizes. */}
+        <div className="mx-auto w-full max-w-[1440px]">
+        {/* Seats grid is only useful while waiting for players to fill the lobby.
+            Once the game starts, MembersPanel's "In game" section on the right
+            owns the turn-order display, so showing the seats too is redundant.
+            Applies to every game; new games inherit this for free. */}
+        {room.status === 'waiting' && (
+          <Seats
             room={room}
             currentUserId={currentUserId}
-            pending={pending}
-            onStart={() => startTransition(() => { startGame(roomId); })}
+            onKick={room.host_id === currentUserId
+              ? (pid) => startTransition(() => { kickPlayer(roomId, pid); })
+              : undefined}
           />
         )}
 
-        {room.game_type === 'longshot' && room.status !== 'waiting' && (
-          <LongShotBoard
-            state={room.state as LSState}
-            currentUserId={currentUserId}
-            disabled={pending}
-            onRoll={() => { unlockAudio(); startTransition(() => { rollDiceLS(roomId); }); }}
-            onAction={(payload) => { unlockAudio(); startTransition(() => { takeActionLS(roomId, payload); }); }}
-          />
-        )}
+        {/* All per-game board rendering happens via the BOARD_RENDERERS map
+            in src/lib/games/boards.tsx — adding a new game means adding one
+            entry there, not patching this file. */}
+        {BOARD_RENDERERS[room.game_type]?.({
+          roomId,
+          currentUserId,
+          isHost: room.host_id === currentUserId,
+          status: room.status,
+          state: room.state,
+          maxPlayers: room.max_players,
+          playerCount: room.room_players.length,
+          pending,
+          startTransition,
+        })}
 
-        {finished && imSeated && (
-          <div className="mt-6 flex flex-col items-center gap-2 rounded-xl border border-emerald-900/40 bg-emerald-500/5 p-5">
-            <p className="text-sm text-neutral-300">Rematch? Both players need to agree.</p>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => startTransition(() => { proposeRematch(roomId); })}
-                disabled={pending || iVoted}
-                className="rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
-              >
-                {iVoted ? '✓ You voted' : 'Rematch'}
-              </button>
-              <span className="text-sm text-neutral-400">
-                {otherSeated.length === 0
-                  ? 'No opponents in room'
-                  : allOthersVoted
-                    ? 'All players ready ✓'
-                    : `Waiting on: ${unvotedOthers.map(p => p.profiles?.username ?? 'opponent').join(', ')}…`}
-              </span>
-            </div>
-          </div>
-        )}
+        {/* Rematch now surfaces as a floating top-of-screen toast (mirrors the
+            invite-toast pattern) instead of an inline panel under the board.
+            Rendered once at the bottom of this component so it overlays everything. */}
 
-        {imSeated && !finished && (
-          <div className="mt-6">
-            <button
-              onClick={() => startTransition(() => { leaveRoom(roomId); })}
-              className="rounded-md border border-red-900 px-3 py-1.5 text-sm text-red-400 hover:bg-red-900/20"
-            >
-              Leave room
-            </button>
-          </div>
-        )}
+        </div>
       </section>
 
       <div className="space-y-4">
@@ -264,12 +233,6 @@ export default function RoomClient({
           <p className="mt-0.5 text-xs text-neutral-400">
             Room <code className="text-neutral-300">{roomId.slice(0, 8)}</code> · {room.status}
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <ShareButton roomId={roomId} />
-            <Link href="/lobby" className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-900">
-              ← Lobby
-            </Link>
-          </div>
         </div>
 
         <MembersPanel
@@ -281,20 +244,48 @@ export default function RoomClient({
             status: room.status,
             openSeats: Math.max(0, room.max_players - room.room_players.length),
           }}
-          className="lg:max-h-[320px] lg:overflow-y-auto"
+          currentUserAccent={currentUserAccent}
+          currentGame={(() => {
+            const { orderedIds, activeId } = getTurnInfo(room.game_type, room.state);
+            const usernamesById: Record<string, string> = {};
+            const accentsById: Record<string, string | null | undefined> = {};
+            for (const rp of room.room_players) {
+              if (rp.profiles?.username) usernamesById[rp.player_id] = rp.profiles.username;
+              accentsById[rp.player_id] = rp.profiles?.accent_color ?? null;
+            }
+            return {
+              orderedIds,
+              activeId,
+              usernamesById,
+              accentsById,
+              // Active player's turn started here. Used for the 60-second countdown
+              // shown next to the hourglass. Null while waiting / finished.
+              turnStartedAt: room.status === 'playing' ? room.turn_started_at : null,
+              // Cumulative ms per player UUID across the whole game so far,
+              // auto-maintained by a DB trigger on every state change.
+              timePerPlayerMs: room.time_per_player ?? {},
+            };
+          })()}
+          className="lg:max-h-[360px] lg:overflow-y-auto"
         />
-      <aside className="flex h-80 flex-col rounded-xl border border-neutral-800 bg-neutral-900 lg:h-[480px]">
+      <aside className="flex h-80 flex-col rounded-xl border border-neutral-800 bg-neutral-900 lg:h-[340px]">
         <div className="border-b border-neutral-800 px-4 py-2 text-sm font-medium">Chat</div>
         <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3 text-sm">
           {messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
-          {messages.map(m => (
-            <div key={m.id}>
-              <span className={`font-medium ${m.sender_id === currentUserId ? 'text-emerald-400' : 'text-sky-400'}`}>
-                {m.profiles?.username || '???'}:
-              </span>{' '}
-              <span className="text-neutral-200">{m.body}</span>
-            </div>
-          ))}
+          {messages.map(m => {
+            const accent = safeAccent(
+              m.profiles?.accent_color
+                ?? (m.sender_id === currentUserId ? currentUserAccent : null),
+            );
+            return (
+              <div key={m.id}>
+                <span className="font-medium" style={{ color: accent }}>
+                  {m.profiles?.username || '???'}:
+                </span>{' '}
+                <span className="text-neutral-200">{m.body}</span>
+              </div>
+            );
+          })}
         </div>
         <form
           className="flex gap-2 border-t border-neutral-800 p-2"
@@ -320,6 +311,20 @@ export default function RoomClient({
       </aside>
       </div>
     </main>
+    <RematchToast
+      roomId={roomId}
+      finished={finished}
+      imSeated={imSeated}
+      iVoted={iVoted}
+      voteTally={(room.rematch_votes ?? []).filter(id =>
+        room.room_players.some(p => p.player_id === id)
+      ).length}
+      totalSeated={room.room_players.length}
+      otherSeated={otherSeated.map(p => ({ player_id: p.player_id, profiles: p.profiles }))}
+      unvotedOthers={unvotedOthers.map(p => ({ player_id: p.player_id, profiles: p.profiles }))}
+      allOthersVoted={allOthersVoted}
+    />
+    </div>
   );
 }
 
@@ -340,7 +345,16 @@ const SEAT_LABELS: Record<string, string[]> = {
   connect4:  ['Red', 'Yellow'],
 };
 
-function Seats({ room, currentUserId }: { room: Room; currentUserId: string }) {
+function Seats({
+  room, currentUserId, onKick,
+}: {
+  room: Room;
+  currentUserId: string;
+  /** Provided only when the viewer is the host. Renders a small × button on
+      every occupied non-self seat. Host can boot AFK or unwanted joiners
+      before the game starts. */
+  onKick?: (playerId: string) => void;
+}) {
   const labels = SEAT_LABELS[room.game_type];
   const seated = [...room.room_players].sort((a, b) => a.seat - b.seat);
   const slots = Array.from({ length: room.max_players }, (_, i) => seated.find(p => p.seat === i));
@@ -350,221 +364,37 @@ function Seats({ room, currentUserId }: { room: Room; currentUserId: string }) {
     : 'flex gap-2';
   return (
     <div className={`mb-4 ${grid}`}>
-      {slots.map((p, i) => (
-        <div key={i} className={`rounded-lg border px-3 py-2 text-sm ${room.max_players <= 2 ? 'flex-1' : ''} ${
-          p ? 'border-neutral-700 bg-neutral-900' : 'border-dashed border-neutral-800 text-neutral-500'
-        }`}>
-          <div className="text-xs text-neutral-500">
-            Seat {i + 1}{labels?.[i] ? ` (${labels[i]})` : ''}
-          </div>
-          <div className={`truncate ${p?.player_id === currentUserId ? 'font-semibold text-emerald-400' : ''}`}>
-            {p?.profiles?.username || 'Waiting…'}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TicTacToeBoard({
-  state, currentUserId, disabled, onMove,
-}: {
-  state: TTTState; currentUserId: string; disabled: boolean; onMove: (i: number) => void;
-}) {
-  const yourMark = state.seats.X === currentUserId ? 'X' : state.seats.O === currentUserId ? 'O' : null;
-  const yourTurn = yourMark && state.turn === yourMark && !state.winner;
-  const winning = new Set(state.winningLine ?? []);
-
-  const statusText = state.winner
-    ? state.winner === 'draw' ? 'Draw!' : `${state.winner} wins! 🎉`
-    : yourMark
-      ? (yourTurn ? `Your turn (${yourMark})` : `Waiting on ${state.turn}…`)
-      : `Spectating · ${state.turn}'s turn`;
-
-  return (
-    <div>
-      <div className="mb-3 text-center text-sm text-neutral-400">{statusText}</div>
-      <div className="mx-auto grid w-72 grid-cols-3 gap-2 sm:w-96">
-        {state.board.map((cell, i) => {
-          const isWin = winning.has(i);
-          return (
-            <button
-              key={i}
-              disabled={disabled || !yourTurn || cell !== null}
-              onClick={() => onMove(i)}
-              className={`group flex aspect-square items-center justify-center rounded-xl border p-4 shadow-inner transition ${
-                isWin
-                  ? 'border-emerald-400 bg-emerald-500/10 animate-win-pulse'
-                  : 'border-neutral-800 bg-gradient-to-br from-neutral-900 to-neutral-950 hover:border-emerald-500 hover:from-neutral-800 disabled:hover:border-neutral-800 disabled:hover:from-neutral-900'
-              }`}
-            >
-              {cell === 'X' && (
-                <svg key={`X-${i}`} viewBox="0 0 24 24" className="h-full w-full text-emerald-400 animate-piece-in">
-                  <line x1="5"  y1="5"  x2="19" y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                  <line x1="19" y1="5"  x2="5"  y2="19" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                </svg>
-              )}
-              {cell === 'O' && (
-                <svg key={`O-${i}`} viewBox="0 0 24 24" className="h-full w-full text-sky-400 animate-piece-in">
-                  <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="3" fill="none" />
-                </svg>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function ConnectFourBoard({
-  state, currentUserId, disabled, onMove,
-}: {
-  state: C4State; currentUserId: string; disabled: boolean; onMove: (col: number) => void;
-}) {
-  const yourMark = state.seats.R === currentUserId ? 'R' : state.seats.Y === currentUserId ? 'Y' : null;
-  const yourTurn = yourMark && state.turn === yourMark && !state.winner;
-
-  const isWinning = (r: number, c: number) =>
-    !!state.winningLine?.some(cell => cell.r === r && cell.c === c);
-
-  const colFull = (col: number) => state.board[0][col] !== null;
-
-  const statusText = state.winner
-    ? state.winner === 'draw'
-      ? 'Draw!'
-      : `${state.winner === 'R' ? 'Red' : 'Yellow'} wins! 🎉`
-    : yourMark
-      ? (yourTurn
-          ? `Your turn (${yourMark === 'R' ? 'Red' : 'Yellow'})`
-          : `Waiting on ${state.turn === 'R' ? 'Red' : 'Yellow'}…`)
-      : `Spectating · ${state.turn === 'R' ? 'Red' : 'Yellow'}'s turn`;
-
-  return (
-    <div>
-      <div className="mb-3 text-center text-sm text-neutral-400">{statusText}</div>
-
-      <div className="mx-auto w-fit rounded-xl bg-gradient-to-b from-blue-700 to-blue-900 p-3 shadow-2xl">
-        {/* Drop buttons */}
-        <div
-          className="mb-1 grid gap-1"
-          style={{ gridTemplateColumns: `repeat(${C4_COLS}, minmax(0, 1fr))` }}
-        >
-          {Array.from({ length: C4_COLS }, (_, c) => (
-            <button
-              key={c}
-              disabled={disabled || !yourTurn || colFull(c)}
-              onClick={() => onMove(c)}
-              aria-label={`Drop in column ${c + 1}`}
-              className="h-6 rounded text-xs text-blue-200 transition hover:bg-blue-800 disabled:opacity-30 disabled:hover:bg-transparent"
-            >
-              ▼
-            </button>
-          ))}
-        </div>
-
-        {/* Board */}
-        <div
-          className="grid gap-1"
-          style={{ gridTemplateColumns: `repeat(${C4_COLS}, minmax(0, 1fr))` }}
-        >
-          {Array.from({ length: C4_ROWS * C4_COLS }, (_, idx) => {
-            const r = Math.floor(idx / C4_COLS);
-            const c = idx % C4_COLS;
-            const cell = state.board[r][c];
-            const winning = isWinning(r, c);
-            const isLastMove = state.lastMove && state.lastMove.r === r && state.lastMove.c === c;
-            return (
+      {slots.map((p, i) => {
+        const canKick = !!onKick && !!p && p.player_id !== currentUserId;
+        return (
+          <div key={i} className={`relative rounded-lg border px-3 py-2 text-sm ${room.max_players <= 2 ? 'flex-1' : ''} ${
+            p ? 'border-neutral-700 bg-neutral-900' : 'border-dashed border-neutral-800 text-neutral-500'
+          }`}>
+            <div className="text-xs text-neutral-500">
+              Seat {i + 1}{labels?.[i] ? ` (${labels[i]})` : ''}
+            </div>
+            <div className={`truncate ${p?.player_id === currentUserId ? 'font-semibold text-emerald-400' : ''}`}>
+              {p?.profiles?.username || 'Waiting…'}
+            </div>
+            {canKick && (
               <button
-                key={idx}
-                disabled={disabled || !yourTurn || colFull(c)}
-                onClick={() => onMove(c)}
-                className="aspect-square w-9 rounded-full bg-blue-950 shadow-inner transition sm:w-12 disabled:cursor-default"
+                type="button"
+                onClick={() => {
+                  if (confirm(`Kick ${p!.profiles?.username ?? 'this player'} from the room?`)) {
+                    onKick!(p!.player_id);
+                  }
+                }}
+                title="Kick this player (host only — pre-game only)"
+                aria-label={`Kick ${p!.profiles?.username ?? 'player'}`}
+                className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full border border-rose-700/40 bg-neutral-950 text-xs text-rose-300 transition hover:border-rose-500 hover:bg-rose-500/20"
               >
-                {cell ? (
-                  <span
-                    key={`${cell}-${r}-${c}`}
-                    className={`block h-full w-full rounded-full transition ${
-                      cell === 'R'
-                        ? 'bg-gradient-to-br from-red-400 to-red-600 shadow-lg shadow-red-900/40'
-                        : 'bg-gradient-to-br from-yellow-300 to-yellow-500 shadow-lg shadow-yellow-900/40'
-                    } ${winning ? 'ring-4 ring-emerald-400 animate-win-pulse' : ''} ${isLastMove ? 'animate-drop-in' : ''}`}
-                    style={isLastMove ? ({ ['--drop-from' as string]: `-${(r + 1) * 100}%` } as React.CSSProperties) : undefined}
-                  />
-                ) : (
-                  <span className="block h-full w-full rounded-full bg-neutral-900/80" />
-                )}
+                ×
               </button>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function LongShotPlaceholder({
-  room, currentUserId, pending, onStart,
-}: {
-  room: Room;
-  currentUserId: string;
-  pending: boolean;
-  onStart: () => void;
-}) {
-  const isHost = room.host_id === currentUserId;
-  const playerCount = room.room_players.length;
-  const canStart = isHost && room.status === 'waiting' && playerCount >= 2;
-
-  return (
-    <div className="space-y-4 rounded-xl border border-neutral-800 bg-neutral-900 p-5">
-      {room.status === 'waiting' ? (
-        <>
-          <div>
-            <h3 className="text-lg font-semibold">Waiting for players</h3>
-            <p className="mt-1 text-sm text-neutral-400">
-              Up to {room.max_players} players. Share the room link or invite friends from the panel.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {canStart ? (
-              <button
-                onClick={onStart}
-                disabled={pending}
-                className="rounded-md bg-emerald-500 px-4 py-2 font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
-              >
-                Start race ({playerCount} {playerCount === 1 ? 'player' : 'players'})
-              </button>
-            ) : isHost ? (
-              <span className="text-sm text-neutral-500">Need at least 2 seated players to start.</span>
-            ) : (
-              <span className="text-sm text-neutral-500">Waiting for the host to start the race…</span>
             )}
           </div>
-        </>
-      ) : (
-        <div className="rounded-lg border border-dashed border-neutral-700 p-6 text-center">
-          <h3 className="text-lg font-semibold">🏇 Race in progress</h3>
-          <p className="mt-2 text-sm text-neutral-400">
-            The Long Shot race UI ships in the next deploy. Game state is being tracked in the background.
-          </p>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
 
-function ShareButton({ roomId }: { roomId: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={async () => {
-        await navigator.clipboard.writeText(`${window.location.origin}/rooms/${roomId}`);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-      className="rounded-md border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-900"
-    >
-      {copied ? 'Link copied!' : 'Copy invite link'}
-    </button>
-  );
-}

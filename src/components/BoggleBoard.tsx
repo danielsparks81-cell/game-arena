@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import {
   BOARD_SIZE, MIN_WORD_LEN, pointsFor, msRemaining,
   GAME_MODE_LABELS, aggregateTotals,
   type BoggleState, type BoggleGameMode,
 } from '@/lib/games/boggle';
+import { safeAccent } from '@/lib/accentColors';
 
 export default function BoggleBoard({
   state, currentUserId, isHost, disabled, onSubmitWord, onStart, onSetMode, onNextRound, onFinalize,
@@ -231,16 +232,38 @@ function TraceBoard({
   const [tracing, setTracing] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const [pending, startTransition] = useTransition();
+  /** Visual rotation of the whole board (degrees, multiple of 90°). Lets players sitting
+   *  at different angles around a shared screen orient the board to their viewpoint. */
+  const [rotation, setRotation] = useState(0);
+  /** Counter that bumps on every rejected submission; gates a 2-second input lockout +
+   *  red board tint so a player can't immediately retry a misfire. */
+  const [errorTick, setErrorTick] = useState(0);
+  const [errorCooldown, setErrorCooldown] = useState(false);
   const boardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (errorTick === 0) return;
+    setErrorCooldown(true);
+    const id = window.setTimeout(() => setErrorCooldown(false), 2000);
+    return () => window.clearTimeout(id);
+  }, [errorTick]);
 
   const currentWord = path.map(i => board[i]).join('');
 
   // Find which cell a screen point falls into. Uses elementFromPoint and our data-cell-idx attr.
+  // The outer 20% rim of each cell is a dead zone — the pointer must be in the central 60%
+  // before we register it. This stops a diagonal drag from accidentally latching onto an
+  // orthogonal neighbor whose corner the pointer brushes through.
   const cellAtPoint = useCallback((x: number, y: number): number | null => {
     const el = document.elementFromPoint(x, y);
     if (!el) return null;
     const cell = (el as Element).closest('[data-cell-idx]');
     if (!cell) return null;
+    const rect = (cell as HTMLElement).getBoundingClientRect();
+    const px = (x - rect.left) / rect.width;
+    const py = (y - rect.top) / rect.height;
+    const margin = 0.2;
+    if (px < margin || px > 1 - margin || py < margin || py > 1 - margin) return null;
     const idx = (cell as HTMLElement).dataset.cellIdx;
     return idx !== undefined ? Number(idx) : null;
   }, []);
@@ -263,6 +286,7 @@ function TraceBoard({
 
   // ---- Pointer handlers ----
   const onPointerDown = (e: React.PointerEvent, idx: number) => {
+    if (errorCooldown) return; // lockout after a rejected submission
     e.preventDefault();
     setTracing(true);
     setPath([idx]);
@@ -286,11 +310,13 @@ function TraceBoard({
 
     if (word.length < MIN_WORD_LEN) {
       setFeedback({ kind: 'err', msg: `Word too short (${word.length}/${MIN_WORD_LEN})` });
+      setErrorTick(t => t + 1);
       clear();
       return;
     }
     if (alreadyFound.includes(word)) {
       setFeedback({ kind: 'err', msg: 'Already found' });
+      setErrorTick(t => t + 1);
       clear();
       return;
     }
@@ -300,6 +326,7 @@ function TraceBoard({
         setFeedback({ kind: 'ok', msg: `+${pointsFor(res.word)} ${res.word}` });
       } else {
         setFeedback({ kind: 'err', msg: res.error });
+        setErrorTick(t => t + 1);
       }
       clear();
     });
@@ -333,18 +360,22 @@ function TraceBoard({
         )}
       </div>
 
-      {/* Interactive board */}
-      <div
-        ref={boardRef}
-        onPointerMove={onPointerMove}
-        className="mx-auto inline-grid select-none overflow-hidden rounded-xl border-2 border-amber-800 bg-amber-950/40 p-2 shadow-lg"
-        style={{
-          gridTemplateColumns: `repeat(${BOARD_SIZE}, minmax(0, 1fr))`,
-          width: 'min(100%, 380px)',
-          gap: '6px',
-          touchAction: 'none',
-        }}
-      >
+      {/* Interactive board — centered horizontally + rotated by the player's perspective. */}
+      <div className="flex flex-col items-center gap-2">
+        <div
+          ref={boardRef}
+          onPointerMove={onPointerMove}
+          className={`grid select-none overflow-hidden rounded-xl border-2 p-2 shadow-lg transition-all duration-300 ${
+            errorCooldown ? 'border-rose-500 bg-rose-950/60 ring-2 ring-rose-500/40' : 'border-amber-800 bg-amber-950/40'
+          }`}
+          style={{
+            gridTemplateColumns: `repeat(${BOARD_SIZE}, minmax(0, 1fr))`,
+            width: 'min(100%, 380px)',
+            gap: '6px',
+            touchAction: 'none',
+            transform: `rotate(${rotation}deg)`,
+          }}
+        >
         {board.map((letter, i) => {
           const active = path.includes(i);
           const pathPos = path.indexOf(i);
@@ -364,15 +395,30 @@ function TraceBoard({
                   : 'bg-amber-100 text-amber-900 shadow hover:bg-amber-200'
               } ${pending ? 'opacity-50' : ''}`}
             >
-              <LetterFace letter={letter} />
-              {active && (
-                <span className="absolute right-0.5 top-0.5 rounded bg-emerald-900/70 px-1 text-[9px] font-bold text-white">
-                  {pathPos + 1}
-                </span>
-              )}
+              {/* Counter-rotate cell content so letters stay upright as the grid rotates. */}
+              <div
+                className="flex h-full w-full items-center justify-center transition-transform duration-300"
+                style={{ transform: `rotate(${-rotation}deg)` }}
+              >
+                <LetterFace letter={letter} />
+                {active && (
+                  <span className="absolute right-0.5 top-0.5 rounded bg-emerald-900/70 px-1 text-[9px] font-bold text-white">
+                    {pathPos + 1}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}
+        </div>
+        <button
+          type="button"
+          onClick={() => setRotation(r => r + 90)}
+          title="Rotate board 90°"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900 text-lg text-neutral-300 transition hover:rotate-90 hover:border-emerald-500 hover:text-emerald-300"
+        >
+          ↻
+        </button>
       </div>
     </div>
   );
@@ -402,49 +448,138 @@ function FoundList({ words }: { words: string[] }) {
   );
 }
 
-function RoundScoresBlock({ scores, me, medals = false }: {
+function RoundScoresBlock({ scores, me, medals = false, animated = false, accentByPlayerId }: {
   scores: { playerId: string; username: string; breakdown: { word: string; points: number; duplicate: boolean }[]; total: number }[];
   me: string | null;
   medals?: boolean;
+  /** When true, words reveal one at a time, interleaved across players by length, with
+   *  duplicates getting crossed out (and totals adjusted) at the moment they're discovered. */
+  animated?: boolean;
+  /** Optional map of playerId → accent color for coloring usernames in the header. */
+  accentByPlayerId?: Record<string, string | undefined>;
 }) {
-  const ranked = [...scores].sort((a, b) => b.total - a.total);
+  const ranked = useMemo(() => [...scores].sort((a, b) => b.total - a.total), [scores]);
   const medalEmoji = ['🥇', '🥈', '🥉'];
+
+  // Build the global reveal sequence: for each word length 3..8+, iterate every player
+  // and emit each of their words of that length. This gives the dramatic "all 3-letter
+  // words first, player 1 then player 2, then all 4-letter words, etc." order.
+  const sequence = useMemo(() => {
+    type Item = { playerIdx: number; word: string; rawPoints: number; len: number };
+    const items: Item[] = [];
+    const lengths = new Set<number>();
+    for (const r of ranked) for (const b of r.breakdown) lengths.add(b.word.length);
+    const sortedLens = [...lengths].sort((a, b) => a - b);
+    for (const len of sortedLens) {
+      for (let p = 0; p < ranked.length; p++) {
+        const words = ranked[p].breakdown
+          .filter(b => b.word.length === len)
+          .sort((a, b) => a.word.localeCompare(b.word));
+        for (const w of words) {
+          items.push({ playerIdx: p, word: w.word, rawPoints: pointsFor(w.word), len });
+        }
+      }
+    }
+    return items;
+  }, [ranked]);
+
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    if (!animated) { setStep(sequence.length); return; }
+    // (Re)start the reveal whenever the sequence's identity changes (new round).
+    setStep(0);
+    let n = 0;
+    const id = window.setInterval(() => {
+      n += 1;
+      setStep(n);
+      if (n >= sequence.length) window.clearInterval(id);
+    }, 2600);
+    return () => window.clearInterval(id);
+  }, [animated, sequence]);
+
+  // Compute each player's revealed words + duplicate flags + running total at this step.
+  const view = useMemo(() => {
+    const revealedPerPlayer: { word: string; rawPoints: number; len: number }[][] = ranked.map(() => []);
+    for (let i = 0; i < Math.min(step, sequence.length); i++) {
+      const it = sequence[i];
+      revealedPerPlayer[it.playerIdx].push({ word: it.word, rawPoints: it.rawPoints, len: it.len });
+    }
+    // Lookup: word → set of playerIdxs that have revealed it
+    const wordOwners = new Map<string, Set<number>>();
+    revealedPerPlayer.forEach((words, p) => {
+      for (const w of words) {
+        if (!wordOwners.has(w.word)) wordOwners.set(w.word, new Set());
+        wordOwners.get(w.word)!.add(p);
+      }
+    });
+    return revealedPerPlayer.map((words, p) => {
+      const flagged = words.map(w => ({ ...w, duplicate: (wordOwners.get(w.word)?.size ?? 0) > 1 }));
+      const total = flagged.reduce((sum, w) => sum + (w.duplicate ? 0 : w.rawPoints), 0);
+      // Group by length for sectioned display
+      const byLen = new Map<number, typeof flagged>();
+      for (const w of flagged) {
+        if (!byLen.has(w.len)) byLen.set(w.len, []);
+        byLen.get(w.len)!.push(w);
+      }
+      return { player: ranked[p], words: flagged, byLen, total };
+    });
+  }, [ranked, sequence, step]);
+
+  const lastRevealed = step > 0 && step <= sequence.length ? sequence[step - 1] : null;
+
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {ranked.map((r, idx) => (
+      {view.map((v, idx) => (
         <div
-          key={r.playerId}
+          key={v.player.playerId}
           className={`rounded-md border p-3 text-sm ${
-            r.playerId === me
+            v.player.playerId === me
               ? 'border-emerald-500/50 bg-emerald-500/5'
               : 'border-neutral-800 bg-neutral-900'
           }`}
         >
-          <div className="mb-2 flex items-baseline justify-between">
-            <span className="font-medium">
+          {/* Header: name + score directly under it */}
+          <div className="mb-3 text-center">
+            <div className="font-medium">
               {medals && <span className="mr-1">{medalEmoji[idx] ?? ''}</span>}
-              {r.username}
-            </span>
-            <span className="font-mono text-lg font-bold text-amber-400">{r.total}</span>
+              <span style={{ color: safeAccent(accentByPlayerId?.[v.player.playerId]) }}>
+                {v.player.username}
+              </span>
+            </div>
+            <div className="font-mono text-2xl font-bold text-amber-400">{v.total}</div>
           </div>
-          {r.breakdown.length === 0 ? (
+          {v.player.breakdown.length === 0 ? (
             <p className="text-xs text-neutral-500">No words submitted.</p>
+          ) : v.words.length === 0 ? (
+            <p className="text-xs text-neutral-600">…</p>
           ) : (
-            <ul className="flex flex-wrap gap-1.5">
-              {[...r.breakdown].sort((a, b) => b.word.length - a.word.length || a.word.localeCompare(b.word)).map(b => (
-                <li
-                  key={b.word}
-                  className={`rounded px-2 py-0.5 font-mono text-xs ${
-                    b.duplicate
-                      ? 'bg-neutral-800 text-neutral-500 line-through'
-                      : 'bg-emerald-500/10 text-emerald-300'
-                  }`}
-                  title={b.duplicate ? 'Cancelled — another player also found it' : `+${b.points}`}
-                >
-                  {b.word} <span className="text-neutral-500">·{b.points}</span>
-                </li>
+            <div className="space-y-2">
+              {[...v.byLen.entries()].sort((a, b) => a[0] - b[0]).map(([len, words]) => (
+                <div key={len}>
+                  <div className="mb-0.5 text-[10px] uppercase tracking-wider text-neutral-500">
+                    {len} letters
+                  </div>
+                  <ul className="flex flex-wrap gap-1.5">
+                    {words.map(b => {
+                      const isLatest = lastRevealed?.playerIdx === idx && lastRevealed?.word === b.word;
+                      return (
+                        <li
+                          key={b.word}
+                          className={`rounded px-2 py-0.5 font-mono text-xs transition-all ${
+                            b.duplicate
+                              ? 'bg-neutral-800 text-neutral-500 line-through'
+                              : 'bg-emerald-500/10 text-emerald-300'
+                          } ${isLatest ? 'animate-pop' : ''}`}
+                          title={b.duplicate ? 'Cancelled — another player also found it' : `+${b.rawPoints}`}
+                        >
+                          {b.word} <span className="text-neutral-500">·{b.rawPoints}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
           )}
         </div>
       ))}
@@ -461,6 +596,10 @@ function BetweenRoundsView({
   const totals = aggregateTotals(state);
   const standings = [...totals].sort((a, b) => b.total - a.total);
   const target = state.mode === 'to-50' ? 50 : state.mode === 'to-100' ? 100 : null;
+  // Lookup map so RoundScoresBlock + the running-totals table can color each
+  // player's name with their preferred accent.
+  const accentByPlayerId: Record<string, string | undefined> = {};
+  for (const p of state.players) accentByPlayerId[p.playerId] = p.accent_color;
   const roundsLabel = state.mode === '3-rounds'
     ? `Round ${state.round} of 3`
     : target
@@ -478,7 +617,7 @@ function BetweenRoundsView({
         <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Round {state.round} scores
         </div>
-        {lastRound && <RoundScoresBlock scores={lastRound.scores} me={me} />}
+        {lastRound && <RoundScoresBlock scores={lastRound.scores} me={me} animated accentByPlayerId={accentByPlayerId} />}
       </div>
 
       {/* Cumulative standings so far */}
@@ -497,7 +636,7 @@ function BetweenRoundsView({
           <tbody>
             {standings.map(s => (
               <tr key={s.playerId} className={`border-t border-neutral-800/60 ${s.playerId === me ? 'bg-emerald-500/5' : ''}`}>
-                <td className="px-2 py-1.5 font-medium">{s.username}</td>
+                <td className="px-2 py-1.5 font-medium" style={{ color: safeAccent(accentByPlayerId[s.playerId]) }}>{s.username}</td>
                 {s.perRound.map((p, i) => <td key={i} className="px-2 py-1.5 text-center font-mono text-neutral-300">{p}</td>)}
                 <td className="px-2 py-1.5 text-center font-mono text-lg font-bold text-amber-400">{s.total}</td>
               </tr>
@@ -532,6 +671,11 @@ function ScoringPanel({ state, me }: { state: BoggleState; me: string | null }) 
   const standings = [...(state.finalResults ?? [])].sort((a, b) => b.total - a.total);
   const medals = ['🥇', '🥈', '🥉'];
   const winner = standings[0];
+  // For single-round games, play the dramatic word-by-word reveal directly on the
+  // final panel (the user never sees BetweenRoundsView in 1-round mode).
+  const singleRound = state.rounds.length === 1 ? state.rounds[0] : null;
+  const accentByPlayerId: Record<string, string | undefined> = {};
+  for (const p of state.players) accentByPlayerId[p.playerId] = p.accent_color;
   return (
     <div className="space-y-3">
       <div className="rounded-xl border-2 border-amber-500/60 bg-amber-500/5 p-4">
@@ -540,11 +684,19 @@ function ScoringPanel({ state, me }: { state: BoggleState; me: string | null }) 
           <p className="text-xs text-neutral-400">{GAME_MODE_LABELS[state.mode]} · {state.rounds.length} round{state.rounds.length === 1 ? '' : 's'}</p>
           {winner && (
             <p className="mt-1 text-sm text-neutral-300">
-              Winner: <span className="font-semibold text-amber-300">{winner.username}</span>{' '}
+              Winner: <span className="font-semibold" style={{ color: safeAccent(accentByPlayerId[winner.playerId]) }}>{winner.username}</span>{' '}
               <span className="font-mono">({winner.total} pts)</span>
             </p>
           )}
         </div>
+
+        {/* Single-round dramatic reveal — all words tick in shortest first, interleaved
+            across players, with duplicates discovered + crossed out mid-stream. */}
+        {singleRound && (
+          <div className="mb-4">
+            <RoundScoresBlock scores={singleRound.scores} me={me} animated medals accentByPlayerId={accentByPlayerId} />
+          </div>
+        )}
 
         {/* Aggregate standings */}
         <table className="mb-4 w-full text-sm">
@@ -558,7 +710,7 @@ function ScoringPanel({ state, me }: { state: BoggleState; me: string | null }) 
           <tbody>
             {standings.map((s, idx) => (
               <tr key={s.playerId} className={`border-t border-neutral-800/60 ${s.playerId === me ? 'bg-emerald-500/5' : ''}`}>
-                <td className="px-2 py-1.5 font-medium">
+                <td className="px-2 py-1.5 font-medium" style={{ color: safeAccent(accentByPlayerId[s.playerId]) }}>
                   <span className="mr-1">{medals[idx] ?? ''}</span>{s.username}
                 </td>
                 {s.perRound.map((p, i) => <td key={i} className="px-2 py-1.5 text-center font-mono text-neutral-300">{p}</td>)}

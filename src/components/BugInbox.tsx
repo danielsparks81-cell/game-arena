@@ -31,18 +31,28 @@ export default function BugInbox() {
   const [, startTransition] = useTransition();
   const seenIds = useRef<Set<number>>(new Set());
 
-  // 1) Check whether the signed-in user is an admin
+  // 1) Check whether the signed-in user is an admin. Silently bail if the
+  //    `is_admin` column doesn't exist (i.e. migration 006 hasn't been run on
+  //    this Supabase project) — without the catch the query throws a 400 on
+  //    every page load and noisily logs to the console for every non-admin.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('is_admin')
-        .eq('id', user.id)
-        .single();
-      if (!cancelled && profile?.is_admin) setIsAdmin(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('is_admin')
+          .eq('id', user.id)
+          .maybeSingle();
+        if (error) return; // column or table missing — treat as non-admin
+        if (!cancelled && profile && (profile as { is_admin?: boolean }).is_admin) {
+          setIsAdmin(true);
+        }
+      } catch {
+        // Network error or schema mismatch — non-admins simply don't get the inbox.
+      }
     })();
     return () => { cancelled = true; };
   }, [supabase]);

@@ -1,21 +1,20 @@
 // Server-only Boggle dictionary loader. Builds an in-memory Set on first call
-// and reuses it for all subsequent validations. The package
-// `an-array-of-english-words` is ~275k words and only loaded server-side, so it
-// never ships to the client bundle.
+// and reuses it for all subsequent validations.
+//
+// Uses the TWL06 (Tournament Word List, 2006) — the official wordlist for
+// US/Canada Scrabble tournaments. ~178k entries, stricter than SCOWL: excludes
+// proper nouns, abbreviations, and most non-English borrowings; includes
+// Scrabble bombs like QI, ZA, JO. 2-letter words are already filtered out of
+// `twl06Data.ts` at generation time since Boggle's minimum word length is 3.
+
+import { TWL06 } from './twl06Data';
 
 let dictionary: Set<string> | null = null;
 
 export async function getDictionary(): Promise<Set<string>> {
   if (dictionary) return dictionary;
-  const mod = await import('an-array-of-english-words');
-  const words: string[] = (mod.default ?? (mod as unknown as string[])) as string[];
-  // Uppercase + length filter (Boggle min word length is 3).
-  const set = new Set<string>();
-  for (const w of words) {
-    if (w.length >= 3) set.add(w.toUpperCase());
-  }
-  dictionary = set;
-  return set;
+  dictionary = new Set(TWL06);
+  return dictionary;
 }
 
 export async function isWord(w: string): Promise<boolean> {

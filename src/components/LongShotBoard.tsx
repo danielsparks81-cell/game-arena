@@ -2,12 +2,17 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
-  type LSState, type LSMove, type LSPlayer, type HorseFinish, type ActionPayload,
+  type LSState, type LSMove, type LSPlayer, type HorseFinish, type ActionPayload, type AbilityScoreEntry,
+  type PendingChoice, type PendingChoiceResolution,
   TRACK_LENGTH, NO_BET_SPACE, HORSE_COLORS, NUM_HORSES, MAX_WILDS,
   HORSE_COSTS, MAX_HELMETS_PER_HORSE, MAX_JERSEYS_PER_HORSE,
-  CONCESSION_ROWS, CONCESSION_COLS, BET_ODDS, CONCESSION_BONUSES,
+  CONCESSION_ROWS, CONCESSION_COLS, CONCESSION_CELLS, BET_ODDS, CONCESSION_BONUSES,
   SECONDARY_BARS, PURSE, allMarksOnBar, calculateBetWinnings, calculateFinalScores,
+  effectiveHorseCost,
 } from '@/lib/games/longshot';
+import { ABILITY_BY_ID } from '@/lib/games/longshotAbilities';
+import { sounds } from '@/lib/sounds';
+import { safeAccent } from '@/lib/accentColors';
 
 // Oval geometry: viewBox 460x300, centered, counterclockwise on screen
 // starting at bottom-middle (matches real horse-racing direction).
@@ -233,6 +238,27 @@ export default function LongShotBoard({
     resetBonusPick();
   }, [state.rollId, state.currentTurnSeat]);
 
+  // Spoken cue: "When the [N] horse moves" — fires every 5th DICE roll only.
+  // Ability-driven movement (Strung Along, Pay it Forward, Partner in Crime, etc.) also
+  // bumps state.rollId for animation, so we distinguish a real dice roll by detecting
+  // the step transition roll → action (only the dice-rolling action does that).
+  const lastSeenRollId = useRef<number>(state.rollId);
+  const lastSeenStep = useRef<typeof state.step>(state.step);
+  const rollSpeakCounter = useRef<number>(0);
+  useEffect(() => {
+    const prevRollId = lastSeenRollId.current;
+    const prevStep = lastSeenStep.current;
+    lastSeenRollId.current = state.rollId;
+    lastSeenStep.current = state.step;
+    if (state.rollId === prevRollId) return;
+    if (!(prevStep === 'roll' && state.step === 'action')) return; // skip ability animations
+    if (!state.horseDie) return;
+    rollSpeakCounter.current += 1;
+    if (rollSpeakCounter.current % 5 === 0) {
+      sounds.whenHorseMoves(state.horseDie);
+    }
+  }, [state.rollId, state.horseDie, state.step]);
+
   // Clear bonus picking when the pending bonus is satisfied (no more bonuses to claim)
   useEffect(() => {
     if (!myBonusPending) resetBonusPick();
@@ -352,11 +378,22 @@ export default function LongShotBoard({
 
   const concessionCellsAvailable = useMemo(() => {
     if (!me || effectiveHorse === 0) return [];
+    // Scatter Shot (h3): if horse-3 owner AND no wild is in use, rolled±1 cells are also pickable.
+    const scatterShot =
+      wildHorse === null &&
+      state.assignedAbilities[3] === 'h3_scatter_shot' &&
+      me.ownedHorses.includes(3) &&
+      state.horseDie !== null;
+    const scatterTargets = new Set<number>();
+    if (scatterShot && state.horseDie !== null) {
+      if (state.horseDie - 1 >= 1) scatterTargets.add(state.horseDie - 1);
+      if (state.horseDie + 1 <= NUM_HORSES) scatterTargets.add(state.horseDie + 1);
+    }
     return state.concessionGrid
       .map((n, i) => ({ n, i }))
-      .filter(c => c.n === effectiveHorse && !me.concessionMarks[c.i])
+      .filter(c => !me.concessionMarks[c.i] && (c.n === effectiveHorse || scatterTargets.has(c.n)))
       .map(c => c.i);
-  }, [state.concessionGrid, me, effectiveHorse]);
+  }, [state.concessionGrid, me, effectiveHorse, wildHorse, state.assignedAbilities, state.horseDie]);
 
   const sendAction = (payload: ActionPayload) => {
     if (wildHorse !== null) onAction({ ...payload, wild: wildHorse } as ActionPayload);
@@ -398,7 +435,7 @@ export default function LongShotBoard({
       if (me.helmets[i] < MAX_HELMETS_PER_HORSE) helmet.add(num);
       if (me.jerseys[i] < MAX_JERSEYS_PER_HORSE && (me.jerseyMarks[i]?.length ?? 0) < NUM_HORSES) jersey.add(num);
       if (me.money >= 1 && (!past || hasHelmet)) bet.add(num);
-      if (state.market.includes(num) && me.money >= HORSE_COSTS[i]) buy.add(num);
+      if (state.market.includes(num) && me.money >= effectiveHorseCost(state, num)) buy.add(num);
     }
     state.concessionGrid.forEach((n, idx) => {
       if (!me.concessionMarks[idx] && n !== state.horseDie) concessionCells.add(idx);
@@ -425,6 +462,36 @@ export default function LongShotBoard({
     ? { eligible: bonusTargets.track, onPick: handleBonusPick }
     : undefined;
 
+  // Pending ability-choice highlighting on the track (Partner in Crime / Fair Play / Charley Horse).
+  // Mutually exclusive with trackBonusPick since pendingChoice resolves before pendingBonus.
+  const trackAbilityPick = useMemo(() => {
+    const pc = state.pendingChoice;
+    if (!pc) return undefined;
+    if (pc.playerId !== currentUserId) return undefined;
+    if (pc.kind !== 'partner_in_crime' && pc.kind !== 'fair_play' && pc.kind !== 'charley_horse') return undefined;
+    const eligible = new Set<number>();
+    const live = state.horses.filter(h => !h.finished);
+    const maxLivePos = live.length > 0 ? Math.max(...live.map(h => h.position)) : -1;
+    for (let i = 0; i < NUM_HORSES; i++) {
+      const h = state.horses[i];
+      if (h.finished) continue;
+      if (pc.kind === 'fair_play' && h.position === maxLivePos) continue;
+      if (pc.kind === 'partner_in_crime' && i + 1 === 6) continue; // "another" — exclude horse 6 itself
+      eligible.add(i + 1);
+    }
+    return {
+      eligible,
+      onPick: (horseNum: number) => {
+        onAction({
+          type: 'resolve_choice',
+          choice: { kind: pc.kind, horseNum } as PendingChoiceResolution,
+        });
+      },
+    };
+  }, [state.pendingChoice, state.horses, currentUserId, onAction]);
+
+  const trackPick = trackAbilityPick ?? trackBonusPick;
+
   // Build the action context handed to PlayerSheet. Undefined when the sheet is read-only
   // (not my action turn, or a bonus is pending, or no rolled horse yet).
   const sheetAction = isMyTurnToAct && me && !state.pendingBonus && effectiveHorse > 0
@@ -447,7 +514,7 @@ export default function LongShotBoard({
           canJersey: !finished && me.jerseys[horseIdx] < MAX_JERSEYS_PER_HORSE
                     && (me.jerseyMarks[horseIdx]?.length ?? 0) < NUM_HORSES,
           canBet: !finished && me.money >= 1 && (!past || hasHelmet),
-          canBuy: !finished && state.market.includes(effectiveHorse) && me.money >= HORSE_COSTS[horseIdx],
+          canBuy: !finished && state.market.includes(effectiveHorse) && me.money >= effectiveHorseCost(state, effectiveHorse),
           concessionCells: concessionCellsAvailable,
           subPicker,
           setSubPicker,
@@ -462,62 +529,27 @@ export default function LongShotBoard({
 
   return (
     <div className="space-y-3">
-      {/* Players strip + compact round/dice readout (replaces the old phase bar) */}
-      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-neutral-800 bg-neutral-900 px-2 py-1.5">
-        <span className="rounded-md bg-neutral-950 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
-          Round {state.round}
-        </span>
-        <Die label="Horse" value={state.horseDie} color="bg-amber-500 text-neutral-950" horseDie />
-        <Die label="Move"  value={state.movementDie} color="bg-emerald-500 text-neutral-950" />
-        {state.phase === 'finished' && (
-          <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-semibold text-amber-400">
-            🏁 Race over
-          </span>
-        )}
-        <span className="mx-1 hidden h-6 w-px bg-neutral-800 sm:inline-block" />
-        {state.players.map(p => {
-          const isActive = p.seat === state.activePlayerSeat;
-          const isTurn   = state.step === 'action' && p.seat === state.currentTurnSeat;
-          const isYou    = p.playerId === currentUserId;
-          return (
-            <div
-              key={p.playerId}
-              className={`flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs ${
-                isTurn ? 'border-amber-500/60 bg-amber-500/10'
-                : isActive ? 'border-emerald-500/50 bg-emerald-500/10'
-                : 'border-neutral-800 bg-neutral-950'
-              }`}
-            >
-              <span className="truncate">{p.username}</span>
-              {isYou && <span className="text-[10px] text-neutral-500">(you)</span>}
-              {isTurn && <span className="text-[10px] text-amber-400">acting…</span>}
-              {isActive && state.step === 'roll' && <span className="text-[10px] text-emerald-400">rolling…</span>}
-              {p.actedThisRound && state.step === 'action' && !isTurn && <span className="text-[10px] text-neutral-500">✓</span>}
-              <span className="font-mono text-emerald-400">${p.money}</span>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Pending-bonus notice for everyone else (full width) */}
-      {state.step === 'action' && state.pendingBonus && !myBonusPending && (
-        <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 p-3 text-sm text-neutral-300">
-          Waiting on <span className="font-semibold text-amber-400">
-            {state.players.find(p => p.playerId === state.pendingBonus!.playerId)?.username ?? 'a player'}
-          </span> to claim {state.pendingBonus.count} concession bonus{state.pendingBonus.count > 1 ? 'es' : ''}…
-        </div>
-      )}
-
       {/* End-of-race scoring window — full width, sits above the main grid */}
       {state.phase === 'finished' && <FinalScoringPanel state={state} />}
 
-      {/* Main grid: track + winners + phase panel left, sheet right on desktop; stacked on mobile/tablet */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(420px,500px)_minmax(0,1fr)]">
-        {/* LEFT: Track, then Winner's Circle, then roll/action-phase panel */}
+      {/* Pending ability choice picker — only for the player who needs to act (interactive
+          buttons, sub-pickers etc.). Other players see a waiting note in the phase panel. */}
+      {state.pendingChoice && state.pendingChoice.playerId === currentUserId && (
+        <PendingChoicePicker
+          state={state}
+          pending={state.pendingChoice}
+          disabled={disabled}
+          onResolve={(choice) => onAction({ type: 'resolve_choice', choice })}
+        />
+      )}
+
+      {/* Main grid: track + abilities + phase panel + winners left, sheet right on desktop; stacked on mobile/tablet */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(483px,575px)_minmax(0,1fr)]">
+        {/* LEFT: Track → Horse abilities → roll/action-phase panel → Winner's Circle */}
         <div className="space-y-3">
           <Track
             state={state}
-            bonusPick={trackBonusPick}
+            bonusPick={trackPick}
             infieldMessage={
               state.step === 'action' && state.horseDie
                 ? {
@@ -531,39 +563,101 @@ export default function LongShotBoard({
                 : undefined
             }
           />
-          <WinnersCircle state={state} />
-          {/* Roll-phase panel — compact, below the track */}
-          {state.step === 'roll' && (
-            <div className="flex items-center justify-center gap-3 rounded-xl border border-neutral-800 bg-neutral-900/60 px-4 py-3 text-center">
-              {isMyTurnToRoll ? (
-                <>
-                  <p className="text-sm text-neutral-400">Your turn — roll the dice to start the round.</p>
-                  <button
-                    onClick={onRoll}
-                    disabled={disabled}
-                    className="rounded-lg bg-emerald-500 px-6 py-2 text-lg font-bold text-neutral-950 shadow-md transition hover:scale-105 hover:bg-emerald-400 disabled:opacity-40 disabled:hover:scale-100"
-                  >
-                    🎲 Roll
-                  </button>
-                </>
-              ) : (
-                <p className="text-sm text-neutral-400">
-                  Waiting on <span className="font-semibold text-emerald-400">{activePlayer?.username ?? '—'}</span> to roll…
-                </p>
-              )}
-            </div>
-          )}
-          {/* Waiting-on-X notice when in action phase but not my turn (sheet stays read-only) */}
-          {state.step === 'action' && me && !state.pendingBonus && !isMyTurnToAct && (
-            <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 px-4 py-2 text-center text-sm text-neutral-300">
-              Action phase — waiting on <span className="font-semibold text-amber-400">{currentTurnPlayer?.username ?? 'someone'}</span>…
-            </div>
+          {state.assignedAbilities && Object.keys(state.assignedAbilities).length > 0 && (
+            <AbilitiesPanel state={state} me={me} action={sheetAction} bonus={sheetBonus} />
           )}
         </div>
 
         {/* RIGHT: player sheet only */}
-        {me && <PlayerSheet state={state} me={me} action={sheetAction} bonus={sheetBonus} />}
+        {me && (
+          <PlayerSheet
+            state={state}
+            me={me}
+            action={sheetAction}
+            bonus={sheetBonus}
+            phasePanel={(() => {
+              // Priority order: pending ability choice > pending bonus > roll/action standard.
+              // Helper: stacked "Waiting on [NAME] to do X" with the name centered + larger.
+              const waitingBox = (
+                opts: { who: string; suffix?: string; nameClass: string; boxClass: string }
+              ) => (
+                <div className={`w-full flex flex-col items-center justify-center rounded-md border px-2 py-1.5 text-center text-[10px] leading-tight ${opts.boxClass}`}>
+                  <span>Waiting on</span>
+                  <span className={`text-sm font-bold ${opts.nameClass}`}>{opts.who}</span>
+                  {opts.suffix && <span>{opts.suffix}</span>}
+                </div>
+              );
+
+              if (state.pendingChoice) {
+                const isMine = state.pendingChoice.playerId === currentUserId;
+                const who = state.players.find(p => p.playerId === state.pendingChoice?.playerId)?.username ?? 'someone';
+                return isMine ? (
+                  <div className="w-full rounded-md border border-fuchsia-500/60 bg-fuchsia-500/15 px-2 py-1.5 text-center text-[11px] font-medium text-fuchsia-100">
+                    ✨ Resolve your ability ↑
+                  </div>
+                ) : waitingBox({
+                  who,
+                  suffix: 'to resolve ability',
+                  nameClass: 'text-fuchsia-200',
+                  boxClass: 'border-fuchsia-500/30 bg-fuchsia-500/5 text-fuchsia-200',
+                });
+              }
+              if (state.pendingBonus) {
+                const isMine = myBonusPending;
+                const who = state.players.find(p => p.playerId === state.pendingBonus?.playerId)?.username ?? 'someone';
+                const n = state.pendingBonus.count;
+                return isMine ? (
+                  <div className="w-full rounded-md border border-emerald-500/60 bg-emerald-500/15 px-2 py-1.5 text-center text-[11px] font-medium text-emerald-100">
+                    🎉 Pick {n} bonus{n > 1 ? 'es' : ''}
+                  </div>
+                ) : waitingBox({
+                  who,
+                  suffix: `to pick ${n} bonus${n > 1 ? 'es' : ''}`,
+                  nameClass: 'text-amber-300',
+                  boxClass: 'border-amber-900/40 bg-amber-500/5 text-neutral-300',
+                });
+              }
+              if (state.step === 'roll') {
+                return isMyTurnToRoll ? (
+                  <button
+                    onClick={onRoll}
+                    disabled={disabled}
+                    className="w-full rounded-lg bg-emerald-500 px-2 py-2 text-sm font-bold text-neutral-950 shadow-md transition hover:scale-[1.02] hover:bg-emerald-400 disabled:opacity-40 disabled:hover:scale-100"
+                  >
+                    🎲 Roll
+                  </button>
+                ) : waitingBox({
+                  who: activePlayer?.username ?? '—',
+                  suffix: 'to roll',
+                  nameClass: 'text-emerald-400',
+                  boxClass: 'border-neutral-800 bg-neutral-900/60 text-neutral-400',
+                });
+              }
+              if (state.step === 'action' && !isMyTurnToAct) {
+                return waitingBox({
+                  who: currentTurnPlayer?.username ?? 'someone',
+                  nameClass: 'text-amber-400',
+                  boxClass: 'border-amber-900/40 bg-amber-500/5 text-neutral-300',
+                });
+              }
+              if (state.step === 'action' && isMyTurnToAct) {
+                return (
+                  <div className="flex w-full flex-col items-center justify-center rounded-md border border-emerald-500/60 bg-emerald-500/15 px-2 py-1.5 text-center leading-tight">
+                    <span className="text-[10px] text-emerald-200">Your turn</span>
+                    <span className="text-sm font-bold text-emerald-300">act now</span>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+          />
+        )}
       </div>
+
+      {/* Other players — read-only sheets, collapsed by default */}
+      {state.players.length > 1 && (
+        <OtherPlayersPanel state={state} currentUserId={currentUserId} />
+      )}
 
       {/* Event log (collapsed by default to save space) */}
       {state.log.length > 0 && (
@@ -579,6 +673,37 @@ export default function LongShotBoard({
         </details>
       )}
     </div>
+  );
+}
+
+// =====================================================================
+// Other players panel — collapsible. Renders read-only PlayerSheets shrunk
+// to 50% scale via CSS zoom, in a 2-column grid so four tiles fit roughly in
+// the space one full sheet used to occupy.
+// =====================================================================
+function OtherPlayersPanel({ state, currentUserId }: { state: LSState; currentUserId: string }) {
+  const others = useMemo(
+    () => state.players.filter(p => p.playerId !== currentUserId).sort((a, b) => a.seat - b.seat),
+    [state.players, currentUserId],
+  );
+  if (others.length === 0) return null;
+
+  return (
+    <details className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm">
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-400">
+        Opponents ({others.length})
+      </summary>
+      <div className="mt-2 grid gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {others.map(p => (
+          <div key={p.playerId} className="rounded-lg border border-neutral-800 bg-neutral-950/30 p-2 opacity-95">
+            <div className="mb-1 text-[11px] text-neutral-400">
+              <span className="font-semibold" style={{ color: safeAccent(p.accent_color) }}>{p.username}</span>
+            </div>
+            <PlayerSheet state={state} me={p} readOnly />
+          </div>
+        ))}
+      </div>
+    </details>
   );
 }
 
@@ -632,30 +757,46 @@ type BonusTargets = {
   jerseyMarks?: Map<number, Set<number>>;
 };
 
-function PlayerSheet({ state, me, action, bonus }: {
+type SheetBonus = {
+  picking: string | null;
+  horse1: number | null;
+  onTileClick: (bonusId: string) => void;
+  onPick: (horseNum: number) => void;
+  onPickJerseyMark: (rowHorse: number, markHorse: number) => void;
+  targets: BonusTargets | null;
+  disabled: boolean;
+};
+
+function PlayerSheet({ state, me, action, bonus, phasePanel, readOnly = false }: {
   state: LSState;
   me: LSPlayer;
   /** When present, the sheet is the interactive action surface for the current player's turn. */
   action?: SheetAction;
   /** When present, the Row/Column bonus tiles become clickable for claiming a pending bonus. */
-  bonus?: {
-    picking: string | null;
-    horse1: number | null;
-    onTileClick: (bonusId: string) => void;
-    onPick: (horseNum: number) => void;
-    onPickJerseyMark: (rowHorse: number, markHorse: number) => void;
-    targets: BonusTargets | null;
-    disabled: boolean;
-  };
+  bonus?: SheetBonus;
+  /** Compact roll/action turn indicator rendered under the Money box. */
+  phasePanel?: React.ReactNode;
+  /** Hides redundant global info (Marks column, Odds column, Winner's Circle) when this
+   *  sheet is being rendered as a read-only view of another player. */
+  readOnly?: boolean;
 }) {
   const effHorseIdx = action ? action.effectiveHorse - 1 : -1;
 
-  // Concession pick handler: covers both the normal "rolled horse" case and the wild case.
-  // The cell number tells us which horse to use; if it isn't the rolled horse, pass it as wild.
+  // Concession pick handler: covers the normal "rolled horse" case, the wild case, and the
+  // Scatter Shot case (rolled±1, no wild — mutually exclusive with Wild).
   const onConcessionPick = action
     ? (idx: number) => {
         const cellHorse = state.concessionGrid[idx];
-        if (cellHorse !== action.rolledHorse) {
+        const scatterShotActive =
+          state.assignedAbilities[3] === 'h3_scatter_shot' &&
+          me?.ownedHorses.includes(3) &&
+          action.wildHorse === null &&
+          cellHorse !== action.rolledHorse &&
+          Math.abs(cellHorse - action.rolledHorse) === 1;
+        if (scatterShotActive) {
+          // Don't wrap as wild — engine accepts rolled±1 for Scatter Shot owner.
+          action.send({ type: 'concession', cellIdx: idx });
+        } else if (cellHorse !== action.rolledHorse) {
           action.sendWithWild(cellHorse, { type: 'concession', cellIdx: idx });
         } else {
           action.setSubPicker(null);
@@ -674,26 +815,36 @@ function PlayerSheet({ state, me, action, bonus }: {
     : undefined;
 
   return (
-    <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
+    <div
+      className={`rounded-xl border border-neutral-800 bg-neutral-900 p-4 ${readOnly ? 'gap-x-4 gap-y-3' : ''}`}
+      style={readOnly ? {
+        display: 'grid',
+        gridTemplateColumns: 'auto 80px',
+        gridTemplateAreas: '"table money" "table wilds" "bottom bottom"',
+        alignItems: 'stretch',
+      } : undefined}
+    >
       {/* "Acting on horse N" indicator moved to the track infield (Track component). */}
 
       {/* TOP: horse table (full width — sub-pickers are inline in their respective cells) */}
-      <div className="overflow-x-auto">
+      <div
+        className={readOnly ? '' : 'overflow-x-auto'}
+        style={readOnly ? { gridArea: 'table' } : undefined}
+      >
         {/* Fixed table-layout + explicit column widths so cells don't reflow when an
             ActionCell wraps inactive content or a row goes into pick-mode. */}
         <table
-          className="w-full min-w-[640px] border-collapse text-center text-sm"
+          className={`border-collapse text-center text-sm ${readOnly ? 'w-fit' : 'w-full min-w-[640px]'}`}
           style={{ tableLayout: 'fixed' }}
         >
           <colgroup>
-            <col style={{ width: '36px'  }} /> {/* # */}
-            <col style={{ width: '60px'  }} /> {/* Helmets */}
-            <col style={{ width: '44px'  }} /> {/* Jersey */}
-            <col style={{ width: '44px'  }} /> {/* Bonus */}
-            <col style={{ width: '170px' }} /> {/* Marks (8 dots) */}
-            <col style={{ width: '120px' }} /> {/* Bet (3-button picker fits here) */}
-            <col style={{ width: '76px'  }} /> {/* Odds 1·2·3·N/B */}
-            <col style={{ width: '90px'  }} /> {/* Market */}
+            <col style={{ width: readOnly ? '60px' : '36px'  }} /> {/* # */}
+            <col style={{ width: readOnly ? '60px' : '60px'  }} /> {/* Helmets */}
+            <col style={{ width: readOnly ? '60px' : '44px'  }} /> {/* Jersey */}
+            <col style={{ width: readOnly ? '60px' : '44px'  }} /> {/* Bonus */}
+            {!readOnly && <col style={{ width: '170px' }} />}{/* Marks (8 dots) */}
+            <col style={{ width: readOnly ? '60px' : '120px' }} /> {/* Bet */}
+            {!readOnly && <col style={{ width: '76px' }} />}{/* Odds 1·2·3·N/B */}
           </colgroup>
             <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
               <tr>
@@ -701,23 +852,17 @@ function PlayerSheet({ state, me, action, bonus }: {
                 <th className="px-2 py-1 text-center">Helmets</th>
                 <th className="px-2 py-1 text-center">Jersey</th>
                 <th className="px-2 py-1 text-center">Bonus</th>
-                <th className="px-2 py-1 text-center">Marks</th>
+                {!readOnly && <th className="px-2 py-1 text-center">Marks</th>}
                 <th className="px-2 py-1 text-center">Bet</th>
-                <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1·2·3·N/B</span></th>
-                <th className="px-2 py-1 text-center">Market</th>
+                {!readOnly && (
+                  <th className="px-2 py-1 text-center">Odds <span className="text-neutral-700">1·2·3·N/B</span></th>
+                )}
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: NUM_HORSES }, (_, i) => {
                 const num = i + 1;
-                const owned = me.ownedHorses.includes(num);
-                const inMarket = state.market.includes(num);
-                const finished = state.horses[i].finished;
                 const odds = BET_ODDS[i];
-                const otherOwner = !owned && !inMarket
-                  ? state.players.find(p => p.ownedHorses.includes(num))
-                  : undefined;
-                const anyOwner = state.players.find(p => p.ownedHorses.includes(num));
 
                 const isActive = !!action && num === action.effectiveHorse;
                 // Clickable horse # = Wild Number selector (act on a different horse via Wild)
@@ -727,7 +872,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                 const highlightWild = !!action && action.pickingWild && canWild;
 
                 return (
-                  <tr key={num} className={`h-11 border-t border-neutral-800/60 ${isActive ? 'bg-emerald-500/[0.04]' : ''}`}>
+                  <tr key={num} className={`${readOnly ? 'h-6' : 'h-11'} border-t border-neutral-800/60 ${isActive ? 'bg-emerald-500/[0.04]' : ''}`}>
                     {/* # — clickable when this is a wild candidate */}
                     <td className="px-2 py-1.5 text-center">
                       {canWild ? (
@@ -806,6 +951,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                     </td>
 
                     {/* Marks — 8 always-visible horse dots */}
+                    {!readOnly && (
                     <td className="px-2 py-1.5 text-center">
                       {(() => {
                         // Pickable contexts for this row's jersey marks:
@@ -837,7 +983,7 @@ function PlayerSheet({ state, me, action, bonus }: {
                             {/* Always-visible 8 horse dots. Chosen (default or any player's mark)
                                 = bright horse color. Not chosen = greyed out entirely. When this
                                 row is in pick mode, the greyed dot also gets an emerald ring. */}
-                            <div className="flex gap-0.5">
+                            <div className="flex gap-1">
                               {Array.from({ length: NUM_HORSES }, (_, k) => k + 1).map(n => {
                                 const isDefaultMark = (SECONDARY_BARS[num] ?? []).includes(n);
                                 const isPlayerMark = (me.jerseyMarks[i] ?? []).includes(n);
@@ -884,30 +1030,48 @@ function PlayerSheet({ state, me, action, bonus }: {
                         );
                       })()}
                     </td>
+                    )}
 
                     {/* Bet — inline $1/$2/$3 picker on the active row (or wild target row) */}
                     <td className="px-2 py-1.5 text-center font-mono">
                       {(() => {
-                        // Free $3 bet from bonus is a direct-fire on the cell
+                        // Free $3 bet from bonus is a direct-fire on the cell.
+                        // Three Four Five (h4): owner's free bet pays $5 instead of $3 — reflect that in the label.
                         if (bonus?.targets?.bet?.has(num)) {
+                          const freeBetAmt =
+                            me.ownedHorses.includes(4) && state.assignedAbilities[4] === 'h4_three_four_five' ? 5 : 3;
                           return (
                             <ActionCell
                               disabled={bonus.disabled}
                               onClick={() => bonus.onPick(num)}
-                              title={`Free $3 bet on horse ${num} (bonus)`}
+                              title={`Free $${freeBetAmt} bet on horse ${num} (bonus)`}
                             >
                               <span className="text-emerald-300">
-                                {me.bets[i] > 0 ? `$${me.bets[i]} +$3` : '+$3'}
+                                {me.bets[i] > 0 ? `$${me.bets[i]} +$${freeBetAmt}` : `+$${freeBetAmt}`}
                               </span>
                             </ActionCell>
                           );
                         }
                         const useWild = !!action && !isActive && (action.wildTargets?.bet.has(num) ?? false);
                         const canPlaceBet = !!action && ((isActive && action.canBet) || useWild);
+                        const strungAlongActive =
+                          state.assignedAbilities[1] === 'h1_strung_along' &&
+                          me.ownedHorses.includes(1);
+                        const horseTarget = state.horses[i];
+                        const strungAlongAllowed =
+                          strungAlongActive &&
+                          canPlaceBet &&
+                          me.money >= 1 &&
+                          !horseTarget.finished;
                         if (canPlaceBet) {
                           const onBet = (amt: number) => {
                             if (useWild) action!.sendWithWild(num, { type: 'bet', amount: amt });
                             else action!.send({ type: 'bet', amount: amt });
+                          };
+                          const onStrungAlong = () => {
+                            const payload: ActionPayload = { type: 'bet', amount: 1, strungAlong: true };
+                            if (useWild) action!.sendWithWild(num, payload);
+                            else action!.send(payload);
                           };
                           return (
                             <div className="flex items-center justify-center gap-1">
@@ -923,6 +1087,16 @@ function PlayerSheet({ state, me, action, bonus }: {
                                   ${amt}
                                 </button>
                               ))}
+                              {strungAlongAllowed && (
+                                <button
+                                  disabled={action!.disabled}
+                                  onClick={onStrungAlong}
+                                  title={`Strung Along — pay $1, bet $1 on horse ${num}, advance it +1`}
+                                  className="ml-1 rounded-md bg-fuchsia-500/15 px-1.5 py-0.5 text-xs font-semibold text-fuchsia-200 ring-2 ring-fuchsia-400 hover:bg-fuchsia-500 hover:text-neutral-950 disabled:opacity-30"
+                                >
+                                  🧶
+                                </button>
+                              )}
                             </div>
                           );
                         }
@@ -933,52 +1107,15 @@ function PlayerSheet({ state, me, action, bonus }: {
                     </td>
 
                     {/* Odds — 1st · 2nd · 3rd · past-No-Bet consolation (1×) */}
+                    {!readOnly && (
                     <td
                       className="px-2 py-1.5 text-center font-mono text-[11px] text-neutral-300"
                       title="Payout multipliers: 1st · 2nd · 3rd · past No-Bet (consolation, bet back)"
                     >
                       {odds[0]}·{odds[1]}·{odds[2]}·{odds[3]}
                     </td>
+                    )}
 
-                    {/* Market */}
-                    <td className="px-2 py-1.5 text-center text-[11px]">
-                      {finished ? (
-                        <span className="text-amber-400">
-                          {finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}
-                          {anyOwner && <span className="ml-1 text-sky-400">— {anyOwner.username}</span>}
-                        </span>
-                      ) : owned ? (
-                        <span className="text-emerald-400">owned 🏠</span>
-                      ) : bonus?.targets?.market?.has(num) ? (
-                        <ActionCell
-                          disabled={bonus.disabled}
-                          onClick={() => bonus.onPick(num)}
-                          title={`Claim horse ${num} free (bonus)`}
-                        >
-                          <span className="font-mono font-bold text-emerald-200">FREE</span>
-                        </ActionCell>
-                      ) : otherOwner ? (
-                        <span className="truncate text-sky-400">{otherOwner.username}</span>
-                      ) : isActive && action!.canBuy ? (
-                        <ActionCell
-                          disabled={action!.disabled}
-                          onClick={() => action!.send({ type: 'buy' })}
-                          title={`Buy horse ${num} for $${HORSE_COSTS[i]}`}
-                        >
-                          <span className="text-emerald-300">${HORSE_COSTS[i]}</span>
-                        </ActionCell>
-                      ) : action?.wildTargets?.buy.has(num) ? (
-                        <ActionCell
-                          disabled={action.disabled}
-                          onClick={() => action.sendWithWild(num, { type: 'buy' })}
-                          title={`Use a Wild on horse ${num} + buy ($${HORSE_COSTS[i]})`}
-                        >
-                          <span className="text-emerald-300">${HORSE_COSTS[i]}</span>
-                        </ActionCell>
-                      ) : (
-                        <span className="text-neutral-400">${HORSE_COSTS[i]}</span>
-                      )}
-                    </td>
                   </tr>
                 );
               })}
@@ -989,11 +1126,21 @@ function PlayerSheet({ state, me, action, bonus }: {
         {state.phase === 'finished' && <BetWinningsPanel state={state} me={me} />}
       </div>
 
-      {/* BOTTOM: 4-column row — Concessions · Bonuses · Wilds · Money. All titles centered.
-          Concessions sets the row height via its aspect-square 4×4 grid; the other three
-          columns are `flex h-full` so their inner content stretches to match. */}
-      <div className="mt-4 flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-around">
-        <div className="w-full sm:w-60">
+      {/* In readOnly mode this container becomes `display: contents` so its 4 children
+          participate directly in the outer CSS Grid (positioned via gridArea on each item).
+          When interactive, it's the horizontal 4-column row under the table. */}
+      <div
+        className={readOnly ? '' : 'mt-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-stretch sm:justify-start'}
+        style={readOnly ? { display: 'contents' } : undefined}
+      >
+        {/* Wrapper for Concessions + Bonuses. In readOnly it's a flex row pinned to the
+            bottom grid area; Concessions has a fixed width, Bonuses flex-1 to fill the rest. */}
+        <div style={readOnly
+          ? { gridArea: 'bottom', display: 'flex', gap: 8, alignItems: 'stretch' }
+          : { display: 'contents' }}>
+        <div
+          className={readOnly ? 'w-[160px] flex-shrink-0' : 'w-full sm:w-[216px]'}
+        >
           <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Concessions</div>
           <ConcessionGrid
             grid={state.concessionGrid}
@@ -1003,7 +1150,9 @@ function PlayerSheet({ state, me, action, bonus }: {
             fullWidth
           />
         </div>
-        <div className="flex w-full flex-col sm:w-80">
+        <div
+          className={`flex w-full flex-col ${readOnly ? 'flex-1' : 'sm:w-80'}`}
+        >
           <div className="mb-1 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wider">
             <span className="text-neutral-500">Bonuses</span>
             {bonus && <span className="normal-case tracking-normal text-emerald-400">pick one</span>}
@@ -1021,12 +1170,42 @@ function PlayerSheet({ state, me, action, bonus }: {
               const claimed = me.bonusesClaimed[i];
               const isPickable = !!bonus && !claimed;
               const isSelected = !!bonus && bonus.picking === b.id;
+              const isCash7 = b.id === 'cash7_a' || b.id === 'cash7_b' || b.id === 'cash7_c';
+              const isFreeBet3 = b.id === 'freebet3_a' || b.id === 'freebet3_b';
+              const silverSpoonBoost =
+                isCash7 &&
+                me.ownedHorses.includes(2) &&
+                state.assignedAbilities[2] === 'h2_silver_spoon';
+              const threeFourFiveBoost =
+                isFreeBet3 &&
+                me.ownedHorses.includes(4) &&
+                state.assignedAbilities[4] === 'h4_three_four_five';
               const baseTile = `relative flex h-full w-full flex-col items-center justify-center overflow-hidden rounded-md border px-1 py-1 text-center transition`;
               // Special-case rendering: bottom-row bonuses show their action icon instead of a text label
               const renderLabel = () => {
                 if (b.id === 'helmet_any')  return <span className="text-2xl leading-none">⛑️</span>;
                 if (b.id === 'jersey_any')  return <JerseyIcon className="h-7 w-7" />;
                 if (b.id === 'free_horse')  return <span className="text-2xl leading-none">🐎</span>;
+                if (silverSpoonBoost) {
+                  return (
+                    <span
+                      title="Silver Spoon — pays $9"
+                      className={`text-[12px] font-mono font-bold leading-tight ${
+                        claimed ? 'text-neutral-600 line-through' : 'text-emerald-300 drop-shadow-[0_0_4px_rgba(52,211,153,0.6)]'
+                      }`}
+                    >+$9</span>
+                  );
+                }
+                if (threeFourFiveBoost) {
+                  return (
+                    <span
+                      title="Three Four Five — $5 free bet"
+                      className={`text-[12px] font-mono font-bold leading-tight ${
+                        claimed ? 'text-neutral-600 line-through' : 'text-emerald-300 drop-shadow-[0_0_4px_rgba(52,211,153,0.6)]'
+                      }`}
+                    >$5 Bet</span>
+                  );
+                }
                 return (
                   <span className={`text-[11px] font-mono font-bold leading-tight ${
                     isPickable
@@ -1055,7 +1234,11 @@ function PlayerSheet({ state, me, action, bonus }: {
               return (
                 <div
                   key={b.id}
-                  title={claimed ? `${b.desc} (claimed)` : b.desc}
+                  title={claimed
+                    ? `${b.desc} (claimed)`
+                    : silverSpoonBoost ? `${b.desc} (Silver Spoon: +$9)`
+                    : threeFourFiveBoost ? `${b.desc} (Three Four Five: $5 free bet)`
+                    : b.desc}
                   className={`${baseTile} ${
                     claimed ? 'border-neutral-800/60 bg-neutral-950 opacity-50' : 'border-neutral-800 bg-neutral-900'
                   }`}
@@ -1066,10 +1249,14 @@ function PlayerSheet({ state, me, action, bonus }: {
             })}
           </div>
         </div>
+        </div>{/* close Concessions+Bonuses wrapper */}
 
         {/* WILDS — 3 individual horseshoe tiles. Available tiles enter Wild-pick mode on click;
             used tiles show a refresh ↺ overlay and click-to-recover (spends your action). */}
-        <div className="flex w-full flex-col sm:w-24">
+        <div
+          className={`flex w-full flex-col ${readOnly ? '' : 'sm:w-24'}`}
+          style={readOnly ? { gridArea: 'wilds' } : undefined}
+        >
           <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Wilds</div>
           <div className="flex flex-1 flex-col gap-1 rounded-md border border-neutral-800 bg-neutral-950 p-2">
             {Array.from({ length: MAX_WILDS }, (_, idx) => {
@@ -1128,14 +1315,26 @@ function PlayerSheet({ state, me, action, bonus }: {
           </div>
         </div>
 
-        {/* MONEY — big green dollar amount, matches the column heights */}
-        <div className="flex w-full flex-col sm:w-28">
-          <div className="mb-1 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Money</div>
-          <div className="flex flex-1 items-center justify-center rounded-md border-2 border-emerald-500/50 bg-emerald-500/10 p-2">
+        {/* MONEY — fills column height; money + phase panel split the available space */}
+        <div
+          className={`flex w-full flex-col gap-1.5 ${readOnly ? '' : 'sm:w-28'}`}
+          style={readOnly ? { gridArea: 'money' } : undefined}
+        >
+          <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">Money</div>
+          <div className="flex flex-1 items-center justify-center rounded-md border-2 border-emerald-500/50 bg-emerald-500/10 px-2 py-1">
             <span className="font-mono text-2xl font-bold text-emerald-400">${me.money}</span>
           </div>
+          {phasePanel && <div className="flex flex-1 flex-col [&>*]:h-full [&>*]:w-full">{phasePanel}</div>}
         </div>
       </div>
+
+      {/* Winner's Circle spans the full width of the player sheet at the bottom.
+          Hidden in read-only opponent views since it's global info. */}
+      {!readOnly && (
+        <div className="mt-3">
+          <WinnersCircle state={state} />
+        </div>
+      )}
     </div>
   );
 }
@@ -1163,41 +1362,40 @@ function WinnersCircle({ state }: { state: LSState }) {
     }
   }
   return (
-    <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-2">
-      <div className="mb-1 text-center text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+    <div className="rounded-xl border border-amber-900/40 bg-amber-500/5 px-3 py-1">
+      <div className="text-center text-[10px] font-semibold uppercase tracking-wider text-amber-400">
         Winner&apos;s Circle
       </div>
-      <div className="flex items-start justify-around gap-3">
+      <ul className="text-sm">
         {places.map(p => {
           const prize = PURSE[p.place - 1];
-          // Purse goes to the horse's owner. Highlight only when the slot has both a
-          // finished horse AND that horse is owned by someone.
           const purseActive = !!p.horseNum && !!p.owner;
           return (
-            <div key={p.place} className="flex flex-col items-center gap-1">
-              <span className={`text-2xl leading-none ${p.horseNum ? '' : 'opacity-40 grayscale'}`}>{p.medal}</span>
+            <li key={p.place} className="flex items-center gap-2 py-0.5">
+              <span className={`text-base leading-none ${p.horseNum ? '' : 'opacity-40 grayscale'}`}>{p.medal}</span>
               {p.horseNum ? (
-                <>
-                  <HorseDiamond num={p.horseNum} />
-                  {p.owner ? (
-                    <span className="text-xs text-sky-400">{p.owner}</span>
-                  ) : (
-                    <span className="text-xs text-neutral-600">no owner</span>
-                  )}
-                </>
+                <span
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                  style={{ backgroundColor: HORSE_COLORS[p.horseNum - 1] }}
+                >
+                  {p.horseNum}
+                </span>
               ) : (
-                <span className="text-xs text-neutral-600">—</span>
+                <span className="inline-block h-5 w-5 rounded-full border border-neutral-800 bg-neutral-950/40" />
               )}
+              {p.horseNum
+                ? <span className="truncate text-sky-400">{p.owner ?? <span className="text-neutral-600">no owner</span>}</span>
+                : <span className="text-neutral-600">—</span>}
               <span
                 title={purseActive ? `Owner takes the $${prize} purse` : `${prize} purse — paid to the owner of the finishing horse`}
-                className={`font-mono text-sm ${purseActive ? 'font-bold text-sky-300' : 'text-neutral-700'}`}
+                className={`ml-auto font-mono ${purseActive ? 'font-bold text-sky-300' : 'text-neutral-700'}`}
               >
                 ${prize}
               </span>
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ul>
     </div>
   );
 }
@@ -1206,16 +1404,54 @@ function WinnersCircle({ state }: { state: LSState }) {
  * End-of-race scoring panel — reveals categories one at a time for dramatic effect:
  *   step 1: Purse only (5s)
  *   step 2: +Money (5s)
- *   step 3: +Bonus (5s)
- *   step 4: +Bets → final standings
+ *   step 3: +Jockey Bonus (5s)
+ *   step 4: +Horses (ability deltas) (5s)
+ *   step 5: +Bets → final standings
  * Player order is re-sorted by the running revealed total at each step.
  */
+/**
+ * Animates a number from the previous value to `target` over `durationMs`, using
+ * ease-out cubic. Used by the scoring panel so per-category and per-player totals
+ * tick up during the 5-second reveal window instead of snapping.
+ */
+function useCountUp(target: number, durationMs = 4500): number {
+  const [displayed, setDisplayed] = useState(target);
+  const displayedRef = useRef(displayed);
+  displayedRef.current = displayed;
+  const prevTargetRef = useRef(target);
+  useEffect(() => {
+    if (target === prevTargetRef.current) return;
+    const from = displayedRef.current;
+    const to = target;
+    prevTargetRef.current = target;
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const p = Math.min(1, (now - start) / durationMs);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setDisplayed(Math.round(from + (to - from) * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, durationMs]);
+  return displayed;
+}
+
 function FinalScoringPanel({ state }: { state: LSState }) {
   const allScores = useMemo(() => calculateFinalScores(state), [state]);
+  const TOTAL_STEPS = 5;
   const [step, setStep] = useState(1);
+  // Lookup so the winner banner + leaderboard rows color usernames with each
+  // player's preferred accent (sourced from state.players).
+  const accentByPlayerId = useMemo<Record<string, string | undefined>>(() => {
+    const m: Record<string, string | undefined> = {};
+    for (const p of state.players) m[p.playerId] = p.accent_color;
+    return m;
+  }, [state.players]);
 
   useEffect(() => {
-    if (step >= 4) return;
+    if (step >= TOTAL_STEPS) return;
     const t = setTimeout(() => setStep(s => s + 1), 5000);
     return () => clearTimeout(t);
   }, [step]);
@@ -1224,7 +1460,8 @@ function FinalScoringPanel({ state }: { state: LSState }) {
     s.purse
     + (step >= 2 ? s.money : 0)
     + (step >= 3 ? s.bonus : 0)
-    + (step >= 4 ? s.bets  : 0);
+    + (step >= 4 ? s.abilityTotal : 0)
+    + (step >= 5 ? s.bets  : 0);
 
   const ranked = [...allScores].sort((a, b) => {
     const diff = runningTotal(b) - runningTotal(a);
@@ -1261,19 +1498,21 @@ function FinalScoringPanel({ state }: { state: LSState }) {
   });
 
   const cats: Array<{
-    key: 'purse' | 'money' | 'bonus' | 'bets';
+    key: 'purse' | 'money' | 'bonus' | 'bets' | 'abilityTotal';
     label: string;
     title: string;
     color: string;
     visibleAt: number;
+    signed?: boolean;
   }> = [
-    { key: 'purse', label: 'Purse', title: 'Purse for owned horses on the podium ($35 / $25 / $15)',  color: 'text-amber-300',   visibleAt: 1 },
-    { key: 'money', label: 'Money', title: 'Cash on hand at race end',                                color: 'text-emerald-400', visibleAt: 2 },
-    { key: 'bonus', label: 'Bonus', title: '$5 per completed helmet + jersey combo',                  color: 'text-sky-300',     visibleAt: 3 },
-    { key: 'bets',  label: 'Bets',  title: 'Bet payouts (place odds + past-No-Bet consolation)',      color: 'text-emerald-400', visibleAt: 4 },
+    { key: 'purse',        label: 'Purse',        title: 'Purse for owned horses on the podium ($35 / $25 / $15; +$10 each with Great Appreciation)', color: 'text-amber-300',   visibleAt: 1 },
+    { key: 'money',        label: 'Money',        title: 'Cash on hand at race end',                                                                    color: 'text-emerald-400', visibleAt: 2 },
+    { key: 'bonus',        label: 'Jockey Bonus', title: '$5 per completed helmet + jersey combo',                                                      color: 'text-sky-300',     visibleAt: 3 },
+    { key: 'abilityTotal', label: 'Horses',       title: 'Net delta from owned-horse scoring abilities',                                                color: 'text-fuchsia-300', visibleAt: 4, signed: true },
+    { key: 'bets',         label: 'Bets',         title: 'Bet payouts (place odds + past-No-Bet consolation)',                                          color: 'text-emerald-400', visibleAt: 5 },
   ];
 
-  const winner = step >= 4 ? ranked[0] : null;
+  const winner = step >= TOTAL_STEPS ? ranked[0] : null;
   const medals = ['🥇', '🥈', '🥉'];
   const currentLabel = cats[step - 1]?.label;
 
@@ -1283,17 +1522,23 @@ function FinalScoringPanel({ state }: { state: LSState }) {
         <h2 className="text-xl font-bold text-amber-400">🏁 Final Scoring</h2>
         {winner ? (
           <p className="text-sm text-neutral-300">
-            Winner: <span className="font-semibold text-amber-300">{winner.username}</span>
+            Winner: <span className="font-semibold" style={{ color: safeAccent(accentByPlayerId[winner.playerId]) }}>{winner.username}</span>
             <span className="ml-2 font-mono">${winner.total}</span>
           </p>
         ) : (
           <p className="text-xs text-neutral-400">
-            Tallying… revealed: <span className="font-semibold text-emerald-300">{currentLabel}</span> ({step}/4)
+            Tallying… revealed: <span className="font-semibold text-emerald-300">{currentLabel}</span> ({step}/{TOTAL_STEPS})
           </p>
         )}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[480px] border-collapse text-sm">
+        <table className="w-full min-w-[480px] table-fixed border-collapse text-sm">
+          <colgroup>
+            {/* Player gets a fixed share; the remaining categories + Total share the rest equally. */}
+            <col style={{ width: '20%' }} />
+            {cats.map(c => <col key={c.key} style={{ width: `${80 / (cats.length + 1)}%` }} />)}
+            <col style={{ width: `${80 / (cats.length + 1)}%` }} />
+          </colgroup>
           <thead className="text-[10px] uppercase tracking-wider text-neutral-500">
             <tr>
               <th className="px-2 py-1 text-left">Player</th>
@@ -1317,33 +1562,92 @@ function FinalScoringPanel({ state }: { state: LSState }) {
                 className="border-t border-neutral-800/60"
               >
                 <td className="px-2 py-2">
-                  <span className="font-medium">
+                  <span className="font-medium" style={{ color: safeAccent(accentByPlayerId[s.playerId]) }}>
                     <span className="mr-1">{step >= 4 ? (medals[idx] ?? '') : ''}</span>
                     {s.username}
                   </span>
                 </td>
-                {cats.map(c => {
-                  const visible = step >= c.visibleAt;
-                  const v = s[c.key];
-                  return (
-                    <td key={c.key} className="px-2 py-2 text-center font-mono transition">
-                      {visible
-                        ? (v > 0
-                            ? <span className={c.color}>${v}</span>
-                            : <span className="text-neutral-600">$0</span>)
-                        : <span className="text-neutral-700">—</span>}
-                    </td>
-                  );
-                })}
-                <td className="px-2 py-2 text-center font-mono text-lg font-bold text-amber-400 transition">
-                  ${runningTotal(s)}
-                </td>
+                {cats.map(c => (
+                  <CategoryCell key={c.key} value={s[c.key] as number} cat={c} visible={step >= c.visibleAt} breakdown={s.abilityBreakdown} />
+                ))}
+                <TotalCell target={runningTotal(s)} />
               </tr>
             ))}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+/** Single category cell — animates its dollar amount when first revealed. */
+function CategoryCell({ value, cat, visible, breakdown }: {
+  value: number;
+  cat: { key: string; color: string; signed?: boolean };
+  visible: boolean;
+  breakdown: AbilityScoreEntry[];
+}) {
+  // Target is 0 until the category is revealed, then the actual value. The hook
+  // smoothly animates from current to target over ~4.5s — happens right inside
+  // the 5s reveal window before the next step ticks.
+  const target = visible ? value : 0;
+  const displayed = useCountUp(target);
+  const ability = cat.key === 'abilityTotal' ? <AbilityCell entries={breakdown} /> : null;
+
+  if (!visible) {
+    return <td className="px-2 py-2 text-center font-mono transition"><span className="text-neutral-700">—</span></td>;
+  }
+
+  // Signed (Horses/Abilities) — show with leading + / −. Final value uses original sign;
+  // mid-animation we use Math.sign(displayed) so the sign flips naturally as it crosses 0.
+  if (cat.signed) {
+    const sign = displayed === 0 ? 0 : displayed > 0 ? 1 : -1;
+    const formatted =
+      sign === 0   ? <span className="text-neutral-600">$0</span> :
+      sign > 0     ? <span className={cat.color}>+${displayed}</span> :
+                     <span className="text-rose-400">-${Math.abs(displayed)}</span>;
+    return (
+      <td className="px-2 py-2 text-center font-mono transition">
+        <span className="inline-flex items-center gap-1">
+          {formatted}
+          {ability}
+        </span>
+      </td>
+    );
+  }
+
+  return (
+    <td className="px-2 py-2 text-center font-mono transition">
+      {displayed > 0
+        ? <span className={cat.color}>${displayed}</span>
+        : <span className="text-neutral-600">$0</span>}
+    </td>
+  );
+}
+
+/** Total cell — counts up smoothly as new categories add to the running total. */
+function TotalCell({ target }: { target: number }) {
+  const displayed = useCountUp(target);
+  return (
+    <td className="px-2 py-2 text-center font-mono text-lg font-bold text-amber-400 transition">
+      ${displayed}
+    </td>
+  );
+}
+
+/** Tiny info icon listing each ability adjustment on hover. */
+function AbilityCell({ entries }: { entries: AbilityScoreEntry[] }) {
+  if (entries.length === 0) return null;
+  const title = entries
+    .map(e => `${e.name}: ${e.delta === 0 ? 'triggered' : (e.delta > 0 ? `+$${e.delta}` : `-$${Math.abs(e.delta)}`)}`)
+    .join('\n');
+  return (
+    <span
+      title={title}
+      className="cursor-help text-[10px] text-neutral-500 underline decoration-dotted"
+    >
+      ?
+    </span>
   );
 }
 
@@ -1805,5 +2109,473 @@ function Track({ state, bonusPick, infieldMessage }: {
         )}
       </svg>
     </div>
+  );
+}
+
+// =====================================================================
+// Pending ability choice picker (Phase 4) — full-width banner shown to the
+// player who triggered an ability that requires a choice. All eight kinds
+// share the same shell; the body switches on `pending.kind`.
+// =====================================================================
+function PendingChoicePicker({ state, pending, disabled, onResolve }: {
+  state: LSState;
+  pending: PendingChoice;
+  disabled: boolean;
+  onResolve: (choice: PendingChoiceResolution) => void;
+}) {
+  const me = state.players.find(p => p.playerId === pending.playerId);
+  const isCharley = pending.kind === 'charley_horse';
+  const isFairPlay = pending.kind === 'fair_play';
+  const isChain   = pending.kind === 'chain_reaction';
+  const isHalfOff = pending.kind === 'half_off_sale';
+  const isPartner = pending.kind === 'partner_in_crime';
+  const isMiracle = pending.kind === 'miracle_worker';
+  const isInv     = pending.kind === 'inventory_check';
+  const isDouble  = pending.kind === 'double_crosser';
+
+  // Title + helper text
+  const title =
+    isHalfOff ? 'Half Off Sale — pick a horse to buy at half price' :
+    isPartner ? 'Partner in Crime — pick a second horse to advance +2' :
+    isMiracle ? 'Miracle Worker — pick a bonus' :
+    isInv     ? `Inventory Check — pick a horse for jersey ${3 - (pending as Extract<PendingChoice, {kind:'inventory_check'}>).remaining} of 2` :
+    isChain   ? 'Chain Reaction — mark any unmarked concession cell' :
+    isCharley ? 'Charley Horse — pick a horse to move back 1' :
+    isFairPlay? 'Fair Play — pick a horse (not tied for the lead) to advance +2' :
+    isDouble  ? `Double Crosser — pick a second horse to mark on horse ${(pending as Extract<PendingChoice, {kind:'double_crosser'}>).rolledHorse}'s bar` :
+    'Resolve your ability';
+
+  return (
+    <div className="rounded-xl border-2 border-fuchsia-500/60 bg-fuchsia-500/5 p-3 text-sm">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="font-semibold text-fuchsia-200">✨ {title}</span>
+        {me && <span className="text-[11px] text-neutral-400">acting: {me.username}</span>}
+      </div>
+      <PickerBody state={state} pending={pending} disabled={disabled} onResolve={onResolve} />
+    </div>
+  );
+}
+
+function PickerBody({ state, pending, disabled, onResolve }: {
+  state: LSState;
+  pending: PendingChoice;
+  disabled: boolean;
+  onResolve: (choice: PendingChoiceResolution) => void;
+}) {
+  const skipBtn = (kind: PendingChoiceResolution['kind'], label = 'Skip') => (
+    <button
+      onClick={() => onResolve(
+        kind === 'inventory_check'
+          ? { kind: 'inventory_check', horseNum: null }
+          : kind === 'miracle_worker'
+            ? { kind: 'miracle_worker', option: 'concession' } // never used — miracle_worker has no skip
+            : { kind, horseNum: null } as PendingChoiceResolution
+      )}
+      disabled={disabled}
+      className="rounded border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800 disabled:opacity-50"
+    >
+      {label}
+    </button>
+  );
+
+  switch (pending.kind) {
+    case 'half_off_sale': {
+      const meIdx = state.players.findIndex(p => p.playerId === pending.playerId);
+      const me = state.players[meIdx];
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          {state.market.map(h => {
+            const half = Math.floor(effectiveHorseCost(state, h) / 2);
+            const tooPoor = me && me.money < half;
+            const finished = state.horses[h - 1].finished !== null;
+            return (
+              <button
+                key={h}
+                disabled={disabled || tooPoor || finished}
+                onClick={() => onResolve({ kind: 'half_off_sale', horseNum: h })}
+                className={`flex items-center gap-1.5 rounded border px-2 py-1 text-xs transition ${
+                  tooPoor || finished
+                    ? 'border-neutral-800 bg-neutral-950/40 text-neutral-600 opacity-50'
+                    : 'border-emerald-500 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20'
+                }`}
+                title={tooPoor ? `Need $${half}` : `Buy horse ${h} for $${half}`}
+              >
+                <HorseDot num={h} />
+                <span className="font-mono">${half}</span>
+              </button>
+            );
+          })}
+          {state.market.length === 0 && <span className="text-xs text-neutral-500">Market is empty.</span>}
+          {skipBtn('half_off_sale')}
+        </div>
+      );
+    }
+
+    case 'partner_in_crime':
+    case 'fair_play':
+    case 'charley_horse': {
+      // Horse picks happen by clicking the highlighted horse directly on the track.
+      // Lead = max position among UNFINISHED horses (finished horses are off the track).
+      const liveHorses = state.horses.filter(h => !h.finished);
+      const maxLivePos = liveHorses.length > 0 ? Math.max(...liveHorses.map(h => h.position)) : -1;
+      const anyEligible = state.horses.some((h, i) => {
+        if (h.finished) return false;
+        if (pending.kind === 'fair_play' && h.position === maxLivePos) return false;
+        if (pending.kind === 'partner_in_crime' && i + 1 === 6) return false;
+        return true;
+      });
+      return (
+        <div className="flex items-center gap-2 text-xs text-neutral-300">
+          <span>👉 Click a highlighted horse on the track.</span>
+          {!anyEligible && <span className="text-neutral-500">(No eligible horses.)</span>}
+          {skipBtn(pending.kind)}
+        </div>
+      );
+    }
+
+    case 'chain_reaction': {
+      const meIdx = state.players.findIndex(p => p.playerId === pending.playerId);
+      const me = state.players[meIdx];
+      if (!me) return null;
+      return (
+        <div className="space-y-2">
+          <p className="text-[11px] text-neutral-400">Click any unmarked cell on your grid.</p>
+          <div className="grid w-fit grid-cols-4 gap-1">
+            {state.concessionGrid.map((horseNum, idx) => {
+              const marked = me.concessionMarks[idx];
+              return (
+                <button
+                  key={idx}
+                  disabled={disabled || marked}
+                  onClick={() => onResolve({ kind: 'chain_reaction', cellIdx: idx })}
+                  className={`flex h-8 w-8 items-center justify-center rounded text-xs font-bold transition ${
+                    marked
+                      ? 'cursor-not-allowed bg-neutral-800 text-neutral-600 line-through'
+                      : 'text-white hover:scale-105 hover:ring-2 hover:ring-emerald-300'
+                  }`}
+                  style={{ backgroundColor: marked ? undefined : HORSE_COLORS[horseNum - 1] }}
+                  title={`Mark cell (horse ${horseNum})`}
+                >
+                  {horseNum}
+                </button>
+              );
+            })}
+          </div>
+          {skipBtn('chain_reaction')}
+        </div>
+      );
+    }
+
+    case 'inventory_check': {
+      const meIdx = state.players.findIndex(p => p.playerId === pending.playerId);
+      const me = state.players[meIdx];
+      const candidates: number[] = [];
+      for (let i = 0; i < NUM_HORSES; i++) {
+        if (me && me.jerseys[i] < MAX_JERSEYS_PER_HORSE) candidates.push(i + 1);
+      }
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          {candidates.map(h => (
+            <button
+              key={h}
+              disabled={disabled}
+              onClick={() => onResolve({ kind: 'inventory_check', horseNum: h })}
+              className="flex items-center gap-1.5 rounded border border-emerald-500 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
+            >
+              <HorseDot num={h} />
+              <span>Jersey</span>
+            </button>
+          ))}
+          {candidates.length === 0 && <span className="text-xs text-neutral-500">No horses without a jersey.</span>}
+          {skipBtn('inventory_check', 'Skip remaining')}
+        </div>
+      );
+    }
+
+    case 'miracle_worker': {
+      return <MiracleWorkerPicker state={state} pending={pending} disabled={disabled} onResolve={onResolve} />;
+    }
+
+    case 'double_crosser': {
+      const dc = pending as Extract<PendingChoice, { kind: 'double_crosser' }>;
+      const onBar = allMarksOnBar(state, dc.rolledHorse);
+      const candidates: number[] = [];
+      for (let h = 1; h <= NUM_HORSES; h++) if (!onBar.has(h)) candidates.push(h);
+      return (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] text-neutral-400">On horse {dc.rolledHorse}&rsquo;s bar:</span>
+          {candidates.map(h => (
+            <button
+              key={h}
+              disabled={disabled}
+              onClick={() => onResolve({ kind: 'double_crosser', horseNum: h })}
+              className="flex items-center gap-1.5 rounded border border-emerald-500 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 transition hover:bg-emerald-500/20 disabled:opacity-50"
+            >
+              <HorseDot num={h} />
+              <span>mark</span>
+            </button>
+          ))}
+          {candidates.length === 0 && <span className="text-xs text-neutral-500">Bar is full.</span>}
+          {skipBtn('double_crosser')}
+        </div>
+      );
+    }
+  }
+}
+
+/** Miracle Worker has its own sub-state for picking between concession / helmet / jersey. */
+function MiracleWorkerPicker({ state, pending, disabled, onResolve }: {
+  state: LSState;
+  pending: PendingChoice;
+  disabled: boolean;
+  onResolve: (choice: PendingChoiceResolution) => void;
+}) {
+  const [mode, setMode] = useState<'pick' | 'concession' | 'helmet' | 'jersey'>('pick');
+  const [jerseyHorse, setJerseyHorse] = useState<number | null>(null);
+  const meIdx = state.players.findIndex(p => p.playerId === pending.playerId);
+  const me = state.players[meIdx];
+  if (!me) return null;
+
+  if (mode === 'pick') {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => setMode('concession')} disabled={disabled}
+          className="rounded border border-emerald-500 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">
+          Mark a concession cell
+        </button>
+        <button onClick={() => setMode('helmet')} disabled={disabled}
+          className="rounded border border-emerald-500 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">
+          Mark a helmet
+        </button>
+        <button onClick={() => setMode('jersey')} disabled={disabled}
+          className="rounded border border-emerald-500 bg-emerald-500/10 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50">
+          Mark a jersey
+        </button>
+      </div>
+    );
+  }
+
+  if (mode === 'concession') {
+    return (
+      <div className="space-y-2">
+        <p className="text-[11px] text-neutral-400">Click any unmarked cell on your grid.</p>
+        <div className="grid w-fit grid-cols-4 gap-1">
+          {state.concessionGrid.map((horseNum, idx) => {
+            const marked = me.concessionMarks[idx];
+            return (
+              <button
+                key={idx}
+                disabled={disabled || marked}
+                onClick={() => onResolve({ kind: 'miracle_worker', option: 'concession', cellIdx: idx })}
+                className={`flex h-8 w-8 items-center justify-center rounded text-xs font-bold transition ${
+                  marked ? 'cursor-not-allowed bg-neutral-800 text-neutral-600 line-through'
+                         : 'text-white hover:scale-105 hover:ring-2 hover:ring-emerald-300'
+                }`}
+                style={{ backgroundColor: marked ? undefined : HORSE_COLORS[horseNum - 1] }}
+              >
+                {horseNum}
+              </button>
+            );
+          })}
+        </div>
+        <button onClick={() => setMode('pick')} className="text-xs text-neutral-400 underline">← back</button>
+      </div>
+    );
+  }
+
+  if (mode === 'helmet') {
+    const candidates: number[] = [];
+    for (let i = 0; i < NUM_HORSES; i++) if (me.helmets[i] < MAX_HELMETS_PER_HORSE) candidates.push(i + 1);
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {candidates.map(h => (
+          <button
+            key={h}
+            disabled={disabled}
+            onClick={() => onResolve({ kind: 'miracle_worker', option: 'helmet', horseNum: h })}
+            className="flex items-center gap-1.5 rounded border border-emerald-500 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            <HorseDot num={h} /><span>helmet</span>
+          </button>
+        ))}
+        {candidates.length === 0 && <span className="text-xs text-neutral-500">All horses already have a helmet.</span>}
+        <button onClick={() => setMode('pick')} className="text-xs text-neutral-400 underline">← back</button>
+      </div>
+    );
+  }
+
+  // jersey: pick horse card, then pick mark
+  if (jerseyHorse === null) {
+    const candidates: number[] = [];
+    for (let i = 0; i < NUM_HORSES; i++) if (me.jerseys[i] < MAX_JERSEYS_PER_HORSE) candidates.push(i + 1);
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] text-neutral-400">Pick a horse card to jersey:</span>
+        {candidates.map(h => (
+          <button
+            key={h}
+            disabled={disabled}
+            onClick={() => setJerseyHorse(h)}
+            className="flex items-center gap-1.5 rounded border border-emerald-500 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            <HorseDot num={h} />
+          </button>
+        ))}
+        {candidates.length === 0 && <span className="text-xs text-neutral-500">All horses already have a jersey.</span>}
+        <button onClick={() => setMode('pick')} className="text-xs text-neutral-400 underline">← back</button>
+      </div>
+    );
+  }
+  const onBar = allMarksOnBar(state, jerseyHorse);
+  const marks: number[] = [];
+  for (let h = 1; h <= NUM_HORSES; h++) if (!onBar.has(h)) marks.push(h);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[11px] text-neutral-400">Jersey on horse {jerseyHorse}. Pick a mark for its bar:</span>
+      {marks.map(m => (
+        <button
+          key={m}
+          disabled={disabled}
+          onClick={() => onResolve({ kind: 'miracle_worker', option: 'jersey', horseNum: jerseyHorse, markHorse: m })}
+          className="flex items-center gap-1.5 rounded border border-emerald-500 bg-emerald-500/10 px-2 py-1 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
+        >
+          <HorseDot num={m} />
+        </button>
+      ))}
+      <button onClick={() => setJerseyHorse(null)} className="text-xs text-neutral-400 underline">← back</button>
+    </div>
+  );
+}
+
+// =====================================================================
+// Horse abilities panel (one per horse, picked at race start) — also acts as
+// the "market" surface for buying horses (click the row when it's your turn).
+// =====================================================================
+function AbilitiesPanel({ state, me, action, bonus }: {
+  state: LSState;
+  me?: LSPlayer;
+  action?: SheetAction;
+  bonus?: SheetBonus;
+}) {
+  const ownerByHorse = useMemo(() => {
+    const m = new Map<number, LSPlayer>();
+    for (const p of state.players) for (const h of p.ownedHorses) m.set(h, p);
+    return m;
+  }, [state.players]);
+
+  return (
+    <details className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-3 text-sm" open>
+      <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-neutral-400">
+        Horse abilities
+      </summary>
+      <ul className="mt-2 grid auto-rows-fr gap-1.5 sm:grid-cols-2">
+        {Array.from({ length: NUM_HORSES }, (_, i) => i + 1).map(horseNum => {
+          const i = horseNum - 1;
+          const id = state.assignedAbilities[horseNum];
+          const ability = id ? ABILITY_BY_ID[id] : null;
+          const owner = ownerByHorse.get(horseNum);
+          const finished = state.horses[i]?.finished ?? null;
+          const baseCost = HORSE_COSTS[i];
+          const cost = effectiveHorseCost(state, horseNum);
+          const costModified = cost !== baseCost;
+          const ownedByMe = !!(me && owner?.playerId === me.playerId);
+          const inMarket = state.market.includes(horseNum);
+          // Reusable price label: shows the base $cost; when an ability has modified it,
+          // shows the original with strikethrough and the new value in emerald.
+          const priceLabel = costModified ? (
+            <span className="inline-flex items-baseline gap-1" title={`Ability modifier · normally $${baseCost}`}>
+              <span className="text-neutral-500 line-through">${baseCost}</span>
+              <span className="text-emerald-300">${cost}</span>
+            </span>
+          ) : (
+            <span>${cost}</span>
+          );
+
+          // Decide what right-side status / button to render.
+          // Priority: finished > owned-by-me > Free Horse bonus pending > other-owner
+          //         > active-turn buyable > wild buyable > plain $cost (dormant).
+          let right: React.ReactNode;
+          if (finished) {
+            right = (
+              <span className="text-[11px] font-semibold text-amber-300">
+                {finished === 1 ? '🥇 1st' : finished === 2 ? '🥈 2nd' : '🥉 3rd'}
+                {owner && <span className="ml-1 text-sky-300">— {owner.username}</span>}
+              </span>
+            );
+          } else if (ownedByMe) {
+            right = <span className="text-[11px] font-semibold text-emerald-300">owned 🏠</span>;
+          } else if (bonus?.targets?.market?.has(horseNum)) {
+            right = (
+              <button
+                disabled={bonus.disabled}
+                onClick={() => bonus.onPick(horseNum)}
+                className="rounded border border-emerald-500 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-bold text-emerald-200 transition hover:bg-emerald-500/25 disabled:opacity-50"
+                title={`Claim horse ${horseNum} free (bonus)`}
+              >
+                FREE
+              </button>
+            );
+          } else if (owner) {
+            right = <span className="truncate text-[11px] text-sky-300">{owner.username}</span>;
+          } else if (action && inMarket && horseNum === action.effectiveHorse && action.canBuy) {
+            right = (
+              <button
+                disabled={action.disabled}
+                onClick={() => action.send({ type: 'buy' })}
+                className="rounded border border-emerald-500 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-200 transition hover:bg-emerald-500/25 disabled:opacity-50"
+                title={`Buy horse ${horseNum} for $${cost}${costModified ? ` (ability discount from $${baseCost})` : ''}`}
+              >
+                Buy <span className="inline-flex items-baseline gap-1">
+                  {costModified && <span className="text-emerald-200/60 line-through">${baseCost}</span>}
+                  <span>${cost}</span>
+                </span>
+              </button>
+            );
+          } else if (action?.wildTargets?.buy.has(horseNum)) {
+            right = (
+              <button
+                disabled={action.disabled}
+                onClick={() => action.sendWithWild(horseNum, { type: 'buy' })}
+                className="rounded border border-amber-500 bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold text-amber-200 transition hover:bg-amber-500/25 disabled:opacity-50"
+                title={`Wild + buy horse ${horseNum} ($${cost})${costModified ? ` (ability discount from $${baseCost})` : ''}`}
+              >
+                Wild + <span className="inline-flex items-baseline gap-1">
+                  {costModified && <span className="text-amber-200/60 line-through">${baseCost}</span>}
+                  <span>${cost}</span>
+                </span>
+              </button>
+            );
+          } else {
+            right = <span className="text-[11px] font-mono text-neutral-400">{priceLabel}</span>;
+          }
+
+          return (
+            <li
+              key={horseNum}
+              className={`rounded-md border px-2 py-1.5 ${owner ? 'border-emerald-900/50 bg-emerald-500/5' : 'border-neutral-800 bg-neutral-950/40'}`}
+            >
+              <div className="flex items-baseline gap-2">
+                <span
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold text-white"
+                  style={{ backgroundColor: HORSE_COLORS[i] }}
+                  title={`Horse ${horseNum}`}
+                >
+                  {horseNum}
+                </span>
+                <span className="text-[13px] font-semibold text-neutral-100">
+                  {ability?.name ?? '—'}
+                </span>
+                <span className="ml-auto">{right}</span>
+              </div>
+              {ability && (
+                <p className="mt-0.5 min-h-[2.7rem] text-[11px] leading-snug text-neutral-400">
+                  {ability.description}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </details>
   );
 }

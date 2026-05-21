@@ -1,0 +1,19 @@
+import type { SchemeCardDef } from '../types';
+
+// "Negative Zone Prison Breakout" — the iconic introductory scheme.
+// 8 twists; on each twist, an additional villain card is revealed from the
+// Villain Deck (we'll wire this in the engine). Evil wins when 8 villains
+// have escaped OR all 8 twists have been revealed (we use the twist count
+// as the loss timer for simplicity in MVP).
+
+export const NEGATIVE_ZONE_PRISON_BREAKOUT: SchemeCardDef = {
+  kind: 'scheme',
+  cardId: 'scheme_negative_zone',
+  name: 'Negative Zone Prison Breakout',
+  text: 'Schemes Twists: Reveal an extra Villain. Evil Wins if 8 Villains escape.',
+  twists: 8,
+  bystanders: 2,
+  evilWinsAfterTwists: 8,
+  // For MVP, the twist effect just bumps the counter. The "reveal extra
+  // villain on twist" behavior is engine-side (special-cased in reveal()).
+};

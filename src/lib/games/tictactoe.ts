@@ -1,6 +1,11 @@
+/** Bump and add a registry `migrateState` whenever you change this state's shape. */
+export const STATE_VERSION = 1;
+
 export type Mark = 'X' | 'O';
 export type Cell = Mark | null;
 export type TTTState = {
+  /** Engine state version — see STATE_VERSION + registry.migrateState. */
+  version?: number;
   board: Cell[];           // length 9
   turn: Mark;              // whose turn it is
   winner: Mark | 'draw' | null;
@@ -10,7 +15,7 @@ export type TTTState = {
 };
 
 export function initialState(): TTTState {
-  return { board: Array(9).fill(null), turn: 'X', winner: null, winningLine: null, lastMove: null, seats: {} };
+  return { version: STATE_VERSION, board: Array(9).fill(null), turn: 'X', winner: null, winningLine: null, lastMove: null, seats: {} };
 }
 
 const LINES: number[][] = [
@@ -40,12 +45,15 @@ export function applyMove(state: TTTState, cell: number, playerId: string): TTTS
   board[cell] = state.turn;
   const win = checkWinner(board);
   const winner: TTTState['winner'] = win === 'draw' ? 'draw' : win ? win.mark : null;
+  // Spread the prior state first so future-added fields (like version) survive
+  // automatically. The named fields below are the ones this function actually
+  // mutates.
   return {
+    ...state,
     board,
     turn: state.turn === 'X' ? 'O' : 'X',
     winner,
     winningLine: typeof win === 'object' && win !== null ? win.line : null,
     lastMove: cell,
-    seats: state.seats,
   };
 }

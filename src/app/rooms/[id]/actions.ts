@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@/lib/supabase/server';
+import { GAMES, getProjectedState } from '@/lib/games/registry';
 import { applyMove as applyMoveTTT, initialState as tttInitial, type TTTState } from '@/lib/games/tictactoe';
 import { applyMove as applyMoveC4, initialState as c4Initial, type C4State } from '@/lib/games/connect4';
 import { applyMove as applyMoveCK, initialState as ckInitial, type CheckersState } from '@/lib/games/checkers';
@@ -26,18 +27,84 @@ import {
   startRace as lsStartRace,
   rollDice as lsRollDice,
   takeAction as lsTakeAction,
-  calculateFinalScores as lsCalculateFinalScores,
-  compareFinalScores as lsCompareFinalScores,
   MOVEMENT_DIE_FACES,
   type LSState,
   type ActionPayload,
 } from '@/lib/games/longshot';
+import {
+  initialState as ldInitial,
+  addPlayer as ldAddPlayer,
+  startGame as ldStartGame,
+  placeBid as ldPlaceBid,
+  callLiar as ldCallLiar,
+  startNextRound as ldStartNextRound,
+  type LDState,
+} from '@/lib/games/liarsdice';
+import {
+  initialState as yzInitial,
+  addPlayer as yzAddPlayer,
+  startGame as yzStartGame,
+  roll as yzRoll,
+  toggleHold as yzToggleHold,
+  commitScore as yzCommitScore,
+  type YState,
+  type Category as YCategory,
+} from '@/lib/games/yahtzee';
+import {
+  applyMove as applyMoveRPS,
+  initialState as rpsInitial,
+  type RPSState,
+  type RPSChoice,
+} from '@/lib/games/rps';
+import {
+  applyMove as applyMoveSD,
+  seatJoinerAndStart as sdSeatJoinerAndStart,
+  createInitialStateForHost as sdCreateInitialStateForHost,
+  trimLog as sdTrimLog,
+  type SDState,
+  type ResolvedTarget as SDResolvedTarget,
+} from '@/lib/games/spellduel';
+import {
+  applyAction as applyActionLG,
+  startGame as lgStartGame,
+  type LegendaryAction,
+  type LegendaryState,
+} from '@/lib/games/legendary';
 
 /**
  * Push a "room changed" event over Supabase Realtime broadcast so every connected client
  * refetches immediately. This is more reliable than relying on postgres_changes alone,
  * which can lag or silently drop with RLS in some Supabase configurations.
  */
+/**
+ * The single SELECT shape every "read a room" caller uses (page.tsx initial
+ * render, RoomClient's refresh, etc.). Kept in one place so it's impossible
+ * for the projection wrapper to drift from the columns the client expects.
+ */
+const ROOM_SELECT =
+  'id, game_type, status, host_id, state, max_players, rematch_votes, abandon_votes, turn_started_at, time_per_player, room_players(player_id, seat, profiles(username, accent_color))';
+
+/**
+ * Fetch a room and return the state PROJECTED for the calling user.
+ *
+ * Closes the network-layer info leak: previously RoomClient ran the SELECT
+ * directly through the client-side supabase, so the raw bytes (including
+ * opponent's hand cards) hit the browser before any scrubbing. Now the
+ * fetch + projection happen server-side and the projected state is what
+ * crosses the wire.
+ *
+ * Returns the full row (including non-state columns); only the `state`
+ * field is projected.
+ */
+export async function fetchRoom(roomId: string): Promise<unknown> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const { data: room, error } = await supabase.from('rooms').select(ROOM_SELECT).eq('id', roomId).single();
+  if (error || !room) throw new Error('Room not found');
+  const projectedState = getProjectedState(room.game_type, room.state, user?.id ?? null);
+  return { ...room, state: projectedState };
+}
+
 async function notifyRoom(roomId: string) {
   try {
     await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/realtime/v1/api/broadcast`, {
@@ -86,29 +153,54 @@ export async function joinRoom(roomId: string) {
     .insert({ room_id: roomId, player_id: user.id, seat });
   if (insErr) throw new Error(insErr.message);
 
-  if (room.game_type === 'longshot') {
-    // Long Shot: stay in 'waiting' until host clicks Start. Add player to game state.
+  // Spellduel doesn't fit the generic addPlayer shape (state.players is an
+  // object keyed by seat, not an array) — fill seat B + flip to 'playing'
+  // through the engine's two-arg helper.
+  if (room.game_type === 'spellduel') {
     const { data: profile } = await supabase
-      .from('profiles').select('username').eq('id', user.id).single();
-    const username = profile?.username ?? 'player';
-    const newState = lsAddPlayer((room.state || {}) as LSState, user.id, username, seat);
-    await supabase.from('rooms').update({ state: newState }).eq('id', roomId);
-  } else if (room.game_type === 'boggle') {
-    // Boggle: same join model — wait in lobby for the host to roll the board
+      .from('profiles').select('username, accent_color').eq('id', user.id).single();
+    const next = sdSeatJoinerAndStart((room.state || {}) as SDState, {
+      userId: user.id,
+      username: profile?.username ?? 'player',
+      accent_color: profile?.accent_color as string | undefined,
+    });
+    await supabase
+      .from('rooms')
+      .update({ state: next, status: 'playing' })
+      .eq('id', roomId);
+    await notifyRoom(roomId);
+    revalidatePath(`/rooms/${roomId}`);
+    return;
+  }
+
+  // Multi-player games register the joiner in their state.players[]; dispatch
+  // via the GameDef so adding a new multi-player game means registering
+  // `addPlayer` on its registry entry — no edit to this action required.
+  const addPlayerFn = GAMES[room.game_type]?.addPlayer;
+  if (addPlayerFn) {
     const { data: profile } = await supabase
-      .from('profiles').select('username').eq('id', user.id).single();
+      .from('profiles').select('username, accent_color').eq('id', user.id).single();
     const username = profile?.username ?? 'player';
-    const newState = bgAddPlayer((room.state || {}) as BoggleState, user.id, username, seat);
+    const accent = (profile?.accent_color as string | undefined);
+    const newState = addPlayerFn((room.state || {}), user.id, username, seat, accent);
     await supabase.from('rooms').update({ state: newState }).eq('id', roomId);
   } else {
-    // Tic-Tac-Toe / Connect Four: auto-start when 2nd player joins.
+    // Tic-Tac-Toe / Connect Four / Checkers / Battleship: auto-start when 2nd player joins.
+    // For TTT/C4/Checkers we coin-flip who plays the first-move color (X/R/R) so the host
+    // doesn't get an automatic advantage. Battleship keeps its own post-Ready coin flip.
     const state = (room.state || {}) as Record<string, unknown> & { seats?: Record<string, string> };
     const seats = { ...(state.seats || {}) };
     if (seat === 1) {
-      if (room.game_type === 'tictactoe'  && !seats.O) seats.O = user.id;
-      if (room.game_type === 'connect4'   && !seats.Y) seats.Y = user.id;
-      if (room.game_type === 'checkers'   && !seats.B) seats.B = user.id;
-      if (room.game_type === 'battleship' && !seats.B) seats.B = user.id;
+      const hostId = seats.X ?? seats.R ?? seats.A ?? '';
+      const joinerId = user.id;
+      const swap = Math.random() < 0.5;
+      const firstId  = swap ? joinerId : hostId;
+      const secondId = swap ? hostId   : joinerId;
+      if (room.game_type === 'tictactoe') { seats.X = firstId; seats.O = secondId; }
+      if (room.game_type === 'connect4')  { seats.R = firstId; seats.Y = secondId; }
+      if (room.game_type === 'checkers')  { seats.R = firstId; seats.B = secondId; }
+      if (room.game_type === 'rps')       { seats.A = firstId; seats.B = secondId; }
+      if (room.game_type === 'battleship' && !seats.B) seats.B = user.id; // BS has its own flip
     }
     await supabase
       .from('rooms')
@@ -142,7 +234,7 @@ export async function takeActionLS(roomId: string, payload: ActionPayload) {
   if (next.phase === 'finished') updates.status = 'finished';
 
   await supabase.from('rooms').update(updates).eq('id', roomId);
-  if (next.phase === 'finished') await recordLongShotHistory(supabase, roomId, next);
+  await recordHistoryIfFinished(supabase, roomId, 'longshot', next);
   await notifyRoom(roomId);
 }
 
@@ -176,7 +268,7 @@ export async function rollDiceLS(roomId: string) {
   if (next.phase === 'finished') updates.status = 'finished';
 
   await supabase.from('rooms').update(updates).eq('id', roomId);
-  if (next.phase === 'finished') await recordLongShotHistory(supabase, roomId, next);
+  await recordHistoryIfFinished(supabase, roomId, 'longshot', next);
   await notifyRoom(roomId);
 }
 
@@ -194,7 +286,10 @@ export async function startGame(roomId: string) {
   if (error || !room) throw new Error('Room not found');
   if (room.host_id !== user.id) throw new Error('Only the host can start the game');
   if (room.status !== 'waiting') throw new Error('Game already started');
-  if (room.room_players.length < 2) throw new Error('Need at least 2 players');
+  const minPlayers = GAMES[room.game_type]?.minPlayers ?? 2;
+  if (room.room_players.length < minPlayers) {
+    throw new Error(`Need at least ${minPlayers} player${minPlayers === 1 ? '' : 's'}`);
+  }
 
   if (room.game_type === 'longshot') {
     const next = lsStartRace((room.state || {}) as LSState);
@@ -205,6 +300,20 @@ export async function startGame(roomId: string) {
       .eq('id', roomId);
   } else if (room.game_type === 'boggle') {
     const next = bgStartGame((room.state || {}) as BoggleState);
+    if ('error' in next) throw new Error(next.error);
+    await supabase
+      .from('rooms')
+      .update({ status: 'playing', state: next })
+      .eq('id', roomId);
+  } else if (room.game_type === 'liarsdice') {
+    const next = ldStartGame((room.state || {}) as LDState);
+    if ('error' in next) throw new Error(next.error);
+    await supabase
+      .from('rooms')
+      .update({ status: 'playing', state: next })
+      .eq('id', roomId);
+  } else if (room.game_type === 'yahtzee') {
+    const next = yzStartGame((room.state || {}) as YState);
     if ('error' in next) throw new Error(next.error);
     await supabase
       .from('rooms')
@@ -323,6 +432,48 @@ export async function reportError(params: {
   }
 }
 
+/**
+ * Host-only: remove a seated player from a room that's still in `waiting`
+ * status. Used by the kick button in the Seats grid. No-op once the game
+ * has started — for that case players have Resign / Propose Abandon.
+ *
+ * Removes the row from room_players AND, for engines that maintain their
+ * own players array in state (Long Shot / Yahtzee / Liar's Dice / Boggle),
+ * also calls each engine's removePlayer() so the lobby player count and
+ * the engine state stay consistent.
+ */
+export async function kickPlayer(roomId: string, targetId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('id, game_type, status, host_id, state')
+    .eq('id', roomId)
+    .single();
+  if (!room) throw new Error('Room not found');
+  if (room.host_id !== user.id) throw new Error('Only the host can kick');
+  if (room.status !== 'waiting') throw new Error('Can only kick before the game starts');
+  if (targetId === user.id) throw new Error("You can't kick yourself — leave the room instead");
+
+  await supabase.from('room_players').delete().eq('room_id', roomId).eq('player_id', targetId);
+
+  // Engines that track their own players array need their state cleaned up too.
+  // Dispatch via the registry so adding a new multi-player game doesn't require
+  // touching this code path — just register removePlayer on the GameDef.
+  const removePlayerFn = GAMES[room.game_type]?.removePlayer;
+  if (removePlayerFn) {
+    const nextState = removePlayerFn((room.state || {}), targetId);
+    if (nextState !== room.state) {
+      await supabase.from('rooms').update({ state: nextState }).eq('id', roomId);
+    }
+  }
+
+  await notifyRoom(roomId);
+  revalidatePath(`/rooms/${roomId}`);
+}
+
 export async function leaveRoom(roomId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -332,46 +483,254 @@ export async function leaveRoom(roomId: string) {
   revalidatePath(`/rooms/${roomId}`);
 }
 
-/** Insert a game_history row when a game finishes. Idempotent: caller decides when. */
-async function recordHistory(
-  supabase: SupabaseClient,
-  roomId: string,
-  gameType: string,
-  seats: Record<string, string>,
-  winner: 'X' | 'O' | 'R' | 'Y' | 'A' | 'B' | 'draw',
-) {
-  const playerIds = Object.values(seats).filter(Boolean) as string[];
-  const winnerId = winner === 'draw' ? null : seats[winner] ?? null;
-  await supabase.from('game_history').insert({
-    room_id: roomId,
-    game_type: gameType,
-    winner_id: winnerId,
-    player_ids: playerIds,
-  });
+/**
+ * Resign the current live match. Behavior:
+ *   • 2-player games (TTT / C4 / Checkers / Battleship): opponent wins. We mutate
+ *     the engine state to set `winner = opponent's color` and write a normal
+ *     game_history row crediting the opponent with a win.
+ *   • Multi-player games (Long Shot / Yahtzee / Liar's Dice / Boggle): not
+ *     supported in v1 — use Propose Abandon instead. This action throws so the
+ *     UI can hide the button cleanly.
+ */
+export async function resignGame(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('id, game_type, status, state, room_players(player_id, seat)')
+    .eq('id', roomId)
+    .single();
+  if (!room) throw new Error('Room not found');
+  if (room.status !== 'playing') throw new Error('Game is not in progress');
+
+  type SeatMap = { X?: string; O?: string; R?: string; Y?: string; B?: string; A?: string };
+  const stateAny = (room.state ?? {}) as { seats?: SeatMap; winner?: unknown };
+  const seats = stateAny.seats ?? {};
+
+  const opposite: Record<string, string> = { X: 'O', O: 'X', R: 'Y', Y: 'R', A: 'B', B: 'A' };
+  // Checkers uses R/B (not R/Y). Battleship also uses A/B. Detect from the seat keys present.
+  if (room.game_type === 'checkers') { opposite.R = 'B'; opposite.B = 'R'; }
+
+  // Find which side the resigner is sitting on.
+  let myKey: string | null = null;
+  for (const k of Object.keys(seats)) {
+    if (seats[k as keyof SeatMap] === user.id) { myKey = k; break; }
+  }
+  if (!myKey) throw new Error('You are not seated in this game');
+
+  const oppKey = opposite[myKey];
+  if (!oppKey || !seats[oppKey as keyof SeatMap]) {
+    throw new Error('Resign is only supported for 2-player games right now. Use Propose Abandon instead.');
+  }
+
+  const nextState = { ...stateAny, winner: oppKey };
+
+  await supabase
+    .from('rooms')
+    .update({ state: nextState, status: 'finished', rematch_votes: [], abandon_votes: [] })
+    .eq('id', roomId);
+
+  await recordHistoryIfFinished(supabase, roomId, room.game_type, nextState);
+
+  await notifyRoom(roomId);
+  revalidatePath(`/rooms/${roomId}`);
 }
 
 /**
- * Long Shot history record — winner = player with the highest final score.
- * On a tie at the top, winner_id is null (treated as a draw for W/L stats).
+ * Toggle this user's "abandon" vote on the current live game. If everyone seated
+ * has voted, the game ends with status='finished' but NO game_history row — so
+ * no W/L is recorded for anyone. Cleared automatically if the game ends some
+ * other way. Votes also clear if anyone makes a regular move (handled by the
+ * existing per-action update paths via abandon_votes: []).
  */
-async function recordLongShotHistory(
+export async function voteAbandon(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room } = await supabase
+    .from('rooms')
+    .select('id, status, abandon_votes, room_players(player_id)')
+    .eq('id', roomId)
+    .single();
+  if (!room) throw new Error('Room not found');
+  if (room.status !== 'playing') throw new Error('Game is not in progress');
+
+  const seated = new Set((room.room_players as { player_id: string }[]).map(p => p.player_id));
+  if (!seated.has(user.id)) throw new Error('You are not seated in this game');
+
+  const votes = new Set((room.abandon_votes as string[]) || []);
+  if (votes.has(user.id)) votes.delete(user.id);
+  else votes.add(user.id);
+
+  // If every seated player has now voted to abandon, end the game with no result.
+  const allAgreed = seated.size > 0 && [...seated].every(id => votes.has(id));
+  if (allAgreed) {
+    await supabase
+      .from('rooms')
+      .update({ status: 'finished', abandon_votes: [], rematch_votes: [] })
+      .eq('id', roomId);
+  } else {
+    await supabase
+      .from('rooms')
+      .update({ abandon_votes: Array.from(votes) })
+      .eq('id', roomId);
+  }
+
+  await notifyRoom(roomId);
+  revalidatePath(`/rooms/${roomId}`);
+}
+
+// =====================================================================
+// Unified move dispatch (registerGame Phase C)
+// =====================================================================
+//
+// Boards used to call one of ~17 distinct server actions (makeMoveTTT,
+// placeBidLD, submitWordBoggle, etc.). Now they all funnel through a single
+// `gameMove(roomId, action)` entry point whose `action` is a discriminated
+// union — TypeScript catches missing cases when we add a new game, and
+// boards.tsx has a single import surface for "any game move ever."
+//
+// Internally we still delegate to the individual per-game actions (kept
+// exported for now for backward compat / direct callers). Future cleanups
+// can inline those bodies here and remove the wrappers.
+
+// Reuses ActionPayload, BSPayload, BoggleGameMode, YCategory from the top-of-file imports.
+export type GameAction =
+  // Game lifecycle (multi-player engines that need an explicit host "Start")
+  | { game: 'longshot';  kind: 'startGame' }
+  | { game: 'boggle';    kind: 'startGame' }
+  | { game: 'liarsdice'; kind: 'startGame' }
+  | { game: 'yahtzee';   kind: 'startGame' }
+
+  // 2-player abstract strategy (single move per turn)
+  | { game: 'tictactoe';  kind: 'move'; cell: number }
+  | { game: 'connect4';   kind: 'move'; col: number }
+  | { game: 'checkers';   kind: 'move'; from: [number, number]; to: [number, number] }
+  | { game: 'battleship'; kind: 'move'; payload: BSPayload }
+
+  // Rock-Paper-Scissors (simultaneous reveal)
+  | { game: 'rps'; kind: 'move'; choice: RPSChoice }
+
+  // Spellduel — interactive card game
+  | { game: 'spellduel'; kind: 'play'; cardIdx: number; targets?: SDResolvedTarget[] }
+  | { game: 'spellduel'; kind: 'end_turn' }
+
+  // Legendary — Marvel co-op deck builder
+  | { game: 'legendary'; kind: 'startGame' }
+  | { game: 'legendary'; kind: 'play_card'; instanceId: string }
+  | { game: 'legendary'; kind: 'recruit_hero'; slot: number }
+  | { game: 'legendary'; kind: 'fight_city'; slot: number }
+  | { game: 'legendary'; kind: 'fight_mastermind' }
+  | { game: 'legendary'; kind: 'end_turn' }
+
+  // Long Shot
+  | { game: 'longshot'; kind: 'roll' }
+  | { game: 'longshot'; kind: 'action'; payload: ActionPayload }
+
+  // Boggle
+  | { game: 'boggle'; kind: 'setMode';    mode: BoggleGameMode }
+  | { game: 'boggle'; kind: 'nextRound' }
+  | { game: 'boggle'; kind: 'submitWord'; word: string }
+  | { game: 'boggle'; kind: 'finalize' }
+
+  // Liar's Dice
+  | { game: 'liarsdice'; kind: 'bid';       quantity: number; face: number }
+  | { game: 'liarsdice'; kind: 'callLiar' }
+  | { game: 'liarsdice'; kind: 'nextRound' }
+
+  // Yahtzee
+  | { game: 'yahtzee'; kind: 'roll' }
+  | { game: 'yahtzee'; kind: 'toggleHold';  idx: number }
+  | { game: 'yahtzee'; kind: 'commitScore'; category: YCategory };
+
+/**
+ * Single entry point for every in-game action. Boards call this through the
+ * `boards.tsx` renderer instead of importing 17 different server actions.
+ * Returns whatever the underlying action returns (most are void; submitWord
+ * returns word-validation results).
+ */
+export async function gameMove(roomId: string, action: GameAction): Promise<unknown> {
+  switch (action.game) {
+    case 'tictactoe':
+      if (action.kind === 'move') return makeMoveTTT(roomId, action.cell);
+      break;
+    case 'connect4':
+      if (action.kind === 'move') return makeMoveC4(roomId, action.col);
+      break;
+    case 'checkers':
+      if (action.kind === 'move') return makeMoveCheckers(roomId, action.from, action.to);
+      break;
+    case 'battleship':
+      if (action.kind === 'move') return makeMoveBattleship(roomId, action.payload);
+      break;
+    case 'rps':
+      if (action.kind === 'move') return makeMoveRPS(roomId, action.choice);
+      break;
+    case 'spellduel':
+      if (action.kind === 'play')     return makeMoveSD(roomId, { kind: 'play', cardIdx: action.cardIdx, targets: action.targets });
+      if (action.kind === 'end_turn') return makeMoveSD(roomId, { kind: 'end_turn' });
+      break;
+    case 'legendary':
+      if (action.kind === 'startGame')       return startGameLG(roomId);
+      if (action.kind === 'play_card')       return makeMoveLG(roomId, { kind: 'play_card', instanceId: action.instanceId });
+      if (action.kind === 'recruit_hero')    return makeMoveLG(roomId, { kind: 'recruit_hero', slot: action.slot });
+      if (action.kind === 'fight_city')      return makeMoveLG(roomId, { kind: 'fight_city', slot: action.slot });
+      if (action.kind === 'fight_mastermind')return makeMoveLG(roomId, { kind: 'fight_mastermind' });
+      if (action.kind === 'end_turn')        return makeMoveLG(roomId, { kind: 'end_turn' });
+      break;
+    case 'longshot':
+      if (action.kind === 'startGame') return startGame(roomId);
+      if (action.kind === 'roll')      return rollDiceLS(roomId);
+      if (action.kind === 'action')    return takeActionLS(roomId, action.payload);
+      break;
+    case 'boggle':
+      if (action.kind === 'startGame')  return startGame(roomId);
+      if (action.kind === 'setMode')    return setBoggleMode(roomId, action.mode);
+      if (action.kind === 'nextRound')  return startBoggleNextRound(roomId);
+      if (action.kind === 'submitWord') return submitWordBoggle(roomId, action.word);
+      if (action.kind === 'finalize')   return finalizeBoggleIfExpired(roomId);
+      break;
+    case 'liarsdice':
+      if (action.kind === 'startGame') return startGame(roomId);
+      if (action.kind === 'bid')       return placeBidLD(roomId, action.quantity, action.face);
+      if (action.kind === 'callLiar')  return callLiarLD(roomId);
+      if (action.kind === 'nextRound') return startNextRoundLD(roomId);
+      break;
+    case 'yahtzee':
+      if (action.kind === 'startGame')   return startGame(roomId);
+      if (action.kind === 'roll')        return rollDiceYZ(roomId);
+      if (action.kind === 'toggleHold')  return toggleHoldYZ(roomId, action.idx);
+      if (action.kind === 'commitScore') return commitScoreYZ(roomId, action.category);
+      break;
+  }
+  throw new Error(`gameMove: unhandled action ${JSON.stringify(action)}`);
+}
+
+/**
+ * Single unified path for writing a game_history row. Each game in registry.ts
+ * implements `computeHistory(state)`; this function just dispatches.
+ *   • Returns null from computeHistory → no insert (game still in progress)
+ *   • Otherwise inserts one row with the winnerId + playerIds the game declares
+ * Replaces the four bespoke `record*History*()` helpers we used to have.
+ */
+async function recordHistoryIfFinished(
   supabase: SupabaseClient,
   roomId: string,
-  state: LSState,
+  gameType: string,
+  state: unknown,
 ) {
-  const scores = [...lsCalculateFinalScores(state)].sort(lsCompareFinalScores);
-  if (scores.length === 0) return;
-  // After total + best-podium tiebreaker, only consider it a true tie if the top two
-  // are exactly equal on BOTH metrics.
-  const isTie =
-    scores.length > 1 &&
-    scores[0].total === scores[1].total &&
-    (scores[0].bestPodium ?? 4) === (scores[1].bestPodium ?? 4);
+  const def = GAMES[gameType];
+  if (!def?.computeHistory) return;
+  const h = def.computeHistory(state);
+  if (!h) return;
   await supabase.from('game_history').insert({
     room_id: roomId,
-    game_type: 'longshot',
-    winner_id: isTie ? null : scores[0].playerId,
-    player_ids: scores.map(s => s.playerId),
+    game_type: gameType,
+    winner_id: h.winnerId,
+    player_ids: h.playerIds,
   });
 }
 
@@ -394,10 +753,10 @@ export async function makeMoveTTT(roomId: string, cell: number) {
 
   await supabase
     .from('rooms')
-    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [] })
+    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [], abandon_votes: [] })
     .eq('id', roomId);
 
-  if (next.winner) await recordHistory(supabase, roomId, 'tictactoe', next.seats as Record<string, string>, next.winner);
+  if (next.winner) await recordHistoryIfFinished(supabase, roomId, 'tictactoe', next);
   await notifyRoom(roomId);
 }
 
@@ -420,12 +779,144 @@ export async function makeMoveCheckers(roomId: string, from: [number, number], t
 
   await supabase
     .from('rooms')
-    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [] })
+    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [], abandon_votes: [] })
     .eq('id', roomId);
 
+  if (next.winner) await recordHistoryIfFinished(supabase, roomId, 'checkers', next);
+  await notifyRoom(roomId);
+}
+
+/** Submit your RPS choice for the current round. The engine handles the
+    "wait for both" handshake + reveal + scoring on its own. */
+export async function makeMoveRPS(roomId: string, choice: RPSChoice) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'rps') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const next = applyMoveRPS(room.state as RPSState, { choice }, user.id);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase
+    .from('rooms')
+    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [], abandon_votes: [] })
+    .eq('id', roomId);
+
+  if (next.winner) await recordHistoryIfFinished(supabase, roomId, 'rps', next);
+  await notifyRoom(roomId);
+}
+
+/**
+ * Submit a Spellduel move (play card by hand index, or end turn). The engine
+ * resolves card effects + triggers atomically; we just persist the resulting
+ * state and trim the log.
+ */
+export async function makeMoveSD(
+  roomId: string,
+  action: { kind: 'play'; cardIdx: number; targets?: SDResolvedTarget[] } | { kind: 'end_turn' },
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'spellduel') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const result = applyMoveSD((room.state || {}) as SDState, action, user.id);
+  if ('error' in result) throw new Error(result.error);
+
+  const next = sdTrimLog(result);
+  const updates: { state: SDState; status?: string; rematch_votes?: string[]; abandon_votes?: string[] } = {
+    state: next,
+    abandon_votes: [],
+  };
   if (next.winner) {
-    const seats = next.seats as Record<string, string>;
-    await recordHistory(supabase, roomId, 'checkers', seats, next.winner);
+    updates.status = 'finished';
+    updates.rematch_votes = [];
+  }
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+
+  if (next.winner) await recordHistoryIfFinished(supabase, roomId, 'spellduel', next);
+  await notifyRoom(roomId);
+}
+
+/**
+ * Host-only: flip a Legendary room from 'waiting' (or 'playing' for the
+ * setup screen) to a live game by calling the engine's startGame which
+ * shuffles decks + deals opening hands.
+ */
+export async function startGameLG(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type, host_id')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'legendary') throw new Error('Wrong game type');
+  if (room.host_id !== user.id) throw new Error('Only the host can start the game');
+
+  const next = lgStartGame((room.state || {}) as LegendaryState);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase
+    .from('rooms')
+    .update({ state: next, status: 'playing' })
+    .eq('id', roomId);
+  await notifyRoom(roomId);
+}
+
+/**
+ * Apply a Legendary game action (play_card / recruit_hero / fight_city /
+ * fight_mastermind / end_turn). Server-authoritative; the engine validates
+ * turn ownership + resource cost.
+ */
+export async function makeMoveLG(roomId: string, action: LegendaryAction) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'legendary') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const result = applyActionLG((room.state || {}) as LegendaryState, user.id, action);
+  if ('error' in result) throw new Error(result.error);
+
+  const updates: { state: LegendaryState; status?: string; rematch_votes?: string[]; abandon_votes?: string[] } = {
+    state: result,
+    abandon_votes: [],
+  };
+  if (result.phase === 'finished') {
+    updates.status = 'finished';
+    updates.rematch_votes = [];
+  }
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+
+  if (result.phase === 'finished') {
+    await recordHistoryIfFinished(supabase, roomId, 'legendary', result);
   }
   await notifyRoom(roomId);
 }
@@ -544,22 +1035,11 @@ export async function finalizeBoggleIfExpired(roomId: string) {
   const roomStatus = finalized.phase === 'finished' ? 'finished' : 'playing';
   await supabase
     .from('rooms')
-    .update({ state: finalized, status: roomStatus, rematch_votes: [] })
+    .update({ state: finalized, status: roomStatus, rematch_votes: [], abandon_votes: [] })
     .eq('id', roomId);
 
   // Record game history only once, when the multi-round game actually ends
-  if (finalized.phase === 'finished') {
-    const ranked = [...(finalized.finalResults ?? [])].sort((a, b) => b.total - a.total);
-    if (ranked.length > 0) {
-      const tie = ranked.length > 1 && ranked[0].total === ranked[1].total;
-      await supabase.from('game_history').insert({
-        room_id: roomId,
-        game_type: 'boggle',
-        winner_id: tie ? null : ranked[0].playerId,
-        player_ids: ranked.map(r => r.playerId),
-      });
-    }
-  }
+  await recordHistoryIfFinished(supabase, roomId, 'boggle', finalized);
   await notifyRoom(roomId);
 }
 
@@ -582,13 +1062,10 @@ export async function makeMoveBattleship(roomId: string, payload: BSPayload) {
 
   await supabase
     .from('rooms')
-    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [] })
+    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [], abandon_votes: [] })
     .eq('id', roomId);
 
-  if (next.winner) {
-    const seats = next.seats as Record<string, string>;
-    await recordHistory(supabase, roomId, 'battleship', seats, next.winner);
-  }
+  if (next.winner) await recordHistoryIfFinished(supabase, roomId, 'battleship', next);
   await notifyRoom(roomId);
 }
 
@@ -611,10 +1088,165 @@ export async function makeMoveC4(roomId: string, col: number) {
 
   await supabase
     .from('rooms')
-    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [] })
+    .update({ state: next, status: next.winner ? 'finished' : 'playing', rematch_votes: [], abandon_votes: [] })
     .eq('id', roomId);
 
-  if (next.winner) await recordHistory(supabase, roomId, 'connect4', next.seats as Record<string, string>, next.winner);
+  if (next.winner) await recordHistoryIfFinished(supabase, roomId, 'connect4', next);
+  await notifyRoom(roomId);
+}
+
+// =====================================================================
+// Liar's Dice actions
+// =====================================================================
+
+export async function placeBidLD(roomId: string, quantity: number, face: number) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'liarsdice') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const next = ldPlaceBid((room.state || {}) as LDState, user.id, quantity, face);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase.from('rooms').update({ state: next }).eq('id', roomId);
+  await notifyRoom(roomId);
+}
+
+export async function callLiarLD(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'liarsdice') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const next = ldCallLiar((room.state || {}) as LDState, user.id);
+  if ('error' in next) throw new Error(next.error);
+
+  const updates: { state: LDState; status?: string; rematch_votes?: string[]; abandon_votes?: string[] } = {
+    state: next,
+    abandon_votes: [],
+  };
+  if (next.phase === 'finished') {
+    updates.status = 'finished';
+    updates.rematch_votes = [];
+  }
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+  await recordHistoryIfFinished(supabase, roomId, 'liarsdice', next);
+  await notifyRoom(roomId);
+}
+
+/** Anyone may advance from between-rounds; the engine just rerolls and resets the bid. */
+export async function startNextRoundLD(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type, room_players(player_id)')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'liarsdice') throw new Error('Wrong game type');
+  if (!(room.room_players as { player_id: string }[]).some(p => p.player_id === user.id)) {
+    throw new Error('Not a seated player');
+  }
+
+  const next = ldStartNextRound((room.state || {}) as LDState);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase.from('rooms').update({ state: next }).eq('id', roomId);
+  await notifyRoom(roomId);
+}
+
+// =====================================================================
+// Yahtzee actions
+// =====================================================================
+
+export async function rollDiceYZ(roomId: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'yahtzee') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const next = yzRoll((room.state || {}) as YState, user.id);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase.from('rooms').update({ state: next }).eq('id', roomId);
+  await notifyRoom(roomId);
+}
+
+export async function toggleHoldYZ(roomId: string, dieIdx: number) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'yahtzee') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const next = yzToggleHold((room.state || {}) as YState, user.id, dieIdx);
+  if ('error' in next) throw new Error(next.error);
+
+  await supabase.from('rooms').update({ state: next }).eq('id', roomId);
+  await notifyRoom(roomId);
+}
+
+export async function commitScoreYZ(roomId: string, category: YCategory) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'yahtzee') throw new Error('Wrong game type');
+  if (room.status !== 'playing') throw new Error('Game not in progress');
+
+  const next = yzCommitScore((room.state || {}) as YState, user.id, category);
+  if ('error' in next) throw new Error(next.error);
+
+  const updates: { state: YState; status?: string; rematch_votes?: string[]; abandon_votes?: string[] } = {
+    state: next,
+    abandon_votes: [],
+  };
+  if (next.phase === 'finished') {
+    updates.status = 'finished';
+    updates.rematch_votes = [];
+  }
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+  await recordHistoryIfFinished(supabase, roomId, 'yahtzee', next);
   await notifyRoom(roomId);
 }
 
@@ -647,10 +1279,11 @@ export async function proposeRematch(roomId: string) {
   if (error || !room) throw new Error('Room not found');
   if (room.status !== 'finished') throw new Error('Game is not finished');
 
-  // For TTT/Connect4 only seats 0 and 1 are game seats; for Long Shot every seated
-  // player counts (up to 8).
+  // For TTT/Connect4 only seats 0 and 1 are game seats; multi-player games count
+  // every seated player.
   const allSeated = room.room_players as { player_id: string; seat: number }[];
-  const seated = room.game_type === 'longshot'
+  const multiPlayer = room.game_type === 'longshot' || room.game_type === 'boggle' || room.game_type === 'liarsdice' || room.game_type === 'yahtzee';
+  const seated = multiPlayer
     ? allSeated
     : allSeated.filter(p => p.seat === 0 || p.seat === 1);
   if (!seated.some(p => p.player_id === user.id)) throw new Error('Not a seated player');
@@ -658,7 +1291,9 @@ export async function proposeRematch(roomId: string) {
   const votes = new Set((room.rematch_votes as string[]) || []);
   votes.add(user.id);
 
-  const everyone = seated.length >= 2 && seated.every(p => votes.has(p.player_id));
+  // Solo games (e.g. 1-player Yahtzee) can rematch as soon as the lone player votes.
+  const minVoters = (GAMES[room.game_type]?.minPlayers ?? 2);
+  const everyone = seated.length >= minVoters && seated.every(p => votes.has(p.player_id));
 
   if (!everyone) {
     await supabase.from('rooms').update({ rematch_votes: Array.from(votes) }).eq('id', roomId);
@@ -666,7 +1301,7 @@ export async function proposeRematch(roomId: string) {
   }
 
   // Reset the board.
-  let newState: TTTState | C4State | CheckersState | BSState | BoggleState | LSState;
+  let newState: TTTState | C4State | CheckersState | BSState | BoggleState | LSState | LDState | YState | RPSState | SDState;
   if (room.game_type === 'tictactoe') {
     const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
     newState = { ...tttInitial(), seats: { X: oldSeats.O ?? '', O: oldSeats.X ?? '' } };
@@ -679,26 +1314,64 @@ export async function proposeRematch(roomId: string) {
   } else if (room.game_type === 'battleship') {
     const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
     newState = { ...bsInitial(), seats: { A: oldSeats.B ?? '', B: oldSeats.A ?? '' } };
+  } else if (room.game_type === 'rps') {
+    // Rematch: swap seats so the player who had A last game gets B this time.
+    const oldSeats = ((room.state || {}) as { seats?: Record<string, string> }).seats ?? {};
+    newState = { ...rpsInitial(), seats: { A: oldSeats.B ?? '', B: oldSeats.A ?? '' } };
+  } else if (room.game_type === 'spellduel') {
+    // Rebuild a fresh duel with swapped seats. Pull username+accent from the
+    // old state's players (already populated by createInitialStateForHost +
+    // seatJoinerAndStart, so no extra DB roundtrip needed).
+    const oldState = (room.state || {}) as SDState;
+    const playerA = oldState.players.A;
+    const playerB = oldState.players.B;
+    const host = sdCreateInitialStateForHost({
+      userId: playerB.playerId,
+      username: playerB.username,
+      accent_color: playerB.accent_color,
+    });
+    newState = sdSeatJoinerAndStart(host, {
+      userId: playerA.playerId,
+      username: playerA.username,
+      accent_color: playerA.accent_color,
+    });
   } else if (room.game_type === 'longshot') {
     // Reset to a fresh Long Shot game with the same seated players. startRace re-randomizes
     // the starting seat, the concession grid, and the pre-marked bets/concessions, so each
-    // rematch plays differently even with the same lineup.
+    // rematch plays differently even with the same lineup. Accent colors carry over.
     const oldState = (room.state || {}) as LSState;
     let lsState = lsInitialState();
     for (const p of [...oldState.players].sort((a, b) => a.seat - b.seat)) {
-      lsState = lsAddPlayer(lsState, p.playerId, p.username, p.seat);
+      lsState = lsAddPlayer(lsState, p.playerId, p.username, p.seat, p.accent_color);
     }
     const started = lsStartRace(lsState);
     if ('error' in started) throw new Error(started.error);
     newState = started;
   } else if (room.game_type === 'boggle') {
-    // Reset Boggle to lobby phase with same seated players + a fresh roll on next Start
     const oldState = (room.state || {}) as BoggleState;
     let bgState = bgInitial();
     for (const p of [...oldState.players].sort((a, b) => a.seat - b.seat)) {
-      bgState = bgAddPlayer(bgState, p.playerId, p.username, p.seat);
+      bgState = bgAddPlayer(bgState, p.playerId, p.username, p.seat, p.accent_color);
     }
     const started = bgStartGame(bgState);
+    if ('error' in started) throw new Error(started.error);
+    newState = started;
+  } else if (room.game_type === 'liarsdice') {
+    const oldState = (room.state || {}) as LDState;
+    let ldState = ldInitial();
+    for (const p of [...oldState.players].sort((a, b) => a.seat - b.seat)) {
+      ldState = ldAddPlayer(ldState, p.playerId, p.username, p.seat, p.accent_color);
+    }
+    const started = ldStartGame(ldState);
+    if ('error' in started) throw new Error(started.error);
+    newState = started;
+  } else if (room.game_type === 'yahtzee') {
+    const oldState = (room.state || {}) as YState;
+    let yzState = yzInitial();
+    for (const p of [...oldState.players].sort((a, b) => a.seat - b.seat)) {
+      yzState = yzAddPlayer(yzState, p.playerId, p.username, p.seat, p.accent_color);
+    }
+    const started = yzStartGame(yzState);
     if ('error' in started) throw new Error(started.error);
     newState = started;
   } else {
@@ -707,7 +1380,7 @@ export async function proposeRematch(roomId: string) {
 
   await supabase
     .from('rooms')
-    .update({ state: newState, status: 'playing', rematch_votes: [] })
+    .update({ state: newState, status: 'playing', rematch_votes: [], abandon_votes: [] })
     .eq('id', roomId);
 
   await notifyRoom(roomId);

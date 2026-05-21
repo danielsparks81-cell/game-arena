@@ -5,6 +5,12 @@
   --animate-drop-in: drop-in 0.45s cubic-bezier(0.4, 0.0, 0.6, 1.6);
   --animate-win-pulse: win-pulse 1.1s ease-in-out infinite;
   --animate-toast-in: toast-in 0.25s ease-out;
+  --animate-pop: pop 0.35s ease-out;
+  /* Spellduel feedback: floating ± numbers and brief panel pulses on damage/heal. */
+  --animate-float-up: float-up 0.9s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+  --animate-hit-pulse: hit-pulse 0.45s ease-out;
+  --animate-heal-pulse: heal-pulse 0.55s ease-out;
+  --animate-card-play: card-play 0.35s ease-out;
 }
 
 @keyframes piece-in {
@@ -28,7 +34,42 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes pop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+
 .animate-piece-in { animation: var(--animate-piece-in); }
 .animate-drop-in  { animation: var(--animate-drop-in); }
 .animate-win-pulse { animation: var(--animate-win-pulse); }
 .animate-toast-in  { animation: var(--animate-toast-in); }
+.animate-pop       { animation: var(--animate-pop); }
+.animate-float-up   { animation: var(--animate-float-up); }
+.animate-hit-pulse  { animation: var(--animate-hit-pulse); }
+.animate-heal-pulse { animation: var(--animate-heal-pulse); }
+.animate-card-play  { animation: var(--animate-card-play); }
+
+@keyframes float-up {
+  0%   { transform: translate(-50%, 0)     scale(0.8); opacity: 0; }
+  20%  { transform: translate(-50%, -10px) scale(1.2); opacity: 1; }
+  100% { transform: translate(-50%, -48px) scale(1);   opacity: 0; }
+}
+
+@keyframes hit-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(244, 63, 94, 0.55), inset 0 0 0 0 rgba(244, 63, 94, 0); }
+  40%  { box-shadow: 0 0 0 10px rgba(244, 63, 94, 0),   inset 0 0 18px 0 rgba(244, 63, 94, 0.45); }
+  100% { box-shadow: 0 0 0 0   rgba(244, 63, 94, 0),   inset 0 0 0 0 rgba(244, 63, 94, 0); }
+}
+
+@keyframes heal-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(34, 197, 94, 0.5), inset 0 0 0 0 rgba(34, 197, 94, 0); }
+  40%  { box-shadow: 0 0 0 12px rgba(34, 197, 94, 0),  inset 0 0 18px 0 rgba(34, 197, 94, 0.40); }
+  100% { box-shadow: 0 0 0 0   rgba(34, 197, 94, 0),  inset 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+@keyframes card-play {
+  0%   { transform: scale(1)    translateY(0); opacity: 1; }
+  50%  { transform: scale(1.18) translateY(-22px); opacity: 1; }
+  100% { transform: scale(0.6)  translateY(-60px); opacity: 0; }
+}

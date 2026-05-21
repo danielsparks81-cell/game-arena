@@ -36,6 +36,8 @@ export type BogglePlayer = {
   playerId: string;
   username: string;
   seat: number;
+  /** Player's profile accent color at join time. Optional for back-compat. */
+  accent_color?: string;
   /** Words this player has submitted THIS ROUND (uppercase, deduped per player). */
   words: string[];
 };
@@ -63,7 +65,12 @@ export type RoundResult = {
   }[];
 };
 
+/** Bump and add a registry `migrateState` whenever you change this state's shape. */
+export const STATE_VERSION = 1;
+
 export type BoggleState = {
+  /** Engine state version — see STATE_VERSION + registry.migrateState. */
+  version?: number;
   phase: 'lobby' | 'playing' | 'between-rounds' | 'finished';
   mode: BoggleGameMode;
   /** Current round number (1-indexed). 0 while in lobby. */
@@ -90,6 +97,7 @@ export type BoggleState = {
 
 export function initialState(): BoggleState {
   return {
+    version: STATE_VERSION,
     phase: 'lobby',
     mode: '1-round',
     round: 0,
@@ -108,13 +116,19 @@ export function setGameMode(state: BoggleState, mode: BoggleGameMode): BoggleSta
   return { ...state, mode };
 }
 
-export function addPlayer(state: BoggleState, playerId: string, username: string, seat: number): BoggleState {
+export function addPlayer(state: BoggleState, playerId: string, username: string, seat: number, accent_color?: string): BoggleState {
   if (state.phase !== 'lobby') return state;
   if (state.players.some(p => p.playerId === playerId)) return state;
   return {
     ...state,
-    players: [...state.players, { playerId, username, seat, words: [] }].sort((a, b) => a.seat - b.seat),
+    players: [...state.players, { playerId, username, seat, accent_color, words: [] }].sort((a, b) => a.seat - b.seat),
   };
+}
+
+/** Host-only: remove a seated player while still in the lobby. */
+export function removePlayer(state: BoggleState, playerId: string): BoggleState {
+  if (state.phase !== 'lobby') return state;
+  return { ...state, players: state.players.filter(p => p.playerId !== playerId) };
 }
 
 /** Fisher-Yates shuffle (mutates a copy). */
