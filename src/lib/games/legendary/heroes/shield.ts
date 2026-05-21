@@ -23,12 +23,12 @@ export const TROOPER: HeroCardDef = {
 export const AGENT: HeroCardDef = {
   kind: 'hero',
   cardId: 'shield_agent',
-  className: 'S.H.I.E.L.D.',
+  className: 'Hero',
   cardName: 'S.H.I.E.L.D. Agent',
   cost: 0,
   baseRecruit: 1,
-  classes: ['covert'],
-  teams: ['shield-agent'],
+  classes: [],
+  teams: ['shield'],
 };
 
 // S.H.I.E.L.D. Officer — always available for purchase (pool of 30).
