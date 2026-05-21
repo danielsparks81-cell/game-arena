@@ -57,7 +57,7 @@ type Floater = { key: number; seat: number; sign: '+' | '-'; amount: number; ton
 type RevealAnim = {
   key: number;
   cardId: string;
-  kind: 'villain' | 'henchman' | 'master_strike' | 'scheme_twist';
+  kind: 'villain' | 'henchman' | 'master_strike' | 'scheme_twist' | 'bystander';
   phase: 'entering' | 'showing' | 'exiting';
   /** Pixel offset from viewport center to destination (computed from DOM rects at trigger time). */
   exitX: number;
@@ -153,9 +153,10 @@ export default function LegendaryBoard({
   // ----- Villain / strike / twist reveal animation -----
   // Refs for the three destination zones — attached to real DOM elements so
   // the exit translation is computed from actual pixel positions, not estimates.
-  const schemeRef  = useRef<HTMLDivElement>(null); // scheme zone box
-  const strikesRef = useRef<HTMLDivElement>(null); // strikes pile
-  const sewersRef  = useRef<HTMLDivElement>(null); // sewers city slot
+  const schemeRef     = useRef<HTMLDivElement>(null); // scheme zone box
+  const strikesRef    = useRef<HTMLDivElement>(null); // strikes pile
+  const sewersRef     = useRef<HTMLDivElement>(null); // sewers city slot (slot 0)
+  const mastermindRef = useRef<HTMLDivElement>(null); // mastermind zone (bystander fallback)
 
   // Intentionally starts at 0 so the first-turn villain reveal (which arrives
   // in the log simultaneously with the lobby→playing transition) is caught.
@@ -173,6 +174,9 @@ export default function LegendaryBoard({
     const fresh = state.log.slice(start);
     let cardId = '';
     let kind: RevealAnim['kind'] | null = null;
+    // For bystanders we need to know whether it went to a villain or mastermind
+    // so we can pick the right exit destination.
+    let bystanderDest: 'villain' | 'mastermind' = 'villain';
     for (const ev of [...fresh].reverse()) {
       if (ev.kind === 'villain_revealed') {
         cardId = ev.cardId;
@@ -186,6 +190,11 @@ export default function LegendaryBoard({
       } else if (ev.kind === 'scheme_twist') {
         cardId = 'scheme_twist';
         kind = 'scheme_twist';
+        break;
+      } else if (ev.kind === 'bystander_captured') {
+        cardId = 'bystander';
+        kind = 'bystander';
+        bystanderDest = ev.capturedBy;
         break;
       }
     }
@@ -211,7 +220,8 @@ export default function LegendaryBoard({
     let destEl: HTMLElement | null = null;
     if (kind === 'villain' || kind === 'henchman') destEl = sewersRef.current;
     else if (kind === 'master_strike')             destEl = strikesRef.current;
-    else                                           destEl = schemeRef.current;
+    else if (kind === 'scheme_twist')              destEl = schemeRef.current;
+    else if (kind === 'bystander')                 destEl = bystanderDest === 'villain' ? sewersRef.current : mastermindRef.current;
     const dest = centerOf(destEl);
     const exitX = dest ? dest.x - cx : (kind === 'villain' || kind === 'henchman' ? 340 : kind === 'master_strike' ? -380 : -200);
     const exitY = dest ? dest.y - cy : (kind === 'villain' || kind === 'henchman' ?  50 : kind === 'master_strike' ?   60 : -160);
@@ -304,7 +314,7 @@ export default function LegendaryBoard({
               <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} />
             </div>
             {/* Mastermind — spans 2 city-slot widths */}
-            <div className="col-span-2 h-32">
+            <div className="col-span-2 h-32" ref={mastermindRef}>
               <MastermindZone
                 mmDef={mmDef}
                 hitsTaken={state.mastermind.hitsTaken}
@@ -989,6 +999,16 @@ function RevealCardContent({ anim }: { anim: RevealAnim }) {
       />
     );
   }
+  if (anim.kind === 'bystander') {
+    return (
+      <SystemCardArt
+        name="Bystander"
+        borderColor="#c4a800"
+        bg="linear-gradient(135deg, #c4a800, #a08600)"
+        vp={1}
+      />
+    );
+  }
   return (
     <SystemCardArt
       name="Scheme Twist"
@@ -1032,6 +1052,7 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
       case 'henchman':      return 'Henchman Revealed';
       case 'master_strike': return 'Master Strike!';
       case 'scheme_twist':  return 'Scheme Twist!';
+      case 'bystander':     return 'Bystander Captured!';
     }
   })();
 
@@ -1039,6 +1060,8 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
     ? '#fb923c'
     : anim.kind === 'scheme_twist'
     ? '#c084fc'
+    : anim.kind === 'bystander'
+    ? '#fcd34d'
     : '#f87171';
 
   return (
@@ -1109,15 +1132,17 @@ function logText(ev: LegendaryEvent): string {
     case 'mastermind_hit':     return `Mastermind hit — ${ev.hitsRemaining} left to defeat`;
     case 'master_strike':      return `⚡ Master Strike: ${ev.effectText}`;
     case 'scheme_twist':       return `Scheme Twist ${ev.twistsRevealed} / ${ev.twistsTotal}`;
-    case 'wound_taken':        return `${ev.username} took a Wound`;
-    case 'bystander_rescued':  return `${ev.username} rescued ${ev.count} bystander${ev.count === 1 ? '' : 's'}`;
-    case 'game_ended':         return ev.reasonText;
+    case 'wound_taken':          return `${ev.username} took a Wound`;
+    case 'bystander_rescued':    return `${ev.username} rescued ${ev.count} bystander${ev.count === 1 ? '' : 's'}`;
+    case 'bystander_captured':   return `Bystander captured by ${ev.captorName}`;
+    case 'game_ended':           return ev.reasonText;
   }
 }
 
 function logColor(ev: LegendaryEvent, mySeat: number): string {
   if (ev.kind === 'villain_escaped' || ev.kind === 'master_strike') return 'text-rose-400';
   if (ev.kind === 'scheme_twist') return 'text-amber-400';
+  if (ev.kind === 'bystander_captured') return 'text-amber-300';
   if (ev.kind === 'game_ended') return ev.result === 'win' ? 'text-emerald-300' : 'text-rose-300';
   if ('seat' in ev && (ev as { seat?: number }).seat === mySeat) return 'text-emerald-300';
   return 'text-neutral-400';

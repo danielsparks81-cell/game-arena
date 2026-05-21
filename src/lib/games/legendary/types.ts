@@ -259,6 +259,9 @@ export type LegendaryEvent =
   | { kind: 'scheme_twist'; twistsRevealed: number; twistsTotal: number }
   | { kind: 'wound_taken'; seat: number; username: string }
   | { kind: 'bystander_rescued'; seat: number; username: string; count: number }
+  /** Fires when a bystander drawn from the Villain Deck is captured by the
+   *  nearest villain in the city (or the mastermind if the city is empty). */
+  | { kind: 'bystander_captured'; capturedBy: 'villain' | 'mastermind'; captorName: string }
   | { kind: 'game_ended'; result: 'win' | 'loss'; reasonText: string };
 
 /** Full game state. Lives in the rooms.state JSONB column. */

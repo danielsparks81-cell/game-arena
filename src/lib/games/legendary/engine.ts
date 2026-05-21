@@ -680,8 +680,33 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
       return card;
     }
     case 'bystander': {
-      state.pendingBystanders.push(card);
-      pushLog(state, { kind: 'system', text: 'A bystander emerges, waiting to be rescued.' });
+      // Attach immediately to the villain CLOSEST to the Villain Deck (slot 0 =
+      // Sewers / entry edge), per the rules. If the city is empty, the
+      // Mastermind captures the bystander instead.
+      // Slot 0 is always the newest (just entered) and sits at the deck-entry
+      // edge; scan 0 → CITY_SIZE−1 for the first occupied slot.
+      let capturedByVillain = false;
+      for (let s = 0; s < state.city.length; s++) {
+        const cityCard = state.city[s];
+        if (cityCard) {
+          state.cityBystanders[cityCard.instanceId] = [
+            ...(state.cityBystanders[cityCard.instanceId] ?? []),
+            card,
+          ];
+          const capDef = getCard(cityCard.cardId);
+          const captorName = capDef.kind === 'villain' || capDef.kind === 'henchman'
+            ? capDef.name : cityCard.cardId;
+          pushLog(state, { kind: 'bystander_captured', capturedBy: 'villain', captorName });
+          capturedByVillain = true;
+          break;
+        }
+      }
+      if (!capturedByVillain) {
+        state.mastermind.bystanders.push(card);
+        const mmDef = getCard(state.mastermind.cardId);
+        const mmName = mmDef.kind === 'mastermind' ? mmDef.name : 'the Mastermind';
+        pushLog(state, { kind: 'bystander_captured', capturedBy: 'mastermind', captorName: mmName });
+      }
       return card;
     }
     case 'villain':
@@ -770,25 +795,19 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
       state.escapedPile.push(escaped);
     }
   }
-  // Shift right.
+  // Shift right — all existing villains move one slot toward Bridge.
+  // cityBystanders is keyed by instanceId so bystanders travel with their
+  // villain automatically (no separate move needed).
   for (let i = state.city.length - 1; i > 0; i--) {
     state.city[i] = state.city[i - 1];
   }
   state.city[0] = card;
 
-  // Attach any pending bystanders to the freshly-revealed card.
-  if (state.pendingBystanders.length > 0) {
-    state.cityBystanders[card.instanceId] = [
-      ...(state.cityBystanders[card.instanceId] ?? []),
-      ...state.pendingBystanders,
-    ];
-    state.pendingBystanders = [];
-  }
-
-  // Log the reveal.
+  // Log the reveal first, THEN fire Ambush. Per the rules:
+  //   • The villain must be fully in the city (slot 0) before Ambush fires.
+  //   • Escape effects for any pushed-out villain have already fired above.
   if (def.kind === 'villain' || def.kind === 'henchman') {
     pushLog(state, { kind: 'villain_revealed', cardId: def.cardId, cardName: def.name });
-    // Ambush fires when revealed.
     if (def.kind === 'villain' && def.ambush) {
       for (const eff of def.ambush) {
         for (const p of state.players) resolveEffect(state, p, eff);
