@@ -98,15 +98,19 @@ export function ClassChips({ classes, size = 'sm' }: { classes: HeroClass[]; siz
   const sz = size === 'sm' ? 'h-2.5 w-2.5' : 'h-2 w-2';
   return (
     <div className="flex gap-0.5">
-      {classes.map(c => (
-        <span
-          key={c}
-          title={CLASS_LABELS[c]}
-          aria-label={CLASS_LABELS[c]}
-          className={`inline-block ${sz} rounded-full border border-black/40 shadow-[inset_0_0_2px_rgba(0,0,0,0.4)]`}
-          style={{ backgroundColor: CLASS_COLORS[c] }}
-        />
-      ))}
+      {classes.length === 0
+        ? /* invisible placeholder — keeps className text left-aligned with chipped cards */
+          <span className={`inline-block ${sz} shrink-0`} aria-hidden />
+        : classes.map(c => (
+            <span
+              key={c}
+              title={CLASS_LABELS[c]}
+              aria-label={CLASS_LABELS[c]}
+              className={`inline-block ${sz} rounded-full border border-black/40 shadow-[inset_0_0_2px_rgba(0,0,0,0.4)]`}
+              style={{ backgroundColor: CLASS_COLORS[c] }}
+            />
+          ))
+      }
     </div>
   );
 }
