@@ -36,12 +36,12 @@ export const AGENT: HeroCardDef = {
 export const OFFICER: HeroCardDef = {
   kind: 'hero',
   cardId: 'shield_officer',
-  className: 'S.H.I.E.L.D.',
-  cardName: 'S.H.I.E.L.D. Officer',
+  className: 'Hero',
+  cardName: 'Maria Hill',
   cost: 3,
   baseRecruit: 2,
-  classes: ['covert'],
-  teams: ['shield-officer'],
+  classes: [],
+  teams: ['shield'],
 };
 
 // Sidekick — always available for purchase (pool of 30).

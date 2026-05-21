@@ -960,7 +960,7 @@ type GenericCategory =
 const GENERIC_CATEGORIES: { id: GenericCategory; label: string; sub: string }[] = [
   { id: 'trooper',       label: 'S.H.I.E.L.D. Trooper',   sub: 'Starter · 4× per player' },
   { id: 'agent',         label: 'S.H.I.E.L.D. Agent',     sub: 'Starter · 8× per player' },
-  { id: 'officer',       label: 'S.H.I.E.L.D. Officer',   sub: 'Pool card' },
+  { id: 'officer',       label: 'Maria Hill',              sub: 'S.H.I.E.L.D. Officer · Pool card' },
   { id: 'sidekick',      label: 'Sidekick',                sub: 'Pool card' },
   { id: 'wound',         label: 'Wound',                   sub: 'System card' },
   { id: 'bystander',     label: 'Bystander',               sub: 'System card' },
@@ -1035,11 +1035,10 @@ function GenericOfficerPanel() {
   return (
     <>
       <div className="mb-3">
-        <h2 className="text-base font-semibold text-neutral-100">S.H.I.E.L.D. Officer</h2>
+        <h2 className="text-base font-semibold text-neutral-100">Maria Hill <span className="text-sm font-normal text-neutral-500">— S.H.I.E.L.D. Officer</span></h2>
         <p className="mt-1 text-xs text-neutral-500">
           Always available to recruit — sits in a pool beside the board, not the HQ.
           Any player can spend {OFFICER.cost} Recruit to add one to their discard.
-          <span className="ml-1 text-amber-500">TODO: verify cost / stats against physical card.</span>
         </p>
       </div>
       <div className="flex flex-col items-center gap-2">
