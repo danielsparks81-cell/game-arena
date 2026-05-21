@@ -1,13 +1,26 @@
 import type { VillainCardDef } from '../types';
 
-// HYDRA — Red Skull's "Always Leads" group. 8 cards total: 2 copies × 4 villains.
+// HYDRA — Red Skull's "Always Leads" group. 7 cards total.
+// Composition mirrors the physical base-set villain deck:
+//   3× Hydra Kidnappers   (cheap ambush fodder)
+//   3× Endless Armies of Hydra (mid-tier bruisers)
+//   1× Viper              (rare elite — ambush wound)
 
-export const HYDRA_SOLDIER: VillainCardDef = {
+export const HYDRA_KIDNAPPERS: VillainCardDef = {
   kind: 'villain',
-  cardId: 'hydra_soldier',
-  name: 'Hydra Soldier',
+  cardId: 'hydra_kidnappers',
+  name: 'Hydra Kidnappers',
   attack: 3,
-  vp: 2,
+  vp: 1,
+  team: 'hydra',
+};
+
+export const HYDRA_ENDLESS_ARMIES: VillainCardDef = {
+  kind: 'villain',
+  cardId: 'hydra_endless_armies',
+  name: 'Endless Armies of Hydra',
+  attack: 4,
+  vp: 3,
   team: 'hydra',
 };
 
@@ -15,40 +28,29 @@ export const HYDRA_VIPER: VillainCardDef = {
   kind: 'villain',
   cardId: 'hydra_viper',
   name: 'Viper',
-  attack: 4,
+  attack: 5,
   vp: 3,
   team: 'hydra',
   text: 'Ambush: Each player gains a Wound.',
   ambush: [{ kind: 'gain_wound' }],
 };
 
-export const HYDRA_CROSSBONES: VillainCardDef = {
+export const HYDRA_SUPREME: VillainCardDef = {
   kind: 'villain',
-  cardId: 'hydra_crossbones',
-  name: 'Crossbones',
-  attack: 5,
-  vp: 4,
-  team: 'hydra',
-};
-
-export const HYDRA_BARON_STRUCKER: VillainCardDef = {
-  kind: 'villain',
-  cardId: 'hydra_baron_strucker',
-  name: 'Baron Strucker',
+  cardId: 'hydra_supreme',
+  name: 'Supreme Hydra',
   attack: 6,
-  vp: 5,
+  vp: 3,
   team: 'hydra',
-  text: 'Escape: Each player gains a Wound.',
-  escape: [{ kind: 'gain_wound' }],
 };
 
 export const HYDRA_GROUP = {
   groupId: 'hydra',
   team: 'hydra' as const,
   cards: [
-    { def: HYDRA_SOLDIER,        copies: 2 },
-    { def: HYDRA_VIPER,          copies: 2 },
-    { def: HYDRA_CROSSBONES,     copies: 2 },
-    { def: HYDRA_BARON_STRUCKER, copies: 2 },
+    { def: HYDRA_KIDNAPPERS,      copies: 3 },
+    { def: HYDRA_ENDLESS_ARMIES,  copies: 3 },
+    { def: HYDRA_VIPER,           copies: 1 },
+    { def: HYDRA_SUPREME,         copies: 1 },
   ],
 };

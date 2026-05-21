@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, TEAM_ICON_DATA } from '@/components/legendary/HeroCardArt';
+import { HeroCardArt, CLASS_COLORS, CLASS_LABELS } from '@/components/legendary/HeroCardArt';
 import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
 import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
@@ -36,6 +36,8 @@ type Pack = {
 };
 
 const STORAGE_KEY = 'legendary-sandbox-pack-v1';
+
+type SandboxMode = 'browse' | 'author-hero' | 'author-villain' | 'author-henchman' | 'author-mastermind' | 'author-scheme';
 
 function emptyPack(): Pack {
   return { className: '', cards: [] };
@@ -85,7 +87,7 @@ const ALL_TEAMS: Team[] = [
 // ---------------------------------------------------------------------------
 
 export default function LegendarySandbox() {
-  const [mode, setMode]           = useState<'browse' | 'author'>('browse');
+  const [mode, setMode]           = useState<SandboxMode>('browse');
   const [pack, setPack]           = useState<Pack>(emptyPack);
   const [draft, setDraft]         = useState<HeroCardDef>(emptyDraft);
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
@@ -164,9 +166,26 @@ export default function LegendarySandbox() {
   }
 
   if (mode === 'browse') {
-    return <CardBrowser onAuthor={() => setMode('author')} />;
+    return <CardBrowser onAuthor={(type) => setMode(type)} />;
   }
 
+  if (mode === 'author-villain') {
+    return <VillainAuthor onBack={() => setMode('browse')} />;
+  }
+
+  if (mode === 'author-henchman') {
+    return <HenchmanAuthor onBack={() => setMode('browse')} />;
+  }
+
+  if (mode === 'author-mastermind') {
+    return <MastermindAuthor onBack={() => setMode('browse')} />;
+  }
+
+  if (mode === 'author-scheme') {
+    return <SchemeAuthor onBack={() => setMode('browse')} />;
+  }
+
+  // mode === 'author-hero'
   return (
     <div className="mx-auto max-w-7xl p-4">
       <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
@@ -830,8 +849,13 @@ const FILTER_TABS: { id: CardFilter; label: string; badge: string }[] = [
   { id: 'scheme',     label: 'Scheme',      badge: 'Negative Zone' },
 ];
 
-function CardBrowser({ onAuthor }: { onAuthor: () => void }) {
+function CardBrowser({ onAuthor }: { onAuthor: (type: SandboxMode) => void }) {
   const [filter, setFilter] = useState<CardFilter>('heroes');
+  const [showTypePicker, setShowTypePicker] = useState(false);
+
+  if (showTypePicker) {
+    return <AuthorTypePicker onSelect={onAuthor} onBack={() => setShowTypePicker(false)} />;
+  }
 
   return (
     <div className="mx-auto max-w-7xl p-4">
@@ -844,7 +868,7 @@ function CardBrowser({ onAuthor }: { onAuthor: () => void }) {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={onAuthor}
+            onClick={() => setShowTypePicker(true)}
             className="rounded border border-emerald-700 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300 hover:border-emerald-400"
           >
             ✍ Author new pack
@@ -994,8 +1018,8 @@ function StartersSection() {
 
       {/* Right: cards for selected category */}
       <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-        {selected === 'trooper'        && <GenericSingleCardPanel def={TROOPER} copies={4} countLabel="4× per player · starter (12-card deck)" description="Colorless Hero class, S.H.I.E.L.D. team. Gives 1 ⚔ when played. Cost 0 — not buyable, only in starting deck." />}
-        {selected === 'agent'          && <GenericSingleCardPanel def={AGENT}   copies={8} countLabel="8× per player · starter (12-card deck)" description="Colorless Hero class, S.H.I.E.L.D. team. Gives 1 ★ when played. Cost 0 — not buyable, only in starting deck." />}
+        {selected === 'trooper'        && <GenericSingleCardPanel def={TROOPER} copies={4} countLabel="4× per player · starter (12-card deck)" description="Colorless Hero class, S.H.I.E.L.D. team. Gives 1 ⚔ when played. Cost 0 — not buyable, only in starting deck." cardStyle={{ background: 'linear-gradient(135deg, #7a7a7a, #686868)' }} lightBg />}
+        {selected === 'agent'          && <GenericSingleCardPanel def={AGENT}   copies={8} countLabel="8× per player · starter (12-card deck)" description="Colorless Hero class, S.H.I.E.L.D. team. Gives 1 ★ when played. Cost 0 — not buyable, only in starting deck." cardStyle={{ background: 'linear-gradient(135deg, #7a7a7a, #686868)' }} lightBg />}
         {selected === 'officer'       && <GenericOfficerPanel />}
         {selected === 'sidekick'      && <GenericSidekickPanel />}
         {selected === 'wound'         && <GenericWoundPanel />}
@@ -1010,12 +1034,14 @@ function StartersSection() {
 // ── panels ───────────────────────────────────────────────────────────────────
 
 function GenericSingleCardPanel({
-  def, copies, countLabel, description,
+  def, copies, countLabel, description, cardStyle, lightBg,
 }: {
   def: HeroCardDef;
   copies: number;
   countLabel: string;
   description: string;
+  cardStyle?: React.CSSProperties;
+  lightBg?: boolean;
 }) {
   return (
     <>
@@ -1023,9 +1049,11 @@ function GenericSingleCardPanel({
         <h2 className="text-base font-semibold text-neutral-100">{def.cardName}</h2>
         <p className="mt-1 text-xs text-neutral-500">{description}</p>
       </div>
-      <div className="flex flex-col items-center gap-2">
-        <HeroCardArt def={def} copies={copies} />
-        <div className="text-xs text-neutral-500">{countLabel}</div>
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-start gap-2">
+          <HeroCardArt def={def} copies={copies} style={cardStyle} lightBg={lightBg} />
+          <div className="text-xs text-neutral-500">{countLabel}</div>
+        </div>
       </div>
     </>
   );
@@ -1041,9 +1069,11 @@ function GenericOfficerPanel() {
           Any player can spend {OFFICER.cost} Recruit to add one to their discard.
         </p>
       </div>
-      <div className="flex flex-col items-center gap-2">
-        <HeroCardArt def={OFFICER} copies={30} />
-        <div className="text-xs text-neutral-500">Pool of 30</div>
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-start gap-2">
+          <HeroCardArt def={OFFICER} copies={30} style={{ background: 'linear-gradient(135deg, #7a7a7a, #686868)' }} lightBg />
+          <div className="text-xs text-neutral-500">Pool of 30</div>
+        </div>
       </div>
     </>
   );
@@ -1059,11 +1089,34 @@ function GenericSidekickPanel() {
           No team, no class color. Cost {SIDEKICK.cost} to recruit.
         </p>
       </div>
-      <div className="flex flex-col items-center gap-2">
-        <HeroCardArt def={SIDEKICK} copies={30} />
-        <div className="text-xs text-neutral-500">Pool of 30</div>
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-start gap-2">
+          <HeroCardArt def={SIDEKICK} copies={30} style={{ background: 'linear-gradient(135deg, #7a7a7a, #686868)' }} lightBg />
+          <div className="text-xs text-neutral-500">Pool of 30</div>
+        </div>
       </div>
     </>
+  );
+}
+
+/** Unified system card — name perfectly centered, optional VP centered-right. */
+function SystemCardArt({ name, borderColor, vp, bg }: { name: string; borderColor: string; vp?: number; bg?: string }) {
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}
+      className="relative flex h-36 w-[220px] items-center justify-center rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950"
+    >
+      <span className="text-[14px] font-bold text-neutral-100">{name}</span>
+      {vp !== undefined && (
+        <div
+          aria-label={`${vp} VP`}
+          className="absolute right-1 top-1/2 -translate-y-1/2 flex h-[26px] w-[26px] items-center justify-center rounded-full font-sans text-[11px] font-bold shadow-[0_1px_3px_rgba(0,0,0,0.6)]"
+          style={{ backgroundColor: '#b91c1c', border: '1px solid #ef4444', color: '#fff' }}
+        >
+          {vp}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1077,14 +1130,12 @@ function GenericWoundPanel() {
           Counts against your VP total. 30 total in the wound stack.
         </p>
       </div>
-      <SystemCard
-        name="Wound"
-        typeLabel="System · Clutter"
-        borderColor="#dc2626"
-        typeColor="#dc2626"
-        body="No stats — pure clutter. When you take a wound it goes into your discard pile."
-        footer="30 in wound stack"
-      />
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-start gap-2">
+          <SystemCardArt name="Wound" borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)" />
+          <div className="text-xs text-neutral-500">30 in wound stack</div>
+        </div>
+      </div>
     </>
   );
 }
@@ -1099,14 +1150,12 @@ function GenericBystanderPanel() {
           Rescue a bystander by defeating the villain carrying it — worth 1 VP per bystander.
         </p>
       </div>
-      <SystemCard
-        name="Bystander"
-        typeLabel="System · Rescue"
-        borderColor="#f59e0b"
-        typeColor="#f59e0b"
-        body="Attached to the next villain revealed. Defeating that villain rescues all attached bystanders."
-        footer={<VpBadge vp={1} />}
-      />
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-start gap-2">
+          <SystemCardArt name="Bystander" borderColor="#c4a800" vp={1} bg="linear-gradient(135deg, #c4a800, #a08600)" />
+          <div className="text-xs text-neutral-500">30 in bystander stack</div>
+        </div>
+      </div>
     </>
   );
 }
@@ -1121,14 +1170,12 @@ function GenericMasterStrikePanel() {
           against every player simultaneously. The card is KO'd (does not enter the City).
         </p>
       </div>
-      <SystemCard
-        name="Master Strike"
-        typeLabel="Villain Deck · Strike"
-        borderColor="#DC143C"
-        typeColor="#DC143C"
-        body={`When revealed: ${RED_SKULL.text ?? 'Mastermind Master Strike fires against all players.'}`}
-        footer={`${MASTER_STRIKES_IN_DECK} copies in Villain Deck`}
-      />
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-start gap-2">
+          <SystemCardArt name="Master Strike" borderColor="#8a5800" bg="linear-gradient(135deg, #7a4800, #5c3600)" />
+          <div className="text-xs text-neutral-500">{MASTER_STRIKES_IN_DECK} copies in Villain Deck</div>
+        </div>
+      </div>
     </>
   );
 }
@@ -1144,132 +1191,184 @@ function GenericSchemeTwistPanel() {
           twist counter ticks up. Evil Wins when the counter hits the threshold.
         </p>
       </div>
-      <SystemCard
-        name="Scheme Twist"
-        typeLabel="Villain Deck · Twist"
-        borderColor="#6366f1"
-        typeColor="#6366f1"
-        body={scheme.text}
-        footer={`${scheme.twists} copies · evil wins after ${scheme.evilWinsAfterTwists} twists`}
-      />
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-start gap-2">
+          <SystemCardArt name="Scheme Twist" borderColor="#4a2880" bg="linear-gradient(135deg, #3a2068, #2d1855)" />
+          <div className="text-xs text-neutral-500">{scheme.twists} copies · evil wins after {scheme.evilWinsAfterTwists} twists</div>
+        </div>
+      </div>
     </>
   );
 }
 
-// ── Shared generic card visual ───────────────────────────────────────────────
-
-function SystemCard({
-  name, typeLabel, borderColor, typeColor, body, footer,
-}: {
-  name: string;
-  typeLabel: string;
-  borderColor: string;
-  typeColor: string;
-  body: string;
-  footer: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className="flex h-36 w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
-    >
-      <span className="text-[12px] font-bold leading-tight text-neutral-100">{name}</span>
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: typeColor }}>
-        {typeLabel}
-      </div>
-      <div className="my-1 flex-1 text-[11px] leading-snug text-neutral-300">{body}</div>
-      <div className="mt-auto text-[10px] text-neutral-500">{footer}</div>
-    </div>
-  );
-}
 
 // ─── Villain section ──────────────────────────────────────────────────────────
 
+const VILLAIN_GROUPS = [HYDRA_GROUP];
+
 function VillainsSection() {
+  const [selectedGroup, setSelectedGroup] = useState(0);
+  const group = VILLAIN_GROUPS[selectedGroup];
+
   return (
-    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold text-neutral-100">Villains — HYDRA</h2>
-        <p className="mt-1 text-xs text-neutral-500">
-          {HYDRA_GROUP.cards.length} unique cards ·{' '}
-          {HYDRA_GROUP.cards.reduce((s, c) => s + c.copies, 0)} copies in the Villain Deck.
-          Revealed into the City row each turn — spend ⚔ to defeat and earn VP.
-          Ambush fires on reveal; Escape fires if they slip off the end of the city.
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-6">
-        {HYDRA_GROUP.cards.map(({ def, copies }) => (
-          <div key={def.cardId} className="flex flex-col items-center gap-2">
-            <VillainCardArt def={def} />
-            <div className="text-xs text-neutral-500">
-              <span className="font-mono">{copies}×</span> in deck
-            </div>
-          </div>
+    <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
+      {/* Left: group list */}
+      <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Villain groups</div>
+        {VILLAIN_GROUPS.map((g, i) => (
+          <button
+            key={g.groupId}
+            onClick={() => setSelectedGroup(i)}
+            className={`rounded px-2 py-1.5 text-left text-sm transition ${
+              i === selectedGroup
+                ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
+                : 'text-neutral-300 hover:bg-neutral-800'
+            }`}
+          >
+            {g.groupId}
+            <span className="ml-1 text-[10px] text-neutral-500">
+              ({g.cards.reduce((s, c) => s + c.copies, 0)})
+            </span>
+          </button>
         ))}
-      </div>
-    </section>
+      </aside>
+
+      {/* Right: cards grid */}
+      <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+        <div className="flex flex-wrap gap-6">
+          {group.cards.map(({ def, copies }) => (
+            <div key={def.cardId} className="flex flex-col items-center gap-2">
+              <VillainCardArt def={def} />
+              <div className="text-xs text-neutral-500">
+                <span className="font-mono">{copies}×</span> in deck
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
 // ─── Henchmen section ────────────────────────────────────────────────────────
 
+const HENCHMAN_GROUPS = [HAND_NINJA_GROUP];
+
 function HenchmenSection() {
+  const [selectedGroup, setSelectedGroup] = useState(0);
+  const group = HENCHMAN_GROUPS[selectedGroup];
+
   return (
-    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold text-neutral-100">Henchmen — Hand Ninjas</h2>
-        <p className="mt-1 text-xs text-neutral-500">
-          {HAND_NINJA_GROUP.cards[0]?.copies ?? 0} copies mixed into the Villain Deck.
-          Low-tier fodder that fills out the city — easy ⚔ targets for early turns.
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-6">
-        {HAND_NINJA_GROUP.cards.map(({ def, copies }) => (
-          <div key={def.cardId} className="flex flex-col items-center gap-2">
-            <HenchmanCardArt def={def} />
-            <div className="text-xs text-neutral-500">
-              <span className="font-mono">{copies}×</span> in deck
-            </div>
-          </div>
+    <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
+      {/* Left: group list */}
+      <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Henchman groups</div>
+        {HENCHMAN_GROUPS.map((g, i) => (
+          <button
+            key={g.groupId}
+            onClick={() => setSelectedGroup(i)}
+            className={`rounded px-2 py-1.5 text-left text-sm transition ${
+              i === selectedGroup
+                ? 'bg-slate-500/10 text-slate-300 ring-1 ring-slate-500/40'
+                : 'text-neutral-300 hover:bg-neutral-800'
+            }`}
+          >
+            {g.groupId}
+            <span className="ml-1 text-[10px] text-neutral-500">
+              ({g.cards.reduce((s, c) => s + c.copies, 0)})
+            </span>
+          </button>
         ))}
-      </div>
-    </section>
+      </aside>
+
+      {/* Right: cards grid */}
+      <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+        <div className="flex flex-wrap gap-6">
+          {group.cards.map(({ def, copies }) => (
+            <div key={def.cardId} className="flex flex-col items-center gap-2">
+              <HenchmanCardArt def={def} />
+              <div className="text-xs text-neutral-500">
+                <span className="font-mono">{copies}×</span> in deck
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }
 
 // ─── Mastermind section ───────────────────────────────────────────────────────
 
+const MASTERMINDS = [RED_SKULL];
+
 function MastermindSection() {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const mm = MASTERMINDS[selectedIdx];
+
   return (
-    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold text-neutral-100">Mastermind</h2>
-        <p className="mt-1 text-xs text-neutral-500">
-          The final boss. Costs {RED_SKULL.attack}⚔ per hit — must be hit {RED_SKULL.hits} times to defeat.
-          Master Strike fires every time a Master Strike card is revealed from the Villain Deck.
-          Defeating the Mastermind wins the game.
-        </p>
-      </div>
-      <MastermindCardArt def={RED_SKULL} />
-    </section>
+    <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
+      {/* Left: mastermind list */}
+      <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Masterminds</div>
+        {MASTERMINDS.map((m, i) => (
+          <button
+            key={m.cardId}
+            onClick={() => setSelectedIdx(i)}
+            className={`rounded px-2 py-1.5 text-left text-sm transition ${
+              i === selectedIdx
+                ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
+                : 'text-neutral-300 hover:bg-neutral-800'
+            }`}
+          >
+            {m.name}
+            <span className="ml-1 text-[10px] text-neutral-500">({m.kind})</span>
+          </button>
+        ))}
+      </aside>
+
+      {/* Right: mastermind card */}
+      <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+        <MastermindCardArt def={mm} />
+      </section>
+    </div>
   );
 }
 
 // ─── Scheme section ───────────────────────────────────────────────────────────
 
+const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT];
+
 function SchemeSection() {
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const scheme = SCHEMES[selectedIdx];
+
   return (
-    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold text-neutral-100">Scheme</h2>
-        <p className="mt-1 text-xs text-neutral-500">
-          Scheme Twists are shuffled into the Villain Deck.
-          Each time one is revealed, the twist effect fires and the counter ticks up.
-          Evil Wins when the threshold is reached before the heroes defeat the Mastermind.
-        </p>
-      </div>
-      <SchemeCardArt def={NEGATIVE_ZONE_PRISON_BREAKOUT} />
-    </section>
+    <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
+      {/* Left: scheme list */}
+      <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Schemes</div>
+        {SCHEMES.map((s, i) => (
+          <button
+            key={s.cardId}
+            onClick={() => setSelectedIdx(i)}
+            className={`rounded px-2 py-1.5 text-left text-sm transition ${
+              i === selectedIdx
+                ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
+                : 'text-neutral-300 hover:bg-neutral-800'
+            }`}
+          >
+            {s.name}
+            <span className="ml-1 text-[10px] text-neutral-500">({s.twists})</span>
+          </button>
+        ))}
+      </aside>
+
+      {/* Right: scheme card */}
+      <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+        <SchemeCardArt def={scheme} />
+      </section>
+    </div>
   );
 }
 
@@ -1294,36 +1393,21 @@ function SbStrikeIcon() {
   );
 }
 
-/** VP badge — dull brass, consistent with cost badge style */
+/** VP badge — red circle, absolute-positioned at vertical center of right edge */
 function VpBadge({ vp }: { vp: number }) {
   return (
-    <span
-      className="rounded px-1.5 py-0.5 text-[11px] font-bold leading-none"
-      style={{ backgroundColor: '#7A6330', border: '1px solid #A8893E', color: '#fff' }}
-    >
-      {vp} VP
-    </span>
-  );
-}
-
-/** Team chip matching HeroCardArt's TeamChip — pulled from TEAM_ICON_DATA */
-function SbTeamChip({ team }: { team: string }) {
-  const data = TEAM_ICON_DATA[team];
-  if (!data) return null;
-  return (
     <div
-      className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-sm text-[7px] font-black leading-none"
-      style={{ backgroundColor: data.color, color: data.textColor ?? '#000' }}
-      title={team}
+      aria-label={`${vp} VP`}
+      className="absolute right-1 top-1/2 -translate-y-1/2 flex h-[26px] w-[26px] items-center justify-center rounded-full font-sans text-[11px] font-bold shadow-[0_1px_3px_rgba(0,0,0,0.6)]"
+      style={{ backgroundColor: '#b91c1c', border: '1px solid #ef4444', color: '#fff' }}
     >
-      {data.abbr}
+      {vp}
     </div>
   );
 }
 
-function VillainCardArt({ def }: { def: VillainCardDef }) {
-  const teamData = TEAM_ICON_DATA[def.team];
-  const borderColor = teamData?.color ?? '#404040';
+function VillainCardArt({ def, attachedBystanders = 0 }: { def: VillainCardDef; attachedBystanders?: number }) {
+  const borderColor = '#ef4444'; // covert red — villains show no team color
 
   return (
     <div
@@ -1332,7 +1416,6 @@ function VillainCardArt({ def }: { def: VillainCardDef }) {
     >
       {/* Name row */}
       <div className="flex items-center gap-1 min-w-0">
-        <SbTeamChip team={def.team} />
         <span className="text-[12px] font-bold leading-tight text-neutral-100 truncate">{def.name}</span>
       </div>
       {/* Type label */}
@@ -1345,18 +1428,21 @@ function VillainCardArt({ def }: { def: VillainCardDef }) {
       )}
       {!def.text && <div className="flex-1" />}
       {/* Footer */}
-      <div className="mt-auto flex items-center justify-between">
+      <div className="mt-auto flex items-end justify-between">
+        {attachedBystanders > 0 ? (
+          <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">+{attachedBystanders} 👤</span>
+        ) : <span />}
         <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
           {def.attack}<SbStrikeIcon />
         </span>
-        <VpBadge vp={def.vp} />
       </div>
+      <VpBadge vp={def.vp} />
     </div>
   );
 }
 
-function HenchmanCardArt({ def }: { def: HenchmanCardDef }) {
-  const borderColor = '#475569'; // slate-600
+function HenchmanCardArt({ def, attachedBystanders = 0 }: { def: HenchmanCardDef; attachedBystanders?: number }) {
+  const borderColor = '#eab308'; // instinct yellow — henchmen show no team color
 
   return (
     <div
@@ -1366,16 +1452,19 @@ function HenchmanCardArt({ def }: { def: HenchmanCardDef }) {
       <div className="flex items-center gap-1 min-w-0">
         <span className="text-[12px] font-bold leading-tight text-neutral-100 truncate">{def.name}</span>
       </div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
         Henchman
       </div>
       <div className="flex-1" />
-      <div className="mt-auto flex items-center justify-between">
+      <div className="mt-auto flex items-end justify-between">
+        {attachedBystanders > 0 ? (
+          <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">+{attachedBystanders} 👤</span>
+        ) : <span />}
         <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
           {def.attack}<SbStrikeIcon />
         </span>
-        <VpBadge vp={def.vp} />
       </div>
+      <VpBadge vp={def.vp} />
     </div>
   );
 }
@@ -1386,7 +1475,7 @@ function MastermindCardArt({ def }: { def: MastermindCardDef }) {
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className="flex w-[280px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-3"
+      className="relative flex w-[280px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-3"
     >
       <div className="text-[14px] font-bold text-neutral-100">{def.name}</div>
       <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
@@ -1409,8 +1498,8 @@ function MastermindCardArt({ def }: { def: MastermindCardDef }) {
           {def.hits}
           <span className="ml-1 text-[10px] text-neutral-500">hits</span>
         </span>
-        <VpBadge vp={def.vp} />
       </div>
+      <VpBadge vp={def.vp} />
     </div>
   );
 }
@@ -1446,6 +1535,1003 @@ function SchemeCardArt({ def }: { def: SchemeCardDef }) {
           <span className="ml-1 font-bold text-white">{def.evilWinsAfterTwists}</span>
           <span className="ml-1 text-[10px] text-neutral-500">twists</span>
         </span>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Author type picker — shown when user clicks "Author new pack"
+// ---------------------------------------------------------------------------
+
+const PACK_TYPES: { mode: SandboxMode; label: string; sub: string; color: string }[] = [
+  { mode: 'author-hero',       label: 'Hero Pack',        sub: 'Multi-card hero class for player decks',    color: '#10b981' },
+  { mode: 'author-villain',    label: 'Villain Group',    sub: 'Multi-card villain group for the City row', color: '#ef4444' },
+  { mode: 'author-henchman',   label: 'Henchman Group',  sub: 'Low-stat fodder group for the Villain Deck', color: '#f97316' },
+  { mode: 'author-mastermind', label: 'Mastermind',      sub: 'Single boss card with Always Leads team',    color: '#DC143C' },
+  { mode: 'author-scheme',     label: 'Scheme',           sub: 'Loss condition + twist effect',              color: '#6366f1' },
+];
+
+function AuthorTypePicker({
+  onSelect,
+  onBack,
+}: {
+  onSelect: (type: SandboxMode) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="mx-auto max-w-3xl p-4">
+      <header className="mb-6 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-100">Author new pack</h1>
+          <p className="text-xs text-neutral-500">Choose what kind of pack to create.</p>
+        </div>
+        <button onClick={onBack} className="text-xs text-neutral-400 hover:text-neutral-200">
+          ← back to browse
+        </button>
+      </header>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {PACK_TYPES.map(({ mode, label, sub, color }) => (
+          <button
+            key={mode}
+            onClick={() => onSelect(mode)}
+            className="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/60 p-5 text-left transition hover:border-neutral-600 hover:bg-neutral-900/80"
+          >
+            <span
+              className="inline-block rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+              style={{ backgroundColor: `${color}20`, color, border: `1px solid ${color}50` }}
+            >
+              {label}
+            </span>
+            <span className="text-xs text-neutral-400">{sub}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Villain Group author
+// ---------------------------------------------------------------------------
+
+type VillainCardInPack = { def: VillainCardDef; copies: number };
+type VillainPack = { groupId: string; groupName: string; cards: VillainCardInPack[] };
+
+const VILLAIN_STORAGE_KEY = 'legendary-sandbox-villain-v1';
+
+function emptyVillainPack(): VillainPack {
+  return { groupId: '', groupName: '', cards: [] };
+}
+
+function emptyVillainDef(): VillainCardDef {
+  return { kind: 'villain', cardId: '', name: '', team: 'hydra', attack: 5, vp: 3 };
+}
+
+function VillainAuthor({ onBack }: { onBack: () => void }) {
+  const [pack, setPack]           = useState<VillainPack>(emptyVillainPack);
+  const [draft, setDraft]         = useState<VillainCardDef>(emptyVillainDef);
+  const [copies, setCopies]       = useState(3);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [hydrated, setHydrated]   = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(VILLAIN_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as VillainPack;
+        if (parsed && Array.isArray(parsed.cards)) setPack(parsed);
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(VILLAIN_STORAGE_KEY, JSON.stringify(pack)); } catch {}
+  }, [pack, hydrated]);
+
+  // Auto-derive cardId from groupName + name
+  useEffect(() => {
+    if (editingIdx !== null) return;
+    const id = slugCardId(pack.groupName, draft.name);
+    if (id !== draft.cardId) setDraft(d => ({ ...d, cardId: id }));
+  }, [pack.groupName, draft.name, editingIdx, draft.cardId]);
+
+  function startNew() {
+    setEditingIdx(null);
+    setDraft(emptyVillainDef());
+    setCopies(3);
+  }
+
+  function editCard(idx: number) {
+    const c = pack.cards[idx];
+    if (!c) return;
+    setEditingIdx(idx);
+    setDraft(structuredClone(c.def));
+    setCopies(c.copies);
+  }
+
+  function removeCard(idx: number) {
+    setPack(p => ({ ...p, cards: p.cards.filter((_, i) => i !== idx) }));
+    if (editingIdx === idx) startNew();
+  }
+
+  function saveCard() {
+    if (!draft.name.trim() || !draft.cardId.trim()) return;
+    setPack(p => {
+      const cards = [...p.cards];
+      const card: VillainCardInPack = { def: structuredClone(draft), copies };
+      if (editingIdx !== null) cards[editingIdx] = card;
+      else cards.push(card);
+      return { ...p, cards };
+    });
+    if (editingIdx === null) startNew();
+  }
+
+  const canExport = pack.cards.length > 0 && pack.groupName.trim() !== '';
+  const [copied, setCopied] = useState(false);
+
+  function generateVillainTS(): string {
+    const constName = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const groupConst = constName(pack.groupName) + '_GROUP';
+    const lines: string[] = [];
+    lines.push(`// Generated by /legendary-sandbox. Paste into`);
+    lines.push(`// src/lib/games/legendary/villains/${pack.groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ts`);
+    lines.push('');
+    lines.push(`import type { VillainCardDef } from '../types';`);
+    lines.push('');
+    for (const { def, copies: c } of pack.cards) {
+      const cn = constName(`${pack.groupName}_${def.name}`);
+      lines.push(`export const ${cn}: VillainCardDef = {`);
+      lines.push(`  kind: 'villain',`);
+      lines.push(`  cardId: '${def.cardId}',`);
+      lines.push(`  name: '${def.name}',`);
+      lines.push(`  team: '${def.team}',`);
+      lines.push(`  attack: ${def.attack},`);
+      lines.push(`  vp: ${def.vp},`);
+      if (def.text) lines.push(`  text: '${def.text.replace(/'/g, "\\'")}',`);
+      lines.push(`};`);
+      lines.push('');
+      void c;
+    }
+    lines.push(`export const ${groupConst} = {`);
+    lines.push(`  groupId: '${pack.groupId || pack.groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}',`);
+    lines.push(`  groupName: '${pack.groupName}',`);
+    lines.push(`  cards: [`);
+    for (const { def, copies: c } of pack.cards) {
+      const cn = constName(`${pack.groupName}_${def.name}`);
+      lines.push(`    { def: ${cn}, copies: ${c} },`);
+    }
+    lines.push(`  ],`);
+    lines.push(`};`);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  async function copyTS() {
+    try {
+      await navigator.clipboard.writeText(generateVillainTS());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl p-4">
+      <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-100">Villain Group Author</h1>
+          <p className="text-xs text-neutral-500">Build a villain group. Auto-saved locally.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="text-xs text-emerald-400 hover:text-emerald-300">
+            ← Browse
+          </button>
+          <Link href="/lobby" className="text-xs text-neutral-400 hover:text-neutral-200">← lobby</Link>
+        </div>
+      </header>
+
+      {/* Group metadata */}
+      <div className="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-neutral-800 bg-neutral-950/60 p-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-neutral-500">Group name</span>
+          <input
+            value={pack.groupName}
+            onChange={e => setPack(p => ({ ...p, groupName: e.target.value }))}
+            placeholder="e.g. HYDRA"
+            className="w-48 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-neutral-500">Group id</span>
+          <input
+            value={pack.groupId}
+            onChange={e => setPack(p => ({ ...p, groupId: e.target.value }))}
+            placeholder="auto from name"
+            className="w-36 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 font-mono text-sm text-neutral-100"
+          />
+        </label>
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={copyTS}
+            disabled={!canExport}
+            className="rounded bg-emerald-500 px-3 py-1 text-xs font-semibold text-black hover:bg-emerald-400 disabled:bg-neutral-700 disabled:text-neutral-500"
+          >
+            {copied ? '✓ Copied' : 'Copy TS'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[220px_1fr_260px]">
+        {/* Left: card list */}
+        <aside className="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-neutral-500">Cards in group</span>
+            <span className="text-xs font-mono text-neutral-400">{pack.cards.length}</span>
+          </div>
+          {pack.cards.length === 0 && (
+            <div className="rounded border border-dashed border-neutral-800 p-3 text-center text-[11px] text-neutral-600">
+              No cards yet.
+            </div>
+          )}
+          <ul className="flex flex-col gap-1">
+            {pack.cards.map((c, i) => (
+              <li key={c.def.cardId + i}>
+                <div
+                  className={`flex items-center gap-1 rounded border px-2 py-1.5 text-xs ${
+                    editingIdx === i ? 'border-emerald-500 bg-emerald-500/5' : 'border-neutral-800 hover:border-neutral-600'
+                  }`}
+                >
+                  <button
+                    onClick={() => editCard(i)}
+                    className="flex flex-1 items-baseline gap-1 truncate text-left text-neutral-200"
+                  >
+                    <span className="font-mono text-[10px] text-neutral-500">{c.copies}×</span>
+                    <span className="truncate">{c.def.name || '(unnamed)'}</span>
+                    <span className="ml-auto font-mono text-[10px] text-neutral-500">{c.def.attack}⚔</span>
+                  </button>
+                  <button onClick={() => removeCard(i)} className="text-[10px] text-neutral-600 hover:text-rose-400" title="Remove">✕</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={startNew}
+            className="mt-2 rounded border border-emerald-700 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:border-emerald-400 hover:bg-emerald-500/20"
+          >
+            + New card
+          </button>
+        </aside>
+
+        {/* Center: editor */}
+        <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-neutral-200">
+              {editingIdx !== null ? `Editing: ${pack.cards[editingIdx]?.def.name || '(unnamed)'}` : 'New villain card'}
+            </h2>
+            {editingIdx !== null && (
+              <button onClick={startNew} className="text-[10px] text-neutral-500 hover:text-neutral-300">
+                cancel — back to new card
+              </button>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Name">
+              <input
+                value={draft.name}
+                onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+                placeholder="e.g. HYDRA Soldier"
+                className={input()}
+              />
+            </Field>
+            <Field label="Team">
+              <select
+                value={draft.team}
+                onChange={e => setDraft(d => ({ ...d, team: e.target.value as Team }))}
+                className={input()}
+              >
+                {ALL_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="Attack (⚔)">
+              <input
+                type="number" min={1} max={20}
+                value={draft.attack}
+                onChange={e => setDraft(d => ({ ...d, attack: clampInt(e.target.value, 1, 20) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="VP">
+              <input
+                type="number" min={0} max={10}
+                value={draft.vp}
+                onChange={e => setDraft(d => ({ ...d, vp: clampInt(e.target.value, 0, 10) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="Copies">
+              <input
+                type="number" min={1} max={10}
+                value={copies}
+                onChange={e => setCopies(clampInt(e.target.value, 1, 10))}
+                className={input()}
+              />
+            </Field>
+            <Field label="Card id (auto)">
+              <input
+                value={draft.cardId}
+                onChange={e => setDraft(d => ({ ...d, cardId: e.target.value }))}
+                className={`${input()} font-mono`}
+              />
+            </Field>
+          </div>
+          <Field label="Card text (optional)">
+            <textarea
+              value={draft.text ?? ''}
+              onChange={e => setDraft(d => ({ ...d, text: e.target.value || undefined }))}
+              placeholder="e.g. Ambush: each player discards a card."
+              rows={2}
+              className={`${input()} resize-none`}
+            />
+          </Field>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={saveCard}
+              disabled={!draft.name.trim() || !draft.cardId.trim()}
+              className="rounded bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:bg-neutral-700 disabled:text-neutral-500"
+            >
+              {editingIdx !== null ? 'Save changes' : 'Add to group'}
+            </button>
+          </div>
+        </section>
+
+        {/* Right: preview */}
+        <aside className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">Live preview</div>
+          <div className="flex items-center justify-center rounded-md bg-neutral-900/60 p-3">
+            <VillainCardArt def={draft} />
+          </div>
+          <div className="rounded-md border border-neutral-800 bg-neutral-900/60 p-2 text-xs text-neutral-300">
+            <div className="font-semibold text-neutral-100">{pack.groupName || '(unnamed group)'}</div>
+            <div className="mt-1 flex justify-between text-neutral-500">
+              <span>{pack.cards.length} unique cards</span>
+              <span>{pack.cards.reduce((s, c) => s + c.copies, 0)} copies</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Henchman Group author
+// ---------------------------------------------------------------------------
+
+type HenchmanCardInPack = { def: HenchmanCardDef; copies: number };
+type HenchmanPack = { groupId: string; groupName: string; cards: HenchmanCardInPack[] };
+
+const HENCHMAN_STORAGE_KEY = 'legendary-sandbox-henchman-v1';
+
+function emptyHenchmanPack(): HenchmanPack {
+  return { groupId: '', groupName: '', cards: [] };
+}
+
+function emptyHenchmanDef(): HenchmanCardDef {
+  return { kind: 'henchman', cardId: '', name: '', team: 'hydra', attack: 3, vp: 1 };
+}
+
+function HenchmanAuthor({ onBack }: { onBack: () => void }) {
+  const [pack, setPack]             = useState<HenchmanPack>(emptyHenchmanPack);
+  const [draft, setDraft]           = useState<HenchmanCardDef>(emptyHenchmanDef);
+  const [copies, setCopies]         = useState(10);
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [hydrated, setHydrated]     = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(HENCHMAN_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as HenchmanPack;
+        if (parsed && Array.isArray(parsed.cards)) setPack(parsed);
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(HENCHMAN_STORAGE_KEY, JSON.stringify(pack)); } catch {}
+  }, [pack, hydrated]);
+
+  useEffect(() => {
+    if (editingIdx !== null) return;
+    const id = slugCardId(pack.groupName, draft.name);
+    if (id !== draft.cardId) setDraft(d => ({ ...d, cardId: id }));
+  }, [pack.groupName, draft.name, editingIdx, draft.cardId]);
+
+  function startNew() {
+    setEditingIdx(null);
+    setDraft(emptyHenchmanDef());
+    setCopies(10);
+  }
+
+  function editCard(idx: number) {
+    const c = pack.cards[idx];
+    if (!c) return;
+    setEditingIdx(idx);
+    setDraft(structuredClone(c.def));
+    setCopies(c.copies);
+  }
+
+  function removeCard(idx: number) {
+    setPack(p => ({ ...p, cards: p.cards.filter((_, i) => i !== idx) }));
+    if (editingIdx === idx) startNew();
+  }
+
+  function saveCard() {
+    if (!draft.name.trim() || !draft.cardId.trim()) return;
+    setPack(p => {
+      const cards = [...p.cards];
+      const card: HenchmanCardInPack = { def: structuredClone(draft), copies };
+      if (editingIdx !== null) cards[editingIdx] = card;
+      else cards.push(card);
+      return { ...p, cards };
+    });
+    if (editingIdx === null) startNew();
+  }
+
+  const canExport = pack.cards.length > 0 && pack.groupName.trim() !== '';
+  const [copied, setCopied] = useState(false);
+
+  function generateHenchmanTS(): string {
+    const constName = (s: string) => s.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+    const groupConst = constName(pack.groupName) + '_GROUP';
+    const lines: string[] = [];
+    lines.push(`// Generated by /legendary-sandbox. Paste into`);
+    lines.push(`// src/lib/games/legendary/villains/${pack.groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ts`);
+    lines.push('');
+    lines.push(`import type { HenchmanCardDef } from '../types';`);
+    lines.push('');
+    for (const { def, copies: c } of pack.cards) {
+      const cn = constName(`${pack.groupName}_${def.name}`);
+      lines.push(`export const ${cn}: HenchmanCardDef = {`);
+      lines.push(`  kind: 'henchman',`);
+      lines.push(`  cardId: '${def.cardId}',`);
+      lines.push(`  name: '${def.name}',`);
+      lines.push(`  team: '${def.team}',`);
+      lines.push(`  attack: ${def.attack},`);
+      lines.push(`  vp: ${def.vp},`);
+      lines.push(`};`);
+      lines.push('');
+      void c;
+    }
+    lines.push(`export const ${groupConst} = {`);
+    lines.push(`  groupId: '${pack.groupId || pack.groupName.toLowerCase().replace(/[^a-z0-9]+/g, '-')}',`);
+    lines.push(`  groupName: '${pack.groupName}',`);
+    lines.push(`  cards: [`);
+    for (const { def, copies: c } of pack.cards) {
+      const cn = constName(`${pack.groupName}_${def.name}`);
+      lines.push(`    { def: ${cn}, copies: ${c} },`);
+    }
+    lines.push(`  ],`);
+    lines.push(`};`);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  async function copyTS() {
+    try {
+      await navigator.clipboard.writeText(generateHenchmanTS());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl p-4">
+      <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-100">Henchman Group Author</h1>
+          <p className="text-xs text-neutral-500">Build a henchman group. Auto-saved locally.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="text-xs text-emerald-400 hover:text-emerald-300">
+            ← Browse
+          </button>
+          <Link href="/lobby" className="text-xs text-neutral-400 hover:text-neutral-200">← lobby</Link>
+        </div>
+      </header>
+
+      <div className="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-neutral-800 bg-neutral-950/60 p-3">
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-neutral-500">Group name</span>
+          <input
+            value={pack.groupName}
+            onChange={e => setPack(p => ({ ...p, groupName: e.target.value }))}
+            placeholder="e.g. Hand Ninjas"
+            className="w-48 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 text-sm text-neutral-100"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-neutral-500">Group id</span>
+          <input
+            value={pack.groupId}
+            onChange={e => setPack(p => ({ ...p, groupId: e.target.value }))}
+            placeholder="auto from name"
+            className="w-36 rounded border border-neutral-700 bg-neutral-900 px-2 py-1 font-mono text-sm text-neutral-100"
+          />
+        </label>
+        <div className="ml-auto">
+          <button
+            onClick={copyTS}
+            disabled={!canExport}
+            className="rounded bg-emerald-500 px-3 py-1 text-xs font-semibold text-black hover:bg-emerald-400 disabled:bg-neutral-700 disabled:text-neutral-500"
+          >
+            {copied ? '✓ Copied' : 'Copy TS'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[220px_1fr_260px]">
+        {/* Left */}
+        <aside className="flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] uppercase tracking-wider text-neutral-500">Cards in group</span>
+            <span className="text-xs font-mono text-neutral-400">{pack.cards.length}</span>
+          </div>
+          {pack.cards.length === 0 && (
+            <div className="rounded border border-dashed border-neutral-800 p-3 text-center text-[11px] text-neutral-600">No cards yet.</div>
+          )}
+          <ul className="flex flex-col gap-1">
+            {pack.cards.map((c, i) => (
+              <li key={c.def.cardId + i}>
+                <div
+                  className={`flex items-center gap-1 rounded border px-2 py-1.5 text-xs ${
+                    editingIdx === i ? 'border-emerald-500 bg-emerald-500/5' : 'border-neutral-800 hover:border-neutral-600'
+                  }`}
+                >
+                  <button
+                    onClick={() => editCard(i)}
+                    className="flex flex-1 items-baseline gap-1 truncate text-left text-neutral-200"
+                  >
+                    <span className="font-mono text-[10px] text-neutral-500">{c.copies}×</span>
+                    <span className="truncate">{c.def.name || '(unnamed)'}</span>
+                    <span className="ml-auto font-mono text-[10px] text-neutral-500">{c.def.attack}⚔</span>
+                  </button>
+                  <button onClick={() => removeCard(i)} className="text-[10px] text-neutral-600 hover:text-rose-400" title="Remove">✕</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={startNew}
+            className="mt-2 rounded border border-emerald-700 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:border-emerald-400 hover:bg-emerald-500/20"
+          >
+            + New card
+          </button>
+        </aside>
+
+        {/* Center */}
+        <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold text-neutral-200">
+              {editingIdx !== null ? `Editing: ${pack.cards[editingIdx]?.def.name || '(unnamed)'}` : 'New henchman card'}
+            </h2>
+            {editingIdx !== null && (
+              <button onClick={startNew} className="text-[10px] text-neutral-500 hover:text-neutral-300">
+                cancel — back to new card
+              </button>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Name">
+              <input
+                value={draft.name}
+                onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+                placeholder="e.g. Hand Ninja"
+                className={input()}
+              />
+            </Field>
+            <Field label="Team">
+              <select
+                value={draft.team}
+                onChange={e => setDraft(d => ({ ...d, team: e.target.value as Team }))}
+                className={input()}
+              >
+                {ALL_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="Attack (⚔)">
+              <input
+                type="number" min={1} max={20}
+                value={draft.attack}
+                onChange={e => setDraft(d => ({ ...d, attack: clampInt(e.target.value, 1, 20) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="VP">
+              <input
+                type="number" min={0} max={10}
+                value={draft.vp}
+                onChange={e => setDraft(d => ({ ...d, vp: clampInt(e.target.value, 0, 10) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="Copies">
+              <input
+                type="number" min={1} max={10}
+                value={copies}
+                onChange={e => setCopies(clampInt(e.target.value, 1, 10))}
+                className={input()}
+              />
+            </Field>
+            <Field label="Card id (auto)">
+              <input
+                value={draft.cardId}
+                onChange={e => setDraft(d => ({ ...d, cardId: e.target.value }))}
+                className={`${input()} font-mono`}
+              />
+            </Field>
+          </div>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={saveCard}
+              disabled={!draft.name.trim() || !draft.cardId.trim()}
+              className="rounded bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:bg-neutral-700 disabled:text-neutral-500"
+            >
+              {editingIdx !== null ? 'Save changes' : 'Add to group'}
+            </button>
+          </div>
+        </section>
+
+        {/* Right: preview */}
+        <aside className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">Live preview</div>
+          <div className="flex items-center justify-center rounded-md bg-neutral-900/60 p-3">
+            <HenchmanCardArt def={draft} />
+          </div>
+          <div className="rounded-md border border-neutral-800 bg-neutral-900/60 p-2 text-xs text-neutral-300">
+            <div className="font-semibold text-neutral-100">{pack.groupName || '(unnamed group)'}</div>
+            <div className="mt-1 flex justify-between text-neutral-500">
+              <span>{pack.cards.length} unique cards</span>
+              <span>{pack.cards.reduce((s, c) => s + c.copies, 0)} copies</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Mastermind author
+// ---------------------------------------------------------------------------
+
+const MASTERMIND_STORAGE_KEY = 'legendary-sandbox-mastermind-v1';
+
+function emptyMastermindDef(): MastermindCardDef {
+  return { kind: 'mastermind', cardId: '', name: '', alwaysLeads: 'hydra', attack: 8, vp: 5, hits: 4, strike: [] };
+}
+
+function MastermindAuthor({ onBack }: { onBack: () => void }) {
+  const [draft, setDraft]       = useState<MastermindCardDef>(emptyMastermindDef);
+  const [hydrated, setHydrated] = useState(false);
+  const [copied, setCopied]     = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(MASTERMIND_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as MastermindCardDef;
+        if (parsed && parsed.kind === 'mastermind') setDraft(parsed);
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(MASTERMIND_STORAGE_KEY, JSON.stringify(draft)); } catch {}
+  }, [draft, hydrated]);
+
+  // Auto-derive cardId from name when user hasn't manually overridden
+  const [cardIdManual, setCardIdManual] = useState(false);
+  useEffect(() => {
+    if (cardIdManual) return;
+    const id = draft.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    if (id !== draft.cardId) setDraft(d => ({ ...d, cardId: id }));
+  }, [draft.name, cardIdManual, draft.cardId]);
+
+  const canExport = draft.name.trim() !== '' && draft.cardId.trim() !== '';
+
+  function generateMastermindTS(): string {
+    const lines: string[] = [];
+    lines.push(`// Generated by /legendary-sandbox. Paste into`);
+    lines.push(`// src/lib/games/legendary/masterminds/${draft.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ts`);
+    lines.push('');
+    lines.push(`import type { MastermindCardDef } from '../types';`);
+    lines.push('');
+    const cn = draft.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+    lines.push(`export const ${cn}: MastermindCardDef = {`);
+    lines.push(`  kind: 'mastermind',`);
+    lines.push(`  cardId: '${draft.cardId}',`);
+    lines.push(`  name: '${draft.name}',`);
+    lines.push(`  alwaysLeads: '${draft.alwaysLeads}',`);
+    lines.push(`  attack: ${draft.attack},`);
+    lines.push(`  vp: ${draft.vp},`);
+    lines.push(`  hits: ${draft.hits},`);
+    lines.push(`  strike: [],`);
+    if (draft.text) lines.push(`  text: '${draft.text.replace(/'/g, "\\'")}',`);
+    lines.push(`};`);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  async function copyTS() {
+    try {
+      await navigator.clipboard.writeText(generateMastermindTS());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl p-4">
+      <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-100">Mastermind Author</h1>
+          <p className="text-xs text-neutral-500">Build a single mastermind card. Auto-saved locally.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="text-xs text-emerald-400 hover:text-emerald-300">
+            ← Browse
+          </button>
+          <Link href="/lobby" className="text-xs text-neutral-400 hover:text-neutral-200">← lobby</Link>
+        </div>
+      </header>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_300px]">
+        {/* Editor */}
+        <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Name">
+              <input
+                value={draft.name}
+                onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+                placeholder="e.g. Red Skull"
+                className={input()}
+              />
+            </Field>
+            <Field label="Card id (auto)">
+              <input
+                value={draft.cardId}
+                onChange={e => { setCardIdManual(true); setDraft(d => ({ ...d, cardId: e.target.value })); }}
+                className={`${input()} font-mono`}
+              />
+            </Field>
+            <Field label="Always Leads (team)">
+              <select
+                value={draft.alwaysLeads}
+                onChange={e => setDraft(d => ({ ...d, alwaysLeads: e.target.value as Team }))}
+                className={input()}
+              >
+                {ALL_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </Field>
+            <Field label="Attack (⚔ per hit)">
+              <input
+                type="number" min={1} max={20}
+                value={draft.attack}
+                onChange={e => setDraft(d => ({ ...d, attack: clampInt(e.target.value, 1, 20) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="VP">
+              <input
+                type="number" min={0} max={20}
+                value={draft.vp}
+                onChange={e => setDraft(d => ({ ...d, vp: clampInt(e.target.value, 0, 20) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="Hits to defeat">
+              <input
+                type="number" min={1} max={10}
+                value={draft.hits}
+                onChange={e => setDraft(d => ({ ...d, hits: clampInt(e.target.value, 1, 10) }))}
+                className={input()}
+              />
+            </Field>
+          </div>
+          <Field label="Card text (optional)">
+            <textarea
+              value={draft.text ?? ''}
+              onChange={e => setDraft(d => ({ ...d, text: e.target.value || undefined }))}
+              placeholder="e.g. Master Strike: Each player discards down to 4 cards."
+              rows={2}
+              className={`${input()} resize-none`}
+            />
+          </Field>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={copyTS}
+              disabled={!canExport}
+              className="rounded bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:bg-neutral-700 disabled:text-neutral-500"
+            >
+              {copied ? '✓ Copied TS' : 'Copy TS'}
+            </button>
+          </div>
+        </section>
+
+        {/* Preview */}
+        <aside className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">Live preview</div>
+          <div className="flex items-center justify-center rounded-md bg-neutral-900/60 p-3">
+            <MastermindCardArt def={draft} />
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scheme author
+// ---------------------------------------------------------------------------
+
+const SCHEME_STORAGE_KEY = 'legendary-sandbox-scheme-v1';
+
+function emptyScheme(): SchemeCardDef {
+  return { kind: 'scheme', cardId: '', name: '', twists: 8, bystanders: 5, evilWinsAfterTwists: 5, text: '' };
+}
+
+function SchemeAuthor({ onBack }: { onBack: () => void }) {
+  const [draft, setDraft]       = useState<SchemeCardDef>(emptyScheme);
+  const [hydrated, setHydrated] = useState(false);
+  const [copied, setCopied]     = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SCHEME_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as SchemeCardDef;
+        if (parsed && parsed.kind === 'scheme') setDraft(parsed);
+      }
+    } catch { /* ignore */ }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try { localStorage.setItem(SCHEME_STORAGE_KEY, JSON.stringify(draft)); } catch {}
+  }, [draft, hydrated]);
+
+  const [cardIdManual, setCardIdManual] = useState(false);
+  useEffect(() => {
+    if (cardIdManual) return;
+    const id = draft.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+    if (id !== draft.cardId) setDraft(d => ({ ...d, cardId: id }));
+  }, [draft.name, cardIdManual, draft.cardId]);
+
+  const canExport = draft.name.trim() !== '' && draft.cardId.trim() !== '';
+
+  function generateSchemeTS(): string {
+    const lines: string[] = [];
+    lines.push(`// Generated by /legendary-sandbox. Paste into`);
+    lines.push(`// src/lib/games/legendary/schemes/${draft.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.ts`);
+    lines.push('');
+    lines.push(`import type { SchemeCardDef } from '../types';`);
+    lines.push('');
+    const cn = draft.name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '');
+    lines.push(`export const ${cn}: SchemeCardDef = {`);
+    lines.push(`  kind: 'scheme',`);
+    lines.push(`  cardId: '${draft.cardId}',`);
+    lines.push(`  name: '${draft.name}',`);
+    lines.push(`  twists: ${draft.twists},`);
+    lines.push(`  bystanders: ${draft.bystanders},`);
+    lines.push(`  evilWinsAfterTwists: ${draft.evilWinsAfterTwists},`);
+    lines.push(`  text: '${draft.text.replace(/'/g, "\\'")}',`);
+    lines.push(`};`);
+    lines.push('');
+    return lines.join('\n');
+  }
+
+  async function copyTS() {
+    try {
+      await navigator.clipboard.writeText(generateSchemeTS());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch { /* ignore */ }
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl p-4">
+      <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-semibold text-neutral-100">Scheme Author</h1>
+          <p className="text-xs text-neutral-500">Build a single scheme card. Auto-saved locally.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="text-xs text-emerald-400 hover:text-emerald-300">
+            ← Browse
+          </button>
+          <Link href="/lobby" className="text-xs text-neutral-400 hover:text-neutral-200">← lobby</Link>
+        </div>
+      </header>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+        {/* Editor */}
+        <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Name">
+              <input
+                value={draft.name}
+                onChange={e => setDraft(d => ({ ...d, name: e.target.value }))}
+                placeholder="e.g. Negative Zone Prison Breakout"
+                className={input()}
+              />
+            </Field>
+            <Field label="Card id (auto)">
+              <input
+                value={draft.cardId}
+                onChange={e => { setCardIdManual(true); setDraft(d => ({ ...d, cardId: e.target.value })); }}
+                className={`${input()} font-mono`}
+              />
+            </Field>
+            <Field label="Scheme Twists in deck">
+              <input
+                type="number" min={1} max={20}
+                value={draft.twists}
+                onChange={e => setDraft(d => ({ ...d, twists: clampInt(e.target.value, 1, 20) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="Bystanders in villain deck">
+              <input
+                type="number" min={0} max={30}
+                value={draft.bystanders}
+                onChange={e => setDraft(d => ({ ...d, bystanders: clampInt(e.target.value, 0, 30) }))}
+                className={input()}
+              />
+            </Field>
+            <Field label="Evil wins after N twists">
+              <input
+                type="number" min={1} max={20}
+                value={draft.evilWinsAfterTwists}
+                onChange={e => setDraft(d => ({ ...d, evilWinsAfterTwists: clampInt(e.target.value, 1, 20) }))}
+                className={input()}
+              />
+            </Field>
+          </div>
+          <Field label="Scheme text / rules">
+            <textarea
+              value={draft.text}
+              onChange={e => setDraft(d => ({ ...d, text: e.target.value }))}
+              placeholder="e.g. Twist: Move the top villain from the Villain Deck into the city."
+              rows={3}
+              className={`${input()} resize-none`}
+            />
+          </Field>
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={copyTS}
+              disabled={!canExport}
+              className="rounded bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-emerald-400 disabled:bg-neutral-700 disabled:text-neutral-500"
+            >
+              {copied ? '✓ Copied TS' : 'Copy TS'}
+            </button>
+          </div>
+        </section>
+
+        {/* Preview */}
+        <aside className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-neutral-500">Live preview</div>
+          <div className="flex items-center justify-center rounded-md bg-neutral-900/60 p-3">
+            <SchemeCardArt def={draft} />
+          </div>
+        </aside>
       </div>
     </div>
   );
