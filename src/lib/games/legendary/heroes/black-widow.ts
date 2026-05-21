@@ -1,9 +1,7 @@
 import type { HeroCardDef } from '../types';
 
-// Black Widow hero class — Tech / Covert, Avengers.
+// Black Widow hero class — Avengers, Covert/Tech.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
 export const BW_MISSION_ACCOMPLISHED: HeroCardDef = {
   kind: 'hero',
@@ -11,9 +9,14 @@ export const BW_MISSION_ACCOMPLISHED: HeroCardDef = {
   className: 'Black Widow',
   cardName: 'Mission Accomplished',
   cost: 2,
-  // No base attack or recruit — effect-only card. TODO: verify card text.
+  baseRecruit: 1,
   classes: ['tech'],
   teams: ['avengers'],
+  text: 'Recruit. Covert: +1 Recruit.',
+  onPlay: [
+    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 1,
+      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+  ],
 };
 
 export const BW_DANGEROUS_RESCUE: HeroCardDef = {
@@ -25,7 +28,10 @@ export const BW_DANGEROUS_RESCUE: HeroCardDef = {
   baseAttack: 2,
   classes: ['covert'],
   teams: ['avengers'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '2 Attack. Rescue a Bystander.',
+  onPlay: [
+    { kind: 'rescue_bystander', amount: 1 },
+  ],
 };
 
 export const BW_COVERT_OPERATION: HeroCardDef = {
@@ -35,10 +41,13 @@ export const BW_COVERT_OPERATION: HeroCardDef = {
   cardName: 'Covert Operation',
   cost: 4,
   baseAttack: 0,
-  baseAttackScales: true,   // renders as 0+⚔
+  baseAttackScales: true,
   classes: ['covert'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '+1 Attack for each Covert hero you play this turn, including this one.',
+  onPlay: [
+    { kind: 'gain_attack_per_class', cls: 'covert', bonus: 1, includeSelf: true },
+  ],
 };
 
 export const BW_SILENT_SNIPER: HeroCardDef = {
@@ -50,10 +59,15 @@ export const BW_SILENT_SNIPER: HeroCardDef = {
   baseAttack: 4,
   classes: ['covert'],
   teams: ['avengers'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '4 Attack. Covert: +2 Attack.',
+  onPlay: [
+    // This card is Covert, so total must be ≥2 for "another Covert" to be true.
+    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 2 }] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const BLACK_WIDOW_CLASS = {
   className: 'Black Widow',
   cards: [

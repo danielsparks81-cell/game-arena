@@ -1,20 +1,18 @@
 import type { HeroCardDef } from '../types';
 
-// Storm hero class — Ranged / Covert, X-Men.
+// Storm hero class — X-Men, Ranged.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
 export const STORM_GATHERING_STORMCLOUDS: HeroCardDef = {
   kind: 'hero',
   cardId: 'storm_gathering_stormclouds',
   className: 'Storm',
   cardName: 'Gathering Stormclouds',
-  cost: 3,
+  cost: 2,
   baseRecruit: 2,
   classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base recruit
+  text: '2 Recruit.',
 };
 
 export const STORM_LIGHTNING_BOLT: HeroCardDef = {
@@ -22,11 +20,16 @@ export const STORM_LIGHTNING_BOLT: HeroCardDef = {
   cardId: 'storm_lightning_bolt',
   className: 'Storm',
   cardName: 'Lightning Bolt',
-  cost: 4,
+  cost: 3,
   baseAttack: 2,
   classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '2 Attack. Ranged: +1 Attack.',
+  onPlay: [
+    // Card IS Ranged → need total ≥2.
+    { kind: 'if_played_class_this_turn', cls: 'ranged', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
 export const STORM_SPINNING_CYCLONE: HeroCardDef = {
@@ -34,11 +37,15 @@ export const STORM_SPINNING_CYCLONE: HeroCardDef = {
   cardId: 'storm_spinning_cyclone',
   className: 'Storm',
   cardName: 'Spinning Cyclone',
-  cost: 6,
+  cost: 4,
   baseAttack: 4,
-  classes: ['covert'],
+  classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '4 Attack. Ranged: +1 Attack.',
+  onPlay: [
+    { kind: 'if_played_class_this_turn', cls: 'ranged', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
 export const STORM_TIDAL_WAVE: HeroCardDef = {
@@ -46,14 +53,18 @@ export const STORM_TIDAL_WAVE: HeroCardDef = {
   cardId: 'storm_tidal_wave',
   className: 'Storm',
   cardName: 'Tidal Wave',
-  cost: 7,
+  cost: 6,
   baseAttack: 5,
   classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '5 Attack. Ranged: +2 Attack.',
+  onPlay: [
+    { kind: 'if_played_class_this_turn', cls: 'ranged', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 2 }] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const STORM_CLASS = {
   className: 'Storm',
   cards: [

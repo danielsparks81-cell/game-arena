@@ -70,10 +70,15 @@ const EFFECT_KINDS: { kind: EffectKind; label: string; description: string }[] =
   { kind: 'draw',                       label: 'Draw cards',          description: 'Draw N cards from your deck.' },
   { kind: 'gain_wound',                 label: 'Take a Wound',        description: 'Give the player a Wound (clutter card).' },
   { kind: 'rescue_bystander',           label: 'Rescue Bystanders',   description: 'Take N bystanders from the rescue stack.' },
-  { kind: 'ko_from_hand',               label: 'KO from hand',        description: 'May KO up to N cards from your hand. (Player choice — currently a no-op in MVP.)' },
-  { kind: 'discard_from_hand',          label: 'Discard from hand',   description: 'Discard up to N cards from your hand. (Player choice — currently a no-op in MVP.)' },
-  { kind: 'if_played_class_this_turn',  label: 'If played class ≥ N', description: 'Conditional: fires nested effects when you\'ve played ≥ N OTHER cards of this class this turn.' },
-  { kind: 'if_played_team_this_turn',   label: 'If played team ≥ N',  description: 'Conditional: fires nested effects when you\'ve played ≥ N OTHER cards of this team this turn.' },
+  { kind: 'ko_from_hand',               label: 'KO from hand',        description: 'May KO up to N cards from your hand. Optional filter and bonus effects.' },
+  { kind: 'discard_from_hand',          label: 'Discard from hand',   description: 'Discard up to N cards from your hand. Optional bonus effects.' },
+  { kind: 'gain_attack_per_class',      label: '+Strike per class',   description: '+N Strike for each card of this class played this turn (incl. or excl. self).' },
+  { kind: 'gain_recruit_per_class',     label: '+Recruit per class',  description: '+N Recruit for each card of this class played this turn.' },
+  { kind: 'gain_attack_per_team',       label: '+Strike per team',    description: '+N Strike for each card of this team played this turn.' },
+  { kind: 'gain_recruit_per_team',      label: '+Recruit per team',   description: '+N Recruit for each card of this team played this turn.' },
+  { kind: 'if_played_class_this_turn',  label: 'If played class ≥ N', description: 'Conditional: fires nested effects when total class count this turn ≥ N.' },
+  { kind: 'if_played_team_this_turn',   label: 'If played team ≥ N',  description: 'Conditional: fires nested effects when total team count this turn ≥ N.' },
+  { kind: 'if_played_hero_this_turn',   label: 'If played hero ≥ N',  description: 'Conditional: fires nested effects when total hero-name count this turn ≥ N.' },
 ];
 
 // All teams known to the engine.
@@ -531,6 +536,35 @@ function EffectParams({ effect, onChange }: { effect: Effect; onChange: (next: E
     case 'gain_wound':
       return <div className="text-[10px] text-neutral-500">No parameters.</div>;
     case 'ko_from_hand':
+      return (
+        <>
+          <Field label="Up to" inline>
+            <input
+              type="number" min={1} max={10}
+              value={effect.up_to}
+              onChange={e => onChange({ ...effect, up_to: clampInt(e.target.value, 1, 10) })}
+              className={inputSm()}
+            />
+          </Field>
+          <Field label="Filter" inline>
+            <select
+              value={effect.filter ?? ''}
+              onChange={e => onChange({ ...effect, filter: (e.target.value || undefined) as 'wounds_only' | undefined })}
+              className={inputSm()}
+            >
+              <option value="">Any card</option>
+              <option value="wounds_only">Wounds only</option>
+            </select>
+          </Field>
+          <Field label="Bonus effects (if player does)">
+            <EffectsEditor
+              nested
+              effects={effect.bonus ?? []}
+              onChange={bonus => onChange({ ...effect, bonus })}
+            />
+          </Field>
+        </>
+      );
     case 'discard_from_hand':
       return (
         <>
@@ -549,9 +583,68 @@ function EffectParams({ effect, onChange }: { effect: Effect; onChange: (next: E
               onChange={bonus => onChange({ ...effect, bonus })}
             />
           </Field>
-          <div className="mt-1 text-[10px] text-amber-500">
-            ⚠ Player-choice mechanic — currently a no-op in the engine. Sandboxes for future use.
-          </div>
+        </>
+      );
+    case 'gain_attack_per_class':
+    case 'gain_recruit_per_class':
+      return (
+        <>
+          <Field label="Class" inline>
+            <select
+              value={effect.cls}
+              onChange={e => onChange({ ...effect, cls: e.target.value as HeroClass })}
+              className={inputSm()}
+            >
+              {(Object.keys(CLASS_LABELS) as HeroClass[]).map(c => (
+                <option key={c} value={c}>{CLASS_LABELS[c]}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Bonus per card" inline>
+            <input
+              type="number" min={1} max={10}
+              value={effect.bonus}
+              onChange={e => onChange({ ...effect, bonus: clampInt(e.target.value, 1, 10) })}
+              className={inputSm()}
+            />
+          </Field>
+          <Field label="Include self" inline>
+            <input
+              type="checkbox"
+              checked={!!effect.includeSelf}
+              onChange={e => onChange({ ...effect, includeSelf: e.target.checked })}
+            />
+          </Field>
+        </>
+      );
+    case 'gain_attack_per_team':
+    case 'gain_recruit_per_team':
+      return (
+        <>
+          <Field label="Team" inline>
+            <select
+              value={effect.team}
+              onChange={e => onChange({ ...effect, team: e.target.value as Team })}
+              className={inputSm()}
+            >
+              {ALL_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Bonus per card" inline>
+            <input
+              type="number" min={1} max={10}
+              value={effect.bonus}
+              onChange={e => onChange({ ...effect, bonus: clampInt(e.target.value, 1, 10) })}
+              className={inputSm()}
+            />
+          </Field>
+          <Field label="Include self" inline>
+            <input
+              type="checkbox"
+              checked={!!effect.includeSelf}
+              onChange={e => onChange({ ...effect, includeSelf: e.target.checked })}
+            />
+          </Field>
         </>
       );
     case 'if_played_class_this_turn':
@@ -568,7 +661,7 @@ function EffectParams({ effect, onChange }: { effect: Effect; onChange: (next: E
               ))}
             </select>
           </Field>
-          <Field label="Min others" inline>
+          <Field label="Min count" inline>
             <input
               type="number" min={1} max={5}
               value={effect.minOthers}
@@ -597,7 +690,36 @@ function EffectParams({ effect, onChange }: { effect: Effect; onChange: (next: E
               {ALL_TEAMS.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </Field>
-          <Field label="Min others" inline>
+          <Field label="Min count" inline>
+            <input
+              type="number" min={1} max={5}
+              value={effect.minOthers}
+              onChange={e => onChange({ ...effect, minOthers: clampInt(e.target.value, 1, 5) })}
+              className={inputSm()}
+            />
+          </Field>
+          <Field label="Then resolve">
+            <EffectsEditor
+              nested
+              effects={effect.effects}
+              onChange={effects => onChange({ ...effect, effects })}
+            />
+          </Field>
+        </>
+      );
+    case 'if_played_hero_this_turn':
+      return (
+        <>
+          <Field label="Hero name" inline>
+            <input
+              type="text"
+              value={effect.heroName}
+              onChange={e => onChange({ ...effect, heroName: e.target.value })}
+              placeholder="e.g. Hulk"
+              className={inputSm()}
+            />
+          </Field>
+          <Field label="Min count" inline>
             <input
               type="number" min={1} max={5}
               value={effect.minOthers}
@@ -626,8 +748,13 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'gain_wound':                 return { kind };
     case 'ko_from_hand':               return { kind, up_to: 1 };
     case 'discard_from_hand':          return { kind, up_to: 1 };
-    case 'if_played_class_this_turn':  return { kind, cls: 'strength', minOthers: 1, effects: [] };
-    case 'if_played_team_this_turn':   return { kind, team: 'avengers', minOthers: 1, effects: [] };
+    case 'gain_attack_per_class':      return { kind, cls: 'strength', bonus: 1, includeSelf: false };
+    case 'gain_recruit_per_class':     return { kind, cls: 'strength', bonus: 1, includeSelf: false };
+    case 'gain_attack_per_team':       return { kind, team: 'avengers', bonus: 1, includeSelf: false };
+    case 'gain_recruit_per_team':      return { kind, team: 'avengers', bonus: 1, includeSelf: false };
+    case 'if_played_class_this_turn':  return { kind, cls: 'strength', minOthers: 2, effects: [] };
+    case 'if_played_team_this_turn':   return { kind, team: 'avengers', minOthers: 2, effects: [] };
+    case 'if_played_hero_this_turn':   return { kind, heroName: '', minOthers: 2, effects: [] };
   }
 }
 
@@ -2282,7 +2409,7 @@ function HenchmanAuthor({ onBack }: { onBack: () => void }) {
 const MASTERMIND_STORAGE_KEY = 'legendary-sandbox-mastermind-v1';
 
 function emptyMastermindDef(): MastermindCardDef {
-  return { kind: 'mastermind', cardId: '', name: '', alwaysLeads: 'hydra', attack: 8, vp: 5, hits: 4, strike: [] };
+  return { kind: 'mastermind', cardId: '', name: '', alwaysLeads: 'hydra', attack: 8, vp: 5, hits: 4, tacticIds: [], strike: [] };
 }
 
 function MastermindAuthor({ onBack }: { onBack: () => void }) {

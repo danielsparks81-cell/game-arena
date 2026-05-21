@@ -1,21 +1,23 @@
 import type { HeroCardDef } from '../types';
 
-// Captain America hero class — Strength / Instinct / Tech / Covert, Avengers.
+// Captain America hero class — Avengers, Strength/Instinct.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
 export const CAP_PERFECT_TEAMWORK: HeroCardDef = {
   kind: 'hero',
   cardId: 'cap_perfect_teamwork',
   className: 'Captain America',
   cardName: 'Perfect Teamwork',
-  cost: 4,
+  cost: 3,
   baseAttack: 0,
-  baseAttackScales: true,   // renders as 0+⚔
+  baseAttackScales: true,
   classes: ['strength'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '+1 Attack for each other Avengers hero you play this turn.',
+  onPlay: [
+    // Card IS Avengers (already counted). "Other" = total - 1 → includeSelf: false.
+    { kind: 'gain_attack_per_team', team: 'avengers', bonus: 1, includeSelf: false },
+  ],
 };
 
 export const CAP_AVENGERS_ASSEMBLE: HeroCardDef = {
@@ -23,12 +25,15 @@ export const CAP_AVENGERS_ASSEMBLE: HeroCardDef = {
   cardId: 'cap_avengers_assemble',
   className: 'Captain America',
   cardName: 'Avengers Assemble!',
-  cost: 3,
+  cost: 4,
   baseRecruit: 0,
-  baseRecruitScales: true,  // renders as 0+★
+  baseRecruitScales: true,
   classes: ['instinct'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '+1 Recruit for each other Avengers hero you play this turn.',
+  onPlay: [
+    { kind: 'gain_recruit_per_team', team: 'avengers', bonus: 1, includeSelf: false },
+  ],
 };
 
 export const CAP_DIVING_BLOCK: HeroCardDef = {
@@ -36,11 +41,14 @@ export const CAP_DIVING_BLOCK: HeroCardDef = {
   cardId: 'cap_diving_block',
   className: 'Captain America',
   cardName: 'Diving Block',
-  cost: 6,
+  cost: 5,
   baseAttack: 4,
-  classes: ['tech'],
+  classes: ['strength'],
   teams: ['avengers'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '4 Attack. You may KO a card from your hand. If you do, draw a card.',
+  onPlay: [
+    { kind: 'ko_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
 export const CAP_A_DAY_LIKE_ANY_OTHER: HeroCardDef = {
@@ -50,19 +58,23 @@ export const CAP_A_DAY_LIKE_ANY_OTHER: HeroCardDef = {
   cardName: 'A Day Like Any Other',
   cost: 7,
   baseAttack: 3,
-  baseAttackScales: true,   // renders as 3+⚔
-  classes: ['covert'],
+  classes: ['instinct'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '3 Attack. Avengers: +2 Attack.',
+  onPlay: [
+    // Card IS Avengers → need total ≥2 (self + ≥1 other).
+    { kind: 'if_played_team_this_turn', team: 'avengers', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 2 }] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const CAPTAIN_AMERICA_CLASS = {
   className: 'Captain America',
   cards: [
-    { def: CAP_PERFECT_TEAMWORK,       copies: 5 },
-    { def: CAP_AVENGERS_ASSEMBLE,      copies: 5 },
-    { def: CAP_DIVING_BLOCK,           copies: 3 },
-    { def: CAP_A_DAY_LIKE_ANY_OTHER,   copies: 1 },
+    { def: CAP_PERFECT_TEAMWORK,     copies: 5 },
+    { def: CAP_AVENGERS_ASSEMBLE,    copies: 5 },
+    { def: CAP_DIVING_BLOCK,         copies: 3 },
+    { def: CAP_A_DAY_LIKE_ANY_OTHER, copies: 1 },
   ],
 };

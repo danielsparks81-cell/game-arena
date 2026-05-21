@@ -1,67 +1,80 @@
 import type { HeroCardDef } from '../types';
 
-// Jean Grey hero class — Ranged / Covert, X-Men.
+// Jean Grey hero class — X-Men, Instinct.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
-export const JG_PSYCHIC_SEARCH: HeroCardDef = {
+export const JEAN_GREY_PSYCHIC_SEARCH: HeroCardDef = {
   kind: 'hero',
-  cardId: 'jg_psychic_search',
+  cardId: 'jean_grey_psychic_search',
   className: 'Jean Grey',
   cardName: 'Psychic Search',
-  cost: 3,
+  cost: 2,
   baseAttack: 2,
-  classes: ['ranged'],
+  classes: ['instinct'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '2 Attack. Instinct: Draw a card.',
+  onPlay: [
+    // Card IS Instinct → need total ≥2.
+    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 2,
+      effects: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
-export const JG_READ_YOUR_THOUGHTS: HeroCardDef = {
+export const JEAN_GREY_READ_YOUR_THOUGHTS: HeroCardDef = {
   kind: 'hero',
-  cardId: 'jg_read_your_thoughts',
+  cardId: 'jean_grey_read_your_thoughts',
   className: 'Jean Grey',
   cardName: 'Read Your Thoughts',
-  cost: 5,
+  cost: 3,
   baseRecruit: 3,
-  baseRecruitScales: true,  // renders as 3+★
-  classes: ['covert'],
+  classes: ['instinct'],
   teams: ['x-men'],
-  // TODO: verify scaling condition from card text
+  text: '3 Recruit. Instinct: +1 Recruit.',
+  onPlay: [
+    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 2,
+      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+  ],
 };
 
-export const JG_MIND_OVER_MATTER: HeroCardDef = {
+export const JEAN_GREY_MIND_OVER_MATTER: HeroCardDef = {
   kind: 'hero',
-  cardId: 'jg_mind_over_matter',
+  cardId: 'jean_grey_mind_over_matter',
   className: 'Jean Grey',
   cardName: 'Mind Over Matter',
-  cost: 6,
+  cost: 4,
   baseAttack: 4,
-  classes: ['covert'],
+  classes: ['instinct'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '4 Attack. Instinct: +1 Attack.',
+  onPlay: [
+    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
-export const JG_TELEKINETIC_MASTERY: HeroCardDef = {
+export const JEAN_GREY_TELEKINETIC_MASTERY: HeroCardDef = {
   kind: 'hero',
-  cardId: 'jg_telekinetic_mastery',
+  cardId: 'jean_grey_telekinetic_mastery',
   className: 'Jean Grey',
   cardName: 'Telekinetic Mastery',
-  cost: 7,
-  baseAttack: 5,
-  baseAttackScales: true,   // renders as 5+⚔
-  classes: ['ranged'],
+  cost: 6,
+  baseAttack: 0,
+  baseAttackScales: true,
+  classes: ['instinct'],
   teams: ['x-men'],
-  // TODO: verify scaling condition from card text
+  text: '+1 Attack for each Instinct hero you play this turn, including this one.',
+  onPlay: [
+    { kind: 'gain_attack_per_class', cls: 'instinct', bonus: 1, includeSelf: true },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const JEAN_GREY_CLASS = {
   className: 'Jean Grey',
   cards: [
-    { def: JG_PSYCHIC_SEARCH,        copies: 5 },
-    { def: JG_READ_YOUR_THOUGHTS,    copies: 5 },
-    { def: JG_MIND_OVER_MATTER,      copies: 3 },
-    { def: JG_TELEKINETIC_MASTERY,   copies: 1 },
+    { def: JEAN_GREY_PSYCHIC_SEARCH,       copies: 5 },
+    { def: JEAN_GREY_READ_YOUR_THOUGHTS,   copies: 5 },
+    { def: JEAN_GREY_MIND_OVER_MATTER,     copies: 3 },
+    { def: JEAN_GREY_TELEKINETIC_MASTERY,  copies: 1 },
   ],
 };

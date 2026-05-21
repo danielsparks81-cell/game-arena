@@ -1,66 +1,79 @@
 import type { HeroCardDef } from '../types';
 
-// Deadpool hero class — Tech / Covert / Instinct, no team.
+// Deadpool hero class — no team affiliation (Deadpool plays by his own rules).
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
-export const DP_HERE_HOLD_THIS: HeroCardDef = {
+export const DEADPOOL_HERE_HOLD_THIS: HeroCardDef = {
   kind: 'hero',
-  cardId: 'dp_here_hold_this',
+  cardId: 'deadpool_here_hold_this',
   className: 'Deadpool',
-  cardName: 'Here, Hold This for a Second',
-  cost: 3,
+  cardName: 'Here Hold This',
+  cost: 2,
   baseRecruit: 2,
-  classes: ['tech'],
-  teams: [],
-  // TODO: verify any additional effect beyond the base recruit
-};
-
-export const DP_HEY_CAN_I_GET_A_DO_OVER: HeroCardDef = {
-  kind: 'hero',
-  cardId: 'dp_hey_can_i_get_a_do_over',
-  className: 'Deadpool',
-  cardName: 'Hey, Can I Get a Do-Over?',
-  cost: 3,
-  baseAttack: 2,
   classes: ['instinct'],
   teams: [],
-  // TODO: verify any additional effect beyond the base strike
+  text: '2 Recruit. You may discard a card from your hand. If you do, draw a card.',
+  onPlay: [
+    { kind: 'discard_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
-export const DP_ODDBALL: HeroCardDef = {
+export const DEADPOOL_DO_OVER: HeroCardDef = {
   kind: 'hero',
-  cardId: 'dp_oddball',
+  cardId: 'deadpool_do_over',
+  className: 'Deadpool',
+  cardName: 'Hey Can I Get a Do-Over',
+  cost: 3,
+  baseAttack: 2,
+  classes: ['ranged'],
+  teams: [],
+  text: '2 Attack. You may KO a card from your hand. If you do, +2 Attack.',
+  onPlay: [
+    { kind: 'ko_from_hand', up_to: 1, bonus: [{ kind: 'gain_attack', amount: 2 }] },
+  ],
+};
+
+export const DEADPOOL_ODDBALL: HeroCardDef = {
+  kind: 'hero',
+  cardId: 'deadpool_oddball',
   className: 'Deadpool',
   cardName: 'Oddball',
-  cost: 5,
+  cost: 4,
   baseAttack: 2,
-  baseAttackScales: true,   // renders as 2+⚔
-  classes: ['covert'],
+  classes: ['ranged'],
   teams: [],
-  // TODO: verify scaling condition from card text
+  text: '2 Attack. Tech: +2 Recruit. Instinct: +2 Attack.',
+  onPlay: [
+    // Oddball is Ranged, so cross-class checks → minOthers: 1 for each.
+    { kind: 'if_played_class_this_turn', cls: 'tech',     minOthers: 1,
+      effects: [{ kind: 'gain_recruit', amount: 2 }] },
+    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 1,
+      effects: [{ kind: 'gain_attack',  amount: 2 }] },
+  ],
 };
 
-export const DP_RANDOM_ACTS_OF_UNKINDNESS: HeroCardDef = {
+export const DEADPOOL_RANDOM_ACTS: HeroCardDef = {
   kind: 'hero',
-  cardId: 'dp_random_acts_of_unkindness',
+  cardId: 'deadpool_random_acts',
   className: 'Deadpool',
   cardName: 'Random Acts of Unkindness',
-  cost: 7,
+  cost: 5,
   baseAttack: 6,
-  classes: ['instinct'],
+  classes: ['ranged'],
   teams: [],
-  // TODO: verify any additional effect beyond the base strike
+  text: '6 Attack. You may KO a card from your hand. If you do, draw a card.',
+  onPlay: [
+    { kind: 'ko_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const DEADPOOL_CLASS = {
   className: 'Deadpool',
   cards: [
-    { def: DP_HERE_HOLD_THIS,             copies: 5 },
-    { def: DP_ODDBALL,                    copies: 5 },
-    { def: DP_HEY_CAN_I_GET_A_DO_OVER,   copies: 3 },
-    { def: DP_RANDOM_ACTS_OF_UNKINDNESS,  copies: 1 },
+    { def: DEADPOOL_HERE_HOLD_THIS, copies: 5 },
+    { def: DEADPOOL_DO_OVER,        copies: 5 },
+    { def: DEADPOOL_ODDBALL,        copies: 3 },
+    { def: DEADPOOL_RANDOM_ACTS,    copies: 1 },
   ],
 };

@@ -29,6 +29,7 @@ import {
   type HeroClass,
   type LegendaryEvent,
   type LegendaryState,
+  type PendingChoice,
   type PlayerState,
 } from '@/lib/games/legendary';
 import { SIDEKICK, OFFICER } from '@/lib/games/legendary/heroes/shield';
@@ -67,7 +68,7 @@ type RevealAnim = {
 export default function LegendaryBoard({
   state, currentUserId, isHost, disabled,
   onStart, onPlay, onRecruit, onRecruitSidekick, onRecruitOfficer,
-  onFightCity, onFightMastermind, onEndTurn,
+  onFightCity, onFightMastermind, onResolveChoice, onSkipChoice, onEndTurn,
 }: {
   state: LegendaryState;
   currentUserId: string;
@@ -80,12 +81,21 @@ export default function LegendaryBoard({
   onRecruitOfficer: () => void;
   onFightCity: (slot: number) => void;
   onFightMastermind: () => void;
+  /** Resolve a pending ko_from_hand / discard_from_hand choice. */
+  onResolveChoice: (instanceId: string) => void;
+  /** Skip the pending choice (forfeit the bonus). */
+  onSkipChoice: () => void;
   onEndTurn: () => void;
 }) {
   const me = state.players.find(p => p.playerId === currentUserId);
   const mySeat = me?.seat ?? -1;
   const currentPlayer = state.players[state.currentPlayerIdx];
   const isMyTurn = state.phase === 'playing' && currentPlayer?.playerId === currentUserId;
+
+  // Pending choice: the engine is waiting for the active player to pick a card
+  // from their hand to KO or discard (from a card effect like Diving Block).
+  const pendingChoice: PendingChoice | undefined = state.thisTurn.pendingChoice;
+  const isChoiceMode = isMyTurn && !!pendingChoice;
 
   // ----- Lobby phase: setup-confirmation screen -----
   if (state.phase === 'lobby') {
@@ -239,10 +249,45 @@ export default function LegendaryBoard({
       setRevealAnim(a => a?.key === key ? null : a), 3500);
   }, [state.log, startAcked]);
 
+  // ----- HQ slot refill animation -----
+  // When a hero enters an empty HQ slot during gameplay (after a purchase or
+  // after an escape KO), we animate it flipping face-up from the Hero Deck.
+  // `animatingHqSlots` is the set of slot indices currently mid-animation.
+  const lastHqRefillIdx = useRef(state.log.length);
+  const [animatingHqSlots, setAnimatingHqSlots] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    const start = lastHqRefillIdx.current;
+    if (state.log.length <= start) {
+      lastHqRefillIdx.current = state.log.length;
+      return;
+    }
+    const fresh = state.log.slice(start);
+    lastHqRefillIdx.current = state.log.length;
+    const refillSlots: number[] = [];
+    for (const ev of fresh) {
+      if (ev.kind === 'hq_refilled') refillSlots.push(ev.slot);
+    }
+    if (refillSlots.length === 0) return;
+    setAnimatingHqSlots(prev => {
+      const next = new Set(prev);
+      for (const s of refillSlots) next.add(s);
+      return next;
+    });
+    window.setTimeout(() => {
+      setAnimatingHqSlots(prev => {
+        const next = new Set(prev);
+        for (const s of refillSlots) next.delete(s);
+        return next;
+      });
+    }, 700);
+  }, [state.log]);
+
   const mmDef = getCard(state.mastermindId);
   const schemeDef = getCard(state.schemeId);
   const banner = state.phase === 'finished'
-    ? (state.result === 'win' ? `🏆 ${state.resultReason ?? 'Heroes Win!'}` : `💀 ${state.resultReason ?? 'Evil Wins.'}`)
+    ? state.result === 'win'  ? `🏆 ${state.resultReason ?? 'Heroes Win!'}`
+    : state.result === 'tie'  ? `🤝 ${state.resultReason ?? 'Tie — heroes survived!'}`
+    :                           `💀 ${state.resultReason ?? 'Evil Wins.'}`
     : isMyTurn ? 'Your turn — play cards, then buy/fight, then End Turn.'
     : `${currentPlayer?.username ?? 'A player'}'s turn`;
 
@@ -317,7 +362,7 @@ export default function LegendaryBoard({
             <div className="col-span-2 h-32" ref={mastermindRef}>
               <MastermindZone
                 mmDef={mmDef}
-                hitsTaken={state.mastermind.hitsTaken}
+                tacticsLeft={state.mastermind.tactics?.length ?? 0}
                 attack={state.thisTurn.attack}
                 isMyTurn={isMyTurn}
                 disabled={disabled || state.phase === 'finished'}
@@ -385,8 +430,8 @@ export default function LegendaryBoard({
         <div className="grid grid-cols-12 gap-2">
           <div className="col-span-1 flex h-32 flex-col gap-1">
             <PileDisplay label="Sidekicks" count={0} tone="neutral" fill infinite cost={SIDEKICK.cost} hoverDef={SIDEKICK}
-              canAfford={isMyTurn && !disabled && state.thisTurn.recruit >= SIDEKICK.cost}
-              onClick={isMyTurn && !disabled ? onRecruitSidekick : undefined}
+              canAfford={isMyTurn && !disabled && state.thisTurn.recruit >= SIDEKICK.cost && !state.thisTurn.sidekickRecruited}
+              onClick={isMyTurn && !disabled && !state.thisTurn.sidekickRecruited ? onRecruitSidekick : undefined}
               pileStyle={{ borderColor: '#909090', background: 'linear-gradient(135deg,#7a7a7a,#686868)' }} />
             <PileDisplay label="Officers"  count={0} tone="neutral" fill infinite cost={OFFICER.cost}  hoverDef={OFFICER}  hoverLightBg
               canAfford={isMyTurn && !disabled && state.thisTurn.recruit >= OFFICER.cost}
@@ -403,6 +448,7 @@ export default function LegendaryBoard({
                   recruit={state.thisTurn.recruit}
                   disabled={!isMyTurn || disabled || state.phase === 'finished'}
                   onRecruit={() => onRecruit(slot)}
+                  refillAnim={animatingHqSlots.has(slot)}
                 />
               ))}
             </div>
@@ -454,7 +500,7 @@ export default function LegendaryBoard({
             <div className="flex flex-col gap-1">
               <button
                 type="button"
-                disabled={!isMyTurn || disabled || !me.hand.some(c => isPlayable(c.cardId))}
+                disabled={!isMyTurn || disabled || isChoiceMode || !me.hand.some(c => isPlayable(c.cardId))}
                 onClick={handlePlayAll}
                 className="rounded border border-neutral-700 bg-neutral-800 px-4 py-1 text-xs font-medium text-neutral-200 transition hover:border-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -462,7 +508,7 @@ export default function LegendaryBoard({
               </button>
               <button
                 type="button"
-                disabled={!isMyTurn || disabled}
+                disabled={!isMyTurn || disabled || isChoiceMode}
                 onClick={onEndTurn}
                 className="rounded border border-rose-800 bg-rose-950 px-4 py-1 text-xs font-medium text-rose-200 transition hover:border-rose-500 hover:bg-rose-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -473,8 +519,40 @@ export default function LegendaryBoard({
         </div>
       </div>
 
+      {/* Pending-choice banner — shown when a card effect needs the player to
+          pick a card from their hand to KO or discard. */}
+      {pendingChoice && (
+        <div className="rounded-lg border border-amber-500 bg-amber-950/50 px-4 py-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="text-sm font-semibold text-amber-300">
+                {pendingChoice.kind === 'ko_from_hand' ? '🗑️ KO a card from your hand' : '↩️ Discard a card from your hand'}
+              </span>
+              {pendingChoice.filter === 'wounds_only' && (
+                <span className="ml-2 text-xs text-amber-400">(Wound cards only)</span>
+              )}
+              {pendingChoice.bonus.length > 0 && (
+                <span className="ml-2 text-xs text-neutral-400">
+                  {isMyTurn ? '— click a card below, or skip to forfeit the bonus.' : ''}
+                </span>
+              )}
+            </div>
+            {isMyTurn && (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={onSkipChoice}
+                className="shrink-0 rounded border border-neutral-600 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300 transition hover:border-neutral-400 hover:text-white disabled:opacity-40"
+              >
+                Skip
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Your hand */}
-      <ZoneLabel>Your hand</ZoneLabel>
+      <ZoneLabel>{isChoiceMode ? 'Choose a card to ' + (pendingChoice!.kind === 'ko_from_hand' ? 'KO' : 'discard') : 'Your hand'}</ZoneLabel>
       <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[140px]">
         {me ? (
           me.hand.length === 0 ? (
@@ -482,6 +560,12 @@ export default function LegendaryBoard({
           ) : (
             [...me.hand]
               .sort((a, b) => {
+                // In choice mode: valid targets first.
+                if (isChoiceMode) {
+                  const aValid = isChoiceTarget(a.cardId, pendingChoice!);
+                  const bValid = isChoiceTarget(b.cardId, pendingChoice!);
+                  if (aValid !== bValid) return aValid ? -1 : 1;
+                }
                 // Wounds always first, troopers/agents always last
                 const priority = (id: string) => {
                   if (id === 'wound')          return -2;
@@ -496,19 +580,45 @@ export default function LegendaryBoard({
                 const bD = CARDS[b.cardId];
                 return (bD?.kind === 'hero' ? bD.cost : 0) - (aD?.kind === 'hero' ? aD.cost : 0);
               })
-              .map((card) => (
-              <HandCard
-                key={card.instanceId}
-                card={card}
-                disabled={!isMyTurn || disabled || state.phase === 'finished' || !isPlayable(card.cardId)}
-                onClick={() => onPlay(card.instanceId)}
-              />
-            ))
+              .map((card) => {
+                if (isChoiceMode) {
+                  const valid = isChoiceTarget(card.cardId, pendingChoice!);
+                  return (
+                    <HandCard
+                      key={card.instanceId}
+                      card={card}
+                      disabled={!valid || disabled}
+                      choiceMode={valid ? pendingChoice!.kind : undefined}
+                      onClick={() => onResolveChoice(card.instanceId)}
+                    />
+                  );
+                }
+                return (
+                  <HandCard
+                    key={card.instanceId}
+                    card={card}
+                    disabled={!isMyTurn || disabled || state.phase === 'finished' || !isPlayable(card.cardId)}
+                    onClick={() => onPlay(card.instanceId)}
+                  />
+                );
+              })
           )
         ) : (
           <div className="text-xs text-neutral-600">Spectating</div>
         )}
       </div>
+
+      {/* Victory-assured banner — shown after the final Tactic is taken but
+          before the player clicks End Turn, so they can collect bonus VP. */}
+      {state.pendingResult === 'win' && (
+        <div className="rounded-lg border border-emerald-500 bg-emerald-950/50 px-4 py-2.5 text-center">
+          <div className="text-sm font-bold text-emerald-300">
+            🏆 {isMyTurn
+              ? 'Victory assured! Keep playing for bonus VP, then End Turn to finish.'
+              : `${currentPlayer?.username ?? 'A player'} is finishing their victory lap!`}
+          </div>
+        </div>
+      )}
 
       {/* Game-start acknowledgment overlay — player clicks to trigger turn-1 villain reveal */}
       {state.phase === 'playing' && state.turn === 1 && !startAcked && (
@@ -600,13 +710,15 @@ function CitySlot({
 }
 
 function HQSlot({
-  card, slot, recruit, disabled, onRecruit,
+  card, slot, recruit, disabled, onRecruit, refillAnim = false,
 }: {
   card: CardInstance | null;
   slot: number;
   recruit: number;
   disabled: boolean;
   onRecruit: () => void;
+  /** When true the card plays a flip-in animation (just placed from the Hero Deck). */
+  refillAnim?: boolean;
 }) {
   if (!card) {
     return (
@@ -624,7 +736,11 @@ function HQSlot({
       type="button"
       disabled={!canAfford}
       onClick={onRecruit}
-      className={`transition-all duration-150 ${canAfford ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl' : 'opacity-60'}`}
+      className={[
+        'transition-all duration-150',
+        refillAnim ? 'animate-hq-flip-in' : '',
+        canAfford ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl' : 'opacity-60',
+      ].join(' ')}
     >
       <HeroCardArt def={def} wide height="h-32" copies={copies} />
       <span className="sr-only">Slot {slot}</span>
@@ -633,11 +749,13 @@ function HQSlot({
 }
 
 function HandCard({
-  card, disabled, onClick,
+  card, disabled, onClick, choiceMode,
 }: {
   card: CardInstance;
   disabled: boolean;
   onClick: () => void;
+  /** When set the card is highlighted as a KO/discard target. */
+  choiceMode?: 'ko_from_hand' | 'discard_from_hand';
 }) {
   const def = CARDS[card.cardId];
   // Wounds / bystanders in hand — junk cards that match sandbox system card art.
@@ -670,13 +788,19 @@ function HandCard({
   const shieldStyle: React.CSSProperties | undefined = SHIELD_CARD_IDS.includes(card.cardId)
     ? { background: 'linear-gradient(135deg, #7a7a7a, #686868)' }
     : undefined;
+  // Choice-mode ring: red for KO, amber for discard.
+  const choiceRing =
+    choiceMode === 'ko_from_hand'      ? 'ring-2 ring-rose-500 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    choiceMode === 'discard_from_hand' ? 'ring-2 ring-amber-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    '';
+
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
       title={def.text}
-      className={`transition ${disabled ? 'opacity-50' : 'hover:-translate-y-1 hover:shadow-lg'}`}
+      className={`transition ${choiceRing || (disabled ? 'opacity-50' : 'hover:-translate-y-1 hover:shadow-lg')}`}
     >
       <HeroCardArt def={def} copies={copies} style={shieldStyle} lightBg={!!shieldStyle} />
     </button>
@@ -905,13 +1029,14 @@ function SchemeZone({
   );
 }
 
-/** Mastermind card — the boss. Clickable to attempt a fight. HP rendered as
- *  a row of pips showing remaining "hits to defeat". */
+/** Mastermind card — the boss. Clickable to attempt a fight. Tactics rendered
+ *  as a row of pips: filled = taken, empty = still face-down beneath the boss. */
 function MastermindZone({
-  mmDef, hitsTaken, attack, isMyTurn, disabled, onFight,
+  mmDef, tacticsLeft, attack, isMyTurn, disabled, onFight,
 }: {
   mmDef: ReturnType<typeof getCard>;
-  hitsTaken: number;
+  /** How many Tactic cards are still face-down (= hits left to win). */
+  tacticsLeft: number;
   attack: number;
   isMyTurn: boolean;
   disabled: boolean;
@@ -920,7 +1045,9 @@ function MastermindZone({
   if (mmDef.kind !== 'mastermind') {
     return <div className="h-full rounded-lg border border-dashed border-neutral-800" />;
   }
-  const canHit = isMyTurn && !disabled && attack >= mmDef.attack;
+  const totalTactics = mmDef.hits; // hits = tactic count on the card def
+  const tacticsTaken = totalTactics - tacticsLeft;
+  const canHit = isMyTurn && !disabled && attack >= mmDef.attack && tacticsLeft > 0;
   return (
     <button
       type="button"
@@ -933,16 +1060,21 @@ function MastermindZone({
     >
       <div className="flex items-baseline justify-between">
         <span className="text-[9px] uppercase tracking-wider text-rose-400">Mastermind</span>
-        <span className="font-mono text-[9px] text-neutral-400">{mmDef.attack}⚔ · {mmDef.vp}VP</span>
+        <span className="font-mono text-[9px] text-neutral-400">{mmDef.attack}⚔</span>
       </div>
       <span className="truncate text-sm font-semibold text-neutral-100">{mmDef.name}</span>
-      <div className="mt-auto flex gap-0.5">
-        {Array.from({ length: mmDef.hits }).map((_, i) => (
-          <div
-            key={i}
-            className={`h-1.5 flex-1 rounded ${i < hitsTaken ? 'bg-rose-500' : 'bg-neutral-800'}`}
-          />
-        ))}
+      <div className="mt-auto">
+        <div className="mb-0.5 text-[8px] uppercase tracking-wider text-neutral-500">
+          {tacticsLeft}/{totalTactics} tactics
+        </div>
+        <div className="flex gap-0.5">
+          {Array.from({ length: totalTactics }).map((_, i) => (
+            <div
+              key={i}
+              className={`h-1.5 flex-1 rounded ${i < tacticsTaken ? 'bg-rose-500' : 'bg-neutral-800'}`}
+            />
+          ))}
+        </div>
       </div>
     </button>
   );
@@ -1120,6 +1252,13 @@ function isPlayable(id: CardId): boolean {
   return CARDS[id]?.kind === 'hero';
 }
 
+/** Returns true if a card in the player's hand is a valid target for the given
+ *  pending choice (respects the 'wounds_only' filter). */
+function isChoiceTarget(cardId: CardId, choice: PendingChoice): boolean {
+  if (choice.filter === 'wounds_only') return cardId === 'wound';
+  return true; // any card is a valid target when no filter is set
+}
+
 function logText(ev: LegendaryEvent): string {
   switch (ev.kind) {
     case 'system':             return ev.text;
@@ -1129,12 +1268,13 @@ function logText(ev: LegendaryEvent): string {
     case 'villain_defeated':   return `defeated ${ev.cardName} (+${ev.vp} VP)`;
     case 'villain_revealed':   return `${ev.cardName} entered the city`;
     case 'villain_escaped':    return `${ev.cardName} ESCAPED`;
-    case 'mastermind_hit':     return `Mastermind hit — ${ev.hitsRemaining} left to defeat`;
+    case 'mastermind_hit':     return `${ev.username} took "${ev.tacticName}" (+${ev.tacticVp}VP) — ${ev.tacticsRemaining} tactic${ev.tacticsRemaining === 1 ? '' : 's'} left`;
     case 'master_strike':      return `⚡ Master Strike: ${ev.effectText}`;
     case 'scheme_twist':       return `Scheme Twist ${ev.twistsRevealed} / ${ev.twistsTotal}`;
     case 'wound_taken':          return `${ev.username} took a Wound`;
     case 'bystander_rescued':    return `${ev.username} rescued ${ev.count} bystander${ev.count === 1 ? '' : 's'}`;
     case 'bystander_captured':   return `Bystander captured by ${ev.captorName}`;
+    case 'hq_refilled':          return `HQ refilled: ${ev.cardName}`;
     case 'game_ended':           return ev.reasonText;
   }
 }
@@ -1143,7 +1283,8 @@ function logColor(ev: LegendaryEvent, mySeat: number): string {
   if (ev.kind === 'villain_escaped' || ev.kind === 'master_strike') return 'text-rose-400';
   if (ev.kind === 'scheme_twist') return 'text-amber-400';
   if (ev.kind === 'bystander_captured') return 'text-amber-300';
-  if (ev.kind === 'game_ended') return ev.result === 'win' ? 'text-emerald-300' : 'text-rose-300';
+  if (ev.kind === 'hq_refilled') return 'text-neutral-600';
+  if (ev.kind === 'game_ended') return ev.result === 'win' ? 'text-emerald-300' : ev.result === 'tie' ? 'text-amber-300' : 'text-rose-300';
   if ('seat' in ev && (ev as { seat?: number }).seat === mySeat) return 'text-emerald-300';
   return 'text-neutral-400';
 }
@@ -1157,7 +1298,7 @@ function sfx(ev: LegendaryEvent, mySeat: number): void {
     case 'master_strike':     sounds.sdLose(); break;
     case 'wound_taken':       sounds.sdPayHp(); break;
     case 'bystander_rescued': sounds.sdHeal(); break;
-    case 'game_ended':        ev.result === 'win' ? sounds.win() : sounds.sdLose(); break;
+    case 'game_ended':        ev.result === 'win' ? sounds.win() : ev.result === 'tie' ? sounds.sdHeal() : sounds.sdLose(); break;
     default: break;
   }
   void mySeat;

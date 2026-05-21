@@ -47,6 +47,7 @@ import type {
   HeroCardDef,
   LegendaryEvent,
   LegendaryState,
+  PendingChoice,
   PlayerState,
   TurnState,
   VillainCardDef,
@@ -108,7 +109,7 @@ export function initialState(): LegendaryState {
     ko: [],
     woundDeck: [],
     bystanderDeck: [],
-    mastermind: { cardId: MASTERMINDS[0].cardId, hitsTaken: 0, bystanders: [] },
+    mastermind: { cardId: MASTERMINDS[0].cardId, hitsTaken: 0, tactics: [], bystanders: [] },
     players: [],
     currentPlayerIdx: 0,
     turn: 0,
@@ -125,6 +126,9 @@ function emptyTurnState(): TurnState {
     playedThisTurn: [],
     classPlayedCounts: {},
     teamPlayedCounts: {},
+    heroNameCounts: {},
+    sidekickRecruited: false,
+    pendingChoice: undefined,
   };
 }
 
@@ -237,8 +241,15 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
   // ----- Wound deck — a generic stack of wound cards. Real Legendary uses 30. -----
   next.woundDeck = Array(30).fill(0).map(() => mkInstance('wound'));
 
-  // ----- Mastermind -----
-  next.mastermind = { cardId: mastermind.cardId, hitsTaken: 0, bystanders: [] };
+  // ----- Mastermind + Tactics -----
+  // Shuffle the 4 Tactic cards face-down beneath the Mastermind. One is drawn
+  // at random each time the Mastermind is hit; all 4 taken = heroes win.
+  next.mastermind = {
+    cardId: mastermind.cardId,
+    hitsTaken: 0,
+    tactics: shuffle(mastermind.tacticIds.map(id => mkInstance(id))),
+    bystanders: [],
+  };
 
   // ----- Per-player starting deck: 8 Troopers + 4 Agents, shuffled, then
   //       deal STARTING_HAND_SIZE to the active player only at first. -----
@@ -273,12 +284,21 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
 }
 
 /** Refill any null slots in the HQ from the top of the Hero Deck. If the
- *  Hero Deck is empty, slots stay null (Legendary rule: HQ may run dry). */
-function refillHQ(state: LegendaryState): void {
+ *  Hero Deck is empty, slots stay null (Legendary rule: HQ may run dry).
+ *
+ *  Pass `shouldLog = true` during live gameplay so each newly placed card
+ *  emits an `hq_refilled` event (drives the per-slot flip-in animation).
+ *  Keep it false (the default) during the initial setup in `startGame`. */
+function refillHQ(state: LegendaryState, shouldLog = false): void {
   for (let i = 0; i < state.hq.length; i++) {
     if (state.hq[i]) continue;
     const next = state.heroDeck.shift();
     state.hq[i] = next ?? null;
+    if (shouldLog && next) {
+      const def = getCard(next.cardId);
+      const cardName = def.kind === 'hero' ? def.cardName : next.cardId;
+      pushLog(state, { kind: 'hq_refilled', slot: i, cardId: next.cardId, cardName });
+    }
   }
 }
 
@@ -314,6 +334,12 @@ export type LegendaryAction =
   /** Spend Attack to hit the Mastermind. When hits reaches the boss's HP
    *  threshold, the game ends in victory. */
   | { kind: 'fight_mastermind' }
+  /** Resolve a pending `ko_from_hand` / `discard_from_hand` choice by selecting
+   *  a card from hand. If the choice has a filter (e.g. wounds_only) the engine
+   *  validates the selection before proceeding. */
+  | { kind: 'resolve_choice'; instanceId: CardInstanceId }
+  /** Skip the pending choice (forfeit the "If you do…" bonus). */
+  | { kind: 'skip_choice' }
   /** Clean up turn (discard hand + played) and pass turn. */
   | { kind: 'end_turn' };
 
@@ -331,6 +357,12 @@ export function applyAction(
   const next = clone(state);
   const meNext = next.players[next.currentPlayerIdx];
 
+  // If a player-choice is pending, only allow choice-resolution actions.
+  if (next.thisTurn.pendingChoice &&
+      action.kind !== 'resolve_choice' && action.kind !== 'skip_choice') {
+    return { error: 'Resolve your pending choice first — select a card or click Skip.' };
+  }
+
   switch (action.kind) {
     case 'play_card':         return doPlayCard(next, meNext, action.instanceId);
     case 'recruit_hero':      return doRecruit(next, meNext, action.slot);
@@ -338,6 +370,8 @@ export function applyAction(
     case 'recruit_officer':   return doRecruitPool(next, meNext, 'shield_officer');
     case 'fight_city':        return doFightCity(next, meNext, action.slot);
     case 'fight_mastermind':  return doFightMastermind(next, meNext);
+    case 'resolve_choice':    return doResolveChoice(next, meNext, action.instanceId);
+    case 'skip_choice':       return doSkipChoice(next);
     case 'end_turn':          return doEndTurn(next);
   }
 }
@@ -349,6 +383,9 @@ function doPlayCard(
   me: PlayerState,
   instanceId: CardInstanceId,
 ): LegendaryState | { error: string } {
+  if (state.thisTurn.pendingChoice) {
+    return { error: 'Resolve your pending choice before playing another card' };
+  }
   const idx = me.hand.findIndex(c => c.instanceId === instanceId);
   if (idx < 0) return { error: 'Card not in your hand' };
   const instance = me.hand[idx];
@@ -383,6 +420,8 @@ function doPlayCard(
 function bumpPlayedCounters(turn: TurnState, def: HeroCardDef): void {
   for (const c of def.classes) turn.classPlayedCounts[c] = (turn.classPlayedCounts[c] ?? 0) + 1;
   for (const t of def.teams)   turn.teamPlayedCounts[t]  = (turn.teamPlayedCounts[t]  ?? 0) + 1;
+  // Track hero class-name plays (e.g. 'Hulk', 'Nick Fury') for hero-name synergies.
+  turn.heroNameCounts[def.className] = (turn.heroNameCounts[def.className] ?? 0) + 1;
 }
 
 // ---------------- Effect resolver ----------------
@@ -395,7 +434,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       const before = me.hand.length;
       drawUpTo(me, effect.amount);
       const drew = me.hand.length - before;
-      pushLog(state, { kind: 'system', text: `${me.username} drew ${drew} card${drew === 1 ? '' : 's'}.` });
+      if (drew > 0) pushLog(state, { kind: 'system', text: `${me.username} drew ${drew} card${drew === 1 ? '' : 's'}.` });
       return;
     }
     case 'gain_wound': {
@@ -420,28 +459,85 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       }
       return;
     }
+
+    // ── Scaling per-class/team effects ─────────────────────────────────────
+    case 'gain_attack_per_class': {
+      const raw = state.thisTurn.classPlayedCounts[effect.cls] ?? 0;
+      const count = effect.includeSelf ? raw : Math.max(0, raw - 1);
+      state.thisTurn.attack += effect.bonus * count;
+      return;
+    }
+    case 'gain_recruit_per_class': {
+      const raw = state.thisTurn.classPlayedCounts[effect.cls] ?? 0;
+      const count = effect.includeSelf ? raw : Math.max(0, raw - 1);
+      state.thisTurn.recruit += effect.bonus * count;
+      return;
+    }
+    case 'gain_attack_per_team': {
+      const raw = state.thisTurn.teamPlayedCounts[effect.team] ?? 0;
+      const count = effect.includeSelf ? raw : Math.max(0, raw - 1);
+      state.thisTurn.attack += effect.bonus * count;
+      return;
+    }
+    case 'gain_recruit_per_team': {
+      const raw = state.thisTurn.teamPlayedCounts[effect.team] ?? 0;
+      const count = effect.includeSelf ? raw : Math.max(0, raw - 1);
+      state.thisTurn.recruit += effect.bonus * count;
+      return;
+    }
+
+    // ── Conditional class/team/hero-name synergies ─────────────────────────
+    // Counts are already bumped by bumpPlayedCounters before onPlay fires.
+    // `minOthers` is the minimum TOTAL count needed (author accounts for self):
+    //   cross-class "any X" → minOthers: 1
+    //   same-class  "1 other X" → minOthers: 2 (self counted, need ≥2 total)
     case 'if_played_class_this_turn': {
-      // -1 because the card playing this effect was already counted before
-      // its on-play triggers fired. "Another Hulk" means besides me.
-      const count = (state.thisTurn.classPlayedCounts[effect.cls] ?? 0) - 1;
+      const count = state.thisTurn.classPlayedCounts[effect.cls] ?? 0;
       if (count >= effect.minOthers) {
         for (const e of effect.effects) resolveEffect(state, me, e);
       }
       return;
     }
     case 'if_played_team_this_turn': {
-      const count = (state.thisTurn.teamPlayedCounts[effect.team] ?? 0) - 1;
+      const count = state.thisTurn.teamPlayedCounts[effect.team] ?? 0;
       if (count >= effect.minOthers) {
         for (const e of effect.effects) resolveEffect(state, me, e);
       }
       return;
     }
-    case 'ko_from_hand':
-    case 'discard_from_hand':
-      // These require a player choice (which card to KO/discard) — that's a
-      // multi-step interaction. For MVP we make them no-ops; we'll wire a
-      // separate "pending choice" mechanic in a future pass.
+    case 'if_played_hero_this_turn': {
+      const count = state.thisTurn.heroNameCounts[effect.heroName] ?? 0;
+      if (count >= effect.minOthers) {
+        for (const e of effect.effects) resolveEffect(state, me, e);
+      }
       return;
+    }
+
+    // ── Player-choice effects (KO / discard from hand) ─────────────────────
+    // These set a pendingChoice so the board can prompt the player to pick a
+    // card. Subsequent actions are blocked until resolved or skipped.
+    case 'ko_from_hand': {
+      const hasValid = effect.filter === 'wounds_only'
+        ? me.hand.some(c => c.cardId === 'wound')
+        : me.hand.length > 0;
+      if (!hasValid) return; // no eligible cards — silently skip
+      const choice: PendingChoice = {
+        kind: 'ko_from_hand',
+        bonus: effect.bonus ?? [],
+        filter: effect.filter,
+      };
+      state.thisTurn.pendingChoice = choice;
+      return;
+    }
+    case 'discard_from_hand': {
+      if (me.hand.length === 0) return; // nothing to discard
+      const choice: PendingChoice = {
+        kind: 'discard_from_hand',
+        bonus: effect.bonus ?? [],
+      };
+      state.thisTurn.pendingChoice = choice;
+      return;
+    }
   }
 }
 
@@ -467,7 +563,7 @@ function doRecruit(
     kind: 'hero_recruited', seat: me.seat, username: me.username,
     cardId: def.cardId, cardName: def.cardName, cost: def.cost,
   });
-  refillHQ(state);
+  refillHQ(state, true);
   return state;
 }
 
@@ -483,12 +579,18 @@ function doRecruitPool(
 ): LegendaryState | { error: string } {
   const def = getCard(cardId);
   if (def.kind !== 'hero') return { error: 'Pool card is not a hero' };
+  // Rules: Sidekicks are limited to once per turn (§ "Sidekick Deck").
+  // S.H.I.E.L.D. Officers have no such limit.
+  if (cardId === 'sidekick' && state.thisTurn.sidekickRecruited) {
+    return { error: 'You can only recruit one Sidekick per turn' };
+  }
   if (state.thisTurn.recruit < def.cost) {
     return { error: `Need ${def.cost} Recruit, have ${state.thisTurn.recruit}` };
   }
   state.thisTurn.recruit -= def.cost;
   const instance = mkInstance(cardId);
   me.discard.push(instance);
+  if (cardId === 'sidekick') state.thisTurn.sidekickRecruited = true;
   pushLog(state, {
     kind: 'hero_recruited', seat: me.seat, username: me.username,
     cardId: def.cardId, cardName: def.cardName, cost: def.cost,
@@ -538,6 +640,63 @@ function doFightCity(
   return state;
 }
 
+// ---------------- Resolve / skip a pending choice ----------------
+
+function doResolveChoice(
+  state: LegendaryState,
+  me: PlayerState,
+  instanceId: CardInstanceId,
+): LegendaryState | { error: string } {
+  const choice = state.thisTurn.pendingChoice;
+  if (!choice) return { error: 'No pending choice to resolve' };
+
+  const idx = me.hand.findIndex(c => c.instanceId === instanceId);
+  if (idx < 0) return { error: 'Card not in your hand' };
+
+  const card = me.hand[idx];
+
+  // Validate filter
+  if (choice.filter === 'wounds_only' && card.cardId !== 'wound') {
+    return { error: 'You must choose a Wound card for this effect' };
+  }
+
+  // Remove from hand
+  me.hand.splice(idx, 1);
+
+  // Determine card's display name for the log
+  const cDef = getCard(card.cardId);
+  const cardLabel =
+    cDef.kind === 'hero'      ? cDef.cardName :
+    'name' in cDef            ? (cDef as { name: string }).name :
+    card.cardId;
+
+  // KO or discard the chosen card
+  if (choice.kind === 'ko_from_hand') {
+    state.ko.push(card);
+    pushLog(state, { kind: 'system', text: `${me.username} KO'd ${cardLabel} from hand.` });
+  } else {
+    me.discard.push(card);
+    pushLog(state, { kind: 'system', text: `${me.username} discarded ${cardLabel} from hand.` });
+  }
+
+  // Clear choice BEFORE resolving bonus (bonus could chain another choice).
+  state.thisTurn.pendingChoice = undefined;
+
+  // Resolve the "If you do…" bonus effects.
+  for (const eff of choice.bonus) {
+    resolveEffect(state, me, eff);
+  }
+
+  return state;
+}
+
+function doSkipChoice(state: LegendaryState): LegendaryState | { error: string } {
+  if (!state.thisTurn.pendingChoice) return { error: 'No pending choice to skip' };
+  state.thisTurn.pendingChoice = undefined;
+  pushLog(state, { kind: 'system', text: 'Choice skipped.' });
+  return state;
+}
+
 // ---------------- Fight the Mastermind ----------------
 
 function doFightMastermind(
@@ -549,24 +708,79 @@ function doFightMastermind(
   if (state.thisTurn.attack < mmDef.attack) {
     return { error: `Need ${mmDef.attack} Attack to hit ${mmDef.name}` };
   }
+  if (state.mastermind.tactics.length === 0) {
+    return { error: 'Mastermind is already defeated' };
+  }
+
   state.thisTurn.attack -= mmDef.attack;
   state.mastermind.hitsTaken++;
-  pushLog(state, {
-    kind: 'mastermind_hit', seat: me.seat, username: me.username,
-    hitsRemaining: Math.max(0, mmDef.hits - state.mastermind.hitsTaken),
-  });
-  if (state.mastermind.hitsTaken >= mmDef.hits) {
-    // Defeated! Award the Mastermind to this player's victory pile + any
-    // bystanders it captured along the way.
-    me.victoryPile.push(mkInstance(mmDef.cardId));
+
+  // ── Step 1: Take a random face-down Tactic card ──────────────────────────
+  // Per the rules: "Take a random card from the face-down Tactics underneath
+  // the Mastermind and put that Tactic into your Victory Pile."
+  const tacticIdx = Math.floor(Math.random() * state.mastermind.tactics.length);
+  const [tacticCard] = state.mastermind.tactics.splice(tacticIdx, 1);
+  const tacticDef = getCard(tacticCard.cardId);
+  if (tacticDef.kind !== 'tactic') return { error: 'Tactic card misconfigured' };
+  me.victoryPile.push(tacticCard);
+
+  // ── Step 2: Rescue any Bystanders the Mastermind was holding ────────────
+  // Per the rules: "Also rescue any Bystanders the Mastermind was holding,
+  // putting them all into your Victory Pile."
+  if (state.mastermind.bystanders.length > 0) {
+    const count = state.mastermind.bystanders.length;
     for (const b of state.mastermind.bystanders) me.victoryPile.push(b);
     state.mastermind.bystanders = [];
-    state.result = 'win';
-    state.resultReason = `${mmDef.name} has been defeated!`;
-    state.phase = 'finished';
-    pushLog(state, { kind: 'game_ended', result: 'win', reasonText: state.resultReason });
-    recomputeVp(me);
+    pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count });
   }
+
+  // ── Step 3: Resolve the Tactic's Fight effects ───────────────────────────
+  // "fightOthers" effects target EACH other player (punishments). We resolve
+  // them with auto-pick (no prompt) since they are imposed, not chosen.
+  const others = state.players.filter(p => p.playerId !== me.playerId);
+  for (const eff of tacticDef.fightOthers ?? []) {
+    for (const p of others) {
+      if (eff.kind === 'discard_from_hand') {
+        // Force-discard top card of hand without player choice.
+        for (let i = 0; i < eff.up_to && p.hand.length > 0; i++) {
+          const discarded = p.hand.splice(0, 1)[0];
+          p.discard.push(discarded);
+          pushLog(state, { kind: 'system', text: `${p.username} discards a card — ${tacticDef.name}.` });
+        }
+      } else {
+        resolveEffect(state, p, eff);
+      }
+    }
+  }
+  // "fightSelf" effects benefit/punish the fighting player.
+  for (const eff of tacticDef.fightSelf ?? []) {
+    resolveEffect(state, me, eff);
+  }
+
+  pushLog(state, {
+    kind: 'mastermind_hit',
+    seat: me.seat,
+    username: me.username,
+    tacticName: tacticDef.name,
+    tacticVp: tacticDef.vp,
+    tacticsRemaining: state.mastermind.tactics.length,
+  });
+  recomputeVp(me);
+
+  // ── Win condition: all Tactics taken ─────────────────────────────────────
+  // Per the rules: "That player can still finish the rest of their turn in
+  // case they want to grab a few more Victory Points." We set pendingResult
+  // instead of result so the current player may keep acting; the win is
+  // committed when they click End Turn. Victory is also immune to any evil-
+  // wins condition triggered by the final Tactic's Fight effect.
+  if (state.mastermind.tactics.length === 0) {
+    state.pendingResult = 'win';
+    pushLog(state, {
+      kind: 'system',
+      text: `All four Tactics defeated — ${mmDef.name} is vanquished! Finish your turn for bonus VP.`,
+    });
+  }
+
   return state;
 }
 
@@ -577,6 +791,7 @@ function recomputeVp(p: PlayerState): void {
     if (d.kind === 'villain')    vp += d.vp;
     if (d.kind === 'henchman')   vp += d.vp;
     if (d.kind === 'mastermind') vp += d.vp;
+    if (d.kind === 'tactic')     vp += d.vp; // Mastermind Tactics carry the MM's VP
     if (d.kind === 'bystander')  vp += d.vp;
   }
   p.vp = vp;
@@ -587,41 +802,76 @@ function recomputeVp(p: PlayerState): void {
 function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   const me = state.players[state.currentPlayerIdx];
 
-  // 1. All played cards + remaining hand → discard
+  // 1. Discard played cards + remaining hand.
   for (const c of state.thisTurn.playedThisTurn) me.discard.push(c);
   for (const c of me.hand) me.discard.push(c);
   me.hand = [];
 
-  // 2. Refresh HQ in case the player bought from it
-  refillHQ(state);
+  // ── Pending win: finalize immediately, skip villain reveal. ───────────────
+  // Per the rules: "as soon as the Mastermind has no more Tactics under them,
+  // victory is assured — players will win the game even if the final Tactic's
+  // Fight ability would achieve Evil Wins or cause a deck to run out."
+  if (state.pendingResult === 'win') {
+    const mmDef = getCard(state.mastermind.cardId);
+    const mmName = mmDef.kind === 'mastermind' ? mmDef.name : 'The Mastermind';
+    state.result       = 'win';
+    state.resultReason = `${mmName} has been defeated! Heroes win!`;
+    state.phase        = 'finished';
+    state.pendingResult = undefined;
+    pushLog(state, { kind: 'game_ended', result: 'win', reasonText: state.resultReason });
+    return state;
+  }
 
-  // 3. Reveal one card from the Villain Deck → enters City row, pushing
-  //    existing villains forward. The rightmost villain (city[CITY_SIZE-1])
-  //    escapes if pushed off.
-  const revealed = revealOneVillainCard(state);
-  if (state.result) return state; // game ended during reveal (e.g. scheme evil wins)
+  // 2. Refresh HQ.
+  refillHQ(state, true);
+  // Hero Deck tie trigger: if the shared HQ supply is exhausted this turn,
+  // note it — will be resolved after the villain reveal below.
+  if (state.heroDeck.length === 0 && !state.lastTurnTie) {
+    state.lastTurnTie = true;
+    pushLog(state, {
+      kind: 'system',
+      text: 'The Hero Deck has run out — this is the heroes\' final turn!',
+    });
+  }
 
-  // 4. If the scheme's evil-wins threshold has been crossed, end the game.
+  // 3. Reveal one card from the Villain Deck (villain/henchman → city;
+  //    master_strike / scheme_twist / bystander → resolve without city push).
+  revealOneVillainCard(state);
+
+  // ── Evil wins: check immediately after reveal. ────────────────────────────
+  // Per the rules: "If the evil Scheme is completed, evil wins immediately.
+  // Don't finish the turn." Evil wins takes priority over a tie but NEVER
+  // over a pending win (guarded above).
+  if (state.result) return state; // set inside revealOneVillainCard if needed
+
   const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
   if (scheme && state.schemeTwistsRevealed >= scheme.evilWinsAfterTwists) {
-    state.result = 'loss';
+    state.result       = 'loss';
     state.resultReason = `${scheme.name} succeeded — the heroes have lost.`;
-    state.phase = 'finished';
+    state.phase        = 'finished';
     pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
     return state;
   }
 
-  // 5. Advance to next player, reset turn state, deal 6
+  // ── Tie: both decks-empty check and "last turn" expiry. ──────────────────
+  // Per the rules: "If you have not won or lost by the end of this turn,
+  // the game ends in a tie. The player with the most Victory Points wins
+  // an individual victory."
+  if (state.lastTurnTie) {
+    state.result       = 'tie';
+    state.resultReason = 'The decks ran dry — heroes survived but couldn\'t defeat the Mastermind. Highest VP wins!';
+    state.phase        = 'finished';
+    pushLog(state, { kind: 'game_ended', result: 'tie', reasonText: state.resultReason });
+    return state;
+  }
+
+  // 4. Advance to next player, reset turn state, deal 6.
   state.currentPlayerIdx = (state.currentPlayerIdx + 1) % state.players.length;
   state.turn++;
   state.thisTurn = emptyTurnState();
   const nextPlayer = state.players[state.currentPlayerIdx];
   drawUpTo(nextPlayer, STARTING_HAND_SIZE);
-
-  pushLog(state, {
-    kind: 'turn_started', seat: nextPlayer.seat, username: nextPlayer.username,
-  });
-  void revealed;
+  pushLog(state, { kind: 'turn_started', seat: nextPlayer.seat, username: nextPlayer.username });
   return state;
 }
 
@@ -637,12 +887,18 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
 function revealOneVillainCard(state: LegendaryState): CardInstance | null {
   const card = state.villainDeck.shift();
   if (!card) {
-    // Empty villain deck triggers "Evil Wins" in real Legendary; collapse to
-    // a loss for the heroes.
-    state.result = 'loss';
-    state.resultReason = 'The Villain Deck ran out — Evil Wins.';
-    state.phase = 'finished';
-    pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+    // Per the rules: "If either the Hero Deck or the Villain Deck ever reaches
+    // zero cards, you can finish the current turn as your final chance to win.
+    // If you have not won or lost by the end of this turn, the game ends in a
+    // tie." Exception: if the SCHEME says evil wins when the villain deck runs
+    // out, it's an immediate loss — but none of our current schemes do that.
+    if (!state.lastTurnTie) {
+      state.lastTurnTie = true;
+      pushLog(state, {
+        kind: 'system',
+        text: 'The Villain Deck has run out — this is the heroes\' final turn!',
+      });
+    }
     return null;
   }
   const def = getCard(card.cardId);
@@ -774,7 +1030,7 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
         const koHeroDef = getCard(koCard.cardId);
         const heroName = koHeroDef.kind === 'hero' ? koHeroDef.cardName : koCard.cardId;
         pushLog(state, { kind: 'system', text: `Escape: ${eDef.name} KO'd ${heroName} from the HQ.` });
-        refillHQ(state);
+        refillHQ(state, true);
       }
 
       // ── Step 2: Bystander penalty ──────────────────────────────────────
@@ -852,6 +1108,9 @@ export function projectStateForViewer(state: LegendaryState, viewerId: string | 
   next.villainDeck = next.villainDeck.map(() => clone(HIDDEN_CARD));
   next.heroDeck    = next.heroDeck.map(() => clone(HIDDEN_CARD));
   next.woundDeck   = next.woundDeck.map(() => clone(HIDDEN_CARD));
+  // Tactics pile is face-down — players see the count but not which card
+  // would come next (preserves the "random" feel of the draw).
+  next.mastermind.tactics = next.mastermind.tactics.map(() => clone(HIDDEN_CARD));
   return next;
 }
 
@@ -874,6 +1133,8 @@ export function computeHistory(state: LegendaryState) {
   // Cooperative game: a "win" is everyone's win (winnerId = whoever has the
   // highest VP / MVP for that match, or null for a tie at the top).
   const tieAtTop = ordered.length > 1 && ordered[0].vp === ordered[1].vp;
+  // On 'loss': no winner. On 'win': cooperative win — highest VP is MVP.
+  // On 'tie': game tied but individual highest VP wins (per the rules).
   const winnerId =
     state.result === 'loss' ? null
     : tieAtTop              ? null

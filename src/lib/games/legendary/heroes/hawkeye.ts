@@ -1,66 +1,79 @@
 import type { HeroCardDef } from '../types';
 
-// Hawkeye hero class — Instinct / Tech, Avengers.
+// Hawkeye hero class — Avengers, Ranged/Instinct.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
-export const HAWK_QUICK_DRAW: HeroCardDef = {
+export const HAWKEYE_QUICK_DRAW: HeroCardDef = {
   kind: 'hero',
-  cardId: 'hawk_quick_draw',
+  cardId: 'hawkeye_quick_draw',
   className: 'Hawkeye',
   cardName: 'Quick Draw',
-  cost: 3,
+  cost: 2,
   baseAttack: 1,
-  classes: ['instinct'],
+  classes: ['ranged'],
   teams: ['avengers'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '1 Attack. Draw a card.',
+  onPlay: [
+    { kind: 'draw', amount: 1 },
+  ],
 };
 
-export const HAWK_COVERING_FIRE: HeroCardDef = {
+export const HAWKEYE_COVERING_FIRE: HeroCardDef = {
   kind: 'hero',
-  cardId: 'hawk_covering_fire',
+  cardId: 'hawkeye_covering_fire',
   className: 'Hawkeye',
   cardName: 'Covering Fire',
-  cost: 5,
+  cost: 3,
   baseAttack: 3,
-  classes: ['tech'],
+  classes: ['ranged'],
   teams: ['avengers'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '3 Attack. Tech: +1 Attack.',
+  onPlay: [
+    // Hawkeye is Ranged, not Tech → cross-class → minOthers: 1.
+    { kind: 'if_played_class_this_turn', cls: 'tech', minOthers: 1,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
-export const HAWK_TEAM_PLAYER: HeroCardDef = {
+export const HAWKEYE_TEAM_PLAYER: HeroCardDef = {
   kind: 'hero',
-  cardId: 'hawk_team_player',
+  cardId: 'hawkeye_team_player',
   className: 'Hawkeye',
   cardName: 'Team Player',
   cost: 4,
   baseAttack: 2,
-  baseAttackScales: true,   // renders as 2+⚔
-  classes: ['tech'],
+  classes: ['instinct'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '2 Attack. Avengers: +1 Attack.',
+  onPlay: [
+    // Card IS Avengers → need total ≥2.
+    { kind: 'if_played_team_this_turn', team: 'avengers', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
-export const HAWK_IMPOSSIBLE_TRICK_SHOT: HeroCardDef = {
+export const HAWKEYE_IMPOSSIBLE_TRICK_SHOT: HeroCardDef = {
   kind: 'hero',
-  cardId: 'hawk_impossible_trick_shot',
+  cardId: 'hawkeye_impossible_trick_shot',
   className: 'Hawkeye',
   cardName: 'Impossible Trick Shot',
-  cost: 7,
+  cost: 6,
   baseAttack: 5,
-  classes: ['tech'],
+  classes: ['ranged'],
   teams: ['avengers'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '5 Attack. You may KO a card from your hand. If you do, draw a card.',
+  onPlay: [
+    { kind: 'ko_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const HAWKEYE_CLASS = {
   className: 'Hawkeye',
   cards: [
-    { def: HAWK_QUICK_DRAW,             copies: 5 },
-    { def: HAWK_COVERING_FIRE,          copies: 5 },
-    { def: HAWK_TEAM_PLAYER,            copies: 3 },
-    { def: HAWK_IMPOSSIBLE_TRICK_SHOT,  copies: 1 },
+    { def: HAWKEYE_QUICK_DRAW,             copies: 5 },
+    { def: HAWKEYE_COVERING_FIRE,          copies: 5 },
+    { def: HAWKEYE_TEAM_PLAYER,            copies: 3 },
+    { def: HAWKEYE_IMPOSSIBLE_TRICK_SHOT,  copies: 1 },
   ],
 };

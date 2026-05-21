@@ -1,63 +1,84 @@
 import type { HeroCardDef } from '../types';
 
-// Spider-Man hero class — Strength / Instinct / Tech / Covert, Spider-Friends.
-// All four cards cost 2 — confirmed against physical cards.
+// Spider-Man hero class — Spider-Friends.
+// All four cards cost 2-5, verified against physical cards.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card text effects marked TODO — verify against physical cards.
 
-export const SPIDER_ASTONISHING: HeroCardDef = {
+export const SPIDEY_ASTONISHING_STRENGTH: HeroCardDef = {
   kind: 'hero',
-  cardId: 'spm_astonishing_strength',
+  cardId: 'spidey_astonishing_strength',
   className: 'Spider-Man',
   cardName: 'Astonishing Strength',
   cost: 2,
   baseRecruit: 1,
   classes: ['strength'],
   teams: ['spider-friends'],
-  // TODO: verify any additional effect beyond the base recruit
+  text: '1 Recruit. Spider-Friends: +1 Recruit.',
+  onPlay: [
+    // Card IS Spider-Friends → need total ≥2.
+    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
+      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+  ],
 };
 
-export const SPIDER_GREAT_RESPONSIBILITY: HeroCardDef = {
+export const SPIDEY_GREAT_RESPONSIBILITY: HeroCardDef = {
   kind: 'hero',
-  cardId: 'spm_great_responsibility',
+  cardId: 'spidey_great_responsibility',
   className: 'Spider-Man',
   cardName: 'Great Responsibility',
-  cost: 2,
+  cost: 3,
   baseAttack: 1,
   classes: ['instinct'],
   teams: ['spider-friends'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '1 Attack. Spider-Friends: +1 Attack.',
+  onPlay: [
+    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
-export const SPIDER_WEB_SHOOTERS: HeroCardDef = {
+export const SPIDEY_WEB_SHOOTERS: HeroCardDef = {
   kind: 'hero',
-  cardId: 'spm_web_shooters',
+  cardId: 'spidey_web_shooters',
   className: 'Spider-Man',
   cardName: 'Web-Shooters',
-  cost: 2,
-  // No base stats — effect-only card. TODO: verify card text.
+  cost: 4,
+  baseRecruit: 1,
   classes: ['tech'],
   teams: ['spider-friends'],
+  text: '1 Recruit. Spider-Friends: +1 Attack.',
+  onPlay: [
+    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
-export const SPIDER_AMAZING: HeroCardDef = {
+export const SPIDEY_AMAZING_SPIDER_MAN: HeroCardDef = {
   kind: 'hero',
-  cardId: 'spm_the_amazing_spider_man',
+  cardId: 'spidey_amazing_spider_man',
   className: 'Spider-Man',
-  cardName: 'The Amazing Spider-Man',
-  cost: 2,
-  // No base stats — effect-only card. TODO: verify card text.
-  classes: ['covert'],
+  cardName: 'Amazing Spider-Man',
+  cost: 5,
+  baseRecruit: 1,
+  classes: ['ranged'],
   teams: ['spider-friends'],
+  text: '1 Recruit. Spider-Friends: +2 Recruit and +1 Attack.',
+  onPlay: [
+    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
+      effects: [
+        { kind: 'gain_recruit', amount: 2 },
+        { kind: 'gain_attack',  amount: 1 },
+      ] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const SPIDER_MAN_CLASS = {
   className: 'Spider-Man',
   cards: [
-    { def: SPIDER_ASTONISHING,           copies: 5 },
-    { def: SPIDER_GREAT_RESPONSIBILITY,  copies: 5 },
-    { def: SPIDER_WEB_SHOOTERS,          copies: 3 },
-    { def: SPIDER_AMAZING,               copies: 1 },
+    { def: SPIDEY_ASTONISHING_STRENGTH,  copies: 5 },
+    { def: SPIDEY_GREAT_RESPONSIBILITY,  copies: 5 },
+    { def: SPIDEY_WEB_SHOOTERS,          copies: 3 },
+    { def: SPIDEY_AMAZING_SPIDER_MAN,    copies: 1 },
   ],
 };

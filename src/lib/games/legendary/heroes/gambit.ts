@@ -1,59 +1,71 @@
 import type { HeroCardDef } from '../types';
 
-// Gambit hero class — Covert / Ranged / Instinct, X-Men.
+// Gambit hero class — X-Men, Covert.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
 export const GAMBIT_STACK_THE_DECK: HeroCardDef = {
   kind: 'hero',
-  cardId: 'gbt_stack_the_deck',
+  cardId: 'gambit_stack_the_deck',
   className: 'Gambit',
   cardName: 'Stack the Deck',
   cost: 2,
-  // No base stats — effect-only card. TODO: verify card text.
+  baseRecruit: 1,
   classes: ['covert'],
   teams: ['x-men'],
+  text: '1 Recruit. You may discard a card from your hand. If you do, draw a card.',
+  onPlay: [
+    { kind: 'discard_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
 export const GAMBIT_CARD_SHARK: HeroCardDef = {
   kind: 'hero',
-  cardId: 'gbt_card_shark',
+  cardId: 'gambit_card_shark',
   className: 'Gambit',
   cardName: 'Card Shark',
-  cost: 4,
+  cost: 3,
   baseAttack: 2,
-  classes: ['ranged'],
+  classes: ['covert'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '2 Attack. You may discard a card from your hand. If you do, +2 Attack.',
+  onPlay: [
+    { kind: 'discard_from_hand', up_to: 1, bonus: [{ kind: 'gain_attack', amount: 2 }] },
+  ],
 };
 
 export const GAMBIT_HYPNOTIC_CHARM: HeroCardDef = {
   kind: 'hero',
-  cardId: 'gbt_hypnotic_charm',
+  cardId: 'gambit_hypnotic_charm',
   className: 'Gambit',
   cardName: 'Hypnotic Charm',
-  cost: 3,
+  cost: 4,
   baseRecruit: 2,
-  classes: ['instinct'],
+  classes: ['covert'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base recruit
+  text: '2 Recruit. X-Men: +1 Recruit.',
+  onPlay: [
+    // Card IS X-Men → need total ≥2.
+    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
+      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+  ],
 };
 
 export const GAMBIT_HIGH_STAKES_JACKPOT: HeroCardDef = {
   kind: 'hero',
-  cardId: 'gbt_high_stakes_jackpot',
+  cardId: 'gambit_high_stakes_jackpot',
   className: 'Gambit',
   cardName: 'High Stakes Jackpot',
-  cost: 7,
+  cost: 6,
   baseAttack: 4,
-  baseAttackScales: true,   // renders as 4+⚔
-  classes: ['instinct'],
+  classes: ['covert'],
   teams: ['x-men'],
-  // TODO: verify scaling condition from card text
+  text: '4 Attack. You may discard a card from your hand. If you do, +3 Attack.',
+  onPlay: [
+    { kind: 'discard_from_hand', up_to: 1, bonus: [{ kind: 'gain_attack', amount: 3 }] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const GAMBIT_CLASS = {
   className: 'Gambit',
   cards: [

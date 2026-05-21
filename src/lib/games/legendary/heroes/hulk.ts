@@ -1,9 +1,7 @@
 import type { HeroCardDef } from '../types';
 
-// Hulk hero class — Strength / Instinct, Avengers.
+// Hulk hero class — Avengers, Strength/Instinct.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
 export const HULK_GROWING_ANGER: HeroCardDef = {
   kind: 'hero',
@@ -12,10 +10,14 @@ export const HULK_GROWING_ANGER: HeroCardDef = {
   cardName: 'Growing Anger',
   cost: 3,
   baseAttack: 2,
-  baseAttackScales: true,   // renders as 2+⚔
+  baseAttackScales: true,
   classes: ['strength'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '2 Attack. +1 Attack for each other Strength hero you play this turn.',
+  onPlay: [
+    // Card IS Strength (counted). "Other" = total - 1 → includeSelf: false.
+    { kind: 'gain_attack_per_class', cls: 'strength', bonus: 1, includeSelf: false },
+  ],
 };
 
 export const HULK_UNSTOPPABLE: HeroCardDef = {
@@ -25,10 +27,14 @@ export const HULK_UNSTOPPABLE: HeroCardDef = {
   cardName: 'Unstoppable Hulk',
   cost: 4,
   baseAttack: 2,
-  baseAttackScales: true,   // renders as 2+⚔
   classes: ['instinct'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '2 Attack. Hulk: +3 Attack.',
+  onPlay: [
+    // This card IS a Hulk hero (counted in heroNameCounts). Need total ≥2.
+    { kind: 'if_played_hero_this_turn', heroName: 'Hulk', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 3 }] },
+  ],
 };
 
 export const HULK_GRAZED_RAMPAGE: HeroCardDef = {
@@ -40,7 +46,10 @@ export const HULK_GRAZED_RAMPAGE: HeroCardDef = {
   baseAttack: 4,
   classes: ['strength'],
   teams: ['avengers'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '4 Attack. You may KO a card from your hand. If you do, draw a card.',
+  onPlay: [
+    { kind: 'ko_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
 export const HULK_SMASH: HeroCardDef = {
@@ -50,13 +59,20 @@ export const HULK_SMASH: HeroCardDef = {
   cardName: 'Hulk Smash',
   cost: 8,
   baseAttack: 5,
-  baseAttackScales: true,   // renders as 5+⚔
+  baseAttackScales: true,
   classes: ['strength'],
   teams: ['avengers'],
-  // TODO: verify scaling condition from card text
+  text: '5 Attack. Hulk: +3 Attack and draw a card.',
+  onPlay: [
+    { kind: 'if_played_hero_this_turn', heroName: 'Hulk', minOthers: 2,
+      effects: [
+        { kind: 'gain_attack', amount: 3 },
+        { kind: 'draw', amount: 1 },
+      ] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const HULK_CLASS = {
   className: 'Hulk',
   cards: [

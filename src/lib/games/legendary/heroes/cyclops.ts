@@ -1,66 +1,72 @@
 import type { HeroCardDef } from '../types';
 
-// Cyclops hero class — Ranged / Strength, X-Men.
+// Cyclops hero class — X-Men, Ranged/Strength.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
-// Card names and costs verified against physical cards.
-// Card text effects marked TODO — verify against physical cards.
 
-export const CYC_DETERMINATION: HeroCardDef = {
+export const CYCLOPS_DETERMINATION: HeroCardDef = {
   kind: 'hero',
-  cardId: 'cyc_determination',
+  cardId: 'cyclops_determination',
   className: 'Cyclops',
   cardName: 'Determination',
   cost: 2,
   baseRecruit: 3,
-  classes: ['strength'],
+  classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base recruit
+  text: '3 Recruit.',
 };
 
-export const CYC_OPTIC_BLAST: HeroCardDef = {
+export const CYCLOPS_OPTIC_BLAST: HeroCardDef = {
   kind: 'hero',
-  cardId: 'cyc_optic_blast',
+  cardId: 'cyclops_optic_blast',
   className: 'Cyclops',
   cardName: 'Optic Blast',
   cost: 3,
   baseAttack: 3,
   classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '3 Attack.',
 };
 
-export const CYC_UNENDING_ENERGY: HeroCardDef = {
+export const CYCLOPS_UNENDING_ENERGY: HeroCardDef = {
   kind: 'hero',
-  cardId: 'cyc_unending_energy',
+  cardId: 'cyclops_unending_energy',
   className: 'Cyclops',
   cardName: 'Unending Energy',
-  cost: 6,
+  cost: 4,
   baseAttack: 4,
   classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify any additional effect beyond the base strike
+  text: '4 Attack. X-Men: +1 Attack.',
+  onPlay: [
+    // Card IS X-Men → need total ≥2.
+    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
+  ],
 };
 
-export const CYC_XMEN_UNITED: HeroCardDef = {
+export const CYCLOPS_X_MEN_UNITED: HeroCardDef = {
   kind: 'hero',
-  cardId: 'cyc_xmen_united',
+  cardId: 'cyclops_x_men_united',
   className: 'Cyclops',
   cardName: 'X-Men United',
-  cost: 8,
+  cost: 6,
   baseAttack: 6,
-  baseAttackScales: true,   // renders as 6+⚔
   classes: ['ranged'],
   teams: ['x-men'],
-  // TODO: verify scaling condition from card text
+  text: '6 Attack. X-Men: Draw a card.',
+  onPlay: [
+    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
+      effects: [{ kind: 'draw', amount: 1 }] },
+  ],
 };
 
-// Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+// Distribution: 5 / 5 / 3 / 1.
 export const CYCLOPS_CLASS = {
   className: 'Cyclops',
   cards: [
-    { def: CYC_DETERMINATION,    copies: 5 },
-    { def: CYC_OPTIC_BLAST,      copies: 5 },
-    { def: CYC_UNENDING_ENERGY,  copies: 3 },
-    { def: CYC_XMEN_UNITED,      copies: 1 },
+    { def: CYCLOPS_DETERMINATION,    copies: 5 },
+    { def: CYCLOPS_OPTIC_BLAST,      copies: 5 },
+    { def: CYCLOPS_UNENDING_ENERGY,  copies: 3 },
+    { def: CYCLOPS_X_MEN_UNITED,     copies: 1 },
   ],
 };

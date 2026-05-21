@@ -193,8 +193,12 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'startGame' }); })}
       onPlay={(instanceId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'play_card', instanceId }); })}
       onRecruit={(slot) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_hero', slot }); })}
+      onRecruitSidekick={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_sidekick' }); })}
+      onRecruitOfficer={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_officer' }); })}
       onFightCity={(slot) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'fight_city', slot }); })}
       onFightMastermind={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'fight_mastermind' }); })}
+      onResolveChoice={(instanceId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'resolve_choice', instanceId }); })}
+      onSkipChoice={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'skip_choice' }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'end_turn' }); })}
     />
   ),

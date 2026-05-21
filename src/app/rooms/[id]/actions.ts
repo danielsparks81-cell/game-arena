@@ -622,8 +622,12 @@ export type GameAction =
   | { game: 'legendary'; kind: 'startGame' }
   | { game: 'legendary'; kind: 'play_card'; instanceId: string }
   | { game: 'legendary'; kind: 'recruit_hero'; slot: number }
+  | { game: 'legendary'; kind: 'recruit_sidekick' }
+  | { game: 'legendary'; kind: 'recruit_officer' }
   | { game: 'legendary'; kind: 'fight_city'; slot: number }
   | { game: 'legendary'; kind: 'fight_mastermind' }
+  | { game: 'legendary'; kind: 'resolve_choice'; instanceId: string }
+  | { game: 'legendary'; kind: 'skip_choice' }
   | { game: 'legendary'; kind: 'end_turn' }
 
   // Long Shot
@@ -674,12 +678,16 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'end_turn') return makeMoveSD(roomId, { kind: 'end_turn' });
       break;
     case 'legendary':
-      if (action.kind === 'startGame')       return startGameLG(roomId);
-      if (action.kind === 'play_card')       return makeMoveLG(roomId, { kind: 'play_card', instanceId: action.instanceId });
-      if (action.kind === 'recruit_hero')    return makeMoveLG(roomId, { kind: 'recruit_hero', slot: action.slot });
-      if (action.kind === 'fight_city')      return makeMoveLG(roomId, { kind: 'fight_city', slot: action.slot });
-      if (action.kind === 'fight_mastermind')return makeMoveLG(roomId, { kind: 'fight_mastermind' });
-      if (action.kind === 'end_turn')        return makeMoveLG(roomId, { kind: 'end_turn' });
+      if (action.kind === 'startGame')        return startGameLG(roomId);
+      if (action.kind === 'play_card')        return makeMoveLG(roomId, { kind: 'play_card', instanceId: action.instanceId });
+      if (action.kind === 'recruit_hero')     return makeMoveLG(roomId, { kind: 'recruit_hero', slot: action.slot });
+      if (action.kind === 'recruit_sidekick') return makeMoveLG(roomId, { kind: 'recruit_sidekick' });
+      if (action.kind === 'recruit_officer')  return makeMoveLG(roomId, { kind: 'recruit_officer' });
+      if (action.kind === 'fight_city')       return makeMoveLG(roomId, { kind: 'fight_city', slot: action.slot });
+      if (action.kind === 'fight_mastermind') return makeMoveLG(roomId, { kind: 'fight_mastermind' });
+      if (action.kind === 'resolve_choice')   return makeMoveLG(roomId, { kind: 'resolve_choice', instanceId: action.instanceId });
+      if (action.kind === 'skip_choice')      return makeMoveLG(roomId, { kind: 'skip_choice' });
+      if (action.kind === 'end_turn')         return makeMoveLG(roomId, { kind: 'end_turn' });
       break;
     case 'longshot':
       if (action.kind === 'startGame') return startGame(roomId);

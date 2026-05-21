@@ -49,14 +49,29 @@ export type Effect =
   | { kind: 'gain_recruit'; amount: number }
   // Card flow
   | { kind: 'draw'; amount: number }
-  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[] } // "You may KO a card from your hand. If you do, +Bonus."
+  /** "You may KO a card from your hand. If you do, +Bonus."
+   *  `filter: 'wounds_only'` restricts the choice to Wound cards only. */
+  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only' }
   | { kind: 'discard_from_hand'; up_to: number; bonus?: Effect[] }
   // Wounds + bystanders
   | { kind: 'gain_wound' }
   | { kind: 'rescue_bystander'; amount: number }
-  // Conditional class/team synergies
+  // "For each X played this turn" scaling (per-card bonuses).
+  // `includeSelf: true` counts the card playing this effect; false excludes it.
+  | { kind: 'gain_attack_per_class';   cls: HeroClass; bonus: number; includeSelf?: boolean }
+  | { kind: 'gain_recruit_per_class';  cls: HeroClass; bonus: number; includeSelf?: boolean }
+  | { kind: 'gain_attack_per_team';    team: Team;     bonus: number; includeSelf?: boolean }
+  | { kind: 'gain_recruit_per_team';   team: Team;     bonus: number; includeSelf?: boolean }
+  // Conditional class/team/hero-name synergies.
+  // `minOthers` = minimum count of that class/team/heroName needed in playedThisTurn
+  //   (including self if the card is of that class/team/name, since counts are bumped
+  //   before onPlay fires). E.g. "Covert: +1R" on a Tech card → minOthers: 1.
+  //   "Covert: +2A" on a Covert card (needs 1 OTHER) → minOthers: 2.
   | { kind: 'if_played_class_this_turn'; cls: HeroClass; minOthers: number; effects: Effect[] }
-  | { kind: 'if_played_team_this_turn'; team: Team; minOthers: number; effects: Effect[] };
+  | { kind: 'if_played_team_this_turn'; team: Team; minOthers: number; effects: Effect[] }
+  /** Checks if you've played at least `minOthers` cards whose className === heroName
+   *  (including this card if it shares the name). Used for "Hulk: +3A" synergies. */
+  | { kind: 'if_played_hero_this_turn'; heroName: string; minOthers: number; effects: Effect[] };
 
 /** Hero card — the cards that go into player decks. Sit in HQ to be bought. */
 export type HeroCardDef = {
@@ -133,23 +148,49 @@ export type SchemeTwistCardDef = {
 };
 
 /** Mastermind — the boss. The "Always Leads" team gets seeded into the City
- *  deck at setup. Mastermind has multiple HP layers (Tactics); MVP build
- *  uses a single HP track and skips Tactics for now. */
+ *  deck at setup. Beaten when all Tactics have been taken by the heroes. */
 export type MastermindCardDef = {
   kind: 'mastermind';
   cardId: CardId;
   name: string;
   /** Attack needed to land one hit on the Mastermind. */
   attack: number;
-  /** VP awarded when the Mastermind is fully defeated. */
+  /** VP — carried by the Tactic cards, not the Mastermind itself (kept for
+   *  backward compat / display). */
   vp: number;
   /** Team whose villain group always rides along with this Mastermind. */
   alwaysLeads: Team;
   /** "Master Strike" effect — fires on every Master Strike reveal. */
   strike: Effect[];
-  /** Number of times the Mastermind must be hit to win (Tactics-equivalent
-   *  in the simplified MVP). Real Legendary: 4 Tactics → defeat. */
+  /** Number of Tactics (= number of hits to win). Used for display; the
+   *  authoritative win check is `mastermind.tactics.length === 0`. */
   hits: number;
+  /** CardIds of the 4 Mastermind Tactic cards, shuffled face-down at setup.
+   *  One is drawn at random each time the Mastermind is hit. */
+  tacticIds: CardId[];
+  text?: string;
+};
+
+/** Mastermind Tactic — one of 4 face-down cards beneath the Mastermind.
+ *  Spending Attack ≥ mastermind.attack lets a player take a random Tactic
+ *  into their Victory Pile and resolve its "Fight" effects.
+ *  The Mastermind is fully defeated when all Tactics have been taken. */
+export type TacticCardDef = {
+  kind: 'tactic';
+  cardId: CardId;
+  /** Short name printed on the card face. */
+  name: string;
+  /** Which Mastermind this Tactic belongs to (for catalogue linking). */
+  mastermindId: CardId;
+  /** Victory Points for the player who takes this Tactic. */
+  vp: number;
+  /** Effects fired on EACH OTHER player when this Tactic is defeated.
+   *  Resolved with auto-pick (no player choice prompt) since they are
+   *  punishments, not benefits. In solo play these are all no-ops. */
+  fightOthers?: Effect[];
+  /** Effects fired on the player who fought this Tactic. */
+  fightSelf?: Effect[];
+  /** Full printed rules text for UI hover / rules reference. */
   text?: string;
 };
 
@@ -210,6 +251,7 @@ export type CardDef =
   | MasterStrikeCardDef
   | SchemeTwistCardDef
   | MastermindCardDef
+  | TacticCardDef
   | SchemeCardDef
   | WoundCardDef
   | BystanderCardDef;
@@ -237,6 +279,18 @@ export type PlayerState = {
   vp: number;
 };
 
+/** Describes a card-choice the current player must resolve before taking
+ *  any further actions (playing a card, recruiting, fighting, ending turn).
+ *  Set by `ko_from_hand` / `discard_from_hand` effects; cleared by
+ *  `resolve_choice` (pick a card) or `skip_choice` (forfeit the bonus). */
+export type PendingChoice = {
+  kind: 'ko_from_hand' | 'discard_from_hand';
+  /** Effects that fire only if the player selects a card (the "If you do…" bonus). */
+  bonus: Effect[];
+  /** When set, only cards matching this filter are selectable. */
+  filter?: 'wounds_only';
+};
+
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already
  *  played (for "another Hulk this turn" type triggers), etc. */
@@ -246,10 +300,18 @@ export type TurnState = {
   /** Cards played from hand this turn, in order. Used by class/team
    *  synergy effects and for the UI's "this is what I've played" row. */
   playedThisTurn: CardInstance[];
-  /** Tracks how many times a class/team has been played this turn, so
-   *  synergy triggers can resolve in O(1). Hydrated when a card is played. */
+  /** Tracks how many times a class/team/heroName has been played this turn,
+   *  so synergy triggers can resolve in O(1). Hydrated when a card is played. */
   classPlayedCounts: Partial<Record<HeroClass, number>>;
   teamPlayedCounts: Partial<Record<Team, number>>;
+  /** Tracks hero class-name plays (e.g. 'Hulk', 'Nick Fury') for hero-name
+   *  synergies like "Hulk: +3 Attack". Keyed by HeroCardDef.className. */
+  heroNameCounts: Partial<Record<string, number>>;
+  /** Rules: "Up to once per turn" for the Sidekick pool. Resets on end-turn. */
+  sidekickRecruited: boolean;
+  /** When set, the active player must pick a card from their hand to
+   *  KO/discard before they can take any other action. */
+  pendingChoice?: PendingChoice;
 };
 
 export type LegendaryEvent =
@@ -260,7 +322,7 @@ export type LegendaryEvent =
   | { kind: 'villain_defeated'; seat: number; username: string; cardId: CardId; cardName: string; vp: number }
   | { kind: 'villain_revealed'; cardId: CardId; cardName: string }
   | { kind: 'villain_escaped'; cardId: CardId; cardName: string }
-  | { kind: 'mastermind_hit'; seat: number; username: string; hitsRemaining: number }
+  | { kind: 'mastermind_hit'; seat: number; username: string; tacticName: string; tacticVp: number; tacticsRemaining: number }
   | { kind: 'master_strike'; effectText: string }
   | { kind: 'scheme_twist'; twistsRevealed: number; twistsTotal: number }
   | { kind: 'wound_taken'; seat: number; username: string }
@@ -268,7 +330,10 @@ export type LegendaryEvent =
   /** Fires when a bystander drawn from the Villain Deck is captured by the
    *  nearest villain in the city (or the mastermind if the city is empty). */
   | { kind: 'bystander_captured'; capturedBy: 'villain' | 'mastermind'; captorName: string }
-  | { kind: 'game_ended'; result: 'win' | 'loss'; reasonText: string };
+  /** Fires each time refillHQ places a card into an empty HQ slot during
+   *  gameplay (NOT at setup). Drives the per-slot flip-in animation. */
+  | { kind: 'hq_refilled'; slot: number; cardId: CardId; cardName: string }
+  | { kind: 'game_ended'; result: 'win' | 'loss' | 'tie'; reasonText: string };
 
 /** Full game state. Lives in the rooms.state JSONB column. */
 export type LegendaryState = {
@@ -304,8 +369,11 @@ export type LegendaryState = {
   mastermind: {
     cardId: CardId;
     hitsTaken: number;
-    /** Bystanders the Mastermind has scooped up (from Always Leads villains
-     *  escaping etc.). Awarded when the Mastermind is fully defeated. */
+    /** Face-down shuffled Tactic cards. One is drawn at random each time the
+     *  Mastermind is hit. Empty = all Tactics taken = heroes win. */
+    tactics: CardInstance[];
+    /** Bystanders the Mastermind has scooped up. All are rescued when any
+     *  Tactic is taken (per the rules). */
     bystanders: CardInstance[];
   };
 
@@ -321,7 +389,15 @@ export type LegendaryState = {
   schemeTwistsRevealed: number;
 
   // ----- Result + log -----
-  result?: 'win' | 'loss';
+  result?: 'win' | 'loss' | 'tie';
   resultReason?: string;
+  /** Set when the last Mastermind Tactic is taken mid-turn. The current player
+   *  may finish their turn for bonus VP; win is finalized at End Turn.
+   *  Per the rules: "That player can still finish the rest of their turn." */
+  pendingResult?: 'win';
+  /** Set when either the Hero Deck or Villain Deck reaches zero cards.
+   *  The current player finishes their turn as a final chance to win;
+   *  if no win/loss is achieved by End Turn the game ends in a tie. */
+  lastTurnTie?: boolean;
   log: LegendaryEvent[];
 };
