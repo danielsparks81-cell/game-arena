@@ -23,6 +23,7 @@ import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/pri
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
 import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK } from '@/lib/games/legendary';
 import type { WoundCardDef, BystanderCardDef, MasterStrikeCardDef, SchemeTwistCardDef } from '@/lib/games/legendary';
+import { KEYWORDS, type KeywordCategory } from '@/lib/games/legendary/keywords';
 
 // ---------------------------------------------------------------------------
 // Types + storage
@@ -838,15 +839,16 @@ function tsForCard(def: HeroCardDef): string {
 // Card browser — read-only view of ALL base-set cards with type filter
 // ---------------------------------------------------------------------------
 
-type CardFilter = 'heroes' | 'starters' | 'villains' | 'henchmen' | 'mastermind' | 'scheme';
+type CardFilter = 'heroes' | 'starters' | 'villains' | 'henchmen' | 'mastermind' | 'scheme' | 'rules';
 
 const FILTER_TABS: { id: CardFilter; label: string; badge: string }[] = [
-  { id: 'heroes',      label: 'Heroes',      badge: '15 classes' },
-  { id: 'starters',   label: 'Generic Cards', badge: 'S.H.I.E.L.D. + System' },
-  { id: 'villains',   label: 'Villains',    badge: 'HYDRA' },
-  { id: 'henchmen',   label: 'Henchmen',    badge: 'Hand Ninjas' },
-  { id: 'mastermind', label: 'Mastermind',  badge: 'Red Skull' },
-  { id: 'scheme',     label: 'Scheme',      badge: 'Negative Zone' },
+  { id: 'heroes',      label: 'Heroes',         badge: '15 classes' },
+  { id: 'starters',   label: 'Generic Cards',   badge: 'S.H.I.E.L.D. + System' },
+  { id: 'villains',   label: 'Villains',        badge: 'HYDRA' },
+  { id: 'henchmen',   label: 'Henchmen',        badge: 'Hand Ninjas' },
+  { id: 'mastermind', label: 'Mastermind',      badge: 'Red Skull' },
+  { id: 'scheme',     label: 'Scheme',          badge: 'Negative Zone' },
+  { id: 'rules',      label: 'Rules & Keywords', badge: 'glossary' },
 ];
 
 function CardBrowser({ onAuthor }: { onAuthor: (type: SandboxMode) => void }) {
@@ -904,6 +906,7 @@ function CardBrowser({ onAuthor }: { onAuthor: (type: SandboxMode) => void }) {
       {filter === 'henchmen'   && <HenchmenSection />}
       {filter === 'mastermind' && <MastermindSection />}
       {filter === 'scheme'     && <SchemeSection />}
+      {filter === 'rules'      && <RulesSection />}
     </div>
   );
 }
@@ -1405,6 +1408,73 @@ function VpBadge({ vp }: { vp: number }) {
     </div>
   );
 }
+
+// ─── Rules & Keywords section ─────────────────────────────────────────────────
+
+const CATEGORY_ORDER: KeywordCategory[] = [
+  'Turn Flow',
+  'Keywords',
+  'Card Types',
+  'Zones',
+  'Win / Loss',
+];
+
+const CATEGORY_COLORS: Record<KeywordCategory, { border: string; label: string }> = {
+  'Turn Flow':  { border: '#10b981', label: '#6ee7b7' },
+  'Keywords':   { border: '#ef4444', label: '#fca5a5' },
+  'Card Types': { border: '#f59e0b', label: '#fcd34d' },
+  'Zones':      { border: '#8b5cf6', label: '#c4b5fd' },
+  'Win / Loss': { border: '#3b82f6', label: '#93c5fd' },
+};
+
+function RulesSection() {
+  const grouped = CATEGORY_ORDER.map(cat => ({
+    cat,
+    entries: KEYWORDS.filter(k => k.category === cat),
+  }));
+
+  return (
+    <div className="flex flex-col gap-8">
+      {grouped.map(({ cat, entries }) => {
+        const colors = CATEGORY_COLORS[cat];
+        return (
+          <section key={cat}>
+            <div
+              className="mb-3 border-b pb-1 text-xs font-bold uppercase tracking-widest"
+              style={{ borderColor: colors.border, color: colors.label }}
+            >
+              {cat}
+            </div>
+            <div className="overflow-hidden rounded-lg border border-neutral-800">
+              <table className="w-full text-sm">
+                <tbody>
+                  {entries.map((entry, i) => (
+                    <tr
+                      key={entry.term}
+                      className={i % 2 === 0 ? 'bg-neutral-950/60' : 'bg-neutral-900/40'}
+                    >
+                      <td
+                        className="w-48 shrink-0 py-3 pl-4 pr-6 align-top font-semibold"
+                        style={{ color: colors.label }}
+                      >
+                        {entry.term}
+                      </td>
+                      <td className="py-3 pr-4 align-top text-[13px] leading-relaxed text-neutral-300">
+                        {entry.definition}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Shared card art (villain / henchman / system) ────────────────────────────
 
 function VillainCardArt({ def, attachedBystanders = 0 }: { def: VillainCardDef; attachedBystanders?: number }) {
   const borderColor = '#ef4444'; // covert red — villains show no team color
