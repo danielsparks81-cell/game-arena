@@ -1055,8 +1055,8 @@ function GenericSidekickPanel() {
       <div className="mb-3">
         <h2 className="text-base font-semibold text-neutral-100">Sidekick</h2>
         <p className="mt-1 text-xs text-neutral-500">
-          Always available to recruit — sits in a pool beside the board.
-          <span className="ml-1 text-amber-500">TODO: verify cost / stats / text against physical card.</span>
+          Always available to recruit — sits in a pool beside the board, not the HQ.
+          No team, no class color. Cost {SIDEKICK.cost} to recruit.
         </p>
       </div>
       <div className="flex flex-col items-center gap-2">

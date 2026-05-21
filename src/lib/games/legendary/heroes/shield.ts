@@ -45,16 +45,14 @@ export const OFFICER: HeroCardDef = {
 };
 
 // Sidekick — always available for purchase (pool of 30).
-// TODO: verify cost, stats, and text against physical cards.
 export const SIDEKICK: HeroCardDef = {
   kind: 'hero',
   cardId: 'sidekick',
-  className: 'S.H.I.E.L.D.',
+  className: 'Hero',
   cardName: 'Sidekick',
-  cost: 1,
-  baseRecruit: 1,
-  classes: ['instinct'],
-  teams: ['shield'],
+  cost: 2,
+  classes: [],
+  teams: [],
 };
 
 export const SHIELD_CARDS = [TROOPER, AGENT, OFFICER, SIDEKICK];
