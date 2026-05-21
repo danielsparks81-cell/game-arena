@@ -1,8 +1,13 @@
 import type { HeroCardDef } from '../types';
 
-// S.H.I.E.L.D. starter cards — every player begins with 8 Troopers + 4 Agents.
-// These never appear in the HQ; they're not "purchasable" heroes in the normal
-// sense, just the chaff in your starting deck.
+// S.H.I.E.L.D. cards — starters + generic purchasable pool cards.
+//
+// Starting deck (per player):  8 Troopers + 4 Agents
+// Always-available pool:       SHIELD Officer (buyable for 3★ anytime)
+//                              Sidekick       (buyable for 1★ anytime)
+//
+// Starters never appear in the HQ. Officer / Sidekick sit in separate pools
+// beside the board, purchasable any turn.
 
 export const TROOPER: HeroCardDef = {
   kind: 'hero',
@@ -26,4 +31,30 @@ export const AGENT: HeroCardDef = {
   teams: ['shield-agent'],
 };
 
-export const SHIELD_CARDS = [TROOPER, AGENT];
+// S.H.I.E.L.D. Officer — always available for purchase (pool of 30).
+// TODO: verify cost, stats, and text against physical cards.
+export const OFFICER: HeroCardDef = {
+  kind: 'hero',
+  cardId: 'shield_officer',
+  className: 'S.H.I.E.L.D.',
+  cardName: 'S.H.I.E.L.D. Officer',
+  cost: 3,
+  baseRecruit: 2,
+  classes: ['covert'],
+  teams: ['shield-officer'],
+};
+
+// Sidekick — always available for purchase (pool of 30).
+// TODO: verify cost, stats, and text against physical cards.
+export const SIDEKICK: HeroCardDef = {
+  kind: 'hero',
+  cardId: 'sidekick',
+  className: 'S.H.I.E.L.D.',
+  cardName: 'Sidekick',
+  cost: 1,
+  baseRecruit: 1,
+  classes: ['instinct'],
+  teams: ['shield'],
+};
+
+export const SHIELD_CARDS = [TROOPER, AGENT, OFFICER, SIDEKICK];

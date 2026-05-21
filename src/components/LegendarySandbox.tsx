@@ -20,7 +20,9 @@ import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
 import { HAND_NINJA_GROUP } from '@/lib/games/legendary/villains/hand-ninjas';
 import { RED_SKULL } from '@/lib/games/legendary/masterminds/red-skull';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
-import { TROOPER, AGENT } from '@/lib/games/legendary/heroes/shield';
+import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
+import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK } from '@/lib/games/legendary';
+import type { WoundCardDef, BystanderCardDef, MasterStrikeCardDef, SchemeTwistCardDef } from '@/lib/games/legendary';
 
 // ---------------------------------------------------------------------------
 // Types + storage
@@ -821,7 +823,7 @@ type CardFilter = 'heroes' | 'starters' | 'villains' | 'henchmen' | 'mastermind'
 
 const FILTER_TABS: { id: CardFilter; label: string; badge: string }[] = [
   { id: 'heroes',      label: 'Heroes',      badge: '15 classes' },
-  { id: 'starters',   label: 'Starters',    badge: 'S.H.I.E.L.D.' },
+  { id: 'starters',   label: 'Generic Cards', badge: 'S.H.I.E.L.D. + System' },
   { id: 'villains',   label: 'Villains',    badge: 'HYDRA' },
   { id: 'henchmen',   label: 'Henchmen',    badge: 'Hand Ninjas' },
   { id: 'mastermind', label: 'Mastermind',  badge: 'Red Skull' },
@@ -943,13 +945,72 @@ function HeroSection() {
   );
 }
 
-// ─── Starter cards section ────────────────────────────────────────────────────
+// ─── Generic / system cards section ─────────────────────────────────────────
+
+type GenericCategory =
+  | 'starters'
+  | 'officer'
+  | 'sidekick'
+  | 'wound'
+  | 'bystander'
+  | 'master_strike'
+  | 'scheme_twist';
+
+const GENERIC_CATEGORIES: { id: GenericCategory; label: string; sub: string }[] = [
+  { id: 'starters',      label: 'S.H.I.E.L.D. Starters',  sub: 'Trooper · Agent' },
+  { id: 'officer',       label: 'S.H.I.E.L.D. Officer',   sub: 'Pool card' },
+  { id: 'sidekick',      label: 'Sidekick',                sub: 'Pool card' },
+  { id: 'wound',         label: 'Wound',                   sub: 'System card' },
+  { id: 'bystander',     label: 'Bystander',               sub: 'System card' },
+  { id: 'master_strike', label: 'Master Strike',           sub: 'Villain deck' },
+  { id: 'scheme_twist',  label: 'Scheme Twist',            sub: 'Villain deck' },
+];
 
 function StartersSection() {
+  const [selected, setSelected] = useState<GenericCategory>('starters');
+
   return (
-    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-      <div className="mb-4">
-        <h2 className="text-base font-semibold text-neutral-100">S.H.I.E.L.D. Starter Cards</h2>
+    <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
+      {/* Left: category list */}
+      <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Card type</div>
+        {GENERIC_CATEGORIES.map(cat => (
+          <button
+            key={cat.id}
+            onClick={() => setSelected(cat.id)}
+            className={`rounded px-2 py-1.5 text-left transition ${
+              selected === cat.id
+                ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/40'
+                : 'text-neutral-300 hover:bg-neutral-800'
+            }`}
+          >
+            <div className="text-sm">{cat.label}</div>
+            <div className="text-[10px] text-neutral-500">{cat.sub}</div>
+          </button>
+        ))}
+      </aside>
+
+      {/* Right: cards for selected category */}
+      <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+        {selected === 'starters'      && <GenericStartersPanel />}
+        {selected === 'officer'       && <GenericOfficerPanel />}
+        {selected === 'sidekick'      && <GenericSidekickPanel />}
+        {selected === 'wound'         && <GenericWoundPanel />}
+        {selected === 'bystander'     && <GenericBystanderPanel />}
+        {selected === 'master_strike' && <GenericMasterStrikePanel />}
+        {selected === 'scheme_twist'  && <GenericSchemeTwistPanel />}
+      </section>
+    </div>
+  );
+}
+
+// ── panels ───────────────────────────────────────────────────────────────────
+
+function GenericStartersPanel() {
+  return (
+    <>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-neutral-100">S.H.I.E.L.D. Starters</h2>
         <p className="mt-1 text-xs text-neutral-500">
           Every player begins with 8 Troopers + 4 Agents shuffled into their personal deck.
           Never appear in the HQ — the chaff you cycle out as you recruit better heroes.
@@ -958,14 +1019,167 @@ function StartersSection() {
       <div className="flex flex-wrap gap-6">
         <div className="flex flex-col items-center gap-2">
           <HeroCardArt def={TROOPER} copies={8} />
-          <div className="text-xs text-neutral-500">8× per player · starter</div>
+          <div className="text-xs text-neutral-500">8× per player</div>
         </div>
         <div className="flex flex-col items-center gap-2">
           <HeroCardArt def={AGENT} copies={4} />
-          <div className="text-xs text-neutral-500">4× per player · starter</div>
+          <div className="text-xs text-neutral-500">4× per player</div>
         </div>
       </div>
-    </section>
+    </>
+  );
+}
+
+function GenericOfficerPanel() {
+  return (
+    <>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-neutral-100">S.H.I.E.L.D. Officer</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Always available to recruit — sits in a pool beside the board, not the HQ.
+          Any player can spend {OFFICER.cost} Recruit to add one to their discard.
+          <span className="ml-1 text-amber-500">TODO: verify cost / stats against physical card.</span>
+        </p>
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <HeroCardArt def={OFFICER} copies={30} />
+        <div className="text-xs text-neutral-500">Pool of 30</div>
+      </div>
+    </>
+  );
+}
+
+function GenericSidekickPanel() {
+  return (
+    <>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-neutral-100">Sidekick</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Always available to recruit — sits in a pool beside the board.
+          <span className="ml-1 text-amber-500">TODO: verify cost / stats / text against physical card.</span>
+        </p>
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <HeroCardArt def={SIDEKICK} copies={30} />
+        <div className="text-xs text-neutral-500">Pool of 30</div>
+      </div>
+    </>
+  );
+}
+
+function GenericWoundPanel() {
+  return (
+    <>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-neutral-100">Wound</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Clutter. Taken when a Master Strike fires or a villain's fight/escape effect deals damage.
+          Counts against your VP total. 30 total in the wound stack.
+        </p>
+      </div>
+      <SystemCard
+        name="Wound"
+        typeLabel="System · Clutter"
+        borderColor="#dc2626"
+        typeColor="#dc2626"
+        body="No stats — pure clutter. When you take a wound it goes into your discard pile."
+        footer="30 in wound stack"
+      />
+    </>
+  );
+}
+
+function GenericBystanderPanel() {
+  return (
+    <>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-neutral-100">Bystander</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Civilians caught up in the fight. Attached to villain cards when they are revealed.
+          Rescue a bystander by defeating the villain carrying it — worth 1 VP per bystander.
+        </p>
+      </div>
+      <SystemCard
+        name="Bystander"
+        typeLabel="System · Rescue"
+        borderColor="#f59e0b"
+        typeColor="#f59e0b"
+        body="Attached to the next villain revealed. Defeating that villain rescues all attached bystanders."
+        footer={<VpBadge vp={1} />}
+      />
+    </>
+  );
+}
+
+function GenericMasterStrikePanel() {
+  return (
+    <>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-neutral-100">Master Strike</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Shuffled into the Villain Deck. When revealed, the Mastermind's strike effect fires
+          against every player simultaneously. The card is KO'd (does not enter the City).
+        </p>
+      </div>
+      <SystemCard
+        name="Master Strike"
+        typeLabel="Villain Deck · Strike"
+        borderColor="#DC143C"
+        typeColor="#DC143C"
+        body={`When revealed: ${RED_SKULL.text ?? 'Mastermind Master Strike fires against all players.'}`}
+        footer={`${MASTER_STRIKES_IN_DECK} copies in Villain Deck`}
+      />
+    </>
+  );
+}
+
+function GenericSchemeTwistPanel() {
+  const scheme = NEGATIVE_ZONE_PRISON_BREAKOUT;
+  return (
+    <>
+      <div className="mb-3">
+        <h2 className="text-base font-semibold text-neutral-100">Scheme Twist</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Shuffled into the Villain Deck. When revealed, the scheme's twist effect fires and the
+          twist counter ticks up. Evil Wins when the counter hits the threshold.
+        </p>
+      </div>
+      <SystemCard
+        name="Scheme Twist"
+        typeLabel="Villain Deck · Twist"
+        borderColor="#6366f1"
+        typeColor="#6366f1"
+        body={scheme.text}
+        footer={`${scheme.twists} copies · evil wins after ${scheme.evilWinsAfterTwists} twists`}
+      />
+    </>
+  );
+}
+
+// ── Shared generic card visual ───────────────────────────────────────────────
+
+function SystemCard({
+  name, typeLabel, borderColor, typeColor, body, footer,
+}: {
+  name: string;
+  typeLabel: string;
+  borderColor: string;
+  typeColor: string;
+  body: string;
+  footer: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className="flex h-36 w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
+    >
+      <span className="text-[12px] font-bold leading-tight text-neutral-100">{name}</span>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: typeColor }}>
+        {typeLabel}
+      </div>
+      <div className="my-1 flex-1 text-[11px] leading-snug text-neutral-300">{body}</div>
+      <div className="mt-auto text-[10px] text-neutral-500">{footer}</div>
+    </div>
   );
 }
 
