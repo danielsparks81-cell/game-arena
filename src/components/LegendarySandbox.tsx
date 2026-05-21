@@ -994,7 +994,7 @@ function StartersSection() {
 
       {/* Right: cards for selected category */}
       <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-        {selected === 'trooper'        && <GenericSingleCardPanel def={TROOPER} copies={8} countLabel="8× per player · starter" description="Goes into every player's starting deck of 12. Gives 1 ⚔ when played." />}
+        {selected === 'trooper'        && <GenericSingleCardPanel def={TROOPER} copies={4} countLabel="4× per player · starter (12-card deck)" description="Colorless Hero class, S.H.I.E.L.D. team. Gives 1 ⚔ when played. Cost 0 — not buyable, only in starting deck." />}
         {selected === 'agent'          && <GenericSingleCardPanel def={AGENT}   copies={4} countLabel="4× per player · starter" description="Goes into every player's starting deck of 12. Gives 1 ★ when played." />}
         {selected === 'officer'       && <GenericOfficerPanel />}
         {selected === 'sidekick'      && <GenericSidekickPanel />}

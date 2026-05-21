@@ -12,12 +12,12 @@ import type { HeroCardDef } from '../types';
 export const TROOPER: HeroCardDef = {
   kind: 'hero',
   cardId: 'shield_trooper',
-  className: 'S.H.I.E.L.D.',
+  className: 'Hero',
   cardName: 'S.H.I.E.L.D. Trooper',
   cost: 0,
   baseAttack: 1,
-  classes: ['strength'],
-  teams: ['shield-trooper'],
+  classes: [],
+  teams: ['shield'],
 };
 
 export const AGENT: HeroCardDef = {
