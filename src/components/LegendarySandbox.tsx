@@ -13,9 +13,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { HeroCardArt, CLASS_COLORS, CLASS_LABELS } from '@/components/legendary/HeroCardArt';
-import type { Effect, HeroCardDef, HeroClass, Team } from '@/lib/games/legendary';
+import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, TEAM_ICON_DATA } from '@/components/legendary/HeroCardArt';
+import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
+import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
+import { HAND_NINJA_GROUP } from '@/lib/games/legendary/villains/hand-ninjas';
+import { RED_SKULL } from '@/lib/games/legendary/masterminds/red-skull';
+import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
+import { TROOPER, AGENT } from '@/lib/games/legendary/heroes/shield';
 
 // ---------------------------------------------------------------------------
 // Types + storage
@@ -157,7 +162,7 @@ export default function LegendarySandbox() {
   }
 
   if (mode === 'browse') {
-    return <HeroBrowser onAuthor={() => setMode('author')} />;
+    return <CardBrowser onAuthor={() => setMode('author')} />;
   }
 
   return (
@@ -809,13 +814,22 @@ function tsForCard(def: HeroCardDef): string {
 }
 
 // ---------------------------------------------------------------------------
-// Hero browser — read-only view of all existing hero classes
+// Card browser — read-only view of ALL base-set cards with type filter
 // ---------------------------------------------------------------------------
 
-function HeroBrowser({ onAuthor }: { onAuthor: () => void }) {
-  const sorted = [...ALL_HERO_CLASSES].sort((a, b) => a.className.localeCompare(b.className));
-  const [selectedIdx, setSelectedIdx] = useState(0);
-  const heroClass = sorted[selectedIdx];
+type CardFilter = 'heroes' | 'starters' | 'villains' | 'henchmen' | 'mastermind' | 'scheme';
+
+const FILTER_TABS: { id: CardFilter; label: string; badge: string }[] = [
+  { id: 'heroes',      label: 'Heroes',      badge: '15 classes' },
+  { id: 'starters',   label: 'Starters',    badge: 'S.H.I.E.L.D.' },
+  { id: 'villains',   label: 'Villains',    badge: 'HYDRA' },
+  { id: 'henchmen',   label: 'Henchmen',    badge: 'Hand Ninjas' },
+  { id: 'mastermind', label: 'Mastermind',  badge: 'Red Skull' },
+  { id: 'scheme',     label: 'Scheme',      badge: 'Negative Zone' },
+];
+
+function CardBrowser({ onAuthor }: { onAuthor: () => void }) {
+  const [filter, setFilter] = useState<CardFilter>('heroes');
 
   return (
     <div className="mx-auto max-w-7xl p-4">
@@ -823,7 +837,7 @@ function HeroBrowser({ onAuthor }: { onAuthor: () => void }) {
         <div>
           <h1 className="text-xl font-semibold text-neutral-100">Legendary Card Sandbox</h1>
           <p className="text-xs text-neutral-500">
-            Browse all {ALL_HERO_CLASSES.length} base-set hero classes. Verify card text against your physical cards.
+            Browse all base-set cards. Verify against your physical collection.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -837,57 +851,387 @@ function HeroBrowser({ onAuthor }: { onAuthor: () => void }) {
         </div>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
-        {/* Left: class list */}
-        <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
-          <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Hero classes</div>
-          {sorted.map((hc, i) => (
-            <button
-              key={hc.className}
-              onClick={() => setSelectedIdx(i)}
-              className={`rounded px-2 py-1.5 text-left text-sm transition ${
-                i === selectedIdx
-                  ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/40'
-                  : 'text-neutral-300 hover:bg-neutral-800'
-              }`}
-            >
-              {hc.className}
-              <span className="ml-1 text-[10px] text-neutral-500">
-                ({hc.cards.reduce((s, c) => s + c.copies, 0)})
-              </span>
-            </button>
-          ))}
-        </aside>
-
-        {/* Right: cards for selected class */}
-        <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-base font-semibold text-neutral-100">{heroClass.className}</h2>
-            <span className="text-xs text-neutral-500">
-              {heroClass.cards.length} unique cards ·{' '}
-              {heroClass.cards.reduce((s, c) => s + c.copies, 0)} copies total
+      {/* Type filter tab bar */}
+      <div className="mb-4 flex flex-wrap gap-1 rounded-lg border border-neutral-800 bg-neutral-950/60 p-1">
+        {FILTER_TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setFilter(tab.id)}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+              filter === tab.id
+                ? 'bg-neutral-700 text-neutral-100'
+                : 'text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200'
+            }`}
+          >
+            {tab.label}
+            <span className={`text-[10px] ${filter === tab.id ? 'text-neutral-400' : 'text-neutral-600'}`}>
+              {tab.badge}
             </span>
-          </div>
+          </button>
+        ))}
+      </div>
 
-          {/* Card grid: show each card with its copy count */}
-          <div className="flex flex-wrap gap-6">
-            {heroClass.cards.map(({ def, copies }) => (
-              <div key={def.cardId} className="flex flex-col items-center gap-2">
-                <HeroCardArt def={def} copies={copies} />
-                <div className="flex items-center gap-2 text-xs text-neutral-500">
-                  <span className="font-mono">{copies}×</span>
-                  <span>{copies === 1 ? 'rare' : copies === 3 ? 'uncommon' : 'common'}</span>
-                </div>
-                {/* Card text for easy comparison against physical card */}
-                {def.text && (
-                  <div className="w-48 rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
-                    {def.text}
-                  </div>
-                )}
+      {/* Section content */}
+      {filter === 'heroes'      && <HeroSection />}
+      {filter === 'starters'   && <StartersSection />}
+      {filter === 'villains'   && <VillainsSection />}
+      {filter === 'henchmen'   && <HenchmenSection />}
+      {filter === 'mastermind' && <MastermindSection />}
+      {filter === 'scheme'     && <SchemeSection />}
+    </div>
+  );
+}
+
+// ─── Hero class section ───────────────────────────────────────────────────────
+
+function HeroSection() {
+  const sorted = [...ALL_HERO_CLASSES].sort((a, b) => a.className.localeCompare(b.className));
+  const [selectedIdx, setSelectedIdx] = useState(0);
+  const heroClass = sorted[selectedIdx];
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
+      {/* Left: class list */}
+      <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+        <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">
+          Hero classes ({ALL_HERO_CLASSES.length})
+        </div>
+        {sorted.map((hc, i) => (
+          <button
+            key={hc.className}
+            onClick={() => setSelectedIdx(i)}
+            className={`rounded px-2 py-1.5 text-left text-sm transition ${
+              i === selectedIdx
+                ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/40'
+                : 'text-neutral-300 hover:bg-neutral-800'
+            }`}
+          >
+            {hc.className}
+            <span className="ml-1 text-[10px] text-neutral-500">
+              ({hc.cards.reduce((s, c) => s + c.copies, 0)})
+            </span>
+          </button>
+        ))}
+      </aside>
+
+      {/* Right: cards grid */}
+      <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-base font-semibold text-neutral-100">{heroClass.className}</h2>
+          <span className="text-xs text-neutral-500">
+            {heroClass.cards.length} unique · {heroClass.cards.reduce((s, c) => s + c.copies, 0)} copies
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-6">
+          {heroClass.cards.map(({ def, copies }) => (
+            <div key={def.cardId} className="flex flex-col items-center gap-2">
+              <HeroCardArt def={def} copies={copies} />
+              <div className="flex items-center gap-2 text-xs text-neutral-500">
+                <span className="font-mono">{copies}×</span>
+                <span>{copies === 1 ? 'rare' : copies === 3 ? 'uncommon' : 'common'}</span>
               </div>
-            ))}
+              {def.text && (
+                <div className="w-[220px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
+                  {def.text}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ─── Starter cards section ────────────────────────────────────────────────────
+
+function StartersSection() {
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-neutral-100">S.H.I.E.L.D. Starter Cards</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Every player begins with 8 Troopers + 4 Agents shuffled into their personal deck.
+          Never appear in the HQ — the chaff you cycle out as you recruit better heroes.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-6">
+        <div className="flex flex-col items-center gap-2">
+          <HeroCardArt def={TROOPER} copies={8} />
+          <div className="text-xs text-neutral-500">8× per player · starter</div>
+        </div>
+        <div className="flex flex-col items-center gap-2">
+          <HeroCardArt def={AGENT} copies={4} />
+          <div className="text-xs text-neutral-500">4× per player · starter</div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ─── Villain section ──────────────────────────────────────────────────────────
+
+function VillainsSection() {
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-neutral-100">Villains — HYDRA</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          {HYDRA_GROUP.cards.length} unique cards ·{' '}
+          {HYDRA_GROUP.cards.reduce((s, c) => s + c.copies, 0)} copies in the Villain Deck.
+          Revealed into the City row each turn — spend ⚔ to defeat and earn VP.
+          Ambush fires on reveal; Escape fires if they slip off the end of the city.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-6">
+        {HYDRA_GROUP.cards.map(({ def, copies }) => (
+          <div key={def.cardId} className="flex flex-col items-center gap-2">
+            <VillainCardArt def={def} />
+            <div className="text-xs text-neutral-500">
+              <span className="font-mono">{copies}×</span> in deck
+            </div>
           </div>
-        </section>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── Henchmen section ────────────────────────────────────────────────────────
+
+function HenchmenSection() {
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-neutral-100">Henchmen — Hand Ninjas</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          {HAND_NINJA_GROUP.cards[0]?.copies ?? 0} copies mixed into the Villain Deck.
+          Low-tier fodder that fills out the city — easy ⚔ targets for early turns.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-6">
+        {HAND_NINJA_GROUP.cards.map(({ def, copies }) => (
+          <div key={def.cardId} className="flex flex-col items-center gap-2">
+            <HenchmanCardArt def={def} />
+            <div className="text-xs text-neutral-500">
+              <span className="font-mono">{copies}×</span> in deck
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// ─── Mastermind section ───────────────────────────────────────────────────────
+
+function MastermindSection() {
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-neutral-100">Mastermind</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          The final boss. Costs {RED_SKULL.attack}⚔ per hit — must be hit {RED_SKULL.hits} times to defeat.
+          Master Strike fires every time a Master Strike card is revealed from the Villain Deck.
+          Defeating the Mastermind wins the game.
+        </p>
+      </div>
+      <MastermindCardArt def={RED_SKULL} />
+    </section>
+  );
+}
+
+// ─── Scheme section ───────────────────────────────────────────────────────────
+
+function SchemeSection() {
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold text-neutral-100">Scheme</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Scheme Twists are shuffled into the Villain Deck.
+          Each time one is revealed, the twist effect fires and the counter ticks up.
+          Evil Wins when the threshold is reached before the heroes defeat the Mastermind.
+        </p>
+      </div>
+      <SchemeCardArt def={NEGATIVE_ZONE_PRISON_BREAKOUT} />
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Non-hero card art components
+// ---------------------------------------------------------------------------
+
+/** Shared small claw-mark icon — mirrors HeroCardArt's private StrikeIcon */
+function SbStrikeIcon() {
+  return (
+    <svg
+      width="14" height="12" viewBox="0 0 16 14"
+      style={{ display: 'inline-block', verticalAlign: 'middle', filter: 'drop-shadow(0 0 2px #991b1b)' }}
+      aria-label="strike"
+    >
+      <g stroke="#ef4444" strokeLinecap="round" fill="none" strokeWidth="1.8">
+        <path d="M1 1 C2 5 4 9 7 13" />
+        <path d="M5.5 1 C6.5 5 8.5 9 11 13" />
+        <path d="M10 1 C11 5 13 9 15 13" />
+      </g>
+    </svg>
+  );
+}
+
+/** VP badge — dull brass, consistent with cost badge style */
+function VpBadge({ vp }: { vp: number }) {
+  return (
+    <span
+      className="rounded px-1.5 py-0.5 text-[11px] font-bold leading-none"
+      style={{ backgroundColor: '#7A6330', border: '1px solid #A8893E', color: '#fff' }}
+    >
+      {vp} VP
+    </span>
+  );
+}
+
+/** Team chip matching HeroCardArt's TeamChip — pulled from TEAM_ICON_DATA */
+function SbTeamChip({ team }: { team: string }) {
+  const data = TEAM_ICON_DATA[team];
+  if (!data) return null;
+  return (
+    <div
+      className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-sm text-[7px] font-black leading-none"
+      style={{ backgroundColor: data.color, color: data.textColor ?? '#000' }}
+      title={team}
+    >
+      {data.abbr}
+    </div>
+  );
+}
+
+function VillainCardArt({ def }: { def: VillainCardDef }) {
+  const teamData = TEAM_ICON_DATA[def.team];
+  const borderColor = teamData?.color ?? '#404040';
+
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className="relative flex h-32 w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
+    >
+      {/* Name row */}
+      <div className="flex items-center gap-1 min-w-0">
+        <SbTeamChip team={def.team} />
+        <span className="text-[12px] font-bold leading-tight text-neutral-100 truncate">{def.name}</span>
+      </div>
+      {/* Type label */}
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Villain
+      </div>
+      {/* Card text */}
+      {def.text && (
+        <div className="my-1 flex-1 text-[11px] leading-snug text-neutral-300">{def.text}</div>
+      )}
+      {!def.text && <div className="flex-1" />}
+      {/* Footer */}
+      <div className="mt-auto flex items-center justify-between">
+        <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
+          {def.attack}<SbStrikeIcon />
+        </span>
+        <VpBadge vp={def.vp} />
+      </div>
+    </div>
+  );
+}
+
+function HenchmanCardArt({ def }: { def: HenchmanCardDef }) {
+  const borderColor = '#475569'; // slate-600
+
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className="relative flex h-32 w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
+    >
+      <div className="flex items-center gap-1 min-w-0">
+        <span className="text-[12px] font-bold leading-tight text-neutral-100 truncate">{def.name}</span>
+      </div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
+        Henchman
+      </div>
+      <div className="flex-1" />
+      <div className="mt-auto flex items-center justify-between">
+        <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
+          {def.attack}<SbStrikeIcon />
+        </span>
+        <VpBadge vp={def.vp} />
+      </div>
+    </div>
+  );
+}
+
+function MastermindCardArt({ def }: { def: MastermindCardDef }) {
+  const borderColor = '#DC143C'; // crimson
+
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className="flex w-[280px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-3"
+    >
+      <div className="text-[14px] font-bold text-neutral-100">{def.name}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Mastermind
+      </div>
+      <div className="mt-1 text-[11px] text-neutral-400">
+        Always Leads: <span className="font-semibold text-neutral-200">{def.alwaysLeads.toUpperCase()}</span>
+      </div>
+      {def.text && (
+        <div className="my-2 border-t border-neutral-800 pt-2 text-[11px] leading-snug text-neutral-300">
+          {def.text}
+        </div>
+      )}
+      <div className="mt-auto flex items-center gap-4 border-t border-neutral-800 pt-2 text-[12px]">
+        <span className="flex items-center gap-0.5 font-semibold text-white">
+          {def.attack}<SbStrikeIcon />
+          <span className="ml-1 text-[10px] text-neutral-500">per hit</span>
+        </span>
+        <span className="font-semibold text-white">
+          {def.hits}
+          <span className="ml-1 text-[10px] text-neutral-500">hits</span>
+        </span>
+        <VpBadge vp={def.vp} />
+      </div>
+    </div>
+  );
+}
+
+function SchemeCardArt({ def }: { def: SchemeCardDef }) {
+  const borderColor = '#6366f1'; // indigo-500
+
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className="flex w-[320px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-3"
+    >
+      <div className="text-[13px] font-bold text-neutral-100">{def.name}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Scheme
+      </div>
+      {def.text && (
+        <div className="my-2 border-t border-neutral-800 pt-2 text-[11px] leading-snug text-neutral-300">
+          {def.text}
+        </div>
+      )}
+      <div className="mt-auto flex flex-wrap gap-4 border-t border-neutral-800 pt-2 text-[12px]">
+        <span>
+          <span className="font-bold text-white">{def.twists}</span>
+          <span className="ml-1 text-[10px] text-neutral-500">Scheme Twists</span>
+        </span>
+        <span>
+          <span className="font-bold text-white">{def.bystanders}</span>
+          <span className="ml-1 text-[10px] text-neutral-500">Bystanders</span>
+        </span>
+        <span>
+          <span className="text-[10px] text-neutral-500">Evil wins after</span>
+          <span className="ml-1 font-bold text-white">{def.evilWinsAfterTwists}</span>
+          <span className="ml-1 text-[10px] text-neutral-500">twists</span>
+        </span>
       </div>
     </div>
   );
