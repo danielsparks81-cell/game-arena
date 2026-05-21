@@ -55,11 +55,27 @@ export const KEYWORDS: KeywordEntry[] = [
 
   // ── Keywords ───────────────────────────────────────────────────────────────
   {
+    term: 'Gaining a card',
+    category: 'Keywords',
+    definition:
+      'When a card effect says you "gain" a card, put that card directly into your discard pile — not into your hand. ' +
+      'Example: "Gain a Wound" = take the top card of the Wound Deck and place it in your discard pile.',
+  },
+  {
     term: 'Ambush',
     category: 'Keywords',
     definition:
       'Fires the moment a villain or henchman enters the city, before the active player can act. ' +
-      'Example: "Ambush: Each player gains a Wound."',
+      'Example: "Ambush: Each player gains a Wound" — every player immediately puts a Wound in their discard.',
+  },
+  {
+    term: 'Escape',
+    category: 'Keywords',
+    definition:
+      'Fires when a villain is pushed off the Bridge (slot 5) of the city. Three things happen in order: ' +
+      '(1) The escaped villain KOs the highest-cost hero (cost 6 or less) from the HQ; that slot refills immediately. ' +
+      '(2) If the villain had captured Bystanders, each player must discard one card from their hand — those Bystanders are lost in the Escape Pile. ' +
+      '(3) If the villain\'s card has a printed "Escape" effect, it fires now.',
   },
   {
     term: 'Strike (Attack)',
@@ -79,7 +95,7 @@ export const KEYWORDS: KeywordEntry[] = [
     category: 'Keywords',
     definition:
       'Remove a card permanently from the game — it goes to the KO pile and is never shuffled back into any deck. ' +
-      'Fired Master Strikes are KO\'d. Some hero abilities let you KO weak cards from your hand.',
+      'Fired Master Strikes and heroes KO\'d by villain escapes go here.',
   },
   {
     term: 'Rescue a bystander',
@@ -163,7 +179,8 @@ export const KEYWORDS: KeywordEntry[] = [
     term: 'Escaped pile',
     category: 'Zones',
     definition:
-      'Villains that leave via the Bridge live here. Accumulating too many escapes may trigger a loss condition depending on the active scheme.',
+      'Face-up pile where villains go after escaping the Bridge. Any Bystanders they carried are lost here (not rescuable). ' +
+      'Accumulating too many escapes may trigger a loss condition depending on the active scheme.',
   },
   {
     term: 'KO pile',

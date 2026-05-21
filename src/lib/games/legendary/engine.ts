@@ -305,6 +305,10 @@ export type LegendaryAction =
   | { kind: 'play_card'; instanceId: CardInstanceId }
   /** Spend Recruit to buy the hero at HQ index `slot` → into your discard. */
   | { kind: 'recruit_hero'; slot: number }
+  /** Spend Recruit to take one Sidekick from the always-available pool. */
+  | { kind: 'recruit_sidekick' }
+  /** Spend Recruit to take one S.H.I.E.L.D. Officer from the always-available pool. */
+  | { kind: 'recruit_officer' }
   /** Spend Attack to defeat the villain at City index `slot` → into your VP. */
   | { kind: 'fight_city'; slot: number }
   /** Spend Attack to hit the Mastermind. When hits reaches the boss's HP
@@ -328,11 +332,13 @@ export function applyAction(
   const meNext = next.players[next.currentPlayerIdx];
 
   switch (action.kind) {
-    case 'play_card':       return doPlayCard(next, meNext, action.instanceId);
-    case 'recruit_hero':    return doRecruit(next, meNext, action.slot);
-    case 'fight_city':      return doFightCity(next, meNext, action.slot);
-    case 'fight_mastermind':return doFightMastermind(next, meNext);
-    case 'end_turn':        return doEndTurn(next);
+    case 'play_card':         return doPlayCard(next, meNext, action.instanceId);
+    case 'recruit_hero':      return doRecruit(next, meNext, action.slot);
+    case 'recruit_sidekick':  return doRecruitPool(next, meNext, 'sidekick');
+    case 'recruit_officer':   return doRecruitPool(next, meNext, 'shield_officer');
+    case 'fight_city':        return doFightCity(next, meNext, action.slot);
+    case 'fight_mastermind':  return doFightMastermind(next, meNext);
+    case 'end_turn':          return doEndTurn(next);
   }
 }
 
@@ -462,6 +468,31 @@ function doRecruit(
     cardId: def.cardId, cardName: def.cardName, cost: def.cost,
   });
   refillHQ(state);
+  return state;
+}
+
+// ---------------- Recruit from always-available pool ----------------
+/** Sidekick (cardId 'sidekick') and S.H.I.E.L.D. Officer ('shield_officer')
+ *  sit in unlimited pools beside the board — any player can buy one per turn
+ *  for the printed cost. We create a fresh CardInstance rather than pulling
+ *  from a pre-seeded stack (the pool is treated as infinite for MVP). */
+function doRecruitPool(
+  state: LegendaryState,
+  me: PlayerState,
+  cardId: CardId,
+): LegendaryState | { error: string } {
+  const def = getCard(cardId);
+  if (def.kind !== 'hero') return { error: 'Pool card is not a hero' };
+  if (state.thisTurn.recruit < def.cost) {
+    return { error: `Need ${def.cost} Recruit, have ${state.thisTurn.recruit}` };
+  }
+  state.thisTurn.recruit -= def.cost;
+  const instance = mkInstance(cardId);
+  me.discard.push(instance);
+  pushLog(state, {
+    kind: 'hero_recruited', seat: me.seat, username: me.username,
+    cardId: def.cardId, cardName: def.cardName, cost: def.cost,
+  });
   return state;
 }
 
@@ -667,8 +698,15 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
 }
 
 /** Push villains forward in the City and slot a new arrival into position 0.
- *  If a villain is pushed off the right edge, it escapes — fires its escape
- *  effect, then goes to the escapedPile (sweeping its bystanders along). */
+ *  If a villain is pushed off the right edge, it escapes. Per the rules:
+ *
+ *  1. KO the highest-cost (≤ 6) hero from the HQ; refill immediately.
+ *  2. If the escaping villain had captured bystanders, each player discards
+ *     one card from their hand. Bystanders stay in the Escape Pile (lost).
+ *  3. Fire any "Escape" effect printed on the villain card.
+ *
+ *  We auto-pick the KO target (highest cost ≤ 6) since player-choice prompts
+ *  are a future pass. */
 function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): void {
   // Push the rightmost slot off first.
   const lastIdx = state.city.length - 1;
@@ -677,15 +715,58 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
     const eDef = getCard(escaped.cardId);
     if (eDef.kind === 'villain' || eDef.kind === 'henchman') {
       pushLog(state, { kind: 'villain_escaped', cardId: eDef.cardId, cardName: eDef.name });
+
+      // ── Step 1: KO a hero from HQ (highest cost ≤ 6) ─────────────────
+      let koSlot = -1;
+      let koMaxCost = -1;
+      for (let i = 0; i < state.hq.length; i++) {
+        const hqCard = state.hq[i];
+        if (!hqCard) continue;
+        const hqDef = getCard(hqCard.cardId);
+        if (hqDef.kind !== 'hero') continue;
+        if (hqDef.cost <= 6 && hqDef.cost > koMaxCost) {
+          koMaxCost = hqDef.cost;
+          koSlot = i;
+        }
+      }
+      if (koSlot >= 0) {
+        const koCard = state.hq[koSlot]!;
+        state.hq[koSlot] = null;
+        state.ko.push(koCard);
+        const koHeroDef = getCard(koCard.cardId);
+        const heroName = koHeroDef.kind === 'hero' ? koHeroDef.cardName : koCard.cardId;
+        pushLog(state, { kind: 'system', text: `Escape: ${eDef.name} KO'd ${heroName} from the HQ.` });
+        refillHQ(state);
+      }
+
+      // ── Step 2: Bystander penalty ──────────────────────────────────────
+      // Bystanders stay in the Escape Pile (attached to the escaped villain).
+      // Each player that has cards in hand must discard one.
+      const bys = state.cityBystanders[escaped.instanceId] ?? [];
+      if (bys.length > 0) {
+        const byCount = bys.length;
+        delete state.cityBystanders[escaped.instanceId];
+        for (const p of state.players) {
+          if (p.hand.length > 0) {
+            const discarded = p.hand.splice(0, 1)[0];
+            p.discard.push(discarded);
+            pushLog(state, {
+              kind: 'system',
+              text: `${p.username} discarded a card — ${eDef.name} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
+            });
+          }
+        }
+      } else {
+        delete state.cityBystanders[escaped.instanceId];
+      }
+
+      // ── Step 3: Villain's own Escape effect ───────────────────────────
       if (eDef.kind === 'villain' && eDef.escape) {
         for (const eff of eDef.escape) {
           for (const p of state.players) resolveEffect(state, p, eff);
         }
       }
-      // Sweep any attached bystanders → mastermind hoards them.
-      const bys = state.cityBystanders[escaped.instanceId] ?? [];
-      for (const b of bys) state.mastermind.bystanders.push(b);
-      delete state.cityBystanders[escaped.instanceId];
+
       state.escapedPile.push(escaped);
     }
   }
