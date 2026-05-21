@@ -176,6 +176,12 @@ export type SchemeCardDef = {
   /** Effect that fires when a Scheme Twist is revealed (in addition to
    *  bumping the twist counter). */
   onTwist?: Effect[];
+  /** When true, each Scheme Twist immediately triggers one additional reveal
+   *  from the Villain Deck (e.g. Negative Zone Prison Breakout: "Reveal an
+   *  extra Villain"). The extra reveal is processed by the same routing logic
+   *  as the main end-of-turn reveal — only villain/henchman cards push the
+   *  city; bystanders/twists/strikes do not. */
+  onTwistReveal?: boolean;
 };
 
 /** Wound — clutter card that goes into discard when you take damage. Adds

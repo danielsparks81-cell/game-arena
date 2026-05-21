@@ -52,6 +52,14 @@ export const KEYWORDS: KeywordEntry[] = [
     definition:
       'Spend Strike ≥ the mastermind\'s Attack value to score one hit. After four total hits (across any turns / players) the heroes win.',
   },
+  {
+    term: 'City not pushed (important!)',
+    category: 'Turn Flow',
+    definition:
+      'Villains in the city only get pushed forward when a villain or henchman card enters the city. ' +
+      'If the card revealed from the Villain Deck is a Bystander, Master Strike, or Scheme Twist, those cards resolve immediately ' +
+      'without touching the city at all — nothing moves.',
+  },
 
   // ── Keywords ───────────────────────────────────────────────────────────────
   {
@@ -124,15 +132,19 @@ export const KEYWORDS: KeywordEntry[] = [
     term: 'Scheme Twist',
     category: 'Card Types',
     definition:
-      'When drawn from the Villain Deck it advances the Scheme\'s threat meter by one. ' +
-      'Filling the meter triggers the scheme\'s loss condition.',
+      'When drawn from the Villain Deck, look at the "Twist" effect on the Scheme card and do what it says. ' +
+      'The twist counter advances by one; filling it triggers the scheme\'s loss condition. ' +
+      'Some schemes do something different on specific twist numbers (e.g. Twist 1 vs Twists 4–6). ' +
+      'The Scheme Twist is then KO\'d (unless the Scheme says otherwise). ' +
+      'City villains are NOT pushed forward when a Scheme Twist is drawn.',
   },
   {
     term: 'Master Strike',
     category: 'Card Types',
     definition:
-      'When drawn from the Villain Deck it fires the mastermind\'s special global effect against all players, ' +
-      'then the card is KO\'d (removed from game).',
+      'When drawn from the Villain Deck, look at the "Master Strike" effect printed on the Mastermind card and do what it says — ' +
+      'it fires simultaneously against all players. The card is then KO\'d (unless the effect says otherwise). ' +
+      'City villains are NOT pushed forward when a Master Strike is drawn.',
   },
   {
     term: 'Sidekick',

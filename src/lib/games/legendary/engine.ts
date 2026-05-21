@@ -652,14 +652,15 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
       const mmDef = getCard(state.mastermind.cardId);
       if (mmDef.kind === 'mastermind') {
         pushLog(state, { kind: 'master_strike', effectText: mmDef.text ?? mmDef.name });
-        // Master Strike hits EVERY player. Apply the mastermind's `strike[]`
-        // effects to each player in turn.
+        // Master Strike fires the Mastermind's specific strike effect on
+        // EVERY player simultaneously.
         for (const p of state.players) {
           for (const eff of mmDef.strike) resolveEffect(state, p, eff);
         }
       }
-      // Master Strike doesn't sit in the City — it's KO'd to a "strike pile"
-      // (we just drop into the KO pile for now).
+      // Master Strikes do NOT push city villains forward — only an actual
+      // villain or henchman card entering the city causes the city to push.
+      // KO the card (it never sits in the city).
       state.ko.push(card);
       return card;
     }
@@ -671,12 +672,24 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
         twistsRevealed: state.schemeTwistsRevealed,
         twistsTotal: scheme?.twists ?? state.schemeTwistsRevealed,
       });
+      // Fire the scheme's per-twist effect (if any).
       if (scheme?.onTwist) {
         for (const eff of scheme.onTwist) {
           for (const p of state.players) resolveEffect(state, p, eff);
         }
       }
+      // Scheme Twists go to the KO pile (they do not enter the city and do
+      // NOT push any existing city villains forward — only villain/henchman
+      // cards entering the city cause the push).
       state.ko.push(card);
+      // Some schemes (e.g. Negative Zone Prison Breakout) trigger an
+      // additional villain-deck reveal on each twist. Recurse once; the
+      // extra card follows the same routing rules — only a villain or
+      // henchman will push the city, all other types resolve without pushing.
+      if (scheme?.onTwistReveal && !state.result) {
+        pushLog(state, { kind: 'system', text: 'Scheme Twist: revealing an extra card from the Villain Deck...' });
+        revealOneVillainCard(state);
+      }
       return card;
     }
     case 'bystander': {
