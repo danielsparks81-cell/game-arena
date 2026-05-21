@@ -948,7 +948,8 @@ function HeroSection() {
 // ─── Generic / system cards section ─────────────────────────────────────────
 
 type GenericCategory =
-  | 'starters'
+  | 'trooper'
+  | 'agent'
   | 'officer'
   | 'sidekick'
   | 'wound'
@@ -957,7 +958,8 @@ type GenericCategory =
   | 'scheme_twist';
 
 const GENERIC_CATEGORIES: { id: GenericCategory; label: string; sub: string }[] = [
-  { id: 'starters',      label: 'S.H.I.E.L.D. Starters',  sub: 'Trooper · Agent' },
+  { id: 'trooper',       label: 'S.H.I.E.L.D. Trooper',   sub: 'Starter · 8× per player' },
+  { id: 'agent',         label: 'S.H.I.E.L.D. Agent',     sub: 'Starter · 4× per player' },
   { id: 'officer',       label: 'S.H.I.E.L.D. Officer',   sub: 'Pool card' },
   { id: 'sidekick',      label: 'Sidekick',                sub: 'Pool card' },
   { id: 'wound',         label: 'Wound',                   sub: 'System card' },
@@ -967,7 +969,7 @@ const GENERIC_CATEGORIES: { id: GenericCategory; label: string; sub: string }[] 
 ];
 
 function StartersSection() {
-  const [selected, setSelected] = useState<GenericCategory>('starters');
+  const [selected, setSelected] = useState<GenericCategory>('trooper');
 
   return (
     <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
@@ -992,7 +994,8 @@ function StartersSection() {
 
       {/* Right: cards for selected category */}
       <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-        {selected === 'starters'      && <GenericStartersPanel />}
+        {selected === 'trooper'        && <GenericSingleCardPanel def={TROOPER} copies={8} countLabel="8× per player · starter" description="Goes into every player's starting deck of 12. Gives 1 ⚔ when played." />}
+        {selected === 'agent'          && <GenericSingleCardPanel def={AGENT}   copies={4} countLabel="4× per player · starter" description="Goes into every player's starting deck of 12. Gives 1 ★ when played." />}
         {selected === 'officer'       && <GenericOfficerPanel />}
         {selected === 'sidekick'      && <GenericSidekickPanel />}
         {selected === 'wound'         && <GenericWoundPanel />}
@@ -1006,25 +1009,23 @@ function StartersSection() {
 
 // ── panels ───────────────────────────────────────────────────────────────────
 
-function GenericStartersPanel() {
+function GenericSingleCardPanel({
+  def, copies, countLabel, description,
+}: {
+  def: HeroCardDef;
+  copies: number;
+  countLabel: string;
+  description: string;
+}) {
   return (
     <>
       <div className="mb-3">
-        <h2 className="text-base font-semibold text-neutral-100">S.H.I.E.L.D. Starters</h2>
-        <p className="mt-1 text-xs text-neutral-500">
-          Every player begins with 8 Troopers + 4 Agents shuffled into their personal deck.
-          Never appear in the HQ — the chaff you cycle out as you recruit better heroes.
-        </p>
+        <h2 className="text-base font-semibold text-neutral-100">{def.cardName}</h2>
+        <p className="mt-1 text-xs text-neutral-500">{description}</p>
       </div>
-      <div className="flex flex-wrap gap-6">
-        <div className="flex flex-col items-center gap-2">
-          <HeroCardArt def={TROOPER} copies={8} />
-          <div className="text-xs text-neutral-500">8× per player</div>
-        </div>
-        <div className="flex flex-col items-center gap-2">
-          <HeroCardArt def={AGENT} copies={4} />
-          <div className="text-xs text-neutral-500">4× per player</div>
-        </div>
+      <div className="flex flex-col items-center gap-2">
+        <HeroCardArt def={def} copies={copies} />
+        <div className="text-xs text-neutral-500">{countLabel}</div>
       </div>
     </>
   );
