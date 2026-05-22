@@ -200,6 +200,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onResolveChoice={(instanceId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'resolve_choice', instanceId }); })}
       onSkipChoice={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'skip_choice' }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'end_turn' }); })}
+      onRevealFirstVillain={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'reveal_first_villain' }); })}
     />
   ),
 

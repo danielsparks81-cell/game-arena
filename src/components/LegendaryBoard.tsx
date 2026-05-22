@@ -69,6 +69,7 @@ export default function LegendaryBoard({
   state, currentUserId, isHost, disabled,
   onStart, onPlay, onRecruit, onRecruitSidekick, onRecruitOfficer,
   onFightCity, onFightMastermind, onResolveChoice, onSkipChoice, onEndTurn,
+  onRevealFirstVillain,
 }: {
   state: LegendaryState;
   currentUserId: string;
@@ -86,6 +87,8 @@ export default function LegendaryBoard({
   /** Skip the pending choice (forfeit the bonus). */
   onSkipChoice: () => void;
   onEndTurn: () => void;
+  /** Current player clicks "Game Begins" — reveals first villain via the engine. */
+  onRevealFirstVillain?: () => void;
 }) {
   const me = state.players.find(p => p.playerId === currentUserId);
   const mySeat = me?.seat ?? -1;
@@ -168,13 +171,20 @@ export default function LegendaryBoard({
   const sewersRef     = useRef<HTMLDivElement>(null); // sewers city slot (slot 0)
   const mastermindRef = useRef<HTMLDivElement>(null); // mastermind zone (bystander fallback)
 
-  // Intentionally starts at 0 so the first-turn villain reveal (which arrives
-  // in the log simultaneously with the lobby→playing transition) is caught.
-  const lastRevealIdx = useRef(0);
   const [revealAnim, setRevealAnim] = useState<RevealAnim | null>(null);
-  // startAcked: player must click the "Game Begins" overlay before the
-  // turn-1 villain reveal animation fires. Subsequent turns are unaffected.
+  // When handleStartAck fires the animation optimistically (immediate, from
+  // the villain deck top card), this flag tells the log-watcher to skip the
+  // matching villain_revealed event that arrives later from Supabase.
+  const skipFirstVillainAnim = useRef(false);
+  // startAcked: purely cosmetic — hides the "Game Begins" splash overlay.
+  // The reveal animation is fully decoupled from this flag; it fires whenever
+  // a new reveal event arrives in the log, regardless of overlay state.
   const [startAcked, setStartAcked] = useState(false);
+
+  // Cursor initialised to the current log length so events that already exist
+  // when the component mounts (lobby history) are never re-animated. Only log
+  // entries that arrive AFTER mount trigger the reveal overlay.
+  const lastRevealIdx = useRef(state.log.length);
   useEffect(() => {
     const start = lastRevealIdx.current;
     if (state.log.length <= start) {
@@ -182,44 +192,36 @@ export default function LegendaryBoard({
       return;
     }
     const fresh = state.log.slice(start);
+    // Always advance — we never need to replay a reveal event.
+    lastRevealIdx.current = state.log.length;
+
     let cardId = '';
     let kind: RevealAnim['kind'] | null = null;
-    // For bystanders we need to know whether it went to a villain or mastermind
-    // so we can pick the right exit destination.
     let bystanderDest: 'villain' | 'mastermind' = 'villain';
+    // Scan newest-first so we animate the most-recent reveal in this batch.
     for (const ev of [...fresh].reverse()) {
       if (ev.kind === 'villain_revealed') {
+        // Skip if we already fired an optimistic animation from handleStartAck.
+        if (skipFirstVillainAnim.current) {
+          skipFirstVillainAnim.current = false;
+          break; // don't re-animate; the card is already flying to the city
+        }
         cardId = ev.cardId;
         const def = getCard(ev.cardId);
         kind = def.kind === 'henchman' ? 'henchman' : 'villain';
         break;
       } else if (ev.kind === 'master_strike') {
-        cardId = 'master_strike';
-        kind = 'master_strike';
-        break;
+        cardId = 'master_strike'; kind = 'master_strike'; break;
       } else if (ev.kind === 'scheme_twist') {
-        cardId = 'scheme_twist';
-        kind = 'scheme_twist';
-        break;
+        cardId = 'scheme_twist';  kind = 'scheme_twist';  break;
       } else if (ev.kind === 'bystander_captured') {
-        cardId = 'bystander';
-        kind = 'bystander';
-        bystanderDest = ev.capturedBy;
-        break;
+        cardId = 'bystander'; kind = 'bystander';
+        bystanderDest = ev.capturedBy; break;
       }
     }
-    if (!kind) {
-      lastRevealIdx.current = state.log.length;
-      return;
-    }
-    // Turn-1 gate: block the reveal animation until the local player clicks
-    // "Game Begins". We intentionally do NOT advance lastRevealIdx here so
-    // the event is replayed once startAcked becomes true.
-    if (state.turn === 1 && !startAcked) return;
-    // Commit — advance cursor so this event isn't replayed.
-    lastRevealIdx.current = state.log.length;
+    if (!kind) return;
 
-    // Compute pixel-exact exit offset from viewport center → destination element center.
+    // Compute pixel-exact exit offset from viewport center → destination element.
     const cx = window.innerWidth  / 2;
     const cy = window.innerHeight / 2;
     const centerOf = (el: HTMLElement | null) => {
@@ -236,9 +238,8 @@ export default function LegendaryBoard({
     const exitX = dest ? dest.x - cx : (kind === 'villain' || kind === 'henchman' ? 340 : kind === 'master_strike' ? -380 : -200);
     const exitY = dest ? dest.y - cy : (kind === 'villain' || kind === 'henchman' ?  50 : kind === 'master_strike' ?   60 : -160);
 
-    // DO NOT return a cleanup here — the useEffect cleanup fires on every log
-    // change (any player action), which would cancel the exit timers and freeze
-    // the overlay in "showing". Timeouts are keyed so stale callbacks are no-ops.
+    // DO NOT return a cleanup here — the cleanup fires on every log change and
+    // would cancel exit timers mid-animation. Keys keep stale callbacks no-ops.
     const key = Date.now();
     setRevealAnim({ key, cardId, kind, phase: 'entering', exitX, exitY });
     window.setTimeout(() =>
@@ -247,7 +248,49 @@ export default function LegendaryBoard({
       setRevealAnim(a => a?.key === key ? { ...a, phase: 'exiting' } : a), 2500);
     window.setTimeout(() =>
       setRevealAnim(a => a?.key === key ? null : a), 3500);
-  }, [state.log, startAcked]);
+  }, [state.log]);
+
+  // When the current player clicks "Game Begins":
+  //   1. Immediately peek at the villain deck top card and fire the reveal
+  //      animation — no network round-trip, instant response.
+  //   2. Dispatch the reveal_first_villain engine action so the card is
+  //      actually placed in state (async, via Supabase).
+  //   3. skipFirstVillainAnim tells the log-watcher to ignore the matching
+  //      villain_revealed event that arrives when the state propagates back,
+  //      preventing a double-animation.
+  // Non-current players just dismiss their local overlay.
+  function handleStartAck() {
+    setStartAcked(true);
+    if (!isMyTurn) return;
+
+    const nextCard = state.villainDeck[0] ?? null;
+    if (nextCard) {
+      const def = getCard(nextCard.cardId);
+      if (def.kind === 'villain' || def.kind === 'henchman') {
+        const kind: RevealAnim['kind'] = def.kind === 'henchman' ? 'henchman' : 'villain';
+        const cx = window.innerWidth / 2;
+        const cy = window.innerHeight / 2;
+        let exitX = 340, exitY = 50;
+        const sewersEl = sewersRef.current;
+        if (sewersEl) {
+          const r = sewersEl.getBoundingClientRect();
+          exitX = r.left + r.width / 2 - cx;
+          exitY = r.top  + r.height / 2 - cy;
+        }
+        const key = Date.now();
+        setRevealAnim({ key, cardId: nextCard.cardId, kind, phase: 'entering', exitX, exitY });
+        window.setTimeout(() =>
+          setRevealAnim(a => a?.key === key ? { ...a, phase: 'showing' } : a), 50);
+        window.setTimeout(() =>
+          setRevealAnim(a => a?.key === key ? { ...a, phase: 'exiting' } : a), 2500);
+        window.setTimeout(() =>
+          setRevealAnim(a => a?.key === key ? null : a), 3500);
+        skipFirstVillainAnim.current = true;
+      }
+    }
+
+    onRevealFirstVillain?.();
+  }
 
   // ----- HQ slot refill animation -----
   // When a hero enters an empty HQ slot during gameplay (after a purchase or
@@ -334,7 +377,7 @@ export default function LegendaryBoard({
              col-span-1 right = Wounds + Bystanders ---- */}
         <div className="grid grid-cols-12 gap-2">
           {/* KO pile — cards removed from the game (master strikes, KO'd player cards) */}
-          <div className="col-span-1 flex h-32 flex-col">
+          <div className="col-span-1 flex h-40 flex-col">
             <PileDisplay
               label="KO"
               count={state.ko.length}
@@ -345,7 +388,7 @@ export default function LegendaryBoard({
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
-            <div className="col-span-1 flex h-32 flex-col">
+            <div className="col-span-1 flex h-40 flex-col">
               <PileDisplay
                 label="Escape"
                 count={state.escapedPile.length}
@@ -355,11 +398,11 @@ export default function LegendaryBoard({
               />
             </div>
             {/* Scheme — spans 2 city-slot widths. ref used for animation targeting. */}
-            <div className="col-span-2 h-32" ref={schemeRef}>
+            <div className="col-span-2 h-40" ref={schemeRef}>
               <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} />
             </div>
             {/* Mastermind — spans 2 city-slot widths */}
-            <div className="col-span-2 h-32" ref={mastermindRef}>
+            <div className="col-span-2 h-40" ref={mastermindRef}>
               <MastermindZone
                 mmDef={mmDef}
                 tacticsLeft={state.mastermind.tactics?.length ?? 0}
@@ -371,7 +414,7 @@ export default function LegendaryBoard({
             </div>
           </div>
           {/* Wounds + Bystanders — right of Mastermind, aligned with Villain/Hero Deck column */}
-          <div className="col-span-1 flex h-32 flex-col gap-1">
+          <div className="col-span-1 flex h-40 flex-col gap-1">
             <PileDisplay label="Wounds"     count={state.woundDeck.length}      tone="neutral" fill
               pileStyle={{ borderColor: '#7a3030', background: 'linear-gradient(135deg,rgba(107,37,37,.45),rgba(90,30,30,.45))' }} />
             <PileDisplay label="Bystanders" count={totalBystanders} tone="amber" fill infinite
@@ -383,7 +426,7 @@ export default function LegendaryBoard({
         {/* Left col: Twists + Strikes stacked. City renders slot4→0 (escape on left,
             entry on right next to Villain Deck). Villain Deck is full card height. */}
         <div className="grid grid-cols-12 gap-2">
-          <div className="col-span-1 flex h-32 flex-col gap-1">
+          <div className="col-span-1 flex h-40 flex-col gap-1">
             <PileDisplay
               label="Twists"
               count={state.schemeTwistsRevealed}
@@ -419,21 +462,21 @@ export default function LegendaryBoard({
               );
             })}
           </div>
-          {/* Villain Deck — full card height (h-32) */}
-          <div className="col-span-1 flex h-32 flex-col">
+          {/* Villain Deck — full card height (h-40) */}
+          <div className="col-span-1 flex h-40 flex-col">
             <PileDisplay label="Villain Deck" count={state.villainDeck.length} tone="rose" backFace fill />
           </div>
         </div>
 
         {/* ---- Row 4: HQ row ---- */}
-        {/* Left col: Sidekicks + Officers stacked (each half of h-32). Hero Deck full card height. */}
+        {/* Left col: Sidekicks + Officers stacked (each half of h-40). Hero Deck full card height. */}
         <div className="grid grid-cols-12 gap-2">
-          <div className="col-span-1 flex h-32 flex-col gap-1">
-            <PileDisplay label="Sidekicks" count={0} tone="neutral" fill infinite cost={SIDEKICK.cost} hoverDef={SIDEKICK}
+          <div className="col-span-1 flex h-40 flex-col gap-1">
+            <PileDisplay label={SIDEKICK.cardName} count={0} tone="neutral" fill infinite cost={SIDEKICK.cost} hoverDef={SIDEKICK}
               canAfford={isMyTurn && !disabled && state.thisTurn.recruit >= SIDEKICK.cost && !state.thisTurn.sidekickRecruited}
               onClick={isMyTurn && !disabled && !state.thisTurn.sidekickRecruited ? onRecruitSidekick : undefined}
               pileStyle={{ borderColor: '#909090', background: 'linear-gradient(135deg,#7a7a7a,#686868)' }} />
-            <PileDisplay label="Officers"  count={0} tone="neutral" fill infinite cost={OFFICER.cost}  hoverDef={OFFICER}  hoverLightBg
+            <PileDisplay label={OFFICER.cardName} count={0} tone="neutral" fill infinite cost={OFFICER.cost} hoverDef={OFFICER} hoverLightBg
               canAfford={isMyTurn && !disabled && state.thisTurn.recruit >= OFFICER.cost}
               onClick={isMyTurn && !disabled ? onRecruitOfficer : undefined}
               pileStyle={{ borderColor: '#909090', background: 'linear-gradient(135deg,#7a7a7a,#686868)' }} />
@@ -453,8 +496,8 @@ export default function LegendaryBoard({
               ))}
             </div>
           </div>
-          {/* Hero Deck — full card height (h-32) */}
-          <div className="col-span-1 flex h-32 flex-col">
+          {/* Hero Deck — full card height (h-40) */}
+          <div className="col-span-1 flex h-40 flex-col">
             <PileDisplay label="Hero Deck" count={state.heroDeck.length} tone="emerald" backFace fill />
           </div>
         </div>
@@ -481,7 +524,7 @@ export default function LegendaryBoard({
           <ResourcePip label="Recruit" value={state.thisTurn.recruit} color="emerald" />
         </div>
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[10px] uppercase tracking-wider text-neutral-500 shrink-0">Played</span>
+          <span className="text-[10px] uppercase tracking-wider text-white shrink-0">Played</span>
           <div className="flex flex-wrap gap-1">
             {state.thisTurn.playedThisTurn.length === 0 ? (
               <span className="text-xs text-neutral-600">—</span>
@@ -495,7 +538,7 @@ export default function LegendaryBoard({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-500">Turn {state.turn}</span>
+          <span className="text-xs text-white font-medium">Turn {state.turn}</span>
           {me && state.phase === 'playing' && (
             <div className="flex flex-col gap-1">
               <button
@@ -608,6 +651,41 @@ export default function LegendaryBoard({
         )}
       </div>
 
+      {/* Discard zone — shown in choice mode when the effect allows picking
+          from the discard pile (e.g. Dangerous Rescue: hand OR discard). */}
+      {isChoiceMode && pendingChoice!.sources?.includes('discard') && me && (
+        <>
+          <ZoneLabel>Your discard pile — choose a card to KO</ZoneLabel>
+          <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[100px]">
+            {me.discard.length === 0 ? (
+              <div className="text-xs text-neutral-600">discard pile empty</div>
+            ) : (
+              [...me.discard]
+                .sort((a, b) => {
+                  const aValid = isChoiceTarget(a.cardId, pendingChoice!);
+                  const bValid = isChoiceTarget(b.cardId, pendingChoice!);
+                  if (aValid !== bValid) return aValid ? -1 : 1;
+                  const aD = CARDS[a.cardId];
+                  const bD = CARDS[b.cardId];
+                  return (bD?.kind === 'hero' ? bD.cost : 0) - (aD?.kind === 'hero' ? aD.cost : 0);
+                })
+                .map((card) => {
+                  const valid = isChoiceTarget(card.cardId, pendingChoice!);
+                  return (
+                    <HandCard
+                      key={card.instanceId}
+                      card={card}
+                      disabled={!valid || disabled}
+                      choiceMode={valid ? pendingChoice!.kind : undefined}
+                      onClick={() => onResolveChoice(card.instanceId)}
+                    />
+                  );
+                })
+            )}
+          </div>
+        </>
+      )}
+
       {/* Victory-assured banner — shown after the final Tactic is taken but
           before the player clicks End Turn, so they can collect bonus VP. */}
       {state.pendingResult === 'win' && (
@@ -622,7 +700,7 @@ export default function LegendaryBoard({
 
       {/* Game-start acknowledgment overlay — player clicks to trigger turn-1 villain reveal */}
       {state.phase === 'playing' && state.turn === 1 && !startAcked && (
-        <StartAckOverlay onAck={() => setStartAcked(true)} />
+        <StartAckOverlay onAck={handleStartAck} />
       )}
       {/* Villain / strike / twist reveal overlay */}
       {revealAnim && <CardRevealOverlay anim={revealAnim} />}
@@ -679,14 +757,14 @@ function CitySlot({
 }) {
   if (!card) {
     return (
-      <div className="flex h-32 flex-col items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
+      <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
         <span>empty</span>
       </div>
     );
   }
   const def = getCard(card.cardId);
   if (def.kind !== 'villain' && def.kind !== 'henchman') {
-    return <div className="h-32 rounded-lg bg-neutral-900" />;
+    return <div className="h-40 rounded-lg bg-neutral-900" />;
   }
   const canFight = !disabled && attack >= def.attack;
   return (
@@ -722,13 +800,13 @@ function HQSlot({
 }) {
   if (!card) {
     return (
-      <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
+      <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
         empty
       </div>
     );
   }
   const def = getCard(card.cardId);
-  if (def.kind !== 'hero') return <div className="h-32 rounded-lg bg-neutral-900" />;
+  if (def.kind !== 'hero') return <div className="h-40 rounded-lg bg-neutral-900" />;
   const canAfford = !disabled && recruit >= def.cost;
   const copies = CARD_COPIES[card.cardId];
   return (
@@ -742,7 +820,7 @@ function HQSlot({
         canAfford ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl' : 'opacity-60',
       ].join(' ')}
     >
-      <HeroCardArt def={def} wide height="h-32" copies={copies} />
+      <HeroCardArt def={def} wide height="h-40" copies={copies} />
       <span className="sr-only">Slot {slot}</span>
     </button>
   );
@@ -759,25 +837,33 @@ function HandCard({
 }) {
   const def = CARDS[card.cardId];
   // Wounds / bystanders in hand — junk cards that match sandbox system card art.
+  // In choice mode they may be valid targets (e.g. Wolverine KOs a Wound),
+  // so we respect the incoming `disabled` and `choiceMode` props rather than
+  // hardcoding them as always-disabled.
   if (!def || def.kind !== 'hero') {
-    const isWound = def?.kind === 'wound';
+    const isWound     = def?.kind === 'wound';
     const isBystander = def?.kind === 'bystander';
-    if (isWound) {
+    if (isWound || isBystander) {
+      const systemChoiceRing =
+        choiceMode === 'ko_from_hand'      ? 'ring-2 ring-rose-500 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+        choiceMode === 'discard_from_hand' ? 'ring-2 ring-amber-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+        '';
       return (
-        <button type="button" disabled className="cursor-default opacity-80">
-          <SystemCardArt name="Wound" borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)" height="h-32" />
-        </button>
-      );
-    }
-    if (isBystander) {
-      return (
-        <button type="button" disabled className="cursor-default opacity-80">
-          <SystemCardArt name="Bystander" borderColor="#c4a800" bg="linear-gradient(135deg, #c4a800, #a08600)" vp={1} height="h-32" />
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={onClick}
+          className={`transition ${systemChoiceRing || (disabled ? 'cursor-default opacity-80' : 'hover:-translate-y-1 hover:shadow-lg')}`}
+        >
+          {isWound
+            ? <SystemCardArt name="Wound"     borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)"   height="h-40" />
+            : <SystemCardArt name="Bystander" borderColor="#c4a800" bg="linear-gradient(135deg, #c4a800, #a08600)"   height="h-40" vp={1} />
+          }
         </button>
       );
     }
     return (
-      <div className="flex h-32 w-[220px] flex-col items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 opacity-60 text-[11px] text-neutral-500">
+      <div className="flex h-40 w-[220px] flex-col items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 opacity-60 text-[11px] text-neutral-500">
         Unknown card
       </div>
     );
@@ -830,7 +916,7 @@ function PlayerBox({
           style={{ background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.07) 0 4px, transparent 4px 8px)' }}
         />
       )}
-      <span className="relative z-10 text-[9px] uppercase tracking-wider text-neutral-500">{label}</span>
+      <span className="relative z-10 text-[9px] uppercase tracking-wider text-white">{label}</span>
       <span className={`relative z-10 font-sans tabular-nums text-lg font-bold ${num}`}>{value}</span>
     </div>
   );
@@ -967,7 +1053,7 @@ function PileDisplay({
         />
       )}
       <div className={`relative z-10 flex flex-col items-center transition-opacity duration-150 ${dimContent ? 'opacity-60' : ''}`}>
-        <span className="text-[9px] uppercase tracking-wider text-neutral-500">{label}</span>
+        <span className="text-[9px] uppercase tracking-wider text-white">{label}</span>
         <span className="font-sans tabular-nums text-base font-bold text-neutral-200">
           {infinite ? '∞' : count}{total !== undefined ? `/${total}` : ''}
         </span>

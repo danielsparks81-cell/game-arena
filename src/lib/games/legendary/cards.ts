@@ -9,7 +9,7 @@ import { TROOPER, AGENT, SHIELD_CARDS } from './heroes/shield';
 import { ALL_HERO_CLASSES } from './heroes/all-heroes';
 import { HYDRA_GROUP } from './villains/hydra';
 import { HAND_NINJA_GROUP } from './villains/hand-ninjas';
-import { RED_SKULL } from './masterminds/red-skull';
+import { RED_SKULL, RED_SKULL_TACTICS } from './masterminds/red-skull';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from './schemes/prison-breakout';
 
 // Hero classes available for selection at game-setup time.
@@ -52,6 +52,8 @@ function buildCatalog(): Record<CardId, CardDef> {
   for (const hg of HENCHMAN_GROUPS) for (const { def } of hg.cards) add(def);
   for (const mm of MASTERMINDS) add(mm);
   for (const s of SCHEMES) add(s);
+  // Mastermind Tactic cards — not iterated from a group, registered individually.
+  for (const t of RED_SKULL_TACTICS) add(t);
   add(WOUND); add(BYSTANDER); add(MASTER_STRIKE); add(SCHEME_TWIST);
   return cat;
 }

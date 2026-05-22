@@ -8,15 +8,28 @@
 import type { HeroClass, HeroCardDef, Team } from '@/lib/games/legendary';
 
 // ─── Class colors ────────────────────────────────────────────────────────────
-// Canonical Marvel Legendary class colors. Tech is "black" on printed cards
-// but renders as metallic slate on the dark UI so it's visible.
+// Colors as they appear in the game UI (dot next to the hero class name):
+//   Tech      = black
+//   Covert    = red
+//   Instinct  = yellow
+//   Ranged    = blue
+//   Strength  = green
 
 export const CLASS_COLORS: Record<HeroClass, string> = {
-  strength: '#22c55e',
-  covert:   '#ef4444',
-  ranged:   '#3b82f6',
-  tech:     '#4a5568',
-  instinct: '#eab308',
+  tech:     '#4a5568',  // slate (dark, visible border on dark UI)
+  covert:   '#ef4444',  // red
+  instinct: '#eab308',  // yellow
+  ranged:   '#3b82f6',  // blue
+  strength: '#22c55e',  // green
+};
+
+/** Chip dot colors — what the player sees next to the hero class name. */
+export const CLASS_CHIP_COLORS: Record<HeroClass, string> = {
+  tech:     '#1a1a1a',  // black
+  covert:   '#ef4444',  // red
+  instinct: '#eab308',  // yellow
+  ranged:   '#3b82f6',  // blue
+  strength: '#22c55e',  // green
 };
 
 export const CLASS_LABELS: Record<HeroClass, string> = {
@@ -79,6 +92,27 @@ export function isShieldStarter(className: string): boolean {
   return className === 'S.H.I.E.L.D.';
 }
 
+// ─── Class background tints ───────────────────────────────────────────────────
+// Dark, saturated gradient derived from each class color. Applied as the
+// default card background so the class is immediately readable at a glance.
+// `extraStyle` (passed by callers for SHIELD grey, etc.) overrides this.
+
+const CLASS_DARK_BG: Record<HeroClass, readonly [string, string]> = {
+  tech:     ['#1e1e1e', '#111111'],  // dark charcoal / near-black
+  covert:   ['#2e0f0f', '#140808'],  // dark red
+  instinct: ['#2e2808', '#141204'],  // dark amber
+  ranged:   ['#0f1a2e', '#060a14'],  // dark navy
+  strength: ['#0f2e18', '#080f0a'],  // dark green
+};
+
+/** Returns a linear-gradient background for a card based on its classes. */
+export function classBg(classes: HeroClass[]): string {
+  if (classes.length === 0) return 'linear-gradient(135deg, #1c1c1c, #111111)';
+  const [from] = CLASS_DARK_BG[classes[0]];
+  const [, to]  = CLASS_DARK_BG[classes[classes.length - 1]];
+  return `linear-gradient(135deg, ${from}, ${to})`;
+}
+
 // ─── Border helpers ───────────────────────────────────────────────────────────
 
 export function classBorderStyle(classes: HeroClass[], className: string): React.CSSProperties {
@@ -107,7 +141,7 @@ export function ClassChips({ classes, size = 'sm' }: { classes: HeroClass[]; siz
               title={CLASS_LABELS[c]}
               aria-label={CLASS_LABELS[c]}
               className={`inline-block ${sz} rounded-full border border-black/40 shadow-[inset_0_0_2px_rgba(0,0,0,0.4)]`}
-              style={{ backgroundColor: CLASS_COLORS[c] }}
+              style={{ backgroundColor: CLASS_CHIP_COLORS[c] }}
             />
           ))
       }
@@ -116,20 +150,82 @@ export function ClassChips({ classes, size = 'sm' }: { classes: HeroClass[]; siz
 }
 
 // ─── Strike icon — three claw scratch marks ──────────────────────────────────
-function StrikeIcon() {
+function StrikeIcon({ size = 16 }: { size?: number }) {
+  const h = Math.round(size * 14 / 16);
   return (
     <svg
-      width="16" height="14" viewBox="0 0 16 14"
+      width={size} height={h} viewBox="0 0 16 14"
       style={{ display: 'inline-block', verticalAlign: 'middle', filter: 'drop-shadow(0 0 2px #991b1b)' }}
       aria-label="strike"
     >
       <g stroke="#ef4444" strokeLinecap="round" fill="none" strokeWidth="1.8">
-        {/* Three diagonal claw marks — top-left to bottom-right */}
         <path d="M1 1 C2 5 4 9 7 13" />
         <path d="M5.5 1 C6.5 5 8.5 9 11 13" />
         <path d="M10 1 C11 5 13 9 15 13" />
       </g>
     </svg>
+  );
+}
+
+// ─── Card-text token parser ───────────────────────────────────────────────────
+//
+// Card text is stored as a string with lightweight markup tokens so the author
+// can embed icons without writing JSX directly. Supported tokens:
+//
+//   [strength]  [covert]  [ranged]  [tech]  [instinct]
+//       → renders the class's colored dot (same chip style as the header)
+//
+//   [strike]
+//       → renders the red claw-mark SVG inline
+//
+//   [recruit]
+//       → renders the amber ★ recruit symbol
+//
+// Example:  "[covert] Rescue a Bystander. +1[strike] per Bystander in VP."
+//
+// This is intentionally minimal — the parser is a simple regex split so the
+// text field stays a plain TypeScript string (no JSX needed in card defs).
+
+const TOKEN_RE = /(\[(?:strength|covert|ranged|tech|instinct|strike|recruit)\]|\n)/g;
+
+export function CardText({ text, lightBg }: { text: string; lightBg?: boolean }) {
+  const parts = text.split(TOKEN_RE);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part === '\n') return <br key={i} />;
+        if (part === '[strike]') {
+          return <StrikeIcon key={i} size={13} />;
+        }
+        if (part === '[recruit]') {
+          return (
+            <span key={i} style={{ color: '#A8893E', fontSize: '13px', lineHeight: 1 }}>★</span>
+          );
+        }
+        const clsMatch = part.match(/^\[(strength|covert|ranged|tech|instinct)\]$/);
+        if (clsMatch) {
+          const cls = clsMatch[1] as HeroClass;
+          return (
+            <span
+              key={i}
+              aria-label={CLASS_LABELS[cls]}
+              title={CLASS_LABELS[cls]}
+              style={{
+                display: 'inline-block',
+                width: '9px',
+                height: '9px',
+                borderRadius: '50%',
+                backgroundColor: CLASS_CHIP_COLORS[cls],
+                border: '1px solid rgba(0,0,0,0.4)',
+                verticalAlign: 'middle',
+                marginRight: '1px',
+              }}
+            />
+          );
+        }
+        return <span key={i} className={lightBg ? 'text-neutral-700' : 'text-neutral-300'}>{part}</span>;
+      })}
+    </>
   );
 }
 
@@ -139,7 +235,7 @@ export function CostBadge({ cost }: { cost: number }) {
   return (
     <div
       aria-label={`Cost ${cost} recruit`}
-      className="absolute bottom-1 right-1 flex h-[26px] w-[26px] items-center justify-center rounded-full font-mono text-[12px] font-bold shadow-[0_1px_3px_rgba(0,0,0,0.6)]"
+      className="absolute bottom-1 right-1 flex h-[26px] w-[26px] items-center justify-center rounded-full font-sans text-[12px] font-bold shadow-[0_1px_3px_rgba(0,0,0,0.6)]"
       style={{
         backgroundColor: '#7A6330',
         border: '1px solid #A8893E',
@@ -164,8 +260,10 @@ export function HeroCardArt({
   def,
   wide = false,
   copies,
-  height = 'h-32',
+  height = 'h-40',
   className: extraClassName = '',
+  style: extraStyle,
+  lightBg = false,
 }: {
   def: HeroCardDef;
   /** Stretch width to parent. Used in HQ slots. */
@@ -174,9 +272,13 @@ export function HeroCardArt({
    *  Rare (1 copy) = sharp corners; common/uncommon = rounded. Omit to default
    *  to rounded (safe for unknown / draft cards). */
   copies?: number;
-  /** Card height override. HQ slots use h-36; default hand cards use h-32. */
+  /** Card height override. Default h-36; pass h-40 for extra-tall slots. */
   height?: 'h-28' | 'h-32' | 'h-36' | 'h-40';
   className?: string;
+  /** Optional style overrides — use `background` to tint the card body. */
+  style?: React.CSSProperties;
+  /** Set true when the card has a light background so secondary text stays readable. */
+  lightBg?: boolean;
 }) {
   const widthClass = wide ? 'w-full' : 'w-[220px]';
   const isShield = isShieldStarter(def.className);
@@ -185,13 +287,13 @@ export function HeroCardArt({
 
   return (
     <div
-      style={{ borderWidth: 2, ...classBorderStyle(def.classes, def.className) }}
-      className={`relative flex ${height} ${widthClass} flex-col items-stretch ${corners} bg-gradient-to-br from-neutral-900 to-neutral-950 p-2 text-left ${extraClassName}`}
+      style={{ borderWidth: 2, background: classBg(def.classes), ...classBorderStyle(def.classes, def.className), ...extraStyle }}
+      className={`relative flex ${height} ${widthClass} flex-col items-stretch ${corners} p-2 text-left ${extraClassName}`}
     >
       {/* Line 1: [Team icon] [Card name] */}
       <div className="flex items-center gap-1 min-w-0">
         {!isShield && <TeamChip teams={def.teams} />}
-        <span className="text-[12px] font-bold leading-tight text-neutral-100 whitespace-nowrap overflow-x-hidden">
+        <span className="min-w-0 flex-1 truncate text-[12px] font-bold leading-tight text-neutral-100">
           {def.cardName}
         </span>
       </div>
@@ -200,13 +302,15 @@ export function HeroCardArt({
       {!isShield && (
         <div className="flex items-center gap-1">
           <ClassChips classes={def.classes} size="sm" />
-          <span className="text-[12px] font-medium text-neutral-500">{def.className}</span>
+          <span className={`text-[12px] font-medium ${lightBg ? 'text-white' : 'text-neutral-300'}`}>{def.className}</span>
         </div>
       )}
 
-      {/* Card text */}
+      {/* Card text — parsed for inline icons via CardText */}
       {def.text && (
-        <div className="my-1 flex-1 text-[12px] leading-snug text-neutral-300">{def.text}</div>
+        <div className="my-1 flex-1 px-1 text-[12px] leading-snug">
+          <CardText text={def.text} lightBg={lightBg} />
+        </div>
       )}
 
       {/* Stat footer — Recruit first, Strike second. 25% larger than original text-[10px].

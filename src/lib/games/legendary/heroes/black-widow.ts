@@ -2,6 +2,25 @@ import type { HeroCardDef } from '../types';
 
 // Black Widow hero class — Avengers, Covert/Tech.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
+//
+// Card text sourced from physical cards:
+//
+//   Mission Accomplished (cost 2, Tech):
+//     Draw a card.
+//     Covert: Rescue a Bystander.
+//
+//   Dangerous Rescue (cost 3, Covert):
+//     2 Attack.
+//     Strength: You may KO a card from your hand or discard pile.
+//              If you do, rescue a Bystander.
+//
+//   Covert Operation (cost 4, Covert):
+//     +1 Attack for each Bystander in your Victory Pile.
+//
+//   Silent Sniper (cost 7, Covert):
+//     4 Attack.
+//     You may fight a villain or mastermind that has a Bystander for free
+//     (no Attack cost).
 
 export const BW_MISSION_ACCOMPLISHED: HeroCardDef = {
   kind: 'hero',
@@ -9,13 +28,15 @@ export const BW_MISSION_ACCOMPLISHED: HeroCardDef = {
   className: 'Black Widow',
   cardName: 'Mission Accomplished',
   cost: 2,
-  baseRecruit: 1,
+  // No base Attack or Recruit — purely effect-driven.
   classes: ['tech'],
   teams: ['avengers'],
-  text: 'Recruit. Covert: +1 Recruit.',
+  text: 'Draw a card.\n[tech]: Rescue a Bystander.',
   onPlay: [
-    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 1,
-      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+    { kind: 'draw', amount: 1 },
+    // This card IS Tech, so the trigger fires when it is played (tech count ≥ 1).
+    { kind: 'if_played_class_this_turn', cls: 'tech', minOthers: 1,
+      effects: [{ kind: 'rescue_bystander', amount: 1 }] },
   ],
 };
 
@@ -28,9 +49,16 @@ export const BW_DANGEROUS_RESCUE: HeroCardDef = {
   baseAttack: 2,
   classes: ['covert'],
   teams: ['avengers'],
-  text: '2 Attack. Rescue a Bystander.',
+  text: '[covert]: You may KO a card from your hand or discard pile. If you do, rescue a Bystander.',
   onPlay: [
-    { kind: 'rescue_bystander', amount: 1 },
+    // This card IS Covert, so the trigger fires when it is played (covert count ≥ 1).
+    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 1,
+      effects: [
+        // sources: ['hand', 'discard'] — player may pick from either zone.
+        { kind: 'ko_from_hand', up_to: 1,
+          sources: ['hand', 'discard'],
+          bonus: [{ kind: 'rescue_bystander', amount: 1 }] },
+      ] },
   ],
 };
 
@@ -44,9 +72,9 @@ export const BW_COVERT_OPERATION: HeroCardDef = {
   baseAttackScales: true,
   classes: ['covert'],
   teams: ['avengers'],
-  text: '+1 Attack for each Covert hero you play this turn, including this one.',
+  text: 'You get +1[strike] for each Bystander in your Victory Pile.',
   onPlay: [
-    { kind: 'gain_attack_per_class', cls: 'covert', bonus: 1, includeSelf: true },
+    { kind: 'gain_attack_per_vp_bystander' },
   ],
 };
 
@@ -59,11 +87,9 @@ export const BW_SILENT_SNIPER: HeroCardDef = {
   baseAttack: 4,
   classes: ['covert'],
   teams: ['avengers'],
-  text: '4 Attack. Covert: +2 Attack.',
+  text: 'Defeat a Villain or Mastermind that has a Bystander.',
   onPlay: [
-    // This card is Covert, so total must be ≥2 for "another Covert" to be true.
-    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 2 }] },
+    { kind: 'grant_free_bystander_fight' },
   ],
 };
 

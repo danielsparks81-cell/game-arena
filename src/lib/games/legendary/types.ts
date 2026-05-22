@@ -49,9 +49,11 @@ export type Effect =
   | { kind: 'gain_recruit'; amount: number }
   // Card flow
   | { kind: 'draw'; amount: number }
-  /** "You may KO a card from your hand. If you do, +Bonus."
-   *  `filter: 'wounds_only'` restricts the choice to Wound cards only. */
-  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only' }
+  /** "You may KO a card from your hand (or discard). If you do, +Bonus."
+   *  `filter: 'wounds_only'` restricts the choice to Wound cards only.
+   *  `sources` defaults to `['hand']`; set to `['hand','discard']` for cards
+   *  like Dangerous Rescue that let you pick from either zone. */
+  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only'; sources?: ('hand' | 'discard')[] }
   | { kind: 'discard_from_hand'; up_to: number; bonus?: Effect[] }
   // Wounds + bystanders
   | { kind: 'gain_wound' }
@@ -62,6 +64,12 @@ export type Effect =
   | { kind: 'gain_recruit_per_class';  cls: HeroClass; bonus: number; includeSelf?: boolean }
   | { kind: 'gain_attack_per_team';    team: Team;     bonus: number; includeSelf?: boolean }
   | { kind: 'gain_recruit_per_team';   team: Team;     bonus: number; includeSelf?: boolean }
+  /** +1 Attack for each Bystander currently in the playing player's Victory Pile. */
+  | { kind: 'gain_attack_per_vp_bystander' }
+  /** Until the end of this turn, the player may fight ONE villain or mastermind
+   *  that has an attached bystander without spending any Attack resource.
+   *  The flag resets after the free fight is used or on end-of-turn. */
+  | { kind: 'grant_free_bystander_fight' }
   // Conditional class/team/hero-name synergies.
   // `minOthers` = minimum count of that class/team/heroName needed in playedThisTurn
   //   (including self if the card is of that class/team/name, since counts are bumped
@@ -289,6 +297,9 @@ export type PendingChoice = {
   bonus: Effect[];
   /** When set, only cards matching this filter are selectable. */
   filter?: 'wounds_only';
+  /** Which zones the player may pick from. Defaults to `['hand']`.
+   *  Set to `['hand','discard']` for effects that span both zones. */
+  sources?: ('hand' | 'discard')[];
 };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
@@ -312,6 +323,10 @@ export type TurnState = {
   /** When set, the active player must pick a card from their hand to
    *  KO/discard before they can take any other action. */
   pendingChoice?: PendingChoice;
+  /** Set by `grant_free_bystander_fight`. Allows the player to fight ONE
+   *  villain or mastermind that has an attached bystander without spending any
+   *  Attack. Consumed on use; reset to false on end-of-turn. */
+  freeBystanderFightAvailable: boolean;
 };
 
 export type LegendaryEvent =

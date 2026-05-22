@@ -629,6 +629,7 @@ export type GameAction =
   | { game: 'legendary'; kind: 'resolve_choice'; instanceId: string }
   | { game: 'legendary'; kind: 'skip_choice' }
   | { game: 'legendary'; kind: 'end_turn' }
+  | { game: 'legendary'; kind: 'reveal_first_villain' }
 
   // Long Shot
   | { game: 'longshot'; kind: 'roll' }
@@ -686,8 +687,9 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'fight_city')       return makeMoveLG(roomId, { kind: 'fight_city', slot: action.slot });
       if (action.kind === 'fight_mastermind') return makeMoveLG(roomId, { kind: 'fight_mastermind' });
       if (action.kind === 'resolve_choice')   return makeMoveLG(roomId, { kind: 'resolve_choice', instanceId: action.instanceId });
-      if (action.kind === 'skip_choice')      return makeMoveLG(roomId, { kind: 'skip_choice' });
-      if (action.kind === 'end_turn')         return makeMoveLG(roomId, { kind: 'end_turn' });
+      if (action.kind === 'skip_choice')         return makeMoveLG(roomId, { kind: 'skip_choice' });
+      if (action.kind === 'end_turn')            return makeMoveLG(roomId, { kind: 'end_turn' });
+      if (action.kind === 'reveal_first_villain') return makeMoveLG(roomId, { kind: 'reveal_first_villain' });
       break;
     case 'longshot':
       if (action.kind === 'startGame') return startGame(roomId);

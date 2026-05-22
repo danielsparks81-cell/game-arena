@@ -59,7 +59,7 @@ export function VillainCardArt({
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className={`relative flex h-32 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
+      className={`relative flex h-40 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
     >
       {/* Name row */}
       <div className="flex items-center gap-1 min-w-0">
@@ -71,7 +71,7 @@ export function VillainCardArt({
       </div>
       {/* Card text */}
       {def.text && (
-        <div className="my-1 flex-1 text-[11px] leading-snug text-neutral-300">{def.text}</div>
+        <div className="my-1 flex-1 px-1 text-[11px] leading-snug text-neutral-300">{def.text}</div>
       )}
       {!def.text && <div className="flex-1" />}
       {/* Footer: bystander count left, attack right */}
@@ -103,7 +103,7 @@ export function HenchmanCardArt({
   return (
     <div
       style={{ borderWidth: 2, borderColor: '#eab308', borderStyle: 'solid' }}
-      className={`relative flex h-32 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
+      className={`relative flex h-40 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
     >
       <div className="flex items-center gap-1 min-w-0">
         <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
@@ -138,14 +138,14 @@ export function HenchmanCardArt({
  */
 export function SystemCardArt({
   name, borderColor, vp, bg,
-  wide = false, height = 'h-32',
+  wide = false, height = 'h-40',
 }: {
   name: string;
   borderColor: string;
   vp?: number;
   bg?: string;
   wide?: boolean;
-  height?: 'h-28' | 'h-32' | 'h-36';
+  height?: 'h-28' | 'h-32' | 'h-40';
 }) {
   const widthClass = wide ? 'w-full' : 'w-[220px]';
   return (

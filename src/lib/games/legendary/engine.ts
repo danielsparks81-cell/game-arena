@@ -129,6 +129,7 @@ function emptyTurnState(): TurnState {
     heroNameCounts: {},
     sidekickRecruited: false,
     pendingChoice: undefined,
+    freeBystanderFightAvailable: false,
   };
 }
 
@@ -341,7 +342,11 @@ export type LegendaryAction =
   /** Skip the pending choice (forfeit the "If you do…" bonus). */
   | { kind: 'skip_choice' }
   /** Clean up turn (discard hand + played) and pass turn. */
-  | { kind: 'end_turn' };
+  | { kind: 'end_turn' }
+  /** Reveal the first villain card at the start of the game (triggered when
+   *  the current player clicks "Game Begins"). Only valid on turn 1 while
+   *  all city slots are still empty. */
+  | { kind: 'reveal_first_villain' };
 
 export function applyAction(
   state: LegendaryState,
@@ -372,7 +377,8 @@ export function applyAction(
     case 'fight_mastermind':  return doFightMastermind(next, meNext);
     case 'resolve_choice':    return doResolveChoice(next, meNext, action.instanceId);
     case 'skip_choice':       return doSkipChoice(next);
-    case 'end_turn':          return doEndTurn(next);
+    case 'end_turn':              return doEndTurn(next);
+    case 'reveal_first_villain':  return doRevealFirstVillain(next);
   }
 }
 
@@ -513,18 +519,34 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Bystander-count scaling and free-fight flag ────────────────────────
+    case 'gain_attack_per_vp_bystander': {
+      const count = me.victoryPile.filter(c => c.cardId === 'bystander').length;
+      state.thisTurn.attack += count;
+      return;
+    }
+    case 'grant_free_bystander_fight': {
+      state.thisTurn.freeBystanderFightAvailable = true;
+      return;
+    }
+
     // ── Player-choice effects (KO / discard from hand) ─────────────────────
     // These set a pendingChoice so the board can prompt the player to pick a
     // card. Subsequent actions are blocked until resolved or skipped.
     case 'ko_from_hand': {
+      const sources = effect.sources ?? ['hand'];
+      const fromHand    = sources.includes('hand');
+      const fromDiscard = sources.includes('discard');
       const hasValid = effect.filter === 'wounds_only'
-        ? me.hand.some(c => c.cardId === 'wound')
-        : me.hand.length > 0;
+        ? (fromHand    && me.hand.some(c => c.cardId === 'wound')) ||
+          (fromDiscard && me.discard.some(c => c.cardId === 'wound'))
+        : (fromHand && me.hand.length > 0) || (fromDiscard && me.discard.length > 0);
       if (!hasValid) return; // no eligible cards — silently skip
       const choice: PendingChoice = {
         kind: 'ko_from_hand',
         bonus: effect.bonus ?? [],
         filter: effect.filter,
+        sources,
       };
       state.thisTurn.pendingChoice = choice;
       return;
@@ -612,15 +634,24 @@ function doFightCity(
   if (def.kind !== 'villain' && def.kind !== 'henchman') {
     return { error: 'Card in City is not fightable' };
   }
-  if (state.thisTurn.attack < def.attack) {
+
+  // Silent Sniper's "fight a villain with a bystander for free" flag.
+  const attached = state.cityBystanders[card.instanceId] ?? [];
+  const freeFight = state.thisTurn.freeBystanderFightAvailable && attached.length > 0;
+
+  if (!freeFight && state.thisTurn.attack < def.attack) {
     return { error: `Need ${def.attack} Attack, have ${state.thisTurn.attack}` };
   }
-  state.thisTurn.attack -= def.attack;
+  if (freeFight) {
+    // Consume the free-fight flag — it's a "once per turn" ability.
+    state.thisTurn.freeBystanderFightAvailable = false;
+  } else {
+    state.thisTurn.attack -= def.attack;
+  }
   state.city[slot] = null;
   me.victoryPile.push(card);
 
-  // Rescue any bystanders attached to this villain.
-  const attached = state.cityBystanders[card.instanceId] ?? [];
+  // Rescue any bystanders attached to this villain (attached is computed above).
   if (attached.length > 0) {
     for (const b of attached) me.victoryPile.push(b);
     delete state.cityBystanders[card.instanceId];
@@ -650,18 +681,33 @@ function doResolveChoice(
   const choice = state.thisTurn.pendingChoice;
   if (!choice) return { error: 'No pending choice to resolve' };
 
-  const idx = me.hand.findIndex(c => c.instanceId === instanceId);
-  if (idx < 0) return { error: 'Card not in your hand' };
+  // Locate the card in whichever zone(s) the choice allows.
+  const sources = choice.sources ?? ['hand'];
+  let zone: 'hand' | 'discard' = 'hand';
+  let idx = -1;
 
-  const card = me.hand[idx];
+  if (sources.includes('hand')) {
+    idx = me.hand.findIndex(c => c.instanceId === instanceId);
+    if (idx >= 0) zone = 'hand';
+  }
+  if (idx < 0 && sources.includes('discard')) {
+    idx = me.discard.findIndex(c => c.instanceId === instanceId);
+    if (idx >= 0) zone = 'discard';
+  }
+  if (idx < 0) {
+    return { error: 'Card not found in a valid zone for this choice' };
+  }
+
+  const card = zone === 'hand' ? me.hand[idx] : me.discard[idx];
 
   // Validate filter
   if (choice.filter === 'wounds_only' && card.cardId !== 'wound') {
     return { error: 'You must choose a Wound card for this effect' };
   }
 
-  // Remove from hand
-  me.hand.splice(idx, 1);
+  // Remove from the appropriate zone
+  if (zone === 'hand')    me.hand.splice(idx, 1);
+  else                    me.discard.splice(idx, 1);
 
   // Determine card's display name for the log
   const cDef = getCard(card.cardId);
@@ -669,14 +715,15 @@ function doResolveChoice(
     cDef.kind === 'hero'      ? cDef.cardName :
     'name' in cDef            ? (cDef as { name: string }).name :
     card.cardId;
+  const zoneLabel = zone === 'discard' ? 'discard pile' : 'hand';
 
   // KO or discard the chosen card
   if (choice.kind === 'ko_from_hand') {
     state.ko.push(card);
-    pushLog(state, { kind: 'system', text: `${me.username} KO'd ${cardLabel} from hand.` });
+    pushLog(state, { kind: 'system', text: `${me.username} KO'd ${cardLabel} from ${zoneLabel}.` });
   } else {
     me.discard.push(card);
-    pushLog(state, { kind: 'system', text: `${me.username} discarded ${cardLabel} from hand.` });
+    pushLog(state, { kind: 'system', text: `${me.username} discarded ${cardLabel} from ${zoneLabel}.` });
   }
 
   // Clear choice BEFORE resolving bonus (bonus could chain another choice).
@@ -705,14 +752,22 @@ function doFightMastermind(
 ): LegendaryState | { error: string } {
   const mmDef = getCard(state.mastermind.cardId);
   if (mmDef.kind !== 'mastermind') return { error: 'Mastermind misconfigured' };
-  if (state.thisTurn.attack < mmDef.attack) {
-    return { error: `Need ${mmDef.attack} Attack to hit ${mmDef.name}` };
-  }
   if (state.mastermind.tactics.length === 0) {
     return { error: 'Mastermind is already defeated' };
   }
 
-  state.thisTurn.attack -= mmDef.attack;
+  // Silent Sniper's free-fight flag: fight the Mastermind for free if it holds
+  // at least one bystander and the flag has been set this turn.
+  const mmFreeFight = state.thisTurn.freeBystanderFightAvailable &&
+                      state.mastermind.bystanders.length > 0;
+  if (!mmFreeFight && state.thisTurn.attack < mmDef.attack) {
+    return { error: `Need ${mmDef.attack} Attack to hit ${mmDef.name}` };
+  }
+  if (mmFreeFight) {
+    state.thisTurn.freeBystanderFightAvailable = false;
+  } else {
+    state.thisTurn.attack -= mmDef.attack;
+  }
   state.mastermind.hitsTaken++;
 
   // ── Step 1: Take a random face-down Tactic card ──────────────────────────
@@ -795,6 +850,17 @@ function recomputeVp(p: PlayerState): void {
     if (d.kind === 'bystander')  vp += d.vp;
   }
   p.vp = vp;
+}
+
+// ---------------- Reveal first villain ----------------
+
+/** Triggered when the current player (seat 0, turn 1) clicks "Game Begins".
+ *  Reveals the opening villain into the city so the reveal animation fires
+ *  exactly when the player expects it — not during headless setup. */
+function doRevealFirstVillain(state: LegendaryState): LegendaryState | { error: string } {
+  if (state.city.some(c => c !== null)) return { error: 'City is not empty — first villain already revealed' };
+  revealOneVillainCard(state);
+  return state;
 }
 
 // ---------------- End turn ----------------

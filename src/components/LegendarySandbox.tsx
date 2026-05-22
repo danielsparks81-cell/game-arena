@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { HeroCardArt, CLASS_COLORS, CLASS_LABELS } from '@/components/legendary/HeroCardArt';
+import { VillainCardArt, HenchmanCardArt } from '@/components/legendary/SystemCardArt';
 import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
 import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
@@ -74,11 +75,13 @@ const EFFECT_KINDS: { kind: EffectKind; label: string; description: string }[] =
   { kind: 'discard_from_hand',          label: 'Discard from hand',   description: 'Discard up to N cards from your hand. Optional bonus effects.' },
   { kind: 'gain_attack_per_class',      label: '+Strike per class',   description: '+N Strike for each card of this class played this turn (incl. or excl. self).' },
   { kind: 'gain_recruit_per_class',     label: '+Recruit per class',  description: '+N Recruit for each card of this class played this turn.' },
-  { kind: 'gain_attack_per_team',       label: '+Strike per team',    description: '+N Strike for each card of this team played this turn.' },
-  { kind: 'gain_recruit_per_team',      label: '+Recruit per team',   description: '+N Recruit for each card of this team played this turn.' },
-  { kind: 'if_played_class_this_turn',  label: 'If played class ≥ N', description: 'Conditional: fires nested effects when total class count this turn ≥ N.' },
-  { kind: 'if_played_team_this_turn',   label: 'If played team ≥ N',  description: 'Conditional: fires nested effects when total team count this turn ≥ N.' },
-  { kind: 'if_played_hero_this_turn',   label: 'If played hero ≥ N',  description: 'Conditional: fires nested effects when total hero-name count this turn ≥ N.' },
+  { kind: 'gain_attack_per_team',          label: '+Strike per team',       description: '+N Strike for each card of this team played this turn.' },
+  { kind: 'gain_recruit_per_team',         label: '+Recruit per team',      description: '+N Recruit for each card of this team played this turn.' },
+  { kind: 'gain_attack_per_vp_bystander',  label: '+Strike / VP Bystander', description: '+1 Strike for each Bystander in your Victory Pile when this card is played.' },
+  { kind: 'grant_free_bystander_fight',    label: 'Free Bystander Fight',   description: 'May fight one villain or mastermind that has a Bystander for free (no Attack cost) this turn.' },
+  { kind: 'if_played_class_this_turn',     label: 'If played class ≥ N',   description: 'Conditional: fires nested effects when total class count this turn ≥ N.' },
+  { kind: 'if_played_team_this_turn',      label: 'If played team ≥ N',    description: 'Conditional: fires nested effects when total team count this turn ≥ N.' },
+  { kind: 'if_played_hero_this_turn',      label: 'If played hero ≥ N',    description: 'Conditional: fires nested effects when total hero-name count this turn ≥ N.' },
 ];
 
 // All teams known to the engine.
@@ -750,9 +753,11 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'discard_from_hand':          return { kind, up_to: 1 };
     case 'gain_attack_per_class':      return { kind, cls: 'strength', bonus: 1, includeSelf: false };
     case 'gain_recruit_per_class':     return { kind, cls: 'strength', bonus: 1, includeSelf: false };
-    case 'gain_attack_per_team':       return { kind, team: 'avengers', bonus: 1, includeSelf: false };
-    case 'gain_recruit_per_team':      return { kind, team: 'avengers', bonus: 1, includeSelf: false };
-    case 'if_played_class_this_turn':  return { kind, cls: 'strength', minOthers: 2, effects: [] };
+    case 'gain_attack_per_team':             return { kind, team: 'avengers', bonus: 1, includeSelf: false };
+    case 'gain_recruit_per_team':            return { kind, team: 'avengers', bonus: 1, includeSelf: false };
+    case 'gain_attack_per_vp_bystander':     return { kind };
+    case 'grant_free_bystander_fight':       return { kind };
+    case 'if_played_class_this_turn':        return { kind, cls: 'strength', minOthers: 2, effects: [] };
     case 'if_played_team_this_turn':   return { kind, team: 'avengers', minOthers: 2, effects: [] };
     case 'if_played_hero_this_turn':   return { kind, heroName: '', minOthers: 2, effects: [] };
   }
@@ -1234,7 +1239,7 @@ function SystemCardArt({ name, borderColor, vp, bg }: { name: string; borderColo
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}
-      className="relative flex h-36 w-[220px] items-center justify-center rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950"
+      className="relative flex h-40 w-[220px] items-center justify-center rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950"
     >
       <span className="text-[14px] font-bold text-neutral-100">{name}</span>
       {vp !== undefined && (
@@ -1602,69 +1607,6 @@ function RulesSection() {
 }
 
 // ─── Shared card art (villain / henchman / system) ────────────────────────────
-
-function VillainCardArt({ def, attachedBystanders = 0 }: { def: VillainCardDef; attachedBystanders?: number }) {
-  const borderColor = '#ef4444'; // covert red — villains show no team color
-
-  return (
-    <div
-      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className="relative flex h-32 w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
-    >
-      {/* Name row */}
-      <div className="flex items-center gap-1 min-w-0">
-        <span className="text-[12px] font-bold leading-tight text-neutral-100 truncate">{def.name}</span>
-      </div>
-      {/* Type label */}
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
-        Villain
-      </div>
-      {/* Card text */}
-      {def.text && (
-        <div className="my-1 flex-1 text-[11px] leading-snug text-neutral-300">{def.text}</div>
-      )}
-      {!def.text && <div className="flex-1" />}
-      {/* Footer */}
-      <div className="mt-auto flex items-end justify-between">
-        {attachedBystanders > 0 ? (
-          <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">+{attachedBystanders} 👤</span>
-        ) : <span />}
-        <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
-          {def.attack}<SbStrikeIcon />
-        </span>
-      </div>
-      <VpBadge vp={def.vp} />
-    </div>
-  );
-}
-
-function HenchmanCardArt({ def, attachedBystanders = 0 }: { def: HenchmanCardDef; attachedBystanders?: number }) {
-  const borderColor = '#eab308'; // instinct yellow — henchmen show no team color
-
-  return (
-    <div
-      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className="relative flex h-32 w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
-    >
-      <div className="flex items-center gap-1 min-w-0">
-        <span className="text-[12px] font-bold leading-tight text-neutral-100 truncate">{def.name}</span>
-      </div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
-        Henchman
-      </div>
-      <div className="flex-1" />
-      <div className="mt-auto flex items-end justify-between">
-        {attachedBystanders > 0 ? (
-          <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">+{attachedBystanders} 👤</span>
-        ) : <span />}
-        <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
-          {def.attack}<SbStrikeIcon />
-        </span>
-      </div>
-      <VpBadge vp={def.vp} />
-    </div>
-  );
-}
 
 function MastermindCardArt({ def }: { def: MastermindCardDef }) {
   const borderColor = '#DC143C'; // crimson
