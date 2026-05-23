@@ -1,7 +1,6 @@
 import type { HeroCardDef } from '../types';
 
 // Spider-Man hero class — Spider-Friends.
-// All four cards cost 2-5, verified against physical cards.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
 
 export const SPIDEY_ASTONISHING_STRENGTH: HeroCardDef = {
@@ -13,11 +12,9 @@ export const SPIDEY_ASTONISHING_STRENGTH: HeroCardDef = {
   baseRecruit: 1,
   classes: ['strength'],
   teams: ['spider-friends'],
-  text: '1 Recruit. Spider-Friends: +1 Recruit.',
+  text: 'Reveal the top card of your deck. If that card costs 2[cost] or less, draw it.',
   onPlay: [
-    // Card IS Spider-Friends → need total ≥2.
-    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
-      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+    { kind: 'reveal_top_draw_if_cost_le_2' },
   ],
 };
 
@@ -26,14 +23,13 @@ export const SPIDEY_GREAT_RESPONSIBILITY: HeroCardDef = {
   cardId: 'spidey_great_responsibility',
   className: 'Spider-Man',
   cardName: 'Great Responsibility',
-  cost: 3,
+  cost: 2,
   baseAttack: 1,
   classes: ['instinct'],
   teams: ['spider-friends'],
-  text: '1 Attack. Spider-Friends: +1 Attack.',
+  text: 'Reveal the top card of your deck. If that card costs 2[cost] or less, draw it.',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 1 }] },
+    { kind: 'reveal_top_draw_if_cost_le_2' },
   ],
 };
 
@@ -42,14 +38,13 @@ export const SPIDEY_WEB_SHOOTERS: HeroCardDef = {
   cardId: 'spidey_web_shooters',
   className: 'Spider-Man',
   cardName: 'Web-Shooters',
-  cost: 4,
-  baseRecruit: 1,
+  cost: 2,
   classes: ['tech'],
   teams: ['spider-friends'],
-  text: '1 Recruit. Spider-Friends: +1 Attack.',
+  text: 'Rescue a Bystander.\nReveal the top card of your deck. If that card costs 2[cost] or less, draw it.',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 1 }] },
+    { kind: 'rescue_bystander', amount: 1 },
+    { kind: 'reveal_top_draw_if_cost_le_2' },
   ],
 };
 
@@ -57,18 +52,13 @@ export const SPIDEY_AMAZING_SPIDER_MAN: HeroCardDef = {
   kind: 'hero',
   cardId: 'spidey_amazing_spider_man',
   className: 'Spider-Man',
-  cardName: 'Amazing Spider-Man',
-  cost: 5,
-  baseRecruit: 1,
-  classes: ['ranged'],
+  cardName: 'The Amazing Spider-Man',
+  cost: 2,
+  classes: ['covert'],
   teams: ['spider-friends'],
-  text: '1 Recruit. Spider-Friends: +2 Recruit and +1 Attack.',
+  text: 'Reveal the top three cards of your deck. Put any that cost 2[cost] or less into your hand. Put the rest back in any order.',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'spider-friends', minOthers: 2,
-      effects: [
-        { kind: 'gain_recruit', amount: 2 },
-        { kind: 'gain_attack',  amount: 1 },
-      ] },
+    { kind: 'reveal_top_three_draw_cost_le_2' },
   ],
 };
 

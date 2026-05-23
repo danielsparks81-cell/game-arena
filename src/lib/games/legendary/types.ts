@@ -53,8 +53,11 @@ export type Effect =
    *  `filter: 'wounds_only'` restricts the choice to Wound cards only.
    *  `sources` defaults to `['hand']`; set to `['hand','discard']` for cards
    *  like Dangerous Rescue that let you pick from either zone. */
-  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only'; sources?: ('hand' | 'discard')[] }
-  | { kind: 'discard_from_hand'; up_to: number; bonus?: Effect[] }
+  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only' | 'shield_heroes'; sources?: ('hand' | 'discard')[] }
+  /** Nick Fury – Field Promotion bonus: place a new instance of `cardId` directly
+   *  into the player's hand (bypassing cost and the discard pile). */
+  | { kind: 'gain_card_to_hand'; cardId: CardId }
+  | { kind: 'discard_from_hand'; up_to: number; bonus?: Effect[]; mandatory?: boolean }
   // Wounds + bystanders
   | { kind: 'gain_wound' }
   | { kind: 'rescue_bystander'; amount: number }
@@ -66,6 +69,11 @@ export type Effect =
   | { kind: 'gain_recruit_per_team';   team: Team;     bonus: number; includeSelf?: boolean }
   /** +1 Attack for each Bystander currently in the playing player's Victory Pile. */
   | { kind: 'gain_attack_per_vp_bystander' }
+  /** +N Attack/Recruit per distinct Hero class color present among hero cards
+   *  remaining in the player's hand when this fires (after moving this card to
+   *  playedThisTurn). E.g. hand has Strength + Ranged + Strength → 2 colors → +2. */
+  | { kind: 'gain_attack_per_unique_class_in_hand' }
+  | { kind: 'gain_recruit_per_unique_class_in_hand' }
   /** Until the end of this turn, the player may fight ONE villain or mastermind
    *  that has an attached bystander without spending any Attack resource.
    *  The flag resets after the free fight is used or on end-of-turn. */
@@ -79,7 +87,108 @@ export type Effect =
   | { kind: 'if_played_team_this_turn'; team: Team; minOthers: number; effects: Effect[] }
   /** Checks if you've played at least `minOthers` cards whose className === heroName
    *  (including this card if it shares the name). Used for "Hulk: +3A" synergies. */
-  | { kind: 'if_played_hero_this_turn'; heroName: string; minOthers: number; effects: Effect[] };
+  | { kind: 'if_played_hero_this_turn'; heroName: string; minOthers: number; effects: Effect[] }
+  // ── Gambit-specific effects ────────────────────────────────────────────────
+  /** Gambit – Stack the Deck: prompt the player to put one card from hand on
+   *  top of their deck (mandatory — no skip once the draw-2 bonus has fired). */
+  | { kind: 'put_card_from_hand_on_deck' }
+  /** Gambit – Card Shark: peek the top card of the player's deck.
+   *  If it's an X-Men Hero, draw it; otherwise leave it there. */
+  | { kind: 'reveal_top_draw_if_xmen' }
+  /** Gambit – Hypnotic Charm (self): peek the top card of the player's deck,
+   *  then prompt to discard it or return it to the top. */
+  | { kind: 'reveal_top_discard_or_return' }
+  /** Gambit – Hypnotic Charm ([instinct] bonus): for each OTHER player, peek
+   *  the top card of their deck and auto-discard it. */
+  | { kind: 'reveal_top_discard_or_return_others' }
+  /** Gambit – High Stakes Jackpot: peek the top card of the player's deck and
+   *  gain Attack equal to that card's cost (card stays on top). */
+  | { kind: 'gain_attack_equal_to_top_card_cost' }
+  // ── Deadpool-specific effects ──────────────────────────────────────────────
+  /** Deadpool – Here, Hold This: forces the leftmost city villain (or the
+   *  Mastermind if the city is empty) to immediately capture a fresh Bystander. */
+  | { kind: 'villain_captures_bystander' }
+  /** Deadpool – Oddball: +1 Attack for each OTHER Hero with an odd-numbered cost
+   *  that was played before this card this turn. */
+  | { kind: 'gain_attack_per_odd_cost_hero_played' }
+  /** Deadpool – Do-Over: if this is the first Hero played this turn, prompt the
+   *  player to discard their remaining hand and draw four cards instead. */
+  | { kind: 'if_first_hero_discard_hand_draw_four' }
+  /** Deadpool – Random Acts: prompt "take a Wound to your hand?" then every
+   *  player passes their top hand-card to the player on their left. */
+  | { kind: 'optional_gain_wound_pass_left' }
+  // ── Hawkeye-specific effects ───────────────────────────────────────────────
+  /** Hawkeye – Impossible Trick Shot: for the rest of this turn, whenever the
+   *  active player defeats a Villain or Mastermind they rescue 3 Bystanders. */
+  | { kind: 'gain_rescue_bystanders_on_kill' }
+  /** Hawkeye – Covering Fire ([tech] bonus): binary choice — either each other
+   *  player draws a card (Accept) or each other player discards a card (Skip). */
+  | { kind: 'choose_others_draw_or_discard' }
+  // ── Hulk-specific effects ──────────────────────────────────────────────────
+  /** Hulk – Grazed Rampage: every player (including the active player) takes a
+   *  Wound into their discard pile. Applied in seat order; silently skips
+   *  players if the wound deck runs out (same behavior as `gain_wound`). */
+  | { kind: 'each_player_gains_wound' }
+  // ── Jean Grey-specific effects ─────────────────────────────────────────────
+  /** Jean Grey – Read Your Thoughts: for the rest of this turn, each time ANY
+   *  bystander is rescued the active player gains +1 Recruit. Stacks. */
+  | { kind: 'gain_recruit_per_bystander_rescued_this_turn' }
+  /** Jean Grey – Mind Over Matter: for the rest of this turn, each time ANY
+   *  bystander is rescued the active player draws a card. Stacks. */
+  | { kind: 'draw_per_bystander_rescued_this_turn' }
+  /** Jean Grey – Telekinetic Mastery (line 1): for the rest of this turn, each
+   *  time ANY bystander is rescued the active player gains +1 Attack. Stacks. */
+  | { kind: 'gain_attack_per_bystander_rescued_this_turn' }
+  /** Jean Grey – Telekinetic Mastery (line 2): rescue one Bystander for each
+   *  OTHER [x-men] Hero played this turn (card itself is x-men so self is
+   *  excluded via teamPlayedCounts minus 1). Each rescue fires Jean Grey
+   *  per-rescue bonuses if they are active. */
+  | { kind: 'rescue_bystander_per_xmen_played' }
+  // ── Nick Fury-specific effects ─────────────────────────────────────────────
+  /** Nick Fury – Ultimate Sanction: auto-defeat every Villain in the City AND
+   *  hit the Mastermind once if their printed Attack is strictly less than the
+   *  number of S.H.I.E.L.D. Heroes currently in the shared KO pile. No Attack
+   *  resource is spent. Fires fight/rescue/on-kill hooks normally. */
+  | { kind: 'defeat_villain_under_shield_ko_count' }
+  // ── Rogue-specific effects ─────────────────────────────────────────────────
+  /** Rogue – Copy Powers: prompts the player to choose a Hero they played
+   *  earlier this turn; fires that Hero's onPlay effects as if Rogue were that
+   *  card (also bumps classPlayedCounts for the copied Hero's classes). */
+  | { kind: 'copy_played_hero' }
+  /** Rogue – Steal Abilities: each player reveals and discards the top card of
+   *  their deck; the active player fires the onPlay effects of every revealed
+   *  Hero card (in seat order). Base stats and played-counts are bumped too. */
+  | { kind: 'play_copy_each_player_top_card' }
+  // ── Spider-Man-specific effects ────────────────────────────────────────────
+  /** Peek the top card of the player's deck; if it costs 2 or less, draw it;
+   *  otherwise leave it on top of the deck. */
+  | { kind: 'reveal_top_draw_if_cost_le_2' }
+  /** Reveal the top 3 cards of the player's deck; draw those that cost 2 or
+   *  less into hand; put the rest back on top in their original order. */
+  | { kind: 'reveal_top_three_draw_cost_le_2' }
+  // ── Storm-specific effects ─────────────────────────────────────────────────
+  /** Storm – Lightning Bolt / Tidal Wave: any Villain the player fights in the
+   *  named city space this turn has its effective attack reduced by `amount`.
+   *  `location` matches the CITY_LOCATIONS label ('Sewers','Bank','Rooftops',…). */
+  | { kind: 'villain_debuff_at_location'; location: string; amount: number }
+  /** Storm – Spinning Cyclone: prompts the player to pick a city Villain to
+   *  move to a new slot. Bystanders carried by that villain are rescued first;
+   *  if the destination is occupied the two villains swap places. */
+  | { kind: 'move_villain_rescue_bystanders' }
+  /** Storm – Tidal Wave ([ranged] bonus): the Mastermind's effective attack is
+   *  reduced by `amount` for the rest of this turn. */
+  | { kind: 'mastermind_attack_debuff'; amount: number }
+  // ── Thor-specific effects ──────────────────────────────────────────────────
+  /** Thor – Surge of Power: fires nested `effects` only if the active player's
+   *  current Recruit pool is ≥ `threshold` at the moment this card is played. */
+  | { kind: 'if_recruit_ge'; threshold: number; effects: Effect[] }
+  /** Thor – God of Thunder: for the rest of this turn, Recruit can be spent as
+   *  Attack (one-directional — Attack cannot substitute for Recruit). */
+  | { kind: 'enable_recruit_as_attack' }
+  // ── Wolverine-specific effects ─────────────────────────────────────────────
+  /** Wolverine – Berserker Rage ([instinct] bonus): gain +`amount` Attack for
+   *  each extra card drawn via effects this turn (tracked by extraCardsDrawnThisTurn). */
+  | { kind: 'gain_attack_per_extra_card_drawn_this_turn'; amount: number };
 
 /** Hero card — the cards that go into player decks. Sit in HQ to be bought. */
 export type HeroCardDef = {
@@ -106,7 +215,20 @@ export type HeroCardDef = {
   text?: string;
   /** Triggered when the card is played from hand. Resolved in order. */
   onPlay?: Effect[];
+  /** Passive abilities that fire while this card is in the player's hand
+   *  (never played — the card stays in hand after triggering). */
+  onHand?: HandPassive[];
 };
+
+/** A passive ability that activates from the player's hand without being played.
+ *  The card is "revealed" (shown) but remains in hand after use. */
+export type HandPassive =
+  /** When the player would gain a Wound, they may reveal this card and draw a
+   *  card instead. If they decline, the wound is applied normally. */
+  | { kind: 'prevent_wound_draw' }
+  /** When this card is selected as the target of a discard effect, it
+   *  automatically returns to hand instead of going to the discard pile. */
+  | { kind: 'return_to_hand_if_discarded' };
 
 /** Villain card — gets revealed into the City row. Defeating it puts it into
  *  your Victory Pile. */
@@ -291,16 +413,51 @@ export type PlayerState = {
  *  any further actions (playing a card, recruiting, fighting, ending turn).
  *  Set by `ko_from_hand` / `discard_from_hand` effects; cleared by
  *  `resolve_choice` (pick a card) or `skip_choice` (forfeit the bonus). */
-export type PendingChoice = {
-  kind: 'ko_from_hand' | 'discard_from_hand';
-  /** Effects that fire only if the player selects a card (the "If you do…" bonus). */
-  bonus: Effect[];
-  /** When set, only cards matching this filter are selectable. */
-  filter?: 'wounds_only';
-  /** Which zones the player may pick from. Defaults to `['hand']`.
-   *  Set to `['hand','discard']` for effects that span both zones. */
-  sources?: ('hand' | 'discard')[];
-};
+export type PendingChoice =
+  | {
+      kind: 'ko_from_hand' | 'discard_from_hand';
+      /** Effects that fire only if the player selects a card (the "If you do…" bonus). */
+      bonus: Effect[];
+      /** When set, only cards matching this filter are selectable. */
+      filter?: 'wounds_only' | 'shield_heroes';
+      /** Which zones the player may pick from. Defaults to `['hand','played']`. */
+      sources?: ('hand' | 'discard' | 'played')[];
+      /** When true the player MUST pick a card — the Skip button is hidden. */
+      mandatory?: boolean;
+    }
+  | {
+      /** Cap's "reveal to prevent a wound" passive. The player reveals this card
+       *  from hand (it stays there) and draws a card instead of taking the wound.
+       *  Skipping applies the wound normally. */
+      kind: 'reveal_to_prevent_wound';
+    }
+  /** Gambit – Stack the Deck: "put a card on top of your deck" — player selects
+   *  a card from hand via resolve_choice; mandatory (no skip allowed). */
+  | { kind: 'put_card_on_deck'; mandatory: true }
+  /** Gambit – Hypnotic Charm: the revealed card is stored here while the player
+   *  decides whether to discard it or return it to the top of their deck.
+   *  Accept = discard; Skip = put back. */
+  | { kind: 'reveal_top_discard_or_return'; card: CardInstance }
+  /** Deadpool – Do-Over: "discard your remaining hand and draw 4?" Accept fires
+   *  the discard+draw; Skip keeps the hand as-is. No card selection needed. */
+  | { kind: 'discard_hand_draw_four' }
+  /** Deadpool – Random Acts: "take a Wound to your hand?" Accept gains the wound;
+   *  Skip declines it. Either way, all players then pass a card to the left. */
+  | { kind: 'optional_gain_wound_pass_left' }
+  /** Hawkeye – Covering Fire ([tech] bonus): "each other player draws" (Accept)
+   *  or "each other player discards" (Skip). Binary — no card selection needed. */
+  | { kind: 'choose_others_draw_or_discard' }
+  /** Rogue – Copy Powers: the player selects a Hero from their played-this-turn
+   *  zone (excluding this Copy Powers card). The selected card stays in played;
+   *  its onPlay fires for the active player. */
+  | { kind: 'copy_played_hero' }
+  /** Storm – Spinning Cyclone step 1: player clicks a city Villain to pick it
+   *  up for moving. resolve_choice receives that card's instanceId. */
+  | { kind: 'move_villain_select_villain' }
+  /** Storm – Spinning Cyclone step 2: player clicks a city slot as the
+   *  destination. resolve_choice receives the synthetic id 'slot:N'. The
+   *  villain being moved is stored in `card` so it survives between steps. */
+  | { kind: 'move_villain_select_dest'; sourceSlot: number; sourceName: string; card: CardInstance };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already
@@ -327,6 +484,31 @@ export type TurnState = {
    *  villain or mastermind that has an attached bystander without spending any
    *  Attack. Consumed on use; reset to false on end-of-turn. */
   freeBystanderFightAvailable: boolean;
+  /** Set by Hawkeye – Impossible Trick Shot. Each time the player defeats a
+   *  Villain or Mastermind this turn they rescue this many Bystanders.
+   *  Resets to 0 on end-of-turn. */
+  rescueBystandersOnKillCount: number;
+  /** Set by Jean Grey – Read Your Thoughts. Each time a Bystander is rescued
+   *  this turn the active player gains this much Recruit. Stacks. */
+  rescueBonusRecruit: number;
+  /** Set by Jean Grey – Mind Over Matter. Each time a Bystander is rescued
+   *  this turn the active player draws this many cards. Stacks. */
+  rescueBonusDraw: number;
+  /** Set by Jean Grey – Telekinetic Mastery. Each time a Bystander is rescued
+   *  this turn the active player gains this much Attack. Stacks. */
+  rescueBonusAttack: number;
+  /** Storm – Lightning Bolt / Tidal Wave: per-city-slot villain attack reduction.
+   *  Key = slot index (0 = Sewers … 4 = Bridge). */
+  locationVillainDebuffs: Partial<Record<number, number>>;
+  /** Storm – Tidal Wave ([ranged] bonus): Mastermind effective attack is reduced
+   *  by this much for the rest of this turn. */
+  mastermindAttackDebuff: number;
+  /** Thor – God of Thunder: when true, Recruit points may be spent as Attack
+   *  (one-directional — Attack cannot substitute for Recruit). */
+  recruitAsAttackEnabled: boolean;
+  /** Wolverine – Berserker Rage: counts every card drawn via play effects this
+   *  turn (not the initial 6-card hand draw). Used by gain_attack_per_extra_card_drawn_this_turn. */
+  extraCardsDrawnThisTurn: number;
 };
 
 export type LegendaryEvent =

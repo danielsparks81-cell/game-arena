@@ -1,6 +1,6 @@
 import type { HeroCardDef } from '../types';
 
-// Hulk hero class — Avengers, Strength/Instinct.
+// Hulk hero class — Avengers, Strength.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
 
 export const HULK_GROWING_ANGER: HeroCardDef = {
@@ -13,10 +13,11 @@ export const HULK_GROWING_ANGER: HeroCardDef = {
   baseAttackScales: true,
   classes: ['strength'],
   teams: ['avengers'],
-  text: '2 Attack. +1 Attack for each other Strength hero you play this turn.',
+  text: '[strength]: You get +1[strike].',
   onPlay: [
-    // Card IS Strength (counted). "Other" = total - 1 → includeSelf: false.
-    { kind: 'gain_attack_per_class', cls: 'strength', bonus: 1, includeSelf: false },
+    // Card IS Strength → need total ≥2 (at least 1 other Strength card played).
+    { kind: 'if_played_class_this_turn', cls: 'strength', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 1 }] },
   ],
 };
 
@@ -27,13 +28,14 @@ export const HULK_UNSTOPPABLE: HeroCardDef = {
   cardName: 'Unstoppable Hulk',
   cost: 4,
   baseAttack: 2,
+  baseAttackScales: true,
   classes: ['instinct'],
   teams: ['avengers'],
-  text: '2 Attack. Hulk: +3 Attack.',
+  text: 'You may KO a Wound from your hand or discard pile. If you do, you get +2[strike].',
   onPlay: [
-    // This card IS a Hulk hero (counted in heroNameCounts). Need total ≥2.
-    { kind: 'if_played_hero_this_turn', heroName: 'Hulk', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 3 }] },
+    { kind: 'ko_from_hand', up_to: 1, filter: 'wounds_only',
+      sources: ['hand', 'discard'],
+      bonus: [{ kind: 'gain_attack', amount: 2 }] },
   ],
 };
 
@@ -46,9 +48,9 @@ export const HULK_GRAZED_RAMPAGE: HeroCardDef = {
   baseAttack: 4,
   classes: ['strength'],
   teams: ['avengers'],
-  text: '4 Attack. You may KO a card from your hand. If you do, draw a card.',
+  text: 'Each player gains a Wound.',
   onPlay: [
-    { kind: 'ko_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+    { kind: 'each_player_gains_wound' },
   ],
 };
 
@@ -56,19 +58,17 @@ export const HULK_SMASH: HeroCardDef = {
   kind: 'hero',
   cardId: 'hulk_smash',
   className: 'Hulk',
-  cardName: 'Hulk Smash',
+  cardName: 'Hulk Smash!',
   cost: 8,
   baseAttack: 5,
   baseAttackScales: true,
   classes: ['strength'],
   teams: ['avengers'],
-  text: '5 Attack. Hulk: +3 Attack and draw a card.',
+  text: '[strength]: You get +5[strike].',
   onPlay: [
-    { kind: 'if_played_hero_this_turn', heroName: 'Hulk', minOthers: 2,
-      effects: [
-        { kind: 'gain_attack', amount: 3 },
-        { kind: 'draw', amount: 1 },
-      ] },
+    // Card IS Strength → need total ≥2 (at least 1 other Strength card played).
+    { kind: 'if_played_class_this_turn', cls: 'strength', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 5 }] },
   ],
 };
 
@@ -76,9 +76,9 @@ export const HULK_SMASH: HeroCardDef = {
 export const HULK_CLASS = {
   className: 'Hulk',
   cards: [
-    { def: HULK_GROWING_ANGER,    copies: 5 },
-    { def: HULK_UNSTOPPABLE,      copies: 5 },
-    { def: HULK_GRAZED_RAMPAGE,   copies: 3 },
-    { def: HULK_SMASH,            copies: 1 },
+    { def: HULK_GROWING_ANGER,   copies: 5 },
+    { def: HULK_UNSTOPPABLE,     copies: 5 },
+    { def: HULK_GRAZED_RAMPAGE,  copies: 3 },
+    { def: HULK_SMASH,           copies: 1 },
   ],
 };

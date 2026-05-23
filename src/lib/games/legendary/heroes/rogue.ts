@@ -1,6 +1,6 @@
 import type { HeroCardDef } from '../types';
 
-// Rogue hero class — X-Men, Strength/Covert/Instinct.
+// Rogue hero class — X-Men, Strength/Covert.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
 
 export const ROGUE_BORROWED_BRAWN: HeroCardDef = {
@@ -8,15 +8,16 @@ export const ROGUE_BORROWED_BRAWN: HeroCardDef = {
   cardId: 'rogue_borrowed_brawn',
   className: 'Rogue',
   cardName: 'Borrowed Brawn',
-  cost: 3,
-  baseAttack: 0,
+  cost: 4,
+  baseAttack: 1,
   baseAttackScales: true,
   classes: ['strength'],
   teams: ['x-men'],
-  text: '+1 Attack for each Strength hero you play this turn, including this one.',
+  text: '[strength]: You get +3[strike].',
   onPlay: [
-    // Card IS Strength (counted). IncludeSelf: true counts this card too.
-    { kind: 'gain_attack_per_class', cls: 'strength', bonus: 1, includeSelf: true },
+    // Card IS Strength → need total ≥2 (at least 1 other Strength card played).
+    { kind: 'if_played_class_this_turn', cls: 'strength', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 3 }] },
   ],
 };
 
@@ -27,13 +28,15 @@ export const ROGUE_ENERGY_DRAIN: HeroCardDef = {
   cardName: 'Energy Drain',
   cost: 3,
   baseRecruit: 2,
+  baseRecruitScales: true,
   classes: ['covert'],
   teams: ['x-men'],
-  text: '2 Recruit. X-Men: +1 Recruit.',
+  text: '[covert]: You may KO a card from your hand or discard pile. If you do, you get +1[recruit].',
   onPlay: [
-    // Card IS X-Men → need total ≥2.
-    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
-      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+    // Card IS Covert → need total ≥2 (at least 1 other Covert card played).
+    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 2,
+      effects: [{ kind: 'ko_from_hand', up_to: 1, sources: ['hand', 'discard'],
+        bonus: [{ kind: 'gain_recruit', amount: 1 }] }] },
   ],
 };
 
@@ -43,15 +46,11 @@ export const ROGUE_COPY_POWERS: HeroCardDef = {
   className: 'Rogue',
   cardName: 'Copy Powers',
   cost: 5,
-  classes: ['instinct'],
+  classes: ['covert'],
   teams: ['x-men'],
-  text: 'X-Men: +2 Recruit and draw a card.',
+  text: 'Play this card as a copy of another Hero you played this turn. This card is both [covert] and the color you copy.',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
-      effects: [
-        { kind: 'gain_recruit', amount: 2 },
-        { kind: 'draw', amount: 1 },
-      ] },
+    { kind: 'copy_played_hero' },
   ],
 };
 
@@ -60,17 +59,13 @@ export const ROGUE_STEAL_ABILITIES: HeroCardDef = {
   cardId: 'rogue_steal_abilities',
   className: 'Rogue',
   cardName: 'Steal Abilities',
-  cost: 6,
+  cost: 8,
   baseAttack: 4,
-  classes: ['covert'],
+  classes: ['strength'],
   teams: ['x-men'],
-  text: '4 Attack. X-Men: +2 Attack and draw a card.',
+  text: 'Each player discards the top card of their deck. Play a copy of each of those cards.',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
-      effects: [
-        { kind: 'gain_attack', amount: 2 },
-        { kind: 'draw', amount: 1 },
-      ] },
+    { kind: 'play_copy_each_player_top_card' },
   ],
 };
 

@@ -68,7 +68,7 @@ type RevealAnim = {
 export default function LegendaryBoard({
   state, currentUserId, isHost, disabled,
   onStart, onPlay, onRecruit, onRecruitSidekick, onRecruitOfficer,
-  onFightCity, onFightMastermind, onResolveChoice, onSkipChoice, onEndTurn,
+  onFightCity, onFightMastermind, onResolveChoice, onSkipChoice, onAcceptChoice, onEndTurn,
   onRevealFirstVillain,
 }: {
   state: LegendaryState;
@@ -82,10 +82,12 @@ export default function LegendaryBoard({
   onRecruitOfficer: () => void;
   onFightCity: (slot: number) => void;
   onFightMastermind: () => void;
-  /** Resolve a pending ko_from_hand / discard_from_hand choice. */
+  /** Resolve a pending ko_from_hand / discard_from_hand choice by selecting a card. */
   onResolveChoice: (instanceId: string) => void;
   /** Skip the pending choice (forfeit the bonus). */
   onSkipChoice: () => void;
+  /** Accept a binary pending choice (Do-Over / Random Acts) without card selection. */
+  onAcceptChoice: () => void;
   onEndTurn: () => void;
   /** Current player clicks "Game Begins" — reveals first villain via the engine. */
   onRevealFirstVillain?: () => void;
@@ -99,6 +101,16 @@ export default function LegendaryBoard({
   // from their hand to KO or discard (from a card effect like Diving Block).
   const pendingChoice: PendingChoice | undefined = state.thisTurn.pendingChoice;
   const isChoiceMode = isMyTurn && !!pendingChoice;
+  // Binary choices don't require card selection — the player just clicks
+  // Accept or Skip in the banner (Deadpool Do-Over / Random Acts, Gambit Hypnotic Charm).
+  const isBinaryChoice =
+    pendingChoice?.kind === 'discard_hand_draw_four' ||
+    pendingChoice?.kind === 'optional_gain_wound_pass_left' ||
+    pendingChoice?.kind === 'reveal_top_discard_or_return' ||
+    pendingChoice?.kind === 'choose_others_draw_or_discard';
+  const isCopyHeroChoice            = pendingChoice?.kind === 'copy_played_hero';
+  const isMoveVillainSelectVillain  = pendingChoice?.kind === 'move_villain_select_villain';
+  const isMoveVillainSelectDest     = pendingChoice?.kind === 'move_villain_select_dest';
 
   // ----- Lobby phase: setup-confirmation screen -----
   if (state.phase === 'lobby') {
@@ -176,6 +188,13 @@ export default function LegendaryBoard({
   // the villain deck top card), this flag tells the log-watcher to skip the
   // matching villain_revealed event that arrives later from Supabase.
   const skipFirstVillainAnim = useRef(false);
+  // Skip for a bystander captured as the very first villain-deck card.
+  const skipFirstBystanderAnim = useRef(false);
+  // Same pattern for handleEndTurn: when the active player ends their turn and
+  // the top villain-deck card is a scheme_twist or master_strike, we fire the
+  // animation immediately so there's no network-round-trip delay. This ref
+  // names the event kind to skip when it arrives in the log.
+  const skipNextEventAnim = useRef<'scheme_twist' | 'master_strike' | null>(null);
   // startAcked: purely cosmetic — hides the "Game Begins" splash overlay.
   // The reveal animation is fully decoupled from this flag; it fires whenever
   // a new reveal event arrives in the log, regardless of overlay state.
@@ -211,10 +230,22 @@ export default function LegendaryBoard({
         kind = def.kind === 'henchman' ? 'henchman' : 'villain';
         break;
       } else if (ev.kind === 'master_strike') {
+        if (skipNextEventAnim.current === 'master_strike') {
+          skipNextEventAnim.current = null;
+          break; // optimistic animation already fired from handleEndTurn
+        }
         cardId = 'master_strike'; kind = 'master_strike'; break;
       } else if (ev.kind === 'scheme_twist') {
+        if (skipNextEventAnim.current === 'scheme_twist') {
+          skipNextEventAnim.current = null;
+          break; // optimistic animation already fired from handleEndTurn
+        }
         cardId = 'scheme_twist';  kind = 'scheme_twist';  break;
       } else if (ev.kind === 'bystander_captured') {
+        if (skipFirstBystanderAnim.current) {
+          skipFirstBystanderAnim.current = false;
+          break; // optimistic animation already fired from handleStartAck
+        }
         cardId = 'bystander'; kind = 'bystander';
         bystanderDest = ev.capturedBy; break;
       }
@@ -266,30 +297,105 @@ export default function LegendaryBoard({
     const nextCard = state.villainDeck[0] ?? null;
     if (nextCard) {
       const def = getCard(nextCard.cardId);
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+
+      // Determine the animation kind and destination for every possible first
+      // villain-deck card type: villain, henchman, scheme_twist, master_strike,
+      // or bystander (~38% of shuffled decks are non-villain).
+      let animKind: RevealAnim['kind'] | null = null;
+      let animCardId = nextCard.cardId;
+      let destEl: HTMLElement | null = null;
+      let fallbackX = 0, fallbackY = 0;
+
       if (def.kind === 'villain' || def.kind === 'henchman') {
-        const kind: RevealAnim['kind'] = def.kind === 'henchman' ? 'henchman' : 'villain';
-        const cx = window.innerWidth / 2;
-        const cy = window.innerHeight / 2;
-        let exitX = 340, exitY = 50;
-        const sewersEl = sewersRef.current;
-        if (sewersEl) {
-          const r = sewersEl.getBoundingClientRect();
+        animKind   = def.kind === 'henchman' ? 'henchman' : 'villain';
+        destEl     = sewersRef.current;
+        fallbackX  = 340; fallbackY = 50;
+      } else if (def.kind === 'scheme_twist') {
+        animKind   = 'scheme_twist';
+        animCardId = 'scheme_twist';
+        destEl     = schemeRef.current;
+        fallbackX  = -200; fallbackY = -160;
+      } else if (def.kind === 'master_strike') {
+        animKind   = 'master_strike';
+        animCardId = 'master_strike';
+        destEl     = strikesRef.current;
+        fallbackX  = -380; fallbackY = 60;
+      } else if (def.kind === 'bystander') {
+        animKind   = 'bystander';
+        animCardId = 'bystander';
+        destEl     = sewersRef.current; // best guess before engine resolves capturedBy
+        fallbackX  = 340; fallbackY = 50;
+      }
+
+      if (animKind) {
+        let exitX = fallbackX, exitY = fallbackY;
+        if (destEl) {
+          const r = destEl.getBoundingClientRect();
           exitX = r.left + r.width / 2 - cx;
           exitY = r.top  + r.height / 2 - cy;
         }
         const key = Date.now();
-        setRevealAnim({ key, cardId: nextCard.cardId, kind, phase: 'entering', exitX, exitY });
+        setRevealAnim({ key, cardId: animCardId, kind: animKind, phase: 'entering', exitX, exitY });
         window.setTimeout(() =>
           setRevealAnim(a => a?.key === key ? { ...a, phase: 'showing' } : a), 50);
         window.setTimeout(() =>
           setRevealAnim(a => a?.key === key ? { ...a, phase: 'exiting' } : a), 2500);
         window.setTimeout(() =>
           setRevealAnim(a => a?.key === key ? null : a), 3500);
-        skipFirstVillainAnim.current = true;
+
+        // Set the matching skip flag so the log-watcher doesn't double-animate.
+        if (def.kind === 'villain' || def.kind === 'henchman') {
+          skipFirstVillainAnim.current = true;
+        } else if (def.kind === 'scheme_twist') {
+          skipNextEventAnim.current = 'scheme_twist';
+        } else if (def.kind === 'master_strike') {
+          skipNextEventAnim.current = 'master_strike';
+        } else if (def.kind === 'bystander') {
+          skipFirstBystanderAnim.current = true;
+        }
       }
     }
 
     onRevealFirstVillain?.();
+  }
+
+  // When the active player clicks "End Turn", peek at the villain deck top
+  // card and pre-fire the reveal animation for scheme twists / master strikes
+  // so it plays instantly (no Supabase round-trip wait). Same pattern as
+  // handleStartAck for the first villain.
+  function handleEndTurn() {
+    if (isMyTurn && state.villainDeck.length > 0) {
+      const nextCard = state.villainDeck[0];
+      const def = getCard(nextCard.cardId);
+      let animKind: RevealAnim['kind'] | null = null;
+      if (def.kind === 'scheme_twist')  animKind = 'scheme_twist';
+      if (def.kind === 'master_strike') animKind = 'master_strike';
+
+      if (animKind) {
+        const cx = window.innerWidth  / 2;
+        const cy = window.innerHeight / 2;
+        const destEl = animKind === 'master_strike' ? strikesRef.current : schemeRef.current;
+        let exitX = animKind === 'master_strike' ? -380 : -200;
+        let exitY = animKind === 'master_strike' ?   60 : -160;
+        if (destEl) {
+          const r = destEl.getBoundingClientRect();
+          exitX = r.left + r.width / 2 - cx;
+          exitY = r.top  + r.height / 2 - cy;
+        }
+        const key = Date.now();
+        setRevealAnim({ key, cardId: animKind, kind: animKind, phase: 'entering', exitX, exitY });
+        window.setTimeout(() =>
+          setRevealAnim(a => a?.key === key ? { ...a, phase: 'showing' } : a), 50);
+        window.setTimeout(() =>
+          setRevealAnim(a => a?.key === key ? { ...a, phase: 'exiting' } : a), 2500);
+        window.setTimeout(() =>
+          setRevealAnim(a => a?.key === key ? null : a), 3500);
+        skipNextEventAnim.current = animKind;
+      }
+    }
+    onEndTurn();
   }
 
   // ----- HQ slot refill animation -----
@@ -444,16 +550,25 @@ export default function LegendaryBoard({
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {([4, 3, 2, 1, 0] as const).map((slot) => {
               const card = state.city[slot];
+              // Storm – Spinning Cyclone: effective fight attack with location debuff.
+              const locationDebuff = (state.thisTurn.locationVillainDebuffs as Partial<Record<number, number>>)[slot] ?? 0;
+              const effectiveAttack = state.thisTurn.recruitAsAttackEnabled
+                ? state.thisTurn.attack + state.thisTurn.recruit
+                : state.thisTurn.attack;
               return (
                 <div key={slot} ref={slot === 0 ? sewersRef : null} className="flex flex-col gap-0.5">
                   <CitySlot
                     card={card}
                     slot={slot}
                     isLast={slot === CITY_SIZE - 1}
-                    attack={state.thisTurn.attack}
+                    attack={effectiveAttack}
+                    locationDebuff={locationDebuff}
                     disabled={!isMyTurn || disabled || state.phase === 'finished'}
                     onFight={() => onFightCity(slot)}
                     attachedBystanders={card ? state.cityBystanders[card.instanceId]?.length ?? 0 : 0}
+                    // Storm move-villain support
+                    onMoveSelect={isMoveVillainSelectVillain && card ? () => onResolveChoice(card.instanceId) : undefined}
+                    onMoveDest={isMoveVillainSelectDest ? () => onResolveChoice(`slot:${slot}`) : undefined}
                   />
                   <div className="text-center text-[9px] uppercase tracking-wider text-neutral-200">
                     {CITY_LOCATIONS[slot]}
@@ -552,7 +667,7 @@ export default function LegendaryBoard({
               <button
                 type="button"
                 disabled={!isMyTurn || disabled || isChoiceMode}
-                onClick={onEndTurn}
+                onClick={handleEndTurn}
                 className="rounded border border-rose-800 bg-rose-950 px-4 py-1 text-xs font-medium text-rose-200 transition hover:border-rose-500 hover:bg-rose-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 End Turn
@@ -563,39 +678,147 @@ export default function LegendaryBoard({
       </div>
 
       {/* Pending-choice banner — shown when a card effect needs the player to
-          pick a card from their hand to KO or discard. */}
+          pick a card from their hand to KO or discard, or to accept/decline
+          a binary Deadpool effect. */}
       {pendingChoice && (
-        <div className="rounded-lg border border-amber-500 bg-amber-950/50 px-4 py-2.5">
+        <div className={`rounded-lg border px-4 py-2.5 ${
+          pendingChoice.kind === 'reveal_to_prevent_wound'
+            ? 'border-sky-500 bg-sky-950/50'
+            : pendingChoice.kind === 'put_card_on_deck'
+            ? 'border-emerald-500 bg-emerald-950/50'
+            : pendingChoice.kind === 'reveal_top_discard_or_return'
+            ? 'border-teal-500 bg-teal-950/50'
+            : pendingChoice.kind === 'choose_others_draw_or_discard'
+            ? 'border-cyan-500 bg-cyan-950/50'
+            : pendingChoice.kind === 'copy_played_hero'
+            ? 'border-rose-500 bg-rose-950/50'
+            : (pendingChoice.kind === 'move_villain_select_villain' || pendingChoice.kind === 'move_villain_select_dest')
+            ? 'border-sky-500 bg-sky-950/50'
+            : isBinaryChoice
+            ? 'border-purple-500 bg-purple-950/50'
+            : 'border-amber-500 bg-amber-950/50'
+        }`}>
           <div className="flex items-center justify-between gap-3">
             <div>
-              <span className="text-sm font-semibold text-amber-300">
-                {pendingChoice.kind === 'ko_from_hand' ? '🗑️ KO a card from your hand' : '↩️ Discard a card from your hand'}
+              <span className={`text-sm font-semibold ${
+                pendingChoice.kind === 'reveal_to_prevent_wound'
+                  ? 'text-sky-300'
+                  : pendingChoice.kind === 'put_card_on_deck'
+                  ? 'text-emerald-300'
+                  : pendingChoice.kind === 'reveal_top_discard_or_return'
+                  ? 'text-teal-300'
+                  : pendingChoice.kind === 'choose_others_draw_or_discard'
+                  ? 'text-cyan-300'
+                  : pendingChoice.kind === 'copy_played_hero'
+                  ? 'text-rose-300'
+                  : (pendingChoice.kind === 'move_villain_select_villain' || pendingChoice.kind === 'move_villain_select_dest')
+                  ? 'text-sky-300'
+                  : isBinaryChoice
+                  ? 'text-purple-300'
+                  : 'text-amber-300'
+              }`}>
+                {pendingChoice.kind === 'reveal_to_prevent_wound'
+                  ? '🛡️ Reveal your shield — click your Diving Block to draw a card instead of taking a wound'
+                  : pendingChoice.kind === 'put_card_on_deck'
+                  ? '📚 Choose a card from your hand to put on top of your deck'
+                  : pendingChoice.kind === 'reveal_top_discard_or_return'
+                  ? (() => {
+                      const revCard = CARDS[(pendingChoice as { kind: string; card: { cardId: string } }).card.cardId];
+                      const revName = revCard?.kind === 'hero' ? revCard.cardName : 'name' in (revCard ?? {}) ? (revCard as { name: string }).name : '?';
+                      return `🃏 Revealed: ${revName} — discard it or put it back?`;
+                    })()
+                  : pendingChoice.kind === 'discard_hand_draw_four'
+                  ? '🔄 Discard your remaining hand and draw 4 cards?'
+                  : pendingChoice.kind === 'optional_gain_wound_pass_left'
+                  ? '💉 Gain a Wound to your hand? (Then all players pass a card to the left.)'
+                  : pendingChoice.kind === 'choose_others_draw_or_discard'
+                  ? '🎯 [tech] Choose — each other player draws a card, or each other player discards a card?'
+                  : pendingChoice.kind === 'copy_played_hero'
+                  ? '🔄 Rogue — click a Hero you played this turn to copy its ability'
+                  : pendingChoice.kind === 'move_villain_select_villain'
+                  ? '🌀 Storm — click a Villain in the city to move it'
+                  : pendingChoice.kind === 'move_villain_select_dest'
+                  ? `🌀 Storm — moving ${(pendingChoice as { sourceName: string }).sourceName} — click a city space to place it`
+                  : pendingChoice.kind === 'ko_from_hand'
+                  ? '🗑️ KO a card — from your hand, played area, or discard pile'
+                  : 'mandatory' in pendingChoice && pendingChoice.mandatory
+                  ? '↩️ You must discard a card from your hand'
+                  : '↩️ Discard a card from your hand'}
               </span>
-              {pendingChoice.filter === 'wounds_only' && (
+              {'filter' in pendingChoice && pendingChoice.filter === 'wounds_only' && (
                 <span className="ml-2 text-xs text-amber-400">(Wound cards only)</span>
               )}
-              {pendingChoice.bonus.length > 0 && (
+              {'filter' in pendingChoice && pendingChoice.filter === 'shield_heroes' && (
+                <span className="ml-2 text-xs text-amber-400">(S.H.I.E.L.D. Heroes only)</span>
+              )}
+              {'bonus' in pendingChoice && pendingChoice.bonus.length > 0 && !('mandatory' in pendingChoice && pendingChoice.mandatory) && (
                 <span className="ml-2 text-xs text-neutral-400">
                   {isMyTurn ? '— click a card below, or skip to forfeit the bonus.' : ''}
                 </span>
               )}
             </div>
             {isMyTurn && (
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={onSkipChoice}
-                className="shrink-0 rounded border border-neutral-600 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300 transition hover:border-neutral-400 hover:text-white disabled:opacity-40"
-              >
-                Skip
-              </button>
+              <div className="flex shrink-0 gap-2">
+                {/* Accept button — only for binary choices */}
+                {isBinaryChoice && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={onAcceptChoice}
+                    className={`rounded border px-3 py-1 text-xs font-medium transition disabled:opacity-40 ${
+                      pendingChoice.kind === 'reveal_top_discard_or_return'
+                        ? 'border-teal-600 bg-teal-900 text-teal-200 hover:border-teal-400 hover:text-white'
+                        : pendingChoice.kind === 'choose_others_draw_or_discard'
+                        ? 'border-cyan-600 bg-cyan-900 text-cyan-200 hover:border-cyan-400 hover:text-white'
+                        : 'border-purple-600 bg-purple-900 text-purple-200 hover:border-purple-400 hover:text-white'
+                    }`}
+                  >
+                    {pendingChoice.kind === 'reveal_top_discard_or_return'
+                      ? 'Discard It'
+                      : pendingChoice.kind === 'discard_hand_draw_four'
+                      ? 'Discard & Draw 4'
+                      : pendingChoice.kind === 'choose_others_draw_or_discard'
+                      ? 'Each Player Draws'
+                      : 'Take Wound'}
+                  </button>
+                )}
+                {/* Skip / decline button — hidden for mandatory costs */}
+                {!('mandatory' in pendingChoice && pendingChoice.mandatory) && (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={onSkipChoice}
+                    className="rounded border border-neutral-600 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300 transition hover:border-neutral-400 hover:text-white disabled:opacity-40"
+                  >
+                    {pendingChoice.kind === 'reveal_to_prevent_wound'
+                      ? 'Take the wound'
+                      : pendingChoice.kind === 'reveal_top_discard_or_return'
+                      ? 'Put It Back'
+                      : pendingChoice.kind === 'discard_hand_draw_four'
+                      ? 'Keep Hand'
+                      : pendingChoice.kind === 'optional_gain_wound_pass_left'
+                      ? 'No Wound'
+                      : pendingChoice.kind === 'choose_others_draw_or_discard'
+                      ? 'Each Player Discards'
+                      : 'Skip'}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
       )}
 
       {/* Your hand */}
-      <ZoneLabel>{isChoiceMode ? 'Choose a card to ' + (pendingChoice!.kind === 'ko_from_hand' ? 'KO' : 'discard') : 'Your hand'}</ZoneLabel>
+      <ZoneLabel>{isChoiceMode
+        ? isBinaryChoice
+          ? 'Your hand'
+          : pendingChoice!.kind === 'reveal_to_prevent_wound'
+          ? 'Your hand — click Diving Block to reveal it'
+          : pendingChoice!.kind === 'put_card_on_deck'
+          ? 'Your hand — choose a card to put on top of your deck'
+          : 'Choose a card to ' + (pendingChoice!.kind === 'ko_from_hand' ? 'KO' : 'discard')
+        : 'Your hand'}</ZoneLabel>
       <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[140px]">
         {me ? (
           me.hand.length === 0 ? (
@@ -624,7 +847,7 @@ export default function LegendaryBoard({
                 return (bD?.kind === 'hero' ? bD.cost : 0) - (aD?.kind === 'hero' ? aD.cost : 0);
               })
               .map((card) => {
-                if (isChoiceMode) {
+                if (isChoiceMode && !isBinaryChoice) {
                   const valid = isChoiceTarget(card.cardId, pendingChoice!);
                   return (
                     <HandCard
@@ -640,7 +863,7 @@ export default function LegendaryBoard({
                   <HandCard
                     key={card.instanceId}
                     card={card}
-                    disabled={!isMyTurn || disabled || state.phase === 'finished' || !isPlayable(card.cardId)}
+                    disabled={!isMyTurn || isChoiceMode || disabled || state.phase === 'finished' || !isPlayable(card.cardId)}
                     onClick={() => onPlay(card.instanceId)}
                   />
                 );
@@ -653,7 +876,7 @@ export default function LegendaryBoard({
 
       {/* Discard zone — shown in choice mode when the effect allows picking
           from the discard pile (e.g. Dangerous Rescue: hand OR discard). */}
-      {isChoiceMode && pendingChoice!.sources?.includes('discard') && me && (
+      {isChoiceMode && 'sources' in pendingChoice! && pendingChoice!.sources?.includes('discard') && me && (
         <>
           <ZoneLabel>Your discard pile — choose a card to KO</ZoneLabel>
           <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[100px]">
@@ -682,6 +905,53 @@ export default function LegendaryBoard({
                   );
                 })
             )}
+          </div>
+        </>
+      )}
+
+      {/* Played-this-turn zone — shown in Rogue Copy Powers mode so the player
+          can pick a Hero they already played this turn to copy. */}
+      {isChoiceMode && isCopyHeroChoice &&
+       state.thisTurn.playedThisTurn.length > 0 && me && (
+        <>
+          <ZoneLabel>Played this turn — click a Hero to copy its ability</ZoneLabel>
+          <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[100px]">
+            {state.thisTurn.playedThisTurn.map((card) => {
+              const def = CARDS[card.cardId];
+              const valid = def?.kind === 'hero' && card.cardId !== 'rogue_copy_powers';
+              return (
+                <HandCard
+                  key={card.instanceId}
+                  card={card}
+                  disabled={!valid || disabled}
+                  choiceMode={valid ? 'copy_played_hero' : undefined}
+                  onClick={() => valid && onResolveChoice(card.instanceId)}
+                />
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Played-this-turn zone — shown in KO choice mode so the player can
+          also KO cards they already played and got value from. */}
+      {isChoiceMode && pendingChoice!.kind === 'ko_from_hand' &&
+       state.thisTurn.playedThisTurn.length > 0 && me && (
+        <>
+          <ZoneLabel>Played this turn — choose a card to KO</ZoneLabel>
+          <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[100px]">
+            {state.thisTurn.playedThisTurn.map((card) => {
+              const valid = isChoiceTarget(card.cardId, pendingChoice!);
+              return (
+                <HandCard
+                  key={card.instanceId}
+                  card={card}
+                  disabled={!valid || disabled}
+                  choiceMode={valid ? 'ko_from_hand' : undefined}
+                  onClick={() => onResolveChoice(card.instanceId)}
+                />
+              );
+            })}
           </div>
         </>
       )}
@@ -745,28 +1015,77 @@ function ZoneLabel({ children }: { children: React.ReactNode }) {
 }
 
 function CitySlot({
-  card, slot, isLast, attack, disabled, onFight, attachedBystanders,
+  card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
+  onMoveSelect, onMoveDest,
 }: {
   card: CardInstance | null;
   slot: number;
   isLast: boolean;
   attack: number;
+  locationDebuff?: number;
   disabled: boolean;
   onFight: () => void;
   attachedBystanders: number;
+  /** Storm – step 1: click this villain to lift it for moving. */
+  onMoveSelect?: () => void;
+  /** Storm – step 2: click this slot as the move destination. */
+  onMoveDest?: () => void;
 }) {
+  // Storm – Spinning Cyclone step 2: every slot is a clickable destination.
+  if (onMoveDest) {
+    return (
+      <button
+        type="button"
+        onClick={onMoveDest}
+        className="flex h-[165px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-sky-500 bg-sky-950/20 text-[11px] text-sky-400 transition hover:bg-sky-900/30"
+      >
+        {card ? (
+          (() => {
+            const d = getCard(card.cardId);
+            return d.kind === 'villain'
+              ? <VillainCardArt  def={d} wide attachedBystanders={attachedBystanders} />
+              : d.kind === 'henchman'
+              ? <HenchmanCardArt def={d} wide attachedBystanders={attachedBystanders} />
+              : <span>place here</span>;
+          })()
+        ) : (
+          <span>place here</span>
+        )}
+      </button>
+    );
+  }
+
   if (!card) {
     return (
-      <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
+      <div className="flex h-[165px] flex-col items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
         <span>empty</span>
       </div>
     );
   }
   const def = getCard(card.cardId);
   if (def.kind !== 'villain' && def.kind !== 'henchman') {
-    return <div className="h-40 rounded-lg bg-neutral-900" />;
+    return <div className="h-[165px] rounded-lg bg-neutral-900" />;
   }
-  const canFight = !disabled && attack >= def.attack;
+
+  // Storm – Spinning Cyclone step 1: highlight this villain as moveable.
+  if (onMoveSelect) {
+    return (
+      <button
+        type="button"
+        onClick={onMoveSelect}
+        className="-translate-y-1 rounded-lg ring-2 ring-sky-400 transition hover:-translate-y-2 hover:ring-sky-300"
+      >
+        {def.kind === 'villain'
+          ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} />
+          : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} />
+        }
+        <span className="sr-only">Move villain in slot {slot}</span>
+      </button>
+    );
+  }
+
+  const effectiveRequired = Math.max(0, def.attack - locationDebuff);
+  const canFight = !disabled && attack >= effectiveRequired;
   return (
     <button
       type="button"
@@ -820,7 +1139,7 @@ function HQSlot({
         canAfford ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl' : 'opacity-60',
       ].join(' ')}
     >
-      <HeroCardArt def={def} wide height="h-40" copies={copies} />
+      <HeroCardArt def={def} wide height="h-[165px]" copies={copies} />
       <span className="sr-only">Slot {slot}</span>
     </button>
   );
@@ -832,8 +1151,8 @@ function HandCard({
   card: CardInstance;
   disabled: boolean;
   onClick: () => void;
-  /** When set the card is highlighted as a KO/discard target. */
-  choiceMode?: 'ko_from_hand' | 'discard_from_hand';
+  /** When set the card is highlighted as a KO/discard/topdeck/reveal/copy target. */
+  choiceMode?: 'ko_from_hand' | 'discard_from_hand' | 'reveal_to_prevent_wound' | 'put_card_on_deck' | 'copy_played_hero' | 'move_villain_select_villain' | 'move_villain_select_dest';
 }) {
   const def = CARDS[card.cardId];
   // Wounds / bystanders in hand — junk cards that match sandbox system card art.
@@ -845,8 +1164,10 @@ function HandCard({
     const isBystander = def?.kind === 'bystander';
     if (isWound || isBystander) {
       const systemChoiceRing =
-        choiceMode === 'ko_from_hand'      ? 'ring-2 ring-rose-500 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
-        choiceMode === 'discard_from_hand' ? 'ring-2 ring-amber-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+        choiceMode === 'ko_from_hand'            ? 'ring-2 ring-rose-500 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+        choiceMode === 'discard_from_hand'       ? 'ring-2 ring-amber-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+        choiceMode === 'reveal_to_prevent_wound' ? 'ring-2 ring-sky-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+        choiceMode === 'put_card_on_deck'        ? 'ring-2 ring-emerald-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
         '';
       return (
         <button
@@ -856,8 +1177,8 @@ function HandCard({
           className={`transition ${systemChoiceRing || (disabled ? 'cursor-default opacity-80' : 'hover:-translate-y-1 hover:shadow-lg')}`}
         >
           {isWound
-            ? <SystemCardArt name="Wound"     borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)"   height="h-40" />
-            : <SystemCardArt name="Bystander" borderColor="#c4a800" bg="linear-gradient(135deg, #c4a800, #a08600)"   height="h-40" vp={1} />
+            ? <SystemCardArt name="Wound"     borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)"   height="h-[165px]" />
+            : <SystemCardArt name="Bystander" borderColor="#c4a800" bg="linear-gradient(135deg, #c4a800, #a08600)"   height="h-[165px]" vp={1} />
           }
         </button>
       );
@@ -874,10 +1195,12 @@ function HandCard({
   const shieldStyle: React.CSSProperties | undefined = SHIELD_CARD_IDS.includes(card.cardId)
     ? { background: 'linear-gradient(135deg, #7a7a7a, #686868)' }
     : undefined;
-  // Choice-mode ring: red for KO, amber for discard.
+  // Choice-mode ring: red for KO, amber for discard, sky for reveal.
   const choiceRing =
-    choiceMode === 'ko_from_hand'      ? 'ring-2 ring-rose-500 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
-    choiceMode === 'discard_from_hand' ? 'ring-2 ring-amber-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    choiceMode === 'ko_from_hand'            ? 'ring-2 ring-rose-500 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    choiceMode === 'discard_from_hand'       ? 'ring-2 ring-amber-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    choiceMode === 'reveal_to_prevent_wound' ? 'ring-2 ring-sky-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    choiceMode === 'put_card_on_deck'        ? 'ring-2 ring-emerald-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
     '';
 
   return (
@@ -1341,7 +1664,21 @@ function isPlayable(id: CardId): boolean {
 /** Returns true if a card in the player's hand is a valid target for the given
  *  pending choice (respects the 'wounds_only' filter). */
 function isChoiceTarget(cardId: CardId, choice: PendingChoice): boolean {
-  if (choice.filter === 'wounds_only') return cardId === 'wound';
+  if (choice.kind === 'reveal_to_prevent_wound') {
+    // Only a hero card that carries the prevent_wound_draw hand passive is valid.
+    const def = CARDS[cardId];
+    if (def?.kind !== 'hero') return false;
+    return !!(def as HeroCardDef).onHand?.some(h => h.kind === 'prevent_wound_draw');
+  }
+  if ('filter' in choice && choice.filter === 'wounds_only') return cardId === 'wound';
+  if ('filter' in choice && choice.filter === 'shield_heroes') {
+    const def = CARDS[cardId];
+    if (def?.kind !== 'hero') return false;
+    const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
+    return (def as HeroCardDef).teams.some(t => shieldTeams.has(t));
+  }
+  // copy_played_hero: hand/discard cards are never valid — selection is from the played zone only.
+  if (choice.kind === 'copy_played_hero') return false;
   return true; // any card is a valid target when no filter is set
 }
 

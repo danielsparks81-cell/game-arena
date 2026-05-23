@@ -1,6 +1,6 @@
 import type { HeroCardDef } from '../types';
 
-// Gambit hero class — X-Men, Covert.
+// Gambit hero class — X-Men, Covert/Ranged/Instinct.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
 
 export const GAMBIT_STACK_THE_DECK: HeroCardDef = {
@@ -9,12 +9,12 @@ export const GAMBIT_STACK_THE_DECK: HeroCardDef = {
   className: 'Gambit',
   cardName: 'Stack the Deck',
   cost: 2,
-  baseRecruit: 1,
   classes: ['covert'],
   teams: ['x-men'],
-  text: '1 Recruit. You may discard a card from your hand. If you do, draw a card.',
+  text: 'Draw two cards. Then put a card from your hand on top of your deck.',
   onPlay: [
-    { kind: 'discard_from_hand', up_to: 1, bonus: [{ kind: 'draw', amount: 1 }] },
+    { kind: 'draw', amount: 2 },
+    { kind: 'put_card_from_hand_on_deck' },
   ],
 };
 
@@ -23,13 +23,13 @@ export const GAMBIT_CARD_SHARK: HeroCardDef = {
   cardId: 'gambit_card_shark',
   className: 'Gambit',
   cardName: 'Card Shark',
-  cost: 3,
+  cost: 4,
   baseAttack: 2,
-  classes: ['covert'],
+  classes: ['ranged'],
   teams: ['x-men'],
-  text: '2 Attack. You may discard a card from your hand. If you do, +2 Attack.',
+  text: 'Reveal the top card of your deck. If it\'s an [x-men] Hero, draw it.',
   onPlay: [
-    { kind: 'discard_from_hand', up_to: 1, bonus: [{ kind: 'gain_attack', amount: 2 }] },
+    { kind: 'reveal_top_draw_if_xmen' },
   ],
 };
 
@@ -38,15 +38,16 @@ export const GAMBIT_HYPNOTIC_CHARM: HeroCardDef = {
   cardId: 'gambit_hypnotic_charm',
   className: 'Gambit',
   cardName: 'Hypnotic Charm',
-  cost: 4,
+  cost: 3,
   baseRecruit: 2,
-  classes: ['covert'],
+  classes: ['instinct'],
   teams: ['x-men'],
-  text: '2 Recruit. X-Men: +1 Recruit.',
+  text: 'Reveal the top card of your deck. Discard it or put it back.\n[instinct]: Do the same thing to each other player\'s deck.',
   onPlay: [
-    // Card IS X-Men → need total ≥2.
-    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
-      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+    { kind: 'reveal_top_discard_or_return' },
+    // Card IS instinct, so need total ≥ 2 (1 other instinct card this turn).
+    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 2,
+      effects: [{ kind: 'reveal_top_discard_or_return_others' }] },
   ],
 };
 
@@ -55,13 +56,14 @@ export const GAMBIT_HIGH_STAKES_JACKPOT: HeroCardDef = {
   cardId: 'gambit_high_stakes_jackpot',
   className: 'Gambit',
   cardName: 'High Stakes Jackpot',
-  cost: 6,
+  cost: 7,
   baseAttack: 4,
-  classes: ['covert'],
+  baseAttackScales: true,
+  classes: ['instinct'],
   teams: ['x-men'],
-  text: '4 Attack. You may discard a card from your hand. If you do, +3 Attack.',
+  text: 'Reveal the top card of your deck. You get +[strike] equal to that card\'s cost.',
   onPlay: [
-    { kind: 'discard_from_hand', up_to: 1, bonus: [{ kind: 'gain_attack', amount: 3 }] },
+    { kind: 'gain_attack_equal_to_top_card_cost' },
   ],
 };
 

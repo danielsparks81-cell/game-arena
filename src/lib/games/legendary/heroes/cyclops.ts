@@ -1,6 +1,6 @@
 import type { HeroCardDef } from '../types';
 
-// Cyclops hero class — X-Men, Ranged/Strength.
+// Cyclops hero class — X-Men, Strength/Ranged.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
 
 export const CYCLOPS_DETERMINATION: HeroCardDef = {
@@ -10,9 +10,12 @@ export const CYCLOPS_DETERMINATION: HeroCardDef = {
   cardName: 'Determination',
   cost: 2,
   baseRecruit: 3,
-  classes: ['ranged'],
+  classes: ['strength'],
   teams: ['x-men'],
-  text: '3 Recruit.',
+  text: 'To play this card, you must discard a card from your hand.',
+  onPlay: [
+    { kind: 'discard_from_hand', up_to: 1, mandatory: true, bonus: [] },
+  ],
 };
 
 export const CYCLOPS_OPTIC_BLAST: HeroCardDef = {
@@ -24,7 +27,10 @@ export const CYCLOPS_OPTIC_BLAST: HeroCardDef = {
   baseAttack: 3,
   classes: ['ranged'],
   teams: ['x-men'],
-  text: '3 Attack.',
+  text: 'To play this card, you must discard a card from your hand.',
+  onPlay: [
+    { kind: 'discard_from_hand', up_to: 1, mandatory: true, bonus: [] },
+  ],
 };
 
 export const CYCLOPS_UNENDING_ENERGY: HeroCardDef = {
@@ -32,16 +38,13 @@ export const CYCLOPS_UNENDING_ENERGY: HeroCardDef = {
   cardId: 'cyclops_unending_energy',
   className: 'Cyclops',
   cardName: 'Unending Energy',
-  cost: 4,
+  cost: 6,
   baseAttack: 4,
   classes: ['ranged'],
   teams: ['x-men'],
-  text: '4 Attack. X-Men: +1 Attack.',
-  onPlay: [
-    // Card IS X-Men → need total ≥2.
-    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 1 }] },
-  ],
+  text: 'If a card effect makes you discard this card, you may return this card to your hand.',
+  // No onPlay — ability is passive, triggers when chosen in a discard effect.
+  onHand: [{ kind: 'return_to_hand_if_discarded' }],
 };
 
 export const CYCLOPS_X_MEN_UNITED: HeroCardDef = {
@@ -49,14 +52,14 @@ export const CYCLOPS_X_MEN_UNITED: HeroCardDef = {
   cardId: 'cyclops_x_men_united',
   className: 'Cyclops',
   cardName: 'X-Men United',
-  cost: 6,
+  cost: 8,
   baseAttack: 6,
+  baseAttackScales: true,
   classes: ['ranged'],
   teams: ['x-men'],
-  text: '6 Attack. X-Men: Draw a card.',
+  text: '[x-men]: You get +2[strike] for each other [x-men] Hero you have played this turn.',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
-      effects: [{ kind: 'draw', amount: 1 }] },
+    { kind: 'gain_attack_per_team', team: 'x-men', bonus: 2, includeSelf: false },
   ],
 };
 

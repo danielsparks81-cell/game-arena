@@ -140,7 +140,7 @@ export function ClassChips({ classes, size = 'sm' }: { classes: HeroClass[]; siz
               key={c}
               title={CLASS_LABELS[c]}
               aria-label={CLASS_LABELS[c]}
-              className={`inline-block ${sz} rounded-full border border-black/40 shadow-[inset_0_0_2px_rgba(0,0,0,0.4)]`}
+              className={`inline-block ${sz} rounded-full border border-white/70 shadow-[inset_0_0_2px_rgba(0,0,0,0.4)]`}
               style={{ backgroundColor: CLASS_CHIP_COLORS[c] }}
             />
           ))
@@ -186,7 +186,7 @@ function StrikeIcon({ size = 16 }: { size?: number }) {
 // This is intentionally minimal — the parser is a simple regex split so the
 // text field stays a plain TypeScript string (no JSX needed in card defs).
 
-const TOKEN_RE = /(\[(?:strength|covert|ranged|tech|instinct|strike|recruit)\]|\n)/g;
+const TOKEN_RE = /(\[(?:strength|covert|ranged|tech|instinct|strike|recruit|cost|avengers|x-men|shield)\]|\n)/g;
 
 export function CardText({ text, lightBg }: { text: string; lightBg?: boolean }) {
   const parts = text.split(TOKEN_RE);
@@ -195,11 +195,81 @@ export function CardText({ text, lightBg }: { text: string; lightBg?: boolean })
       {parts.map((part, i) => {
         if (part === '\n') return <br key={i} />;
         if (part === '[strike]') {
-          return <StrikeIcon key={i} size={13} />;
+          return (
+            <span key={i} style={{ display: 'inline-block', marginLeft: '3px' }}>
+              <StrikeIcon size={15} />
+            </span>
+          );
         }
         if (part === '[recruit]') {
           return (
-            <span key={i} style={{ color: '#A8893E', fontSize: '13px', lineHeight: 1 }}>★</span>
+            <span key={i} style={{ color: '#A8893E', fontSize: '15px', lineHeight: 1, marginLeft: '3px' }}>★</span>
+          );
+        }
+        if (part === '[avengers]') {
+          return (
+            <span
+              key={i}
+              title="Avengers"
+              aria-label="Avengers"
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: '13px', height: '13px', borderRadius: '2px',
+                backgroundColor: '#f59e0b', color: '#000',
+                fontSize: '7px', fontWeight: 900, lineHeight: 1,
+                verticalAlign: 'middle', margin: '0 1px',
+              }}
+            >A</span>
+          );
+        }
+        if (part === '[x-men]') {
+          return (
+            <span
+              key={i}
+              title="X-Men"
+              aria-label="X-Men"
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: '13px', height: '13px', borderRadius: '2px',
+                backgroundColor: '#DC143C', color: '#fff',
+                fontSize: '7px', fontWeight: 900, lineHeight: 1,
+                verticalAlign: 'middle', margin: '0 1px',
+              }}
+            >X</span>
+          );
+        }
+        if (part === '[shield]') {
+          return (
+            <span
+              key={i}
+              title="S.H.I.E.L.D."
+              aria-label="S.H.I.E.L.D."
+              style={{
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                width: '13px', height: '13px', borderRadius: '2px',
+                backgroundColor: '#94a3b8', color: '#000',
+                fontSize: '7px', fontWeight: 900, lineHeight: 1,
+                verticalAlign: 'middle', margin: '0 1px',
+              }}
+            >★</span>
+          );
+        }
+        if (part === '[cost]') {
+          return (
+            <span
+              key={i}
+              title="cost"
+              aria-label="cost"
+              style={{
+                display: 'inline-block',
+                width: '11px', height: '11px', borderRadius: '50%',
+                backgroundColor: '#7A6330',
+                border: '1px solid #A8893E',
+                boxShadow: '0 1px 2px rgba(0,0,0,0.5)',
+                verticalAlign: 'middle', margin: '0 1px',
+                flexShrink: 0,
+              }}
+            />
           );
         }
         const clsMatch = part.match(/^\[(strength|covert|ranged|tech|instinct)\]$/);
@@ -216,7 +286,7 @@ export function CardText({ text, lightBg }: { text: string; lightBg?: boolean })
                 height: '9px',
                 borderRadius: '50%',
                 backgroundColor: CLASS_CHIP_COLORS[cls],
-                border: '1px solid rgba(0,0,0,0.4)',
+                border: '1px solid rgba(255,255,255,0.7)',
                 verticalAlign: 'middle',
                 marginRight: '1px',
               }}
@@ -260,7 +330,7 @@ export function HeroCardArt({
   def,
   wide = false,
   copies,
-  height = 'h-40',
+  height = 'h-[165px]',
   className: extraClassName = '',
   style: extraStyle,
   lightBg = false,
@@ -273,14 +343,14 @@ export function HeroCardArt({
    *  to rounded (safe for unknown / draft cards). */
   copies?: number;
   /** Card height override. Default h-36; pass h-40 for extra-tall slots. */
-  height?: 'h-28' | 'h-32' | 'h-36' | 'h-40';
+  height?: 'h-28' | 'h-32' | 'h-36' | 'h-40' | 'h-[165px]';
   className?: string;
   /** Optional style overrides — use `background` to tint the card body. */
   style?: React.CSSProperties;
   /** Set true when the card has a light background so secondary text stays readable. */
   lightBg?: boolean;
 }) {
-  const widthClass = wide ? 'w-full' : 'w-[220px]';
+  const widthClass = wide ? 'w-full' : 'w-[230px]';
   const isShield = isShieldStarter(def.className);
   // Rare (1 copy) cards get sharp corners as a visual rarity signal.
   const corners = copies === 1 ? 'rounded-none' : 'rounded-lg';
@@ -308,7 +378,7 @@ export function HeroCardArt({
 
       {/* Card text — parsed for inline icons via CardText */}
       {def.text && (
-        <div className="my-1 flex-1 px-1 text-[12px] leading-snug">
+        <div className="mb-1 flex-1 pl-3 pr-2 pt-3 text-[12px] leading-snug">
           <CardText text={def.text} lightBg={lightBg} />
         </div>
       )}

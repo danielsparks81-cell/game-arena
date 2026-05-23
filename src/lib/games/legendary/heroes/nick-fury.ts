@@ -1,6 +1,6 @@
 import type { HeroCardDef } from '../types';
 
-// Nick Fury hero class — S.H.I.E.L.D., Instinct/Ranged/Tech.
+// Nick Fury hero class — S.H.I.E.L.D., Tech/Covert/Strength.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
 
 export const NICK_FURY_HIGH_TECH_WEAPONRY: HeroCardDef = {
@@ -8,14 +8,15 @@ export const NICK_FURY_HIGH_TECH_WEAPONRY: HeroCardDef = {
   cardId: 'nick_fury_high_tech_weaponry',
   className: 'Nick Fury',
   cardName: 'High-Tech Weaponry',
-  cost: 2,
+  cost: 3,
   baseAttack: 2,
+  baseAttackScales: true,
   classes: ['tech'],
   teams: ['shield-officer'],
-  text: '2 Attack. Nick Fury: +1 Attack.',
+  text: '[tech]: You get +1[strike].',
   onPlay: [
-    // This card IS a Nick Fury hero (counted). Need total ≥2 for another.
-    { kind: 'if_played_hero_this_turn', heroName: 'Nick Fury', minOthers: 2,
+    // Card IS Tech → need total ≥2 (at least 1 other Tech card played).
+    { kind: 'if_played_class_this_turn', cls: 'tech', minOthers: 2,
       effects: [{ kind: 'gain_attack', amount: 1 }] },
   ],
 };
@@ -25,14 +26,13 @@ export const NICK_FURY_BATTLEFIELD_PROMOTION: HeroCardDef = {
   cardId: 'nick_fury_battlefield_promotion',
   className: 'Nick Fury',
   cardName: 'Battlefield Promotion',
-  cost: 3,
-  classes: ['instinct'],
+  cost: 4,
+  classes: ['covert'],
   teams: ['shield-officer'],
-  text: 'Draw 2 cards. Nick Fury: +3 Recruit.',
+  text: 'You may KO a [shield] Hero from your hand or discard pile. If you do, you may gain a S.H.I.E.L.D. Officer to your hand.',
   onPlay: [
-    { kind: 'draw', amount: 2 },
-    { kind: 'if_played_hero_this_turn', heroName: 'Nick Fury', minOthers: 2,
-      effects: [{ kind: 'gain_recruit', amount: 3 }] },
+    { kind: 'ko_from_hand', up_to: 1, filter: 'shield_heroes', sources: ['hand', 'discard'],
+      bonus: [{ kind: 'gain_card_to_hand', cardId: 'shield_officer' }] },
   ],
 };
 
@@ -41,15 +41,15 @@ export const NICK_FURY_LEGENDARY_COMMANDER: HeroCardDef = {
   cardId: 'nick_fury_legendary_commander',
   className: 'Nick Fury',
   cardName: 'Legendary Commander',
-  cost: 5,
-  baseAttack: 0,
+  cost: 6,
+  baseAttack: 1,
   baseAttackScales: true,
-  classes: ['ranged'],
+  classes: ['strength'],
   teams: ['shield-officer'],
-  text: '+1 Attack for each S.H.I.E.L.D. Officer hero you play this turn, including this one.',
+  text: 'You get +1[strike] for each other [shield] Hero you played this turn.',
   onPlay: [
-    // Counts all shield-officer team cards (Nick Fury class cards).
-    { kind: 'gain_attack_per_team', team: 'shield-officer', bonus: 1, includeSelf: true },
+    // Card IS shield-officer → includeSelf: false subtracts itself, giving 0 when alone.
+    { kind: 'gain_attack_per_team', team: 'shield-officer', bonus: 1, includeSelf: false },
   ],
 };
 
@@ -58,13 +58,12 @@ export const NICK_FURY_PURE_FURY: HeroCardDef = {
   cardId: 'nick_fury_pure_fury',
   className: 'Nick Fury',
   cardName: 'Pure Fury',
-  cost: 6,
-  baseRecruit: 5,
-  classes: ['instinct'],
+  cost: 8,
+  classes: ['tech'],
   teams: ['shield-officer'],
-  text: '5 Recruit. Draw 2 cards.',
+  text: 'Defeat any Villain or Mastermind whose [strike] is less than the number of [shield] Heroes in the KO pile.',
   onPlay: [
-    { kind: 'draw', amount: 2 },
+    { kind: 'defeat_villain_under_shield_ko_count' },
   ],
 };
 

@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { HeroCardArt, CLASS_COLORS, CLASS_LABELS } from '@/components/legendary/HeroCardArt';
+import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, TEAM_ICON_DATA } from '@/components/legendary/HeroCardArt';
 import { VillainCardArt, HenchmanCardArt } from '@/components/legendary/SystemCardArt';
 import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
@@ -82,6 +82,45 @@ const EFFECT_KINDS: { kind: EffectKind; label: string; description: string }[] =
   { kind: 'if_played_class_this_turn',     label: 'If played class ≥ N',   description: 'Conditional: fires nested effects when total class count this turn ≥ N.' },
   { kind: 'if_played_team_this_turn',      label: 'If played team ≥ N',    description: 'Conditional: fires nested effects when total team count this turn ≥ N.' },
   { kind: 'if_played_hero_this_turn',      label: 'If played hero ≥ N',    description: 'Conditional: fires nested effects when total hero-name count this turn ≥ N.' },
+  // Gambit-specific
+  { kind: 'put_card_from_hand_on_deck',           label: 'Topdeck from hand (mandatory)', description: 'Prompt the player to choose a card from hand to put on top of their deck.' },
+  { kind: 'reveal_top_draw_if_xmen',              label: 'Reveal top → draw if X-Men',   description: 'Peek the top card; if it\'s an X-Men Hero, draw it.' },
+  { kind: 'reveal_top_discard_or_return',         label: 'Reveal top → discard or keep', description: 'Prompt to discard the top card of your deck or put it back.' },
+  { kind: 'reveal_top_discard_or_return_others',  label: 'Reveal top others → discard',  description: 'Auto-reveal and discard the top card of each other player\'s deck.' },
+  { kind: 'gain_attack_equal_to_top_card_cost',   label: '+Strike = top card cost',       description: 'Peek the top card; gain Attack equal to its cost (card stays on top).' },
+  // Deadpool-specific
+  { kind: 'villain_captures_bystander',           label: 'Villain captures Bystander', description: 'Leftmost city villain (or Mastermind) captures a fresh Bystander.' },
+  { kind: 'gain_attack_per_odd_cost_hero_played', label: '+Strike / odd-cost Hero',    description: '+1 Strike per other hero with odd cost played before this card this turn.' },
+  { kind: 'if_first_hero_discard_hand_draw_four', label: 'Do-Over (first hero)',       description: 'If this is the first hero played, prompt to discard hand and draw 4.' },
+  { kind: 'optional_gain_wound_pass_left',        label: 'Wound? Then pass left',      description: 'Optional wound into hand, then all players pass their top hand-card left.' },
+  // Hawkeye-specific
+  { kind: 'gain_rescue_bystanders_on_kill',       label: 'Rescue 3 on kill',           description: 'Each time you defeat a Villain or Mastermind this turn, rescue 3 Bystanders.' },
+  { kind: 'choose_others_draw_or_discard',        label: '[tech] Others draw or discard', description: 'Binary choice — each other player draws a card (Accept) or discards (Skip).' },
+  // Hulk-specific
+  { kind: 'each_player_gains_wound',              label: 'Each player gains Wound',    description: 'Every player (including you) takes a Wound into their discard pile.' },
+  // Jean Grey-specific
+  { kind: 'gain_recruit_per_bystander_rescued_this_turn', label: '+Recruit per Bystander rescued', description: 'This turn: each time you rescue a Bystander, gain +1 Recruit.' },
+  { kind: 'draw_per_bystander_rescued_this_turn',         label: 'Draw per Bystander rescued',     description: 'This turn: each time you rescue a Bystander, draw a card.' },
+  { kind: 'gain_attack_per_bystander_rescued_this_turn',  label: '+Strike per Bystander rescued',  description: 'This turn: each time you rescue a Bystander, gain +1 Attack.' },
+  { kind: 'rescue_bystander_per_xmen_played',             label: 'Rescue per other X-Men played',  description: 'Rescue a Bystander for each other X-Men Hero you played this turn.' },
+  // Nick Fury-specific
+  { kind: 'gain_card_to_hand',                  label: 'Gain card to hand',              description: 'Place a copy of the given card directly into the player\'s hand (no cost).' },
+  { kind: 'defeat_villain_under_shield_ko_count', label: 'Defeat villain < SHIELD KO count', description: 'Auto-defeat all City villains (and Mastermind) whose Attack < # of SHIELD Heroes in the KO pile.' },
+  // Rogue-specific
+  { kind: 'copy_played_hero',               label: 'Copy played Hero',          description: 'Prompt the player to pick a Hero from played-this-turn and fire its onPlay effects.' },
+  { kind: 'play_copy_each_player_top_card', label: 'Play copy of each top card', description: 'Each player reveals & discards top deck card; active player fires onPlay of any Hero cards revealed.' },
+  // Spider-Man-specific
+  { kind: 'reveal_top_draw_if_cost_le_2',       label: 'Reveal top → draw if ≤2 cost',  description: 'Peek the top card of the deck; draw it if its cost is 2 or less, else leave it on top.' },
+  { kind: 'reveal_top_three_draw_cost_le_2',    label: 'Reveal top 3 → draw ≤2 cost',   description: 'Reveal the top 3 cards; draw those that cost 2 or less; put the rest back on top.' },
+  // Storm-specific
+  { kind: 'villain_debuff_at_location',         label: 'Villain debuff at location',     description: 'Villains fought at the given city space get -N Attack this turn.' },
+  { kind: 'move_villain_rescue_bystanders',     label: 'Move Villain + rescue bystanders', description: 'Prompt to move a city Villain to a new slot; rescues its bystanders; swaps if occupied.' },
+  { kind: 'mastermind_attack_debuff',           label: 'Mastermind -N Attack this turn', description: 'Reduce the Mastermind\'s effective Attack by N for the rest of this turn.' },
+  // Thor-specific
+  { kind: 'if_recruit_ge',                      label: 'If recruit ≥ N',                 description: 'Conditional: fires nested effects if the current Recruit pool is ≥ threshold.' },
+  { kind: 'enable_recruit_as_attack',           label: 'Recruit → Attack (one-way)',      description: 'For this turn, Recruit can be spent as Attack. Attack cannot pay Recruit costs.' },
+  // Wolverine-specific
+  { kind: 'gain_attack_per_extra_card_drawn_this_turn', label: '+Strike per extra card drawn', description: '+N Attack for each extra card drawn via effects this turn (Berserker Rage).' },
 ];
 
 // All teams known to the engine.
@@ -757,9 +796,43 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'gain_recruit_per_team':            return { kind, team: 'avengers', bonus: 1, includeSelf: false };
     case 'gain_attack_per_vp_bystander':     return { kind };
     case 'grant_free_bystander_fight':       return { kind };
-    case 'if_played_class_this_turn':        return { kind, cls: 'strength', minOthers: 2, effects: [] };
-    case 'if_played_team_this_turn':   return { kind, team: 'avengers', minOthers: 2, effects: [] };
-    case 'if_played_hero_this_turn':   return { kind, heroName: '', minOthers: 2, effects: [] };
+    case 'if_played_class_this_turn':               return { kind, cls: 'strength', minOthers: 2, effects: [] };
+    case 'if_played_team_this_turn':                return { kind, team: 'avengers', minOthers: 2, effects: [] };
+    case 'if_played_hero_this_turn':                return { kind, heroName: '', minOthers: 2, effects: [] };
+    case 'gain_attack_per_unique_class_in_hand':    return { kind };
+    case 'gain_recruit_per_unique_class_in_hand':   return { kind };
+    case 'put_card_from_hand_on_deck':              return { kind };
+    case 'reveal_top_draw_if_xmen':                 return { kind };
+    case 'reveal_top_discard_or_return':            return { kind };
+    case 'reveal_top_discard_or_return_others':     return { kind };
+    case 'gain_attack_equal_to_top_card_cost':      return { kind };
+    case 'villain_captures_bystander':              return { kind };
+    case 'gain_attack_per_odd_cost_hero_played':    return { kind };
+    case 'if_first_hero_discard_hand_draw_four':    return { kind };
+    case 'optional_gain_wound_pass_left':           return { kind };
+    case 'gain_rescue_bystanders_on_kill':          return { kind };
+    case 'choose_others_draw_or_discard':           return { kind };
+    case 'each_player_gains_wound':                         return { kind };
+    case 'gain_recruit_per_bystander_rescued_this_turn':    return { kind };
+    case 'draw_per_bystander_rescued_this_turn':            return { kind };
+    case 'gain_attack_per_bystander_rescued_this_turn':     return { kind };
+    case 'rescue_bystander_per_xmen_played':                return { kind };
+    case 'gain_card_to_hand':                              return { kind, cardId: 'shield_officer' };
+    case 'defeat_villain_under_shield_ko_count':           return { kind };
+    case 'copy_played_hero':                               return { kind };
+    case 'play_copy_each_player_top_card':                 return { kind };
+    // Spider-Man
+    case 'reveal_top_draw_if_cost_le_2':                   return { kind };
+    case 'reveal_top_three_draw_cost_le_2':                return { kind };
+    // Storm
+    case 'villain_debuff_at_location':                     return { kind, location: 'rooftops', amount: 2 };
+    case 'move_villain_rescue_bystanders':                 return { kind };
+    case 'mastermind_attack_debuff':                       return { kind, amount: 2 };
+    // Thor
+    case 'if_recruit_ge':                                  return { kind, threshold: 8, effects: [] };
+    case 'enable_recruit_as_attack':                       return { kind };
+    // Wolverine
+    case 'gain_attack_per_extra_card_drawn_this_turn':     return { kind, amount: 1 };
   }
 }
 
@@ -971,15 +1044,16 @@ function tsForCard(def: HeroCardDef): string {
 // Card browser — read-only view of ALL base-set cards with type filter
 // ---------------------------------------------------------------------------
 
-type CardFilter = 'heroes' | 'starters' | 'villains' | 'henchmen' | 'mastermind' | 'scheme' | 'rules';
+type CardFilter = 'heroes' | 'teams' | 'starters' | 'villains' | 'henchmen' | 'mastermind' | 'scheme' | 'rules';
 
 const FILTER_TABS: { id: CardFilter; label: string; badge: string }[] = [
-  { id: 'heroes',      label: 'Heroes',         badge: '15 classes' },
-  { id: 'starters',   label: 'Generic Cards',   badge: 'S.H.I.E.L.D. + System' },
-  { id: 'villains',   label: 'Villains',        badge: 'HYDRA' },
-  { id: 'henchmen',   label: 'Henchmen',        badge: 'Hand Ninjas' },
-  { id: 'mastermind', label: 'Mastermind',      badge: 'Red Skull' },
-  { id: 'scheme',     label: 'Scheme',          badge: 'Negative Zone' },
+  { id: 'heroes',      label: 'Heroes',          badge: '15 classes' },
+  { id: 'teams',       label: 'Teams',            badge: '4 teams' },
+  { id: 'starters',   label: 'Generic Cards',    badge: 'S.H.I.E.L.D. + System' },
+  { id: 'villains',   label: 'Villains',         badge: 'HYDRA' },
+  { id: 'henchmen',   label: 'Henchmen',         badge: 'Hand Ninjas' },
+  { id: 'mastermind', label: 'Mastermind',       badge: 'Red Skull' },
+  { id: 'scheme',     label: 'Scheme',           badge: 'Negative Zone' },
   { id: 'rules',      label: 'Rules & Keywords', badge: 'glossary' },
 ];
 
@@ -1033,6 +1107,7 @@ function CardBrowser({ onAuthor }: { onAuthor: (type: SandboxMode) => void }) {
 
       {/* Section content */}
       {filter === 'heroes'      && <HeroSection />}
+      {filter === 'teams'       && <TeamsSection />}
       {filter === 'starters'   && <StartersSection />}
       {filter === 'villains'   && <VillainsSection />}
       {filter === 'henchmen'   && <HenchmenSection />}
@@ -1045,19 +1120,23 @@ function CardBrowser({ onAuthor }: { onAuthor: (type: SandboxMode) => void }) {
 
 // ─── Hero class section ───────────────────────────────────────────────────────
 
+// Sorted once at module level (static data, never changes at runtime).
+const SORTED_HERO_CLASSES = [...ALL_HERO_CLASSES].sort((a, b) =>
+  a.className.localeCompare(b.className)
+);
+
 function HeroSection() {
-  const sorted = [...ALL_HERO_CLASSES].sort((a, b) => a.className.localeCompare(b.className));
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const heroClass = sorted[selectedIdx];
+  const heroClass = SORTED_HERO_CLASSES[selectedIdx];
 
   return (
     <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
       {/* Left: class list */}
       <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">
-          Hero classes ({ALL_HERO_CLASSES.length})
+          Hero classes ({SORTED_HERO_CLASSES.length})
         </div>
-        {sorted.map((hc, i) => (
+        {SORTED_HERO_CLASSES.map((hc, i) => (
           <button
             key={hc.className}
             onClick={() => setSelectedIdx(i)}
@@ -1092,7 +1171,7 @@ function HeroSection() {
                 <span>{copies === 1 ? 'rare' : copies === 3 ? 'uncommon' : 'common'}</span>
               </div>
               {def.text && (
-                <div className="w-[220px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
+                <div className="w-[230px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
                   {def.text}
                 </div>
               )}
@@ -1100,6 +1179,129 @@ function HeroSection() {
           ))}
         </div>
       </section>
+    </div>
+  );
+}
+
+// ─── Teams section ────────────────────────────────────────────────────────────
+
+// One entry per hero-side team. Add new entries here as expansion sets
+// introduce new teams. The heroes array lists all class names on that team.
+const TEAM_BROWSER_DATA: {
+  team: string;
+  name: string;
+  description: string;
+  heroes: string[];
+}[] = [
+  {
+    team: 'avengers',
+    name: 'Avengers',
+    description: "Earth's Mightiest Heroes. Assembled to fight threats no single hero could withstand alone.",
+    heroes: ['Captain America', 'Iron Man', 'Thor', 'Hulk', 'Hawkeye', 'Black Widow'],
+  },
+  {
+    team: 'x-men',
+    name: 'X-Men',
+    description: 'Mutant heroes who protect a world that fears and hates them.',
+    heroes: ['Wolverine', 'Cyclops', 'Gambit', 'Rogue', 'Storm', 'Jean Grey'],
+  },
+  {
+    team: 'spider-friends',
+    name: 'Spider-Friends',
+    description: "Spider-Man and his web-slinging allies, swinging through the streets of New York.",
+    heroes: ['Spider-Man'],
+  },
+  {
+    team: 'shield-officer',
+    name: 'S.H.I.E.L.D.',
+    description: 'Strategic Homeland Intervention, Enforcement and Logistics Division. The world\'s foremost intelligence agency.',
+    heroes: ['Nick Fury'],
+  },
+];
+
+function TeamsSection() {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-base font-semibold text-neutral-100">Teams</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          Hero teams from the base set. Each team icon appears on its heroes' cards and powers class-synergy abilities.
+          New teams will appear here as expansion sets are added.
+        </p>
+      </div>
+
+      {/* Team cards */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {TEAM_BROWSER_DATA.map(({ team, name, description, heroes }) => {
+          const data = TEAM_ICON_DATA[team];
+          if (!data) return null;
+          return (
+            <div
+              key={team}
+              className="flex flex-col gap-3 rounded-lg border border-neutral-800 bg-neutral-950/40 p-4"
+            >
+              {/* Icon + name row */}
+              <div className="flex items-center gap-3">
+                <div
+                  style={{ backgroundColor: data.color, color: data.textColor ?? '#000' }}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-xl font-black shadow"
+                >
+                  {data.abbr}
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-neutral-100">{name}</div>
+                  <div className="text-[10px] text-neutral-500">
+                    {heroes.length} hero class{heroes.length !== 1 ? 'es' : ''} · Base Game
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              <p className="text-[11px] leading-snug text-neutral-400">{description}</p>
+
+              {/* Hero chips */}
+              <div className="mt-auto flex flex-wrap gap-1 pt-1">
+                {heroes.map(h => (
+                  <span
+                    key={h}
+                    className="rounded bg-neutral-800 px-2 py-0.5 text-[10px] text-neutral-300"
+                  >
+                    {h}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Token legend */}
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
+        <div className="mb-3 text-[10px] uppercase tracking-wider text-neutral-500">Team icon legend</div>
+        <div className="flex flex-wrap gap-4">
+          {TEAM_BROWSER_DATA.map(({ team, name }) => {
+            const data = TEAM_ICON_DATA[team];
+            if (!data) return null;
+            return (
+              <div key={team} className="flex items-center gap-2">
+                <div
+                  style={{ backgroundColor: data.color, color: data.textColor ?? '#000' }}
+                  className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-sm text-[7px] font-black leading-none"
+                >
+                  {data.abbr}
+                </div>
+                <span className="text-xs text-neutral-300">{name}</span>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-[10px] leading-snug text-neutral-600">
+          The small team icon appears in the top-left corner of every hero card. Abilities that reference
+          a team (e.g. "for each other [X-Men] Hero you played this turn") count all cards whose team
+          matches, including those played earlier in the same turn.
+        </p>
+      </div>
     </div>
   );
 }

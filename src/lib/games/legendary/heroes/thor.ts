@@ -8,15 +8,16 @@ export const THOR_ODINSON: HeroCardDef = {
   cardId: 'thor_odinson',
   className: 'Thor',
   cardName: 'Odinson',
-  cost: 2,
+  cost: 3,
   baseRecruit: 2,
+  baseRecruitScales: true,
   classes: ['strength'],
   teams: ['avengers'],
-  text: '2 Recruit. Avengers: +1 Recruit.',
+  text: '[strength]: You get +2[recruit].',
   onPlay: [
-    // Card IS Avengers → need total ≥2.
-    { kind: 'if_played_team_this_turn', team: 'avengers', minOthers: 2,
-      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+    // Card IS Strength → need total ≥2 (at least 1 other Strength played).
+    { kind: 'if_played_class_this_turn', cls: 'strength', minOthers: 2,
+      effects: [{ kind: 'gain_recruit', amount: 2 }] },
   ],
 };
 
@@ -25,15 +26,15 @@ export const THOR_SURGE_OF_POWER: HeroCardDef = {
   cardId: 'thor_surge_of_power',
   className: 'Thor',
   cardName: 'Surge of Power',
-  cost: 3,
+  cost: 4,
   baseRecruit: 2,
+  baseAttack: 0,
+  baseAttackScales: true,
   classes: ['ranged'],
   teams: ['avengers'],
-  text: '2 Recruit. Ranged: +2 Attack.',
+  text: 'If you made 8 or more [recruit] this turn, you get +3[strike].',
   onPlay: [
-    // Card IS Ranged → need total ≥2.
-    { kind: 'if_played_class_this_turn', cls: 'ranged', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 2 }] },
+    { kind: 'if_recruit_ge', threshold: 8, effects: [{ kind: 'gain_attack', amount: 3 }] },
   ],
 };
 
@@ -42,14 +43,16 @@ export const THOR_CALL_LIGHTNING: HeroCardDef = {
   cardId: 'thor_call_lightning',
   className: 'Thor',
   cardName: 'Call Lightning',
-  cost: 5,
+  cost: 6,
   baseAttack: 3,
+  baseAttackScales: true,
   classes: ['ranged'],
   teams: ['avengers'],
-  text: '3 Attack. Avengers: +2 Attack.',
+  text: '[ranged]: You get +3[strike].',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'avengers', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 2 }] },
+    // Card IS Ranged → need total ≥2.
+    { kind: 'if_played_class_this_turn', cls: 'ranged', minOthers: 2,
+      effects: [{ kind: 'gain_attack', amount: 3 }] },
   ],
 };
 
@@ -58,14 +61,15 @@ export const THOR_GOD_OF_THUNDER: HeroCardDef = {
   cardId: 'thor_god_of_thunder',
   className: 'Thor',
   cardName: 'God of Thunder',
-  cost: 7,
+  cost: 8,
   baseRecruit: 5,
-  classes: ['strength'],
+  baseAttack: 0,
+  baseAttackScales: true,
+  classes: ['ranged'],
   teams: ['avengers'],
-  text: '5 Recruit. Avengers: +3 Attack.',
+  text: 'You can use [recruit] as [strike] this turn.',
   onPlay: [
-    { kind: 'if_played_team_this_turn', team: 'avengers', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 3 }] },
+    { kind: 'enable_recruit_as_attack' },
   ],
 };
 

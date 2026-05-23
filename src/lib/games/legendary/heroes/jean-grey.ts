@@ -1,6 +1,6 @@
 import type { HeroCardDef } from '../types';
 
-// Jean Grey hero class — X-Men, Instinct.
+// Jean Grey hero class — X-Men, Ranged/Covert.
 // Distribution: 5 / 5 / 3 / 1 (common / common / uncommon / rare).
 
 export const JEAN_GREY_PSYCHIC_SEARCH: HeroCardDef = {
@@ -8,15 +8,15 @@ export const JEAN_GREY_PSYCHIC_SEARCH: HeroCardDef = {
   cardId: 'jean_grey_psychic_search',
   className: 'Jean Grey',
   cardName: 'Psychic Search',
-  cost: 2,
+  cost: 3,
   baseAttack: 2,
-  classes: ['instinct'],
+  classes: ['ranged'],
   teams: ['x-men'],
-  text: '2 Attack. Instinct: Draw a card.',
+  text: '[x-men]: Rescue a Bystander.',
   onPlay: [
-    // Card IS Instinct → need total ≥2.
-    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 2,
-      effects: [{ kind: 'draw', amount: 1 }] },
+    // Card IS X-Men → need total ≥2 (at least 1 other X-Men card played).
+    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
+      effects: [{ kind: 'rescue_bystander', amount: 1 }] },
   ],
 };
 
@@ -25,14 +25,14 @@ export const JEAN_GREY_READ_YOUR_THOUGHTS: HeroCardDef = {
   cardId: 'jean_grey_read_your_thoughts',
   className: 'Jean Grey',
   cardName: 'Read Your Thoughts',
-  cost: 3,
+  cost: 5,
   baseRecruit: 3,
-  classes: ['instinct'],
+  baseRecruitScales: true,
+  classes: ['covert'],
   teams: ['x-men'],
-  text: '3 Recruit. Instinct: +1 Recruit.',
+  text: 'Whenever you rescue a Bystander this turn, you get +1[recruit].',
   onPlay: [
-    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 2,
-      effects: [{ kind: 'gain_recruit', amount: 1 }] },
+    { kind: 'gain_recruit_per_bystander_rescued_this_turn' },
   ],
 };
 
@@ -41,14 +41,13 @@ export const JEAN_GREY_MIND_OVER_MATTER: HeroCardDef = {
   cardId: 'jean_grey_mind_over_matter',
   className: 'Jean Grey',
   cardName: 'Mind Over Matter',
-  cost: 4,
+  cost: 6,
   baseAttack: 4,
-  classes: ['instinct'],
+  classes: ['covert'],
   teams: ['x-men'],
-  text: '4 Attack. Instinct: +1 Attack.',
+  text: 'Whenever you rescue a Bystander this turn, draw a card.',
   onPlay: [
-    { kind: 'if_played_class_this_turn', cls: 'instinct', minOthers: 2,
-      effects: [{ kind: 'gain_attack', amount: 1 }] },
+    { kind: 'draw_per_bystander_rescued_this_turn' },
   ],
 };
 
@@ -57,14 +56,19 @@ export const JEAN_GREY_TELEKINETIC_MASTERY: HeroCardDef = {
   cardId: 'jean_grey_telekinetic_mastery',
   className: 'Jean Grey',
   cardName: 'Telekinetic Mastery',
-  cost: 6,
-  baseAttack: 0,
+  cost: 7,
+  baseAttack: 5,
   baseAttackScales: true,
-  classes: ['instinct'],
+  classes: ['ranged'],
   teams: ['x-men'],
-  text: '+1 Attack for each Instinct hero you play this turn, including this one.',
+  text: 'Whenever you rescue a Bystander this turn, you get +1[strike].\n[x-men]: Rescue a Bystander for each other [x-men] Hero you played this turn.',
   onPlay: [
-    { kind: 'gain_attack_per_class', cls: 'instinct', bonus: 1, includeSelf: true },
+    // Line 1: set up the per-rescue attack bonus (fires before line 2's rescues,
+    // so those rescues immediately benefit from it).
+    { kind: 'gain_attack_per_bystander_rescued_this_turn' },
+    // Line 2: card IS X-Men → need total ≥2 to have any "other" x-men to count.
+    { kind: 'if_played_team_this_turn', team: 'x-men', minOthers: 2,
+      effects: [{ kind: 'rescue_bystander_per_xmen_played' }] },
   ],
 };
 

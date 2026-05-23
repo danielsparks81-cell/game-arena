@@ -32,7 +32,8 @@ export const AGENT: HeroCardDef = {
 };
 
 // S.H.I.E.L.D. Officer — always available for purchase (pool of 30).
-// TODO: verify cost, stats, and text against physical cards.
+// The hero depicted is Maria Hill. Card name is 'S.H.I.E.L.D. Officer'.
+// className 'Hero' — same as Trooper, Agent, and Sidekick for all game checks.
 export const OFFICER: HeroCardDef = {
   kind: 'hero',
   cardId: 'shield_officer',
