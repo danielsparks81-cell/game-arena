@@ -33,6 +33,7 @@ import {
   type PlayerState,
 } from '@/lib/games/legendary';
 import { SIDEKICK, OFFICER } from '@/lib/games/legendary/heroes/shield';
+import { WOUND } from '@/lib/games/legendary/cards';
 // Card render primitives. Extracted so the sandbox preview at
 // /legendary-sandbox renders cards identically — no drift between author-time
 // and play-time visuals.
@@ -109,7 +110,8 @@ export default function LegendaryBoard({
     pendingChoice?.kind === 'discard_hand_draw_four' ||
     pendingChoice?.kind === 'optional_gain_wound_pass_left' ||
     pendingChoice?.kind === 'reveal_top_discard_or_return' ||
-    pendingChoice?.kind === 'choose_others_draw_or_discard';
+    pendingChoice?.kind === 'choose_others_draw_or_discard' ||
+    pendingChoice?.kind === 'optional_return_sidekick_draw_two';
   const isCopyHeroChoice            = pendingChoice?.kind === 'copy_played_hero';
   const isMoveVillainSelectVillain  = pendingChoice?.kind === 'move_villain_select_villain';
   const isMoveVillainSelectDest     = pendingChoice?.kind === 'move_villain_select_dest';
@@ -526,7 +528,8 @@ export default function LegendaryBoard({
               fill
               pileStyle={{ borderColor: '#404040', background: 'linear-gradient(135deg,rgba(40,40,40,.6),rgba(20,20,20,.6))' }}
             />
-            <HoverCardList cards={state.ko} heading="KO'd" />
+            {/* Master Strikes already appear in the Strikes pile — filter them. */}
+            <HoverCardList cards={state.ko.filter(c => c.cardId !== 'master_strike')} heading="KO'd" />
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
@@ -791,6 +794,8 @@ export default function LegendaryBoard({
                       const revName = revCard?.kind === 'hero' ? revCard.cardName : 'name' in (revCard ?? {}) ? (revCard as { name: string }).name : '?';
                       return `🃏 Revealed: ${revName} — discard it or put it back?`;
                     })()
+                  : pendingChoice.kind === 'optional_return_sidekick_draw_two'
+                  ? '🔁 Return this Sidekick to the stack and draw 2 cards?'
                   : pendingChoice.kind === 'discard_hand_draw_four'
                   ? '🔄 Discard your remaining hand and draw 4 cards?'
                   : pendingChoice.kind === 'optional_gain_wound_pass_left'
@@ -843,6 +848,8 @@ export default function LegendaryBoard({
                       ? 'Discard & Draw 4'
                       : pendingChoice.kind === 'choose_others_draw_or_discard'
                       ? 'Each Player Draws'
+                      : pendingChoice.kind === 'optional_return_sidekick_draw_two'
+                      ? 'Return & Draw 2'
                       : 'Take Wound'}
                   </button>
                 )}
@@ -864,6 +871,8 @@ export default function LegendaryBoard({
                       ? 'No Wound'
                       : pendingChoice.kind === 'choose_others_draw_or_discard'
                       ? 'Each Player Discards'
+                      : pendingChoice.kind === 'optional_return_sidekick_draw_two'
+                      ? 'Keep Sidekick'
                       : 'Skip'}
                   </button>
                 )}
@@ -1301,7 +1310,7 @@ function HandCard({
           className={`transition ${systemChoiceRing || (disabled ? 'cursor-default opacity-80' : 'hover:-translate-y-1 hover:shadow-lg')}`}
         >
           {isWound
-            ? <SystemCardArt name="Wound"     borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)"   height="h-[165px]" wide={wide} />
+            ? <SystemCardArt name="Wound" borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)" height="h-[165px]" wide={wide} text={(WOUND as { text?: string }).text} />
             : <SystemCardArt name="Bystander" borderColor="#c4a800" bg="linear-gradient(135deg, #c4a800, #a08600)"   height="h-[165px]" wide={wide} vp={1} />
           }
         </button>
@@ -1855,6 +1864,7 @@ function PlayedCardPreview({ card }: { card: CardInstance }) {
         name="Wound"
         borderColor="#7a3030"
         bg="linear-gradient(135deg, #6b2525, #5a1e1e)"
+        text={(WOUND as { text?: string }).text}
       />
     );
   }

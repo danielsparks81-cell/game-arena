@@ -833,6 +833,11 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'enable_recruit_as_attack':                       return { kind };
     // Wolverine
     case 'gain_attack_per_extra_card_drawn_this_turn':     return { kind, amount: 1 };
+    // Red Skull / Sidekick effects
+    case 'optional_return_sidekick_draw_two':              return { kind };
+    case 'each_player_ko_hero_from_hand':                  return { kind };
+    case 'look_top_three_ko_discard_return':               return { kind };
+    case 'draw_per_hydra_in_victory_pile':                 return { kind };
   }
 }
 

@@ -1100,6 +1100,78 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       }
       return;
     }
+
+    // ── Sidekick ability ──────────────────────────────────────────────────────
+    case 'optional_return_sidekick_draw_two': {
+      // Binary prompt — resolved in doAcceptChoice (return + draw 2) or
+      // doSkipChoice (keep the sidekick in played area, no draw).
+      state.thisTurn.pendingChoice = { kind: 'optional_return_sidekick_draw_two' };
+      return;
+    }
+
+    // ── Red Skull Master Strike ───────────────────────────────────────────────
+    case 'each_player_ko_hero_from_hand': {
+      // Each player KOs their highest-cost Hero from hand. No player choice.
+      for (const p of state.players) {
+        const heroes = p.hand.filter(c => getCard(c.cardId).kind === 'hero');
+        if (heroes.length === 0) continue;
+        // KO the highest-cost hero (harshest, most thematic for Red Skull).
+        const target = heroes.reduce((best, c) => {
+          const cd = getCard(c.cardId) as HeroCardDef;
+          const bd = getCard(best.cardId) as HeroCardDef;
+          return cd.cost > bd.cost ? c : best;
+        });
+        p.hand = p.hand.filter(c => c.instanceId !== target.instanceId);
+        state.ko.push(target);
+        const cd = getCard(target.cardId) as HeroCardDef;
+        pushLog(state, { kind: 'system', text: `${p.username} KO'd ${cd.cardName}.` });
+      }
+      return;
+    }
+
+    // ── Red Skull Tactic 1 ────────────────────────────────────────────────────
+    case 'look_top_three_ko_discard_return': {
+      // Reveal the top 3 cards; sort by cost and auto-resolve:
+      // KO cheapest, discard middle, return most expensive to top.
+      // TODO: replace with an interactive choice prompt.
+      const top = me.deck.splice(0, Math.min(3, me.deck.length));
+      if (top.length === 0) return;
+      const sorted = [...top].sort((a, b) => {
+        const da = getCard(a.cardId), db = getCard(b.cardId);
+        const ca = da.kind === 'hero' ? (da as HeroCardDef).cost : 0;
+        const cb = db.kind === 'hero' ? (db as HeroCardDef).cost : 0;
+        return ca - cb; // ascending: index 0 = cheapest
+      });
+      const names = sorted.map(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' ? (d as HeroCardDef).cardName : ('name' in d ? (d as { name: string }).name : c.cardId);
+      });
+      if (sorted[0]) state.ko.push(sorted[0]);           // KO cheapest
+      if (sorted[1]) me.discard.push(sorted[1]);          // discard middle
+      if (sorted[2]) me.deck.unshift(sorted[2]);          // return best to top
+      pushLog(state, { kind: 'system', text:
+        `${me.username} revealed [${names.join(', ')}]: KO'd ${names[0] ?? '—'}, discarded ${names[1] ?? '—'}, kept ${names[2] ?? '—'} on top.` });
+      return;
+    }
+
+    // ── Red Skull Tactic 3 bonus ──────────────────────────────────────────────
+    case 'draw_per_hydra_in_victory_pile': {
+      const hydraCount = me.victoryPile.filter(c => {
+        const d = getCard(c.cardId);
+        return (d.kind === 'villain' || d.kind === 'henchman') &&
+               'team' in d && (d as import('./types').VillainCardDef).team === 'hydra';
+      }).length;
+      if (hydraCount === 0) return;
+      const before = me.hand.length;
+      drawUpTo(me, hydraCount);
+      const drew = me.hand.length - before;
+      if (drew > 0) {
+        state.thisTurn.extraCardsDrawnThisTurn += drew;
+        pushLog(state, { kind: 'system', text:
+          `${me.username} draws ${drew} card${drew === 1 ? '' : 's'} (${hydraCount} Hydra in Victory Pile).` });
+      }
+      return;
+    }
   }
 }
 
@@ -1552,6 +1624,23 @@ function doAcceptChoice(
         pushLog(state, { kind: 'system', text: `${p.username} draws a card.` });
       }
     }
+    return state;
+  }
+
+  if (choice.kind === 'optional_return_sidekick_draw_two') {
+    state.thisTurn.pendingChoice = undefined;
+    // Remove the most-recently-played Sidekick from playedThisTurn so it
+    // doesn't go to the player's discard at end-of-turn (it's "returned to
+    // the infinite Sidekick pool"). Then draw two cards.
+    const idx = state.thisTurn.playedThisTurn.map(c => c.cardId).lastIndexOf('sidekick');
+    if (idx >= 0) {
+      state.thisTurn.playedThisTurn.splice(idx, 1);
+    }
+    const before = me.hand.length;
+    drawUpTo(me, 2);
+    const drew = me.hand.length - before;
+    if (drew > 0) state.thisTurn.extraCardsDrawnThisTurn += drew;
+    pushLog(state, { kind: 'system', text: `${me.username} returns a Sidekick and draws ${drew} card${drew === 1 ? '' : 's'}.` });
     return state;
   }
 

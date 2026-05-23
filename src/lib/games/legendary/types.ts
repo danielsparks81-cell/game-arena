@@ -188,7 +188,24 @@ export type Effect =
   // ── Wolverine-specific effects ─────────────────────────────────────────────
   /** Wolverine – Berserker Rage ([instinct] bonus): gain +`amount` Attack for
    *  each extra card drawn via effects this turn (tracked by extraCardsDrawnThisTurn). */
-  | { kind: 'gain_attack_per_extra_card_drawn_this_turn'; amount: number };
+  | { kind: 'gain_attack_per_extra_card_drawn_this_turn'; amount: number }
+  // ── Sidekick ability ──────────────────────────────────────────────────────
+  /** Sidekick: prompt the player to optionally return this sidekick to the
+   *  infinite pool. If accepted, the card is removed from playedThisTurn
+   *  (won't go to discard) and the player draws two cards. */
+  | { kind: 'optional_return_sidekick_draw_two' }
+  // ── Red Skull Master Strike ───────────────────────────────────────────────
+  /** Red Skull Master Strike: for each player, auto-KO their highest-cost Hero
+   *  from hand. Players with no Heroes in hand are unaffected. */
+  | { kind: 'each_player_ko_hero_from_hand' }
+  // ── Red Skull Tactic effects ──────────────────────────────────────────────
+  /** Red Skull Tactic 1: reveal the top 3 cards of the player's deck; auto-
+   *  resolve by KO-ing the cheapest, discarding the next, returning the
+   *  highest-cost to the top (TODO: interactive player choice). */
+  | { kind: 'look_top_three_ko_discard_return' }
+  /** Red Skull Tactic 3 bonus: draw one additional card for each Hydra Villain
+   *  currently in the active player's Victory Pile. */
+  | { kind: 'draw_per_hydra_in_victory_pile' };
 
 /** Hero card — the cards that go into player decks. Sit in HQ to be bought. */
 export type HeroCardDef = {
@@ -361,6 +378,7 @@ export type WoundCardDef = {
   kind: 'wound';
   cardId: 'wound';
   name: 'Wound';
+  text?: string;
 };
 
 /** Bystander — civilian. Get attached to villains/mastermind, can be
@@ -457,7 +475,10 @@ export type PendingChoice =
   /** Storm – Spinning Cyclone step 2: player clicks a city slot as the
    *  destination. resolve_choice receives the synthetic id 'slot:N'. The
    *  villain being moved is stored in `card` so it survives between steps. */
-  | { kind: 'move_villain_select_dest'; sourceSlot: number; sourceName: string; card: CardInstance };
+  | { kind: 'move_villain_select_dest'; sourceSlot: number; sourceName: string; card: CardInstance }
+  /** Sidekick: "You may return this card to the Sidekick stack. If you do,
+   *  draw two cards." Accept = return + draw; Skip = keep in played area. */
+  | { kind: 'optional_return_sidekick_draw_two' };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already

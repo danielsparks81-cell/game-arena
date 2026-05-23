@@ -1,52 +1,52 @@
 import type { MastermindCardDef, TacticCardDef } from '../types';
 
 // RED SKULL — boss of HYDRA. Defeated when all 4 Tactics are taken.
-// Master Strike gives every player a Wound.
+// Attack 7. Master Strike: Each player KOs a Hero from their hand.
 // Always Leads HYDRA → HYDRA villain group is seeded at setup.
 //
-// Tactic Fight effects target EACH OTHER PLAYER (punishments, not bonuses).
-// In solo play all fightOthers effects are no-ops.
+// All four Tactic "fightSelf" effects benefit the player who defeats them.
 
 export const RED_SKULL_TACTIC_1: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_1',
-  name: 'Head of HYDRA',
+  name: 'Cosmic Cube Experiment',
   mastermindId: 'mm_red_skull',
   vp: 4,
-  text: 'Fight: Each other player gains a Wound.',
-  fightOthers: [{ kind: 'gain_wound' }],
+  text: 'Fight: Look at the top three cards of your deck. KO one, discard one, and put one back on top.',
+  fightSelf: [{ kind: 'look_top_three_ko_discard_return' }],
 };
 
 export const RED_SKULL_TACTIC_2: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_2',
-  name: 'Master of Organized Crime',
+  name: 'HYDRA Rising',
   mastermindId: 'mm_red_skull',
   vp: 4,
-  text: 'Fight: Each other player discards a card.',
-  fightOthers: [{ kind: 'discard_from_hand', up_to: 1 }],
+  text: 'Fight: You get +4[star].',
+  fightSelf: [{ kind: 'gain_recruit', amount: 4 }],
 };
 
 export const RED_SKULL_TACTIC_3: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_3',
-  name: 'Cosmic Cube Wielder',
+  name: 'Army of HYDRA',
   mastermindId: 'mm_red_skull',
   vp: 4,
-  text: "Fight: Each other player reveals the top card of their deck. If it's a Hero, KO it.",
-  // TODO: implement 'ko_top_of_deck_if_hero' effect for each other player.
-  fightOthers: [],
+  text: 'Fight: Draw two cards. Then draw another card for each Hydra Villain in your Victory Pile.',
+  fightSelf: [
+    { kind: 'draw', amount: 2 },
+    { kind: 'draw_per_hydra_in_victory_pile' },
+  ],
 };
 
 export const RED_SKULL_TACTIC_4: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_4',
-  name: 'Weapons Smuggler',
+  name: 'Red Terror',
   mastermindId: 'mm_red_skull',
   vp: 4,
-  text: "Fight: KO the Hero with the highest cost from each other player's hand.",
-  // TODO: implement 'ko_highest_from_hand' effect for each other player.
-  fightOthers: [],
+  text: 'Fight: You get +3[strike].',
+  fightSelf: [{ kind: 'gain_attack', amount: 3 }],
 };
 
 export const RED_SKULL_TACTICS = [
@@ -60,11 +60,11 @@ export const RED_SKULL: MastermindCardDef = {
   kind: 'mastermind',
   cardId: 'mm_red_skull',
   name: 'Red Skull',
-  attack: 9,
+  attack: 7,
   vp: 0, // VP comes from the Tactic cards, not the Mastermind card itself.
   alwaysLeads: 'hydra',
   hits: 4,
   tacticIds: RED_SKULL_TACTICS.map(t => t.cardId),
-  text: 'Always Leads: HYDRA. Master Strike: Each player gains a Wound.',
-  strike: [{ kind: 'gain_wound' }],
+  text: 'Always Leads: HYDRA. Master Strike: Each player KOs a Hero from their hand.',
+  strike: [{ kind: 'each_player_ko_hero_from_hand' }],
 };

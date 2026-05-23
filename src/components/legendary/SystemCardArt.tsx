@@ -137,17 +137,34 @@ export function HenchmanCardArt({
  * size. Hand cards in the board use the h-28 height override.
  */
 export function SystemCardArt({
-  name, borderColor, vp, bg,
-  wide = false, height = 'h-40',
+  name, borderColor, vp, bg, text,
+  wide = false, height = 'h-[165px]',
 }: {
   name: string;
   borderColor: string;
   vp?: number;
   bg?: string;
+  /** When provided, switches from centered-name to name-at-top + body-text layout. */
+  text?: string;
   wide?: boolean;
-  height?: 'h-28' | 'h-32' | 'h-40';
+  height?: 'h-28' | 'h-32' | 'h-40' | 'h-[165px]';
 }) {
   const widthClass = wide ? 'w-full' : 'w-[220px]';
+
+  if (text) {
+    // Name-at-top layout (matches hero card structure) for cards with ability text.
+    return (
+      <div
+        style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}
+        className={`relative flex ${height} ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
+      >
+        <span className="text-[12px] font-bold leading-tight text-neutral-100">{name}</span>
+        <div className="mt-1 flex-1 text-[10px] leading-snug text-neutral-300">{text}</div>
+        {vp !== undefined && <VpBadge vp={vp} />}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}

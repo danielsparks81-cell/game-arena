@@ -26,6 +26,7 @@ export const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT] as const;
 // directly via these constants.
 export const WOUND: CardDef = {
   kind: 'wound', cardId: 'wound', name: 'Wound',
+  text: 'Healing: If you don\'t recruit any Heroes or defeat any Villains on your turn, you may KO all Wounds from your hand.',
 };
 export const BYSTANDER: CardDef = {
   kind: 'bystander', cardId: 'bystander', name: 'Bystander', vp: 1,

@@ -46,6 +46,9 @@ export const OFFICER: HeroCardDef = {
 };
 
 // Sidekick — always available for purchase (pool of 30).
+// Up to one may be recruited per turn via the pool (sidekickRecruited flag).
+// Playing a Sidekick from hand lets you optionally return it to the stack
+// and draw two cards; that does NOT consume the once-per-turn buy limit.
 export const SIDEKICK: HeroCardDef = {
   kind: 'hero',
   cardId: 'sidekick',
@@ -54,6 +57,8 @@ export const SIDEKICK: HeroCardDef = {
   cost: 2,
   classes: [],
   teams: [],
+  text: 'You may return this card to the Sidekick stack. If you do, draw two cards.',
+  onPlay: [{ kind: 'optional_return_sidekick_draw_two' }],
 };
 
 export const SHIELD_CARDS = [TROOPER, AGENT, OFFICER, SIDEKICK];
