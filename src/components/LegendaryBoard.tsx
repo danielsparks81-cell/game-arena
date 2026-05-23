@@ -1643,7 +1643,7 @@ function MastermindZone({
       </div>
       {/* Strike text — truncated to 2 lines */}
       {mmDef.text && (
-        <div className="mt-1 line-clamp-2 border-t border-neutral-800 pt-1 text-[9px] leading-snug text-neutral-400">
+        <div className="mt-1 line-clamp-2 border-t border-neutral-800 pt-1 pr-7 text-[9px] leading-snug text-neutral-400">
           {mmDef.text}
         </div>
       )}

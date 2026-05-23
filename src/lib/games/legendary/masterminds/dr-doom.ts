@@ -21,8 +21,8 @@ export const DR_DOOM_TACTIC_2: TacticCardDef = {
   name: 'Dark Technology',
   mastermindId: 'mm_dr_doom',
   vp: 5,
-  text: 'Fight: You may recruit a [tech] or [ranged] Hero from the HQ for free. Gain +8[recruit] to spend this turn.',
-  fightSelf: [{ kind: 'gain_recruit', amount: 8 }],
+  text: 'Fight: You may recruit a [tech] or [ranged] Hero from the HQ for free.',
+  fightSelf: [],
 };
 
 export const DR_DOOM_TACTIC_3: TacticCardDef = {
@@ -31,7 +31,7 @@ export const DR_DOOM_TACTIC_3: TacticCardDef = {
   name: 'Treasures of Latveria',
   mastermindId: 'mm_dr_doom',
   vp: 5,
-  text: 'Fight: Draw three extra cards.',
+  text: 'Fight: When you draw a new hand of cards at the end of this turn, draw three extra cards.',
   fightSelf: [{ kind: 'draw', amount: 3 }],
 };
 
@@ -61,6 +61,6 @@ export const DR_DOOM: MastermindCardDef = {
   alwaysLeads: 'doombot-legion',
   hits: 4,
   tacticIds: DR_DOOM_TACTICS.map(t => t.cardId),
-  text: 'Master Strike: Each player with exactly 6 cards in hand puts 2 cards from their hand on top of their deck.',
+  text: 'Master Strike: Each player with exactly 6 cards in hand reveals a Hero or puts 2 cards from their hand on top of their deck.',
   strike: [{ kind: 'doom_master_strike' }],
 };
