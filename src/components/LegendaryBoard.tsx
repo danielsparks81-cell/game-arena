@@ -63,6 +63,8 @@ type RevealAnim = {
   /** Pixel offset from viewport center to destination (computed from DOM rects at trigger time). */
   exitX: number;
   exitY: number;
+  /** For hero reveals: which HQ slot index received the new card (used to hide it until landing). */
+  hqSlot?: number;
 };
 
 export default function LegendaryBoard({
@@ -291,7 +293,8 @@ export default function LegendaryBoard({
     // DO NOT return a cleanup here — the cleanup fires on every log change and
     // would cancel exit timers mid-animation. Keys keep stale callbacks no-ops.
     const key = Date.now();
-    setRevealAnim({ key, cardId, kind, phase: 'entering', exitX, exitY });
+    setRevealAnim({ key, cardId, kind, phase: 'entering', exitX, exitY,
+      hqSlot: kind === 'hero' && hqSlot >= 0 ? hqSlot : undefined });
     window.setTimeout(() =>
       setRevealAnim(a => a?.key === key ? { ...a, phase: 'showing' } : a), 50);
     window.setTimeout(() =>
@@ -515,7 +518,7 @@ export default function LegendaryBoard({
              col-span-1 right = Wounds + Bystanders ---- */}
         <div className="grid grid-cols-12 gap-2">
           {/* KO pile — cards removed from the game (master strikes, KO'd player cards) */}
-          <div className="col-span-1 flex h-40 flex-col">
+          <div className="group relative col-span-1 flex h-40 flex-col">
             <PileDisplay
               label="KO"
               count={state.ko.length}
@@ -523,6 +526,7 @@ export default function LegendaryBoard({
               fill
               pileStyle={{ borderColor: '#404040', background: 'linear-gradient(135deg,rgba(40,40,40,.6),rgba(20,20,20,.6))' }}
             />
+            <HoverCardList cards={state.ko} heading="KO'd" />
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
@@ -587,19 +591,27 @@ export default function LegendaryBoard({
               const effectiveAttack = state.thisTurn.recruitAsAttackEnabled
                 ? state.thisTurn.attack + state.thisTurn.recruit
                 : state.thisTurn.attack;
+              // While the villain reveal overlay is entering/showing, hide slot 0 so the
+              // card only "appears" when the overlay exits and lands at the Sewers.
+              const hidingNewEntrant =
+                slot === 0 &&
+                revealAnim !== null &&
+                (revealAnim.kind === 'villain' || revealAnim.kind === 'henchman') &&
+                revealAnim.phase !== 'exiting';
+              const visibleCard = hidingNewEntrant ? null : card;
               return (
                 <div key={slot} ref={slot === 0 ? sewersRef : null} className={`flex flex-col gap-0.5${cityPushing && slot !== 0 ? ' animate-city-push' : ''}`}>
                   <CitySlot
-                    card={card}
+                    card={visibleCard}
                     slot={slot}
                     isLast={slot === CITY_SIZE - 1}
                     attack={effectiveAttack}
                     locationDebuff={locationDebuff}
                     disabled={!isMyTurn || disabled || state.phase === 'finished'}
                     onFight={() => onFightCity(slot)}
-                    attachedBystanders={card ? state.cityBystanders[card.instanceId]?.length ?? 0 : 0}
+                    attachedBystanders={visibleCard ? state.cityBystanders[visibleCard.instanceId]?.length ?? 0 : 0}
                     // Storm move-villain support
-                    onMoveSelect={isMoveVillainSelectVillain && card ? () => onResolveChoice(card.instanceId) : undefined}
+                    onMoveSelect={isMoveVillainSelectVillain && visibleCard ? () => onResolveChoice(visibleCard.instanceId) : undefined}
                     onMoveDest={isMoveVillainSelectDest ? () => onResolveChoice(`slot:${slot}`) : undefined}
                   />
                   <div className="text-center text-[9px] uppercase tracking-wider text-neutral-200">
@@ -630,18 +642,28 @@ export default function LegendaryBoard({
           </div>
           <div className="col-span-10">
             <div className="grid grid-cols-5 gap-2">
-              {state.hq.map((card, slot) => (
-                <div key={slot} ref={el => { hqSlotRefs.current[slot] = el; }}>
-                  <HQSlot
-                    card={card}
-                    slot={slot}
-                    recruit={state.thisTurn.recruit}
-                    disabled={!isMyTurn || disabled || state.phase === 'finished'}
-                    onRecruit={() => onRecruit(slot)}
-                    refillAnim={animatingHqSlots.has(slot)}
-                  />
-                </div>
-              ))}
+              {state.hq.map((card, slot) => {
+                // While the hero reveal overlay is entering/showing for this slot,
+                // hide the card so it only "appears" when the overlay lands.
+                const hidingNewHero =
+                  revealAnim !== null &&
+                  revealAnim.kind === 'hero' &&
+                  revealAnim.phase !== 'exiting' &&
+                  revealAnim.hqSlot === slot;
+                const visibleCard = hidingNewHero ? null : card;
+                return (
+                  <div key={slot} ref={el => { hqSlotRefs.current[slot] = el; }}>
+                    <HQSlot
+                      card={visibleCard}
+                      slot={slot}
+                      recruit={state.thisTurn.recruit}
+                      disabled={!isMyTurn || disabled || state.phase === 'finished'}
+                      onRecruit={() => onRecruit(slot)}
+                      refillAnim={animatingHqSlots.has(slot)}
+                    />
+                  </div>
+                );
+              })}
             </div>
           </div>
           {/* Hero Deck — full card height (h-40) */}
@@ -664,7 +686,10 @@ export default function LegendaryBoard({
             <>
               <PlayerBox label="Deck"    value={me.deck.length}    shade="emerald" backFace />
               <PlayerBox label="Discard" value={me.discard.length} shade="emerald" backFace />
-              <PlayerBox label="VP"      value={me.vp}             shade="rose"    />
+              <div className="group relative">
+                <PlayerBox label="VP" value={me.vp} shade="rose" />
+                <HoverCardList cards={me.victoryPile} heading="Victory Pile" />
+              </div>
             </>
           )}
           <div className="mx-1 h-8 w-px bg-neutral-800" />
@@ -678,8 +703,14 @@ export default function LegendaryBoard({
               <span className="text-xs text-neutral-600">—</span>
             ) : (
               state.thisTurn.playedThisTurn.map((c, i) => (
-                <div key={c.instanceId + i} className="h-5 rounded bg-neutral-800 px-1.5 text-[10px] leading-5 text-neutral-300">
-                  {labelOf(c)}
+                <div key={c.instanceId + i} className="group relative">
+                  <div className="h-5 cursor-default select-none rounded bg-neutral-800 px-1.5 text-[10px] leading-5 text-neutral-300">
+                    {labelOf(c)}
+                  </div>
+                  {/* Full card art tooltip — appears above the chip on hover */}
+                  <div className="pointer-events-none absolute bottom-full left-1/2 z-[300] mb-2 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                    <PlayedCardPreview card={c} />
+                  </div>
                 </div>
               ))
             )}
@@ -1747,6 +1778,97 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Hover-list tooltip — KO pile and Victory Pile
+// ---------------------------------------------------------------------------
+
+/** Floating card-name list shown when hovering a pile that wraps this component.
+ *  The parent must have `position: relative` and `group` Tailwind class. */
+function HoverCardList({ cards, heading }: { cards: CardInstance[]; heading: string }) {
+  if (cards.length === 0) return null;
+  return (
+    <div className="pointer-events-none absolute bottom-full left-0 z-[300] mb-1 hidden w-52 rounded-lg border border-neutral-700 bg-neutral-900/95 p-2 shadow-xl backdrop-blur-sm group-hover:block">
+      <div className="mb-1.5 text-[9px] uppercase tracking-wider text-neutral-500">
+        {heading} — {cards.length}
+      </div>
+      <div className="max-h-56 space-y-0.5 overflow-y-auto">
+        {cards.map((c, i) => {
+          const def = CARDS[c.cardId];
+          // Resolve a display name from any card type.
+          const name =
+            def?.kind === 'hero'         ? def.cardName
+            : def?.kind === 'wound'      ? 'Wound'
+            : def?.kind === 'bystander'  ? 'Bystander'
+            : def && 'name' in def       ? (def as { name: string }).name
+            : c.cardId === 'master_strike' ? 'Master Strike'
+            : c.cardId;
+          // VP value if the card has one.
+          const vp = def && 'vp' in def ? (def as { vp: number }).vp : null;
+          const color =
+            def?.kind === 'villain'  || def?.kind === 'henchman' ? 'text-rose-400'
+            : def?.kind === 'hero'   ? 'text-emerald-400'
+            : def?.kind === 'bystander' ? 'text-amber-400'
+            : c.cardId === 'master_strike' ? 'text-orange-400'
+            : 'text-neutral-400';
+          return (
+            <div key={i} className={`flex items-center justify-between gap-2 text-[10px] ${color}`}>
+              <span className="truncate">{name}</span>
+              {vp !== null && (
+                <span className="shrink-0 text-[9px] text-neutral-500">{vp}VP</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Played-strip card hover preview
+// ---------------------------------------------------------------------------
+
+const SHIELD_CARD_IDS_SET = new Set(['shield_trooper', 'shield_agent', 'shield_officer']);
+const SHIELD_GRADIENT: React.CSSProperties = { background: 'linear-gradient(135deg, #7a7a7a, #686868)' };
+
+/** Full card art shown in a floating overlay above a played-strip chip. */
+function PlayedCardPreview({ card }: { card: CardInstance }) {
+  const def = CARDS[card.cardId];
+  if (!def) return null;
+  if (def.kind === 'hero') {
+    const copies = CARD_COPIES[card.cardId];
+    const isShield = SHIELD_CARD_IDS_SET.has(card.cardId);
+    return (
+      <HeroCardArt
+        def={def}
+        copies={copies}
+        style={isShield ? SHIELD_GRADIENT : undefined}
+        lightBg={isShield}
+      />
+    );
+  }
+  if (def.kind === 'wound') {
+    return (
+      <SystemCardArt
+        name="Wound"
+        borderColor="#7a3030"
+        bg="linear-gradient(135deg, #6b2525, #5a1e1e)"
+      />
+    );
+  }
+  if (def.kind === 'bystander') {
+    return (
+      <SystemCardArt
+        name="Bystander"
+        borderColor="#c4a800"
+        bg="linear-gradient(135deg, #c4a800, #a08600)"
+        vp={1}
+      />
+    );
+  }
+  return null;
 }
 
 // ---------- helpers ----------
