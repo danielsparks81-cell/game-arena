@@ -962,6 +962,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         const st = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
         return (d as HeroCardDef).teams.some(t => st.has(t));
       };
+      const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
       const hasValid = effect.filter === 'wounds_only'
         ? (fromHand    && me.hand.some(c => c.cardId === 'wound')) ||
           (fromDiscard && me.discard.some(c => c.cardId === 'wound')) ||
@@ -970,6 +971,10 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         ? (fromHand    && me.hand.some(isShieldHero)) ||
           (fromDiscard && me.discard.some(isShieldHero)) ||
           (fromPlayed  && state.thisTurn.playedThisTurn.some(isShieldHero))
+        : effect.filter === 'heroes_only'
+        ? (fromHand    && me.hand.some(isHero)) ||
+          (fromDiscard && me.discard.some(isHero)) ||
+          (fromPlayed  && state.thisTurn.playedThisTurn.some(isHero))
         : (fromHand && me.hand.length > 0) ||
           (fromDiscard && me.discard.length > 0) ||
           (fromPlayed  && state.thisTurn.playedThisTurn.length > 0);
@@ -1111,21 +1116,54 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Red Skull Master Strike ───────────────────────────────────────────────
     case 'each_player_ko_hero_from_hand': {
-      // Each player KOs their highest-cost Hero from hand. No player choice.
-      for (const p of state.players) {
-        const heroes = p.hand.filter(c => getCard(c.cardId).kind === 'hero');
-        if (heroes.length === 0) continue;
-        // KO the highest-cost hero (harshest, most thematic for Red Skull).
-        const target = heroes.reduce((best, c) => {
-          const cd = getCard(c.cardId) as HeroCardDef;
-          const bd = getCard(best.cardId) as HeroCardDef;
-          return cd.cost > bd.cost ? c : best;
+      // Called once per player (me) by the outer loop in the master_strike handler.
+      // Set a pending flag — the player chooses which Hero to KO at the start
+      // of their next turn (after drawing their new hand).
+      const heroes = me.hand.filter(c => getCard(c.cardId).kind === 'hero');
+      if (heroes.length === 0) return; // no heroes in hand — unaffected
+      if (!me.pendingMasterStrikeKO) {
+        me.pendingMasterStrikeKO = true;
+        pushLog(state, {
+          kind: 'system',
+          text: `${me.username} must KO a Hero from their hand at the start of their next turn.`,
         });
-        p.hand = p.hand.filter(c => c.instanceId !== target.instanceId);
-        state.ko.push(target);
-        const cd = getCard(target.cardId) as HeroCardDef;
-        pushLog(state, { kind: 'system', text: `${p.username} KO'd ${cd.cardName}.` });
       }
+      return;
+    }
+
+    // ── Dr. Doom Master Strike ────────────────────────────────────────────────
+    case 'doom_master_strike': {
+      // Called once per player (me) by the outer loop. Only affects players with
+      // exactly 6 cards in hand (a freshly drawn hand). Moves the 2 cheapest
+      // cards to the top of their deck.
+      if (me.hand.length !== 6) return;
+      const sorted = [...me.hand].sort((a, b) => {
+        const da = getCard(a.cardId), db = getCard(b.cardId);
+        const ca = da.kind === 'hero' ? (da as HeroCardDef).cost : 0;
+        const cb = db.kind === 'hero' ? (db as HeroCardDef).cost : 0;
+        return ca - cb; // ascending: cheapest first
+      });
+      const toMove = sorted.slice(0, 2);
+      for (const card of toMove) {
+        me.hand = me.hand.filter(c => c.instanceId !== card.instanceId);
+        me.deck.unshift(card); // put on top of deck
+      }
+      const names = toMove.map(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' ? (d as HeroCardDef).cardName
+          : 'name' in d ? (d as { name: string }).name : c.cardId;
+      });
+      pushLog(state, {
+        kind: 'system',
+        text: `${me.username}: Dr. Doom's strike — ${names.join(' and ')} put on top of deck.`,
+      });
+      return;
+    }
+
+    // ── Dr. Doom Tactic 4 ────────────────────────────────────────────────────
+    case 'extra_turn': {
+      state.thisTurn.extraTurn = true;
+      pushLog(state, { kind: 'system', text: `${me.username} will take another turn!` });
       return;
     }
 
@@ -1489,6 +1527,11 @@ function doResolveChoice(
     const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
     if (d.kind !== 'hero' || !(d as HeroCardDef).teams.some(t => shieldTeams.has(t))) {
       return { error: 'You must choose a S.H.I.E.L.D. Hero card for this effect' };
+    }
+  }
+  if ('filter' in choice && choice.filter === 'heroes_only') {
+    if (getCard(card.cardId).kind !== 'hero') {
+      return { error: 'You must choose a Hero card for this effect' };
     }
   }
 
@@ -1944,12 +1987,43 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
     return state;
   }
 
+  // ── Extra turn (Secrets of Time Travel): skip advancing the player index. ──
+  if (state.thisTurn.extraTurn && !state.result) {
+    const samePlayer = state.players[state.currentPlayerIdx];
+    state.turn++;
+    state.thisTurn = emptyTurnState();
+    drawUpTo(samePlayer, STARTING_HAND_SIZE);
+    pushLog(state, { kind: 'system', text: `${samePlayer.username} takes an extra turn!` });
+    pushLog(state, { kind: 'turn_started', seat: samePlayer.seat, username: samePlayer.username });
+    return state;
+  }
+
   // 4. Advance to next player, reset turn state, deal 6.
   state.currentPlayerIdx = (state.currentPlayerIdx + 1) % state.players.length;
   state.turn++;
   state.thisTurn = emptyTurnState();
   const nextPlayer = state.players[state.currentPlayerIdx];
   drawUpTo(nextPlayer, STARTING_HAND_SIZE);
+
+  // ── Pending Master Strike KO: if this player was flagged by a master strike,
+  // they must choose a Hero to KO from their freshly drawn hand. ───────────
+  if (nextPlayer.pendingMasterStrikeKO) {
+    nextPlayer.pendingMasterStrikeKO = undefined;
+    const heroes = nextPlayer.hand.filter(c => getCard(c.cardId).kind === 'hero');
+    if (heroes.length > 0) {
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_from_hand',
+        mandatory: true,
+        bonus: [],
+        filter: 'heroes_only',
+      };
+      pushLog(state, {
+        kind: 'system',
+        text: `${nextPlayer.username}: Master Strike — KO a Hero from your hand before acting.`,
+      });
+    }
+  }
+
   pushLog(state, { kind: 'turn_started', seat: nextPlayer.seat, username: nextPlayer.username });
   return state;
 }

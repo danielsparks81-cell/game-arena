@@ -8,8 +8,10 @@ import type { CardDef, CardId } from './types';
 import { TROOPER, AGENT, SHIELD_CARDS } from './heroes/shield';
 import { ALL_HERO_CLASSES } from './heroes/all-heroes';
 import { HYDRA_GROUP } from './villains/hydra';
+import { DOOMBOT_LEGION_GROUP } from './villains/doombot-legion';
 import { HAND_NINJA_GROUP } from './villains/hand-ninjas';
 import { RED_SKULL, RED_SKULL_TACTICS } from './masterminds/red-skull';
+import { DR_DOOM, DR_DOOM_TACTICS } from './masterminds/dr-doom';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from './schemes/prison-breakout';
 
 // Hero classes available for selection at game-setup time.
@@ -17,9 +19,9 @@ import { NEGATIVE_ZONE_PRISON_BREAKOUT } from './schemes/prison-breakout';
 // stats work when cards are played from the hand.
 export const HERO_CLASSES = ALL_HERO_CLASSES;
 
-export const VILLAIN_GROUPS = [HYDRA_GROUP] as const;
+export const VILLAIN_GROUPS = [HYDRA_GROUP, DOOMBOT_LEGION_GROUP] as const;
 export const HENCHMAN_GROUPS = [HAND_NINJA_GROUP] as const;
-export const MASTERMINDS = [RED_SKULL] as const;
+export const MASTERMINDS = [RED_SKULL, DR_DOOM] as const;
 export const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT] as const;
 
 // "System" cards — wounds and bystanders. Fixed defs the engine references
@@ -55,6 +57,7 @@ function buildCatalog(): Record<CardId, CardDef> {
   for (const s of SCHEMES) add(s);
   // Mastermind Tactic cards — not iterated from a group, registered individually.
   for (const t of RED_SKULL_TACTICS) add(t);
+  for (const t of DR_DOOM_TACTICS) add(t);
   add(WOUND); add(BYSTANDER); add(MASTER_STRIKE); add(SCHEME_TWIST);
   return cat;
 }

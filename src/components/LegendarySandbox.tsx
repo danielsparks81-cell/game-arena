@@ -20,6 +20,7 @@ import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
 import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
 import { HAND_NINJA_GROUP } from '@/lib/games/legendary/villains/hand-ninjas';
 import { RED_SKULL, RED_SKULL_TACTICS } from '@/lib/games/legendary/masterminds/red-skull';
+import { DR_DOOM, DR_DOOM_TACTICS } from '@/lib/games/legendary/masterminds/dr-doom';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
 import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK } from '@/lib/games/legendary';
@@ -838,6 +839,9 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'each_player_ko_hero_from_hand':                  return { kind };
     case 'look_top_three_ko_discard_return':               return { kind };
     case 'draw_per_hydra_in_victory_pile':                 return { kind };
+    // Dr. Doom
+    case 'doom_master_strike':                             return { kind };
+    case 'extra_turn':                                     return { kind };
   }
 }
 
@@ -1672,6 +1676,7 @@ function HenchmenSection() {
 type MastermindEntry = { card: MastermindCardDef; tactics: readonly TacticCardDef[] };
 const MASTERMINDS: MastermindEntry[] = [
   { card: RED_SKULL, tactics: RED_SKULL_TACTICS },
+  { card: DR_DOOM,   tactics: DR_DOOM_TACTICS   },
 ];
 
 function MastermindSection() {

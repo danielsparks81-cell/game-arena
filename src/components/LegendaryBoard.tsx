@@ -51,6 +51,7 @@ import {
   VillainCardArt,
   HenchmanCardArt,
   SystemCardArt,
+  StrikeIcon,
 } from '@/components/legendary/SystemCardArt';
 import { CARD_COPIES } from '@/lib/games/legendary';
 
@@ -658,8 +659,9 @@ export default function LegendaryBoard({
               onClick={isMyTurn && !disabled ? onRecruitOfficer : undefined}
               pileStyle={{ borderColor: '#909090', background: 'linear-gradient(135deg,#7a7a7a,#686868)' }} />
           </div>
-          <div className="col-span-10">
-            {/* Fixed 200 px columns — cards never resize as slots fill/empty */}
+          <div className="col-span-10 overflow-x-auto">
+            {/* Fixed 200 px columns — cards never resize as slots fill/empty.
+                overflow-x: auto lets the row scroll on narrow viewports. */}
             <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(5, 200px)' }}>
               {state.hq.map((card, slot) => {
                 // While the hero reveal overlay is entering/showing for this slot,
@@ -840,6 +842,9 @@ export default function LegendaryBoard({
               )}
               {'filter' in pendingChoice && pendingChoice.filter === 'shield_heroes' && (
                 <span className="ml-2 text-xs text-amber-400">(S.H.I.E.L.D. Heroes only)</span>
+              )}
+              {'filter' in pendingChoice && pendingChoice.filter === 'heroes_only' && (
+                <span className="ml-2 text-xs text-rose-400">(Hero cards only — Master Strike penalty)</span>
               )}
               {'bonus' in pendingChoice && pendingChoice.bonus.length > 0 && !('mandatory' in pendingChoice && pendingChoice.mandatory) && (
                 <span className="ml-2 text-xs text-neutral-400">
@@ -1592,8 +1597,9 @@ function SchemeZone({
   );
 }
 
-/** Mastermind card — the boss. Clickable to attempt a fight. Tactics rendered
- *  as a row of pips: filled = taken, empty = still face-down beneath the boss. */
+/** Mastermind card — the boss. Clickable to attempt a fight. Styled to match
+ *  the sandbox MastermindCardArt: crimson border, name/label/alwaysLeads/strike
+ *  text. Tactic progress bar stays at the bottom. */
 function MastermindZone({
   mmDef, tacticsLeft, attack, isMyTurn, disabled, onFight,
 }: {
@@ -1608,27 +1614,48 @@ function MastermindZone({
   if (mmDef.kind !== 'mastermind') {
     return <div className="h-full rounded-lg border border-dashed border-neutral-800" />;
   }
-  const totalTactics = mmDef.hits; // hits = tactic count on the card def
+  const totalTactics = mmDef.hits;
   const tacticsTaken = totalTactics - tacticsLeft;
   const canHit = isMyTurn && !disabled && attack >= mmDef.attack && tacticsLeft > 0;
+  const borderColor = canHit ? '#ef4444' : '#7f1d1d';
+
   return (
     <button
       type="button"
       disabled={!canHit}
       onClick={onFight}
-      title={mmDef.text}
-      className={`flex h-full w-full flex-col items-stretch rounded-lg border-2 bg-gradient-to-br from-rose-950 to-neutral-950 px-2 py-1 text-left transition ${
-        canHit ? 'border-rose-500 hover:-translate-y-0.5 hover:shadow-lg' : 'border-rose-900/70 opacity-90'
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className={`relative flex h-full w-full flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2 text-left transition ${
+        canHit ? 'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-rose-900/40' : 'opacity-80'
       }`}
     >
-      <div className="flex items-baseline justify-between">
-        <span className="text-[9px] uppercase tracking-wider text-rose-400">Mastermind</span>
-        <span className="font-mono text-[9px] text-neutral-400">{mmDef.attack}⚔</span>
+      {/* Name */}
+      <div className="truncate text-[13px] font-bold leading-tight text-neutral-100">
+        {mmDef.name}
       </div>
-      <span className="truncate text-sm font-semibold text-neutral-100">{mmDef.name}</span>
-      <div className="mt-auto">
-        <div className="mb-0.5 text-[8px] uppercase tracking-wider text-neutral-500">
-          {tacticsLeft}/{totalTactics} tactics
+      {/* Type label */}
+      <div className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: '#DC143C' }}>
+        Mastermind
+      </div>
+      {/* Always Leads */}
+      <div className="mt-0.5 text-[9px] text-neutral-400">
+        Always Leads: <span className="font-semibold text-neutral-300">{mmDef.alwaysLeads.toUpperCase()}</span>
+      </div>
+      {/* Strike text — truncated to 2 lines */}
+      {mmDef.text && (
+        <div className="mt-1 line-clamp-2 border-t border-neutral-800 pt-1 text-[9px] leading-snug text-neutral-400">
+          {mmDef.text}
+        </div>
+      )}
+      {/* Footer: attack stat + tactic progress */}
+      <div className="mt-auto pt-1">
+        <div className="mb-1 flex items-center justify-between">
+          <span className="flex items-center gap-0.5 text-[11px] font-semibold text-white">
+            {mmDef.attack}<StrikeIcon size={12} />
+          </span>
+          <span className="text-[8px] uppercase tracking-wider text-neutral-500">
+            {tacticsTaken}/{totalTactics} tactics
+          </span>
         </div>
         <div className="flex gap-0.5">
           {Array.from({ length: totalTactics }).map((_, i) => (
@@ -1638,6 +1665,13 @@ function MastermindZone({
             />
           ))}
         </div>
+      </div>
+      {/* VP badge */}
+      <div
+        className="absolute right-1 top-1/2 -translate-y-1/2 flex h-[22px] w-[22px] items-center justify-center rounded-full text-[10px] font-bold shadow"
+        style={{ backgroundColor: '#b91c1c', border: '1px solid #ef4444', color: '#fff' }}
+      >
+        {mmDef.vp}
       </div>
     </button>
   );
@@ -1931,6 +1965,9 @@ function isChoiceTarget(cardId: CardId, choice: PendingChoice): boolean {
     if (def?.kind !== 'hero') return false;
     const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
     return (def as HeroCardDef).teams.some(t => shieldTeams.has(t));
+  }
+  if ('filter' in choice && choice.filter === 'heroes_only') {
+    return CARDS[cardId]?.kind === 'hero';
   }
   // copy_played_hero: hand/discard cards are never valid — selection is from the played zone only.
   if (choice.kind === 'copy_played_hero') return false;

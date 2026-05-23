@@ -35,7 +35,7 @@ export type HeroClass = 'tech' | 'covert' | 'strength' | 'instinct' | 'ranged';
 export type Team =
   | 'avengers' | 'x-men' | 'spider-friends' | 'fantastic-four'
   | 'shield' | 'shield-officer' | 'shield-agent' | 'shield-trooper'
-  | 'hydra' | 'brotherhood' | 'masters-of-evil' | 'enemies-of-asgard'
+  | 'hydra' | 'doombot-legion' | 'brotherhood' | 'masters-of-evil' | 'enemies-of-asgard'
   | 'system'; // for wounds / bystanders / scheme twists / master strikes
 
 // ---------- Card definitions ----------
@@ -195,9 +195,17 @@ export type Effect =
    *  (won't go to discard) and the player draws two cards. */
   | { kind: 'optional_return_sidekick_draw_two' }
   // ── Red Skull Master Strike ───────────────────────────────────────────────
-  /** Red Skull Master Strike: for each player, auto-KO their highest-cost Hero
-   *  from hand. Players with no Heroes in hand are unaffected. */
+  /** Red Skull Master Strike: for each player who has Hero cards in hand, set a
+   *  flag so they must KO a Hero of their choice at the start of their next turn. */
   | { kind: 'each_player_ko_hero_from_hand' }
+  // ── Dr. Doom Master Strike ────────────────────────────────────────────────
+  /** Dr. Doom Master Strike: for each player with exactly 6 cards in hand,
+   *  auto-move the 2 cheapest cards from their hand to the top of their deck. */
+  | { kind: 'doom_master_strike' }
+  // ── Dr. Doom Tactic 4 ────────────────────────────────────────────────────
+  /** Secrets of Time Travel: flag the current turn so the active player takes
+   *  another turn immediately after this one ends. */
+  | { kind: 'extra_turn' }
   // ── Red Skull Tactic effects ──────────────────────────────────────────────
   /** Red Skull Tactic 1: reveal the top 3 cards of the player's deck; auto-
    *  resolve by KO-ing the cheapest, discarding the next, returning the
@@ -425,6 +433,9 @@ export type PlayerState = {
   /** Sum of VP from victoryPile + bystanders saved, minus wounds taken.
    *  Cached for the leaderboard; recomputed every state mutation. */
   vp: number;
+  /** Set by a Master Strike effect (e.g. Red Skull). The player must KO a Hero
+   *  of their choice from their new hand at the start of their next turn. */
+  pendingMasterStrikeKO?: boolean;
 };
 
 /** Describes a card-choice the current player must resolve before taking
@@ -437,7 +448,7 @@ export type PendingChoice =
       /** Effects that fire only if the player selects a card (the "If you do…" bonus). */
       bonus: Effect[];
       /** When set, only cards matching this filter are selectable. */
-      filter?: 'wounds_only' | 'shield_heroes';
+      filter?: 'wounds_only' | 'shield_heroes' | 'heroes_only';
       /** Which zones the player may pick from. Defaults to `['hand','played']`. */
       sources?: ('hand' | 'discard' | 'played')[];
       /** When true the player MUST pick a card — the Skip button is hidden. */
@@ -530,6 +541,9 @@ export type TurnState = {
   /** Wolverine – Berserker Rage: counts every card drawn via play effects this
    *  turn (not the initial 6-card hand draw). Used by gain_attack_per_extra_card_drawn_this_turn. */
   extraCardsDrawnThisTurn: number;
+  /** Set by Secrets of Time Travel (Dr. Doom Tactic 4). When true, the active
+   *  player takes another full turn after this one ends instead of passing. */
+  extraTurn?: boolean;
 };
 
 export type LegendaryEvent =
