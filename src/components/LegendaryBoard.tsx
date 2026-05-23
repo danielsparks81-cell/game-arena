@@ -819,16 +819,18 @@ export default function LegendaryBoard({
           ? 'Your hand — choose a card to put on top of your deck'
           : 'Choose a card to ' + (pendingChoice!.kind === 'ko_from_hand' ? 'KO' : 'discard')
         : 'Your hand'}</ZoneLabel>
-      {/* Hand grid — columns are 1fr each (fill available width) capped at 230 px so
-          cards never exceed their natural size. Works for 6-card hands at any
-          viewport ≥ ~900 px; wider screens approach the full 230 px naturally. */}
+      {/* Hand grid — always 6 columns so a standard hand fits on one row.
+          A 7th+ card wraps naturally to a second row via CSS grid auto-placement.
+          Cards stretch to fill their cell (1fr each) up to the 230 px natural cap. */}
       {(() => {
         const handLen = me?.hand.length ?? 0;
+        // Use min(handLen, 6) columns so 1-6 cards are sized naturally; 7+ overflow to row 2.
+        const cols = Math.min(Math.max(handLen, 1), 6);
         const gridStyle: React.CSSProperties = handLen > 0 ? {
           display: 'grid',
-          gridTemplateColumns: `repeat(${handLen}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
           gap: '6px',
-          maxWidth: `${handLen * 236 - 6}px`,
+          maxWidth: `${cols * 236 - 6}px`,
         } : {
           display: 'flex',
           alignItems: 'center',
