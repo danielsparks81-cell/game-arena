@@ -159,19 +159,17 @@ export function TacticCardArt({
         {typeLabel}
       </div>
       {def.text && (
-        <div className="my-1 flex-1 px-1 text-[11px] leading-snug text-neutral-300">
+        <div className="mt-[6px] mb-1 flex-1 pr-7 text-[11px] leading-snug text-neutral-300">
           <CardText text={def.text} />
         </div>
       )}
       {!def.text && <div className="flex-1" />}
-      {/* Footer: attack stat bottom-right, mirroring villain card layout */}
-      <div className="mt-auto flex items-end justify-end pr-7">
-        {attack !== undefined && (
-          <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
-            {attack}<StrikeIcon />
-          </span>
-        )}
-      </div>
+      {/* Attack stat — pinned to absolute bottom-right, clear of the VP badge */}
+      {attack !== undefined && (
+        <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold text-white">
+          {attack}<StrikeIcon />
+        </span>
+      )}
       <VpBadge vp={def.vp} />
     </div>
   );

@@ -698,24 +698,52 @@ export default function LegendaryBoard({
           ============================================================ */}
 
       {/* Resource bar + played strip + action buttons */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-800 bg-neutral-950 px-4 py-2 text-sm">
-        {/* Left: player info boxes + Strike/Recruit pips */}
-        <div className="flex items-center gap-3">
-          {me && (
-            <>
-              <PlayerBox label="Deck"    value={me.deck.length}    shade="emerald" backFace />
-              <PlayerBox label="Discard" value={me.discard.length} shade="emerald" backFace />
-              <div className="group relative">
-                <PlayerBox label="VP" value={me.vp} shade="rose" />
-                <HoverCardList cards={me.victoryPile} heading="Victory Pile" />
+      <div className="flex flex-col gap-1.5 rounded-xl border border-neutral-800 bg-neutral-950 px-4 py-2 text-sm">
+        {/* Top row: stat boxes left, turn counter + buttons right — never pushed by played cards */}
+        <div className="flex items-center justify-between gap-3">
+          {/* Left: player info boxes + Strike/Recruit pips */}
+          <div className="flex items-center gap-3">
+            {me && (
+              <>
+                <PlayerBox label="Deck"    value={me.deck.length}    shade="emerald" backFace />
+                <PlayerBox label="Discard" value={me.discard.length} shade="emerald" backFace />
+                <div className="group relative">
+                  <PlayerBox label="VP" value={me.vp} shade="rose" />
+                  <HoverCardList cards={me.victoryPile} heading="Victory Pile" />
+                </div>
+              </>
+            )}
+            <div className="mx-1 h-8 w-px bg-neutral-800" />
+            <ResourcePip label="Strike"  value={state.thisTurn.attack}  color="rose"    />
+            <ResourcePip label="Recruit" value={state.thisTurn.recruit} color="emerald" />
+          </div>
+          {/* Right: turn counter + action buttons */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-white font-medium">Turn {state.turn}</span>
+            {me && state.phase === 'playing' && (
+              <div className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  disabled={!isMyTurn || disabled || isChoiceMode || !me.hand.some(c => isPlayable(c.cardId))}
+                  onClick={handlePlayAll}
+                  className="rounded border border-neutral-700 bg-neutral-800 px-4 py-1 text-xs font-medium text-neutral-200 transition hover:border-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Play All
+                </button>
+                <button
+                  type="button"
+                  disabled={!isMyTurn || disabled || isChoiceMode}
+                  onClick={handleEndTurn}
+                  className="rounded border border-rose-800 bg-rose-950 px-4 py-1 text-xs font-medium text-rose-200 transition hover:border-rose-500 hover:bg-rose-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  End Turn
+                </button>
               </div>
-            </>
-          )}
-          <div className="mx-1 h-8 w-px bg-neutral-800" />
-          <ResourcePip label="Strike"  value={state.thisTurn.attack}  color="rose"    />
-          <ResourcePip label="Recruit" value={state.thisTurn.recruit} color="emerald" />
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-2 min-w-0">
+        {/* Second row: played-cards strip — wraps freely without squishing the buttons */}
+        <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-wider text-white shrink-0">Played</span>
           <div className="flex flex-wrap gap-1">
             {state.thisTurn.playedThisTurn.length === 0 ? (
@@ -734,29 +762,6 @@ export default function LegendaryBoard({
               ))
             )}
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-white font-medium">Turn {state.turn}</span>
-          {me && state.phase === 'playing' && (
-            <div className="flex flex-col gap-1">
-              <button
-                type="button"
-                disabled={!isMyTurn || disabled || isChoiceMode || !me.hand.some(c => isPlayable(c.cardId))}
-                onClick={handlePlayAll}
-                className="rounded border border-neutral-700 bg-neutral-800 px-4 py-1 text-xs font-medium text-neutral-200 transition hover:border-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Play All
-              </button>
-              <button
-                type="button"
-                disabled={!isMyTurn || disabled || isChoiceMode}
-                onClick={handleEndTurn}
-                className="rounded border border-rose-800 bg-rose-950 px-4 py-1 text-xs font-medium text-rose-200 transition hover:border-rose-500 hover:bg-rose-900 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                End Turn
-              </button>
-            </div>
-          )}
         </div>
       </div>
 
