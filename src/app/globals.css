@@ -13,6 +13,8 @@
   --animate-card-play: card-play 0.35s ease-out;
   /* HQ slot refill — card slides in from the Hero Deck with a flip reveal. */
   --animate-hq-flip-in: hq-flip-in 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  /* City push — existing villains slide left when a new one enters the Sewers. */
+  --animate-city-push: city-push 350ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes piece-in {
@@ -51,7 +53,8 @@
 .animate-hit-pulse  { animation: var(--animate-hit-pulse); }
 .animate-heal-pulse { animation: var(--animate-heal-pulse); }
 .animate-card-play  { animation: var(--animate-card-play); }
-.animate-hq-flip-in { animation: var(--animate-hq-flip-in); }
+.animate-hq-flip-in  { animation: var(--animate-hq-flip-in); }
+.animate-city-push   { animation: var(--animate-city-push); }
 
 @keyframes float-up {
   0%   { transform: translate(-50%, 0)     scale(0.8); opacity: 0; }
@@ -81,4 +84,12 @@
   0%   { transform: perspective(600px) rotateY(90deg) scale(0.4); opacity: 0; }
   60%  { transform: perspective(600px) rotateY(-6deg) scale(1.06); opacity: 1; }
   100% { transform: perspective(600px) rotateY(0deg)  scale(1);    opacity: 1; }
+}
+
+@keyframes city-push {
+  /* Existing villains appear to slide in from the right as the new entrant
+     pushes them toward the Bridge. translateX(calc(100% + 8px)) = one
+     column width + the 8px gap (gap-2) between city slots. */
+  0%   { transform: translateX(calc(100% + 8px)); }
+  100% { transform: translateX(0); }
 }

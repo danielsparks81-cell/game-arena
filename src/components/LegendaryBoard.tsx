@@ -58,7 +58,7 @@ type Floater = { key: number; seat: number; sign: '+' | '-'; amount: number; ton
 type RevealAnim = {
   key: number;
   cardId: string;
-  kind: 'villain' | 'henchman' | 'master_strike' | 'scheme_twist' | 'bystander';
+  kind: 'villain' | 'henchman' | 'master_strike' | 'scheme_twist' | 'bystander' | 'hero';
   phase: 'entering' | 'showing' | 'exiting';
   /** Pixel offset from viewport center to destination (computed from DOM rects at trigger time). */
   exitX: number;
@@ -182,6 +182,8 @@ export default function LegendaryBoard({
   const strikesRef    = useRef<HTMLDivElement>(null); // strikes pile
   const sewersRef     = useRef<HTMLDivElement>(null); // sewers city slot (slot 0)
   const mastermindRef = useRef<HTMLDivElement>(null); // mastermind zone (bystander fallback)
+  // One ref per HQ slot — used as exit destination for the hero reveal overlay.
+  const hqSlotRefs = useRef<(HTMLElement | null)[]>([null, null, null, null, null]);
 
   const [revealAnim, setRevealAnim] = useState<RevealAnim | null>(null);
   // When handleStartAck fires the animation optimistically (immediate, from
@@ -199,6 +201,9 @@ export default function LegendaryBoard({
   // The reveal animation is fully decoupled from this flag; it fires whenever
   // a new reveal event arrives in the log, regardless of overlay state.
   const [startAcked, setStartAcked] = useState(false);
+  // cityPushing: true for ~400ms when a villain enters slot 0, animating
+  // slots 1-4 sliding in from the right (pushed by the new entry).
+  const [cityPushing, setCityPushing] = useState(false);
 
   // Cursor initialised to the current log length so events that already exist
   // when the component mounts (lobby history) are never re-animated. Only log
@@ -217,6 +222,7 @@ export default function LegendaryBoard({
     let cardId = '';
     let kind: RevealAnim['kind'] | null = null;
     let bystanderDest: 'villain' | 'mastermind' = 'villain';
+    let hqSlot = -1;
     // Scan newest-first so we animate the most-recent reveal in this batch.
     for (const ev of [...fresh].reverse()) {
       if (ev.kind === 'villain_revealed') {
@@ -248,8 +254,20 @@ export default function LegendaryBoard({
         }
         cardId = 'bystander'; kind = 'bystander';
         bystanderDest = ev.capturedBy; break;
+      } else if (ev.kind === 'hq_refilled') {
+        cardId = ev.cardId; kind = 'hero'; hqSlot = ev.slot; break;
       }
     }
+
+    // City push: any villain_revealed in this batch means slot 0 just received
+    // a new card. Fire the slide animation on slots 1–4 regardless of which
+    // event won the overlay slot above (e.g. the overlay might show hq_refilled
+    // while the villain push still plays in the background).
+    if (fresh.some(ev => ev.kind === 'villain_revealed')) {
+      setCityPushing(true);
+      window.setTimeout(() => setCityPushing(false), 450);
+    }
+
     if (!kind) return;
 
     // Compute pixel-exact exit offset from viewport center → destination element.
@@ -265,6 +283,7 @@ export default function LegendaryBoard({
     else if (kind === 'master_strike')             destEl = strikesRef.current;
     else if (kind === 'scheme_twist')              destEl = schemeRef.current;
     else if (kind === 'bystander')                 destEl = bystanderDest === 'villain' ? sewersRef.current : mastermindRef.current;
+    else if (kind === 'hero' && hqSlot >= 0)       destEl = hqSlotRefs.current[hqSlot];
     const dest = centerOf(destEl);
     const exitX = dest ? dest.x - cx : (kind === 'villain' || kind === 'henchman' ? 340 : kind === 'master_strike' ? -380 : -200);
     const exitY = dest ? dest.y - cy : (kind === 'villain' || kind === 'henchman' ?  50 : kind === 'master_strike' ?   60 : -160);
@@ -426,18 +445,22 @@ export default function LegendaryBoard({
       if (ev.kind === 'hq_refilled') refillSlots.push(ev.slot);
     }
     if (refillSlots.length === 0) return;
-    setAnimatingHqSlots(prev => {
-      const next = new Set(prev);
-      for (const s of refillSlots) next.add(s);
-      return next;
-    });
+    // Delay the slot flip-in to match the reveal overlay exit (2500ms) so the
+    // hero card appears to "land" in the HQ slot as the overlay shrinks toward it.
     window.setTimeout(() => {
       setAnimatingHqSlots(prev => {
         const next = new Set(prev);
-        for (const s of refillSlots) next.delete(s);
+        for (const s of refillSlots) next.add(s);
         return next;
       });
-    }, 700);
+      window.setTimeout(() => {
+        setAnimatingHqSlots(prev => {
+          const next = new Set(prev);
+          for (const s of refillSlots) next.delete(s);
+          return next;
+        });
+      }, 700);
+    }, 2500);
   }, [state.log]);
 
   const mmDef = getCard(state.mastermindId);
@@ -565,7 +588,7 @@ export default function LegendaryBoard({
                 ? state.thisTurn.attack + state.thisTurn.recruit
                 : state.thisTurn.attack;
               return (
-                <div key={slot} ref={slot === 0 ? sewersRef : null} className="flex flex-col gap-0.5">
+                <div key={slot} ref={slot === 0 ? sewersRef : null} className={`flex flex-col gap-0.5${cityPushing && slot !== 0 ? ' animate-city-push' : ''}`}>
                   <CitySlot
                     card={card}
                     slot={slot}
@@ -608,15 +631,16 @@ export default function LegendaryBoard({
           <div className="col-span-10">
             <div className="grid grid-cols-5 gap-2">
               {state.hq.map((card, slot) => (
-                <HQSlot
-                  key={slot}
-                  card={card}
-                  slot={slot}
-                  recruit={state.thisTurn.recruit}
-                  disabled={!isMyTurn || disabled || state.phase === 'finished'}
-                  onRecruit={() => onRecruit(slot)}
-                  refillAnim={animatingHqSlots.has(slot)}
-                />
+                <div key={slot} ref={el => { hqSlotRefs.current[slot] = el; }}>
+                  <HQSlot
+                    card={card}
+                    slot={slot}
+                    recruit={state.thisTurn.recruit}
+                    disabled={!isMyTurn || disabled || state.phase === 'finished'}
+                    onRecruit={() => onRecruit(slot)}
+                    refillAnim={animatingHqSlots.has(slot)}
+                  />
+                </div>
               ))}
             </div>
           </div>
@@ -1600,6 +1624,11 @@ function RevealCardContent({ anim }: { anim: RevealAnim }) {
     if (def.kind === 'henchman')  return <HenchmanCardArt  def={def} />;
     return null;
   }
+  if (anim.kind === 'hero') {
+    const def = getCard(anim.cardId);
+    if (def.kind === 'hero') return <HeroCardArt def={def} copies={CARD_COPIES[anim.cardId]} />;
+    return null;
+  }
   if (anim.kind === 'master_strike') {
     return (
       <SystemCardArt
@@ -1663,6 +1692,7 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
       case 'master_strike': return 'Master Strike!';
       case 'scheme_twist':  return 'Scheme Twist!';
       case 'bystander':     return 'Bystander Captured!';
+      case 'hero':          return 'Hero Acquired!';
     }
   })();
 
@@ -1672,6 +1702,8 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
     ? '#c084fc'
     : anim.kind === 'bystander'
     ? '#fcd34d'
+    : anim.kind === 'hero'
+    ? '#34d399'
     : '#f87171';
 
   return (
