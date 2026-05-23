@@ -5,6 +5,7 @@
 // HandCard). Keeping them here means the board and sandbox can't drift apart.
 
 import type { VillainCardDef, HenchmanCardDef, TacticCardDef } from '@/lib/games/legendary';
+import { CardText } from '@/components/legendary/HeroCardArt';
 
 // ─── Strike icon — three claw scratch marks ──────────────────────────────────
 export function StrikeIcon({ size = 14 }: { size?: number }) {
@@ -131,13 +132,20 @@ export function HenchmanCardArt({
 // ─── Tactic card ─────────────────────────────────────────────────────────────
 /** One of a mastermind's four tactic cards. Earned by landing a hit. */
 export function TacticCardArt({
-  def, wide = false,
+  def, wide = false, mastermindName, attack,
 }: {
   def: TacticCardDef;
   wide?: boolean;
+  /** Name of the mastermind this tactic belongs to (e.g. "Red Skull"). */
+  mastermindName?: string;
+  /** Mastermind's attack value — shown in the footer with the strike icon. */
+  attack?: number;
 }) {
   const borderColor = '#DC143C'; // crimson — same family as the mastermind card
   const widthClass = wide ? 'w-full' : 'w-[220px]';
+  const typeLabel = mastermindName
+    ? `Mastermind Tactic - ${mastermindName}`
+    : 'Mastermind Tactic';
 
   return (
     <div
@@ -147,13 +155,23 @@ export function TacticCardArt({
       <div className="flex items-center gap-1 min-w-0">
         <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
       </div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
-        Tactic
+      <div className="truncate text-[9px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        {typeLabel}
       </div>
       {def.text && (
-        <div className="my-1 flex-1 px-1 text-[11px] leading-snug text-neutral-300">{def.text}</div>
+        <div className="my-1 flex-1 px-1 text-[11px] leading-snug text-neutral-300">
+          <CardText text={def.text} />
+        </div>
       )}
       {!def.text && <div className="flex-1" />}
+      {/* Footer: attack stat bottom-right, mirroring villain card layout */}
+      <div className="mt-auto flex items-end justify-end pr-7">
+        {attack !== undefined && (
+          <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
+            {attack}<StrikeIcon />
+          </span>
+        )}
+      </div>
       <VpBadge vp={def.vp} />
     </div>
   );

@@ -1719,9 +1719,9 @@ function MastermindSection() {
           {/* 4 tactic cards */}
           {tactics.map(tactic => (
             <div key={tactic.cardId} className="flex flex-col items-center gap-2">
-              <TacticCardArt def={tactic} />
+              <TacticCardArt def={tactic} mastermindName={mm.name} attack={mm.attack} />
               <div className="text-xs text-neutral-500">
-                <span className="font-mono">4VP</span>
+                <span className="font-mono">{tactic.vp}VP</span>
               </div>
               {tactic.text && (
                 <div className="w-[220px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">

@@ -1,17 +1,15 @@
 import type { MastermindCardDef, TacticCardDef } from '../types';
 
 // RED SKULL — boss of HYDRA. Defeated when all 4 Tactics are taken.
-// Attack 7. Master Strike: Each player KOs a Hero from their hand.
+// Attack 7. VP 5. Master Strike: Each player KOs a Hero from their hand.
 // Always Leads HYDRA → HYDRA villain group is seeded at setup.
-//
-// All four Tactic "fightSelf" effects benefit the player who defeats them.
 
 export const RED_SKULL_TACTIC_1: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_1',
-  name: 'Cosmic Cube Experiment',
+  name: 'Ruthless Dictator',
   mastermindId: 'mm_red_skull',
-  vp: 4,
+  vp: 5,
   text: 'Fight: Look at the top three cards of your deck. KO one, discard one, and put one back on top.',
   fightSelf: [{ kind: 'look_top_three_ko_discard_return' }],
 };
@@ -19,19 +17,19 @@ export const RED_SKULL_TACTIC_1: TacticCardDef = {
 export const RED_SKULL_TACTIC_2: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_2',
-  name: 'HYDRA Rising',
+  name: 'Endless Resources',
   mastermindId: 'mm_red_skull',
-  vp: 4,
-  text: 'Fight: You get +4[star].',
+  vp: 5,
+  text: 'Fight: You get +4[recruit].',
   fightSelf: [{ kind: 'gain_recruit', amount: 4 }],
 };
 
 export const RED_SKULL_TACTIC_3: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_3',
-  name: 'Army of HYDRA',
+  name: 'Hydra Conspiracy',
   mastermindId: 'mm_red_skull',
-  vp: 4,
+  vp: 5,
   text: 'Fight: Draw two cards. Then draw another card for each Hydra Villain in your Victory Pile.',
   fightSelf: [
     { kind: 'draw', amount: 2 },
@@ -42,9 +40,9 @@ export const RED_SKULL_TACTIC_3: TacticCardDef = {
 export const RED_SKULL_TACTIC_4: TacticCardDef = {
   kind: 'tactic',
   cardId: 'mm_red_skull_tactic_4',
-  name: 'Red Terror',
+  name: 'Negablast Grenades',
   mastermindId: 'mm_red_skull',
-  vp: 4,
+  vp: 5,
   text: 'Fight: You get +3[strike].',
   fightSelf: [{ kind: 'gain_attack', amount: 3 }],
 };
@@ -61,10 +59,10 @@ export const RED_SKULL: MastermindCardDef = {
   cardId: 'mm_red_skull',
   name: 'Red Skull',
   attack: 7,
-  vp: 0, // VP comes from the Tactic cards, not the Mastermind card itself.
+  vp: 5,
   alwaysLeads: 'hydra',
   hits: 4,
   tacticIds: RED_SKULL_TACTICS.map(t => t.cardId),
-  text: 'Always Leads: HYDRA. Master Strike: Each player KOs a Hero from their hand.',
+  text: 'Master Strike: Each player KOs a Hero from their hand.',
   strike: [{ kind: 'each_player_ko_hero_from_hand' }],
 };
