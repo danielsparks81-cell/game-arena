@@ -567,7 +567,10 @@ export default function LegendaryBoard({
               <MastermindZone
                 mmDef={mmDef}
                 tacticsLeft={state.mastermind.tactics?.length ?? 0}
-                attack={state.thisTurn.attack}
+                attack={state.thisTurn.recruitAsAttackEnabled
+                  ? state.thisTurn.attack + state.thisTurn.recruit
+                  : state.thisTurn.attack}
+                mastermindAttackDebuff={state.thisTurn.mastermindAttackDebuff}
                 isMyTurn={isMyTurn}
                 disabled={disabled || state.phase === 'finished'}
                 onFight={onFightMastermind}
@@ -629,6 +632,7 @@ export default function LegendaryBoard({
                     disabled={!isMyTurn || disabled || state.phase === 'finished'}
                     onFight={() => onFightCity(slot)}
                     attachedBystanders={visibleCard ? state.cityBystanders[visibleCard.instanceId]?.length ?? 0 : 0}
+                    freeBystanderFightAvailable={state.thisTurn.freeBystanderFightAvailable}
                     // Storm move-villain support
                     onMoveSelect={isMoveVillainSelectVillain && visibleCard ? () => onResolveChoice(visibleCard.instanceId) : undefined}
                     onMoveDest={isMoveVillainSelectDest ? () => onResolveChoice(`slot:${slot}`) : undefined}
@@ -1148,7 +1152,7 @@ export default function LegendaryBoard({
               <div className="text-neutral-600">No actions yet.</div>
             ) : (
               [...state.log].reverse().map((ev, i) => (
-                <div key={i} className={logColor(ev, mySeat)}>{logText(ev)}</div>
+                <div key={state.log.length - 1 - i} className={logColor(ev, mySeat)}>{logText(ev)}</div>
               ))
             )}
           </div>
@@ -1173,7 +1177,7 @@ function ZoneLabel({ children }: { children: React.ReactNode }) {
 
 function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
-  onMoveSelect, onMoveDest,
+  freeBystanderFightAvailable = false, onMoveSelect, onMoveDest,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1183,6 +1187,8 @@ function CitySlot({
   disabled: boolean;
   onFight: () => void;
   attachedBystanders: number;
+  /** When true, the player may fight a villain with bystanders at zero attack cost. */
+  freeBystanderFightAvailable?: boolean;
   /** Storm – step 1: click this villain to lift it for moving. */
   onMoveSelect?: () => void;
   /** Storm – step 2: click this slot as the move destination. */
@@ -1242,7 +1248,11 @@ function CitySlot({
   }
 
   const effectiveRequired = Math.max(0, def.attack - locationDebuff);
-  const canFight = !disabled && attack >= effectiveRequired;
+  // Free bystander fight (Hawkeye): can fight for free if villain has attached bystanders.
+  const canFight = !disabled && (
+    attack >= effectiveRequired ||
+    (freeBystanderFightAvailable && attachedBystanders > 0)
+  );
   return (
     <button
       type="button"
@@ -1601,12 +1611,15 @@ function SchemeZone({
  *  the sandbox MastermindCardArt: crimson border, name/label/alwaysLeads/strike
  *  text. Tactic progress bar stays at the bottom. */
 function MastermindZone({
-  mmDef, tacticsLeft, attack, isMyTurn, disabled, onFight,
+  mmDef, tacticsLeft, attack, mastermindAttackDebuff = 0, isMyTurn, disabled, onFight,
 }: {
   mmDef: ReturnType<typeof getCard>;
   /** How many Tactic cards are still face-down (= hits left to win). */
   tacticsLeft: number;
+  /** Effective attack available (already includes recruit if God of Thunder is active). */
   attack: number;
+  /** Storm's Tidal Wave: reduces the mastermind's effective attack requirement. */
+  mastermindAttackDebuff?: number;
   isMyTurn: boolean;
   disabled: boolean;
   onFight: () => void;
@@ -1616,7 +1629,8 @@ function MastermindZone({
   }
   const totalTactics = mmDef.hits;
   const tacticsTaken = totalTactics - tacticsLeft;
-  const canHit = isMyTurn && !disabled && attack >= mmDef.attack && tacticsLeft > 0;
+  const effectiveRequired = Math.max(0, mmDef.attack - mastermindAttackDebuff);
+  const canHit = isMyTurn && !disabled && attack >= effectiveRequired && tacticsLeft > 0;
   const borderColor = canHit ? '#ef4444' : '#7f1d1d';
 
   return (

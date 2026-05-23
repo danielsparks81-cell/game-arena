@@ -37,7 +37,7 @@ export const AGENT: HeroCardDef = {
 export const OFFICER: HeroCardDef = {
   kind: 'hero',
   cardId: 'shield_officer',
-  className: 'Maria Hill',
+  className: 'Hero',
   cardName: 'S.H.I.E.L.D. Officer',
   cost: 3,
   baseRecruit: 2,

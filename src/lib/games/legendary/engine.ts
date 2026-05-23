@@ -29,8 +29,6 @@ import {
   STARTER_TROOPERS,
   STARTING_HAND_SIZE,
   STATE_VERSION,
-  TROOPERS_AVAILABLE_TOTAL,
-  AGENTS_AVAILABLE_TOTAL,
   HERO_CLASSES,
   VILLAIN_GROUPS,
   HENCHMAN_GROUPS,
@@ -1004,14 +1002,15 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       if (me.deck.length === 0 && me.discard.length > 0) {
         me.deck = shuffle(me.discard); me.discard = [];
       }
-      const top = me.deck[me.deck.length - 1];
+      // Deck is a queue: index 0 = top (drawUpTo uses shift()).
+      const top = me.deck[0];
       if (!top) return;
       const topDef = getCard(top.cardId);
       const topCost = 'cost' in topDef ? (topDef as { cost: number }).cost : 999;
       const topName = topDef.kind === 'hero' ? topDef.cardName
         : 'name' in topDef ? (topDef as { name: string }).name : top.cardId;
       if (topCost <= 2) {
-        me.deck.pop();
+        me.deck.shift();
         me.hand.push(top);
         state.thisTurn.extraCardsDrawnThisTurn++;
         pushLog(state, { kind: 'system', text: `${me.username} reveals ${topName} (cost ${topCost}) — drawn!` });
@@ -1026,8 +1025,8 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       }
       const take = Math.min(3, me.deck.length);
       if (take === 0) return;
-      // Pull top `take` cards (deck top = last element).
-      const revealed = me.deck.splice(me.deck.length - take, take).reverse(); // top-card first
+      // Deck is a queue: index 0 = top. splice(0, take) gives top-first order.
+      const revealed = me.deck.splice(0, take);
       const drawn: string[] = [];
       const kept: CardInstance[] = [];
       for (const c of revealed) {
@@ -1042,8 +1041,8 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
           kept.push(c);
         }
       }
-      // Put non-qualifying cards back on top in original order.
-      for (const c of [...kept].reverse()) me.deck.push(c);
+      // Put non-qualifying cards back on top in their original order.
+      me.deck.unshift(...kept);
       pushLog(state, { kind: 'system', text:
         `${me.username} reveals 3 cards — draws ${drawn.length > 0 ? drawn.join(', ') : 'none'}; returns ${kept.length}.` });
       return;
@@ -1208,6 +1207,13 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         pushLog(state, { kind: 'system', text:
           `${me.username} draws ${drew} card${drew === 1 ? '' : 's'} (${hydraCount} Hydra in Victory Pile).` });
       }
+      return;
+    }
+    default: {
+      // Exhaustiveness guard — TypeScript will flag this if a new Effect kind
+      // is added to types.ts without a corresponding case here.
+      const _check: never = effect;
+      void _check;
       return;
     }
   }
@@ -2215,6 +2221,19 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
       }
 
       state.escapedPile.push(escaped);
+
+      // ── Check escape-count loss condition immediately (e.g. Prison Breakout). ──
+      if (!state.result) {
+        const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
+        if (scheme?.evilWinsAfterEscapes !== undefined
+            && state.escapedPile.length >= scheme.evilWinsAfterEscapes) {
+          const n = state.escapedPile.length;
+          state.result       = 'loss';
+          state.resultReason = `${n} villain${n === 1 ? '' : 's'} escaped — ${scheme.name} succeeded.`;
+          state.phase        = 'finished';
+          pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+        }
+      }
     }
   }
   // Shift right — all existing villains move one slot toward Bridge.

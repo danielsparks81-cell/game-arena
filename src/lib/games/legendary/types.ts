@@ -365,10 +365,12 @@ export type SchemeCardDef = {
   extraHenchmanGroups?: number;
   /** Description for UI and the rules-text hover. */
   text: string;
-  /** Threshold for "evil wins". Comparison depends on the loss condition
-   *  the scheme implements in the engine — kept simple here: evil wins
-   *  when this many Scheme Twists have been revealed. */
+  /** Evil wins when this many Scheme Twists have been revealed (some schemes
+   *  use twist-count as their primary loss timer). */
   evilWinsAfterTwists: number;
+  /** Evil wins when this many villains/henchmen have escaped the city.
+   *  When set, this is checked immediately on each escape (before twist count). */
+  evilWinsAfterEscapes?: number;
   /** Effect that fires when a Scheme Twist is revealed (in addition to
    *  bumping the twist counter). */
   onTwist?: Effect[];

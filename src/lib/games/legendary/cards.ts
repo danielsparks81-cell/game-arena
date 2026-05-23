@@ -90,8 +90,8 @@ export function isHero(id: CardId): boolean {
 // MVP-static for now. We'll parameterize when we add the second scheme.
 export const HQ_SIZE = 5;
 export const CITY_SIZE = 5;
-export const STARTER_TROOPERS = 4;
-export const STARTER_AGENTS = 8;
+export const STARTER_TROOPERS = 8;  // 8 Troopers (Attack) per player
+export const STARTER_AGENTS = 4;    // 4 Agents (Recruit) per player
 export const STARTING_HAND_SIZE = 6;
 /** How many Master Strikes go in the Villain Deck regardless of scheme. */
 export const MASTER_STRIKES_IN_DECK = 5;

@@ -13,7 +13,8 @@ export const NEGATIVE_ZONE_PRISON_BREAKOUT: SchemeCardDef = {
   text: 'Scheme Twists: Reveal an extra Villain. Evil Wins if 8 Villains escape.',
   twists: 8,
   bystanders: 2,
-  evilWinsAfterTwists: 8,
+  evilWinsAfterTwists: 8,   // backup: if all 8 twists are revealed evil also wins
+  evilWinsAfterEscapes: 8,  // primary: evil wins the moment the 8th villain escapes
   // Each Scheme Twist causes one extra villain-deck reveal immediately.
   onTwistReveal: true,
 };
