@@ -6,6 +6,10 @@ import {
   type BSState, type BSPayload, type Player, type Orientation, type ShotResult,
 } from '@/lib/games/battleship';
 
+// ── Coordinate label constants ────────────────────────────────────────────────
+const COL_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
+const ROW_LABELS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+
 export default function BattleshipBoard({
   state, currentUserId, disabled, onMove,
 }: {
@@ -38,16 +42,21 @@ export default function BattleshipBoard({
   }
 
   // ---------- BATTLE / FINISHED ----------
+  // When the game is over, reveal the opponent's fleet so both players can see
+  // where all ships were. The positions are already in state (trust-based model);
+  // we just stop passing ships={[]} and pass the real fleet instead.
+  const gameOver = state.winner !== null;
+
   return (
     <div className="space-y-3">
       <StatusBar state={state} me={me} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Opponent fleet — click to fire */}
+        {/* Opponent fleet — click to fire during play, reveal ships at game end */}
         <FleetView
-          title="Opponent waters"
+          title={gameOver ? 'Opponent fleet — revealed' : 'Opponent waters'}
           shots={oppFleet!.shots}
-          ships={[]}                    /* hide opponent ship positions */
+          ships={gameOver ? oppFleet!.ships : []}
           highlightLastShot={state.lastShot?.shooter === me ? state.lastShot : null}
           interactive={yourTurn}
           onCellClick={(row, col) => onMove({ type: 'fire', row, col })}
@@ -63,6 +72,58 @@ export default function BattleshipBoard({
       </div>
 
       <FleetSummary myFleet={myFleet!} oppFleet={oppFleet!} />
+    </div>
+  );
+}
+
+// =====================================================================
+// LabeledBoard — ocean grid with A–J column headers and 1–10 row numbers
+// =====================================================================
+
+/**
+ * Wraps the raw 10×10 board content with coordinate labels.
+ * Column labels (A–J) sit above the board; row labels (1–10) sit to the left.
+ * Both sets of labels are sized via flex so they align exactly with each cell.
+ *
+ * `boardMaxWidth` is the pixel cap on the board itself (not counting the 20 px
+ * label gutter on the left). The wrapper adds that gutter to the outer max-width.
+ */
+function LabeledBoard({
+  children, boardMaxWidth = 360,
+}: {
+  children: React.ReactNode;
+  boardMaxWidth?: number;
+}) {
+  return (
+    <div className="mx-auto w-full" style={{ maxWidth: boardMaxWidth + 20 }}>
+      {/* A–J column labels */}
+      <div className="mb-0.5 flex pl-5">
+        {COL_LABELS.map(c => (
+          <div key={c} className="flex-1 text-center font-mono text-[9px] leading-none text-neutral-500">
+            {c}
+          </div>
+        ))}
+      </div>
+
+      {/* 1–10 row labels + actual board */}
+      <div className="flex">
+        {/* Row labels — stretches to board height, divided into 10 equal slots */}
+        <div className="flex w-5 shrink-0 flex-col">
+          {ROW_LABELS.map(r => (
+            <div
+              key={r}
+              className="flex flex-1 items-center justify-end pr-1 font-mono text-[9px] text-neutral-500"
+            >
+              {r}
+            </div>
+          ))}
+        </div>
+
+        {/* Board: ShipOverlay + cell grid */}
+        <div className="relative min-w-0 flex-1 overflow-hidden rounded-md border-2 border-sky-800 bg-sky-950 shadow">
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -252,10 +313,7 @@ function SetupBoard({
   }, [fleet.ships]);
 
   return (
-    <div
-      className="relative mx-auto overflow-hidden rounded-lg border-2 border-sky-800 bg-sky-950 shadow-lg"
-      style={{ width: 'min(100%, 480px)' }}
-    >
+    <LabeledBoard boardMaxWidth={480}>
       <ShipOverlay ships={fleet.ships} shotsHidingShip={null} />
       <div
         className="relative grid"
@@ -284,7 +342,7 @@ function SetupBoard({
           }),
         )}
       </div>
-    </div>
+    </LabeledBoard>
   );
 }
 
@@ -297,6 +355,7 @@ function SetupBoard({
  * `shotsHidingShip` is a 2D `ShotResult|null` array for the same fleet, used in
  * the battle phase to mask hull segments that have been hit — we still want the
  * fire/sink overlay (drawn by the cell button) to be the dominant signal.
+ * Pass `null` to always render all hulls (e.g. setup phase, end-game reveal).
  */
 function ShipOverlay({
   ships, shotsHidingShip,
@@ -508,6 +567,7 @@ function StatusBar({ state, me }: { state: BSState; me: Player }) {
           : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
       }`}>
         {state.winner === me ? '🏆 Victory! Their fleet is sunk.' : '💥 You were sunk! Better luck next time.'}
+        <span className="ml-2 text-[11px] font-normal opacity-70">Both fleets revealed below.</span>
       </div>
     );
   }
@@ -515,7 +575,7 @@ function StatusBar({ state, me }: { state: BSState; me: Player }) {
   const last = state.lastShot;
   const lastLine = last ? (
     <span className={`ml-2 text-xs ${last.result === 'sunk' ? 'text-amber-400' : last.result === 'hit' ? 'text-rose-400' : 'text-neutral-400'}`}>
-      Last: {last.shooter === me ? 'You' : 'Opponent'} fired at ({last.row + 1},{last.col + 1}) — {last.result.toUpperCase()}
+      Last: {last.shooter === me ? 'You' : 'Opponent'} fired at {COL_LABELS[last.col]}{last.row + 1} — {last.result.toUpperCase()}
       {last.result === 'sunk' && last.shipName ? ` (${last.shipName})` : ''}
     </span>
   ) : null;
@@ -534,7 +594,7 @@ function FleetView({
 }: {
   title: string;
   shots: (ShotResult | null)[][];
-  ships: BSState['fleets']['A']['ships'];   // visible only for own fleet
+  ships: BSState['fleets']['A']['ships'];   // empty array = hide positions (opponent during play)
   highlightLastShot: BSState['lastShot'];
   interactive: boolean;
   onCellClick?: (r: number, c: number) => void;
@@ -551,10 +611,7 @@ function FleetView({
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3">
       <div className="mb-2 text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">{title}</div>
-      <div
-        className="relative mx-auto overflow-hidden rounded-md border-2 border-sky-800 bg-sky-950 shadow"
-        style={{ width: 'min(100%, 360px)' }}
-      >
+      <LabeledBoard boardMaxWidth={360}>
         {/* Ship hulls drawn beneath the cell grid. Shot cells are opaque, so the
             ship "disappears" under fire/sink paint automatically. */}
         <ShipOverlay ships={ships} shotsHidingShip={shots} />
@@ -591,7 +648,7 @@ function FleetView({
             }),
           )}
         </div>
-      </div>
+      </LabeledBoard>
     </div>
   );
 }
