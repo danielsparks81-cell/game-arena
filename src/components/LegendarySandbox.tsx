@@ -14,12 +14,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, TEAM_ICON_DATA } from '@/components/legendary/HeroCardArt';
-import { VillainCardArt, HenchmanCardArt } from '@/components/legendary/SystemCardArt';
-import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, SchemeCardDef } from '@/lib/games/legendary';
+import { VillainCardArt, HenchmanCardArt, TacticCardArt } from '@/components/legendary/SystemCardArt';
+import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, TacticCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
 import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
 import { HAND_NINJA_GROUP } from '@/lib/games/legendary/villains/hand-ninjas';
-import { RED_SKULL } from '@/lib/games/legendary/masterminds/red-skull';
+import { RED_SKULL, RED_SKULL_TACTICS } from '@/lib/games/legendary/masterminds/red-skull';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
 import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK } from '@/lib/games/legendary';
@@ -1441,8 +1441,30 @@ function GenericSidekickPanel() {
   );
 }
 
-/** Unified system card — name perfectly centered, optional VP centered-right. */
-function SystemCardArt({ name, borderColor, vp, bg }: { name: string; borderColor: string; vp?: number; bg?: string }) {
+/** Unified system card — name centered (no text) or name-at-top + body (with text). */
+function SystemCardArt({ name, borderColor, vp, bg, text }: {
+  name: string; borderColor: string; vp?: number; bg?: string; text?: string;
+}) {
+  if (text) {
+    return (
+      <div
+        style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}
+        className="relative flex h-[165px] w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
+      >
+        <span className="text-[12px] font-bold leading-tight text-neutral-100">{name}</span>
+        <div className="mt-1 flex-1 text-[10px] leading-snug text-neutral-300">{text}</div>
+        {vp !== undefined && (
+          <div
+            aria-label={`${vp} VP`}
+            className="absolute right-1 top-1/2 -translate-y-1/2 flex h-[26px] w-[26px] items-center justify-center rounded-full font-sans text-[11px] font-bold shadow-[0_1px_3px_rgba(0,0,0,0.6)]"
+            style={{ backgroundColor: '#b91c1c', border: '1px solid #ef4444', color: '#fff' }}
+          >
+            {vp}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}
@@ -1514,7 +1536,12 @@ function GenericMasterStrikePanel() {
       </div>
       <div className="flex flex-wrap gap-6">
         <div className="flex flex-col items-start gap-2">
-          <SystemCardArt name="Master Strike" borderColor="#8a5800" bg="linear-gradient(135deg, #7a4800, #5c3600)" />
+          <SystemCardArt
+            name="Master Strike"
+            borderColor="#c45000"
+            bg="linear-gradient(135deg, #8a3800, #6a2c00)"
+            text="The Mastermind's strike effect fires against every player simultaneously."
+          />
           <div className="text-xs text-neutral-500">{MASTER_STRIKES_IN_DECK} copies in Villain Deck</div>
         </div>
       </div>
@@ -1642,18 +1669,21 @@ function HenchmenSection() {
 
 // ─── Mastermind section ───────────────────────────────────────────────────────
 
-const MASTERMINDS = [RED_SKULL];
+type MastermindEntry = { card: MastermindCardDef; tactics: readonly TacticCardDef[] };
+const MASTERMINDS: MastermindEntry[] = [
+  { card: RED_SKULL, tactics: RED_SKULL_TACTICS },
+];
 
 function MastermindSection() {
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const mm = MASTERMINDS[selectedIdx];
+  const { card: mm, tactics } = MASTERMINDS[selectedIdx];
 
   return (
     <div className="grid gap-4 lg:grid-cols-[200px_1fr]">
       {/* Left: mastermind list */}
       <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Masterminds</div>
-        {MASTERMINDS.map((m, i) => (
+        {MASTERMINDS.map(({ card: m }, i) => (
           <button
             key={m.cardId}
             onClick={() => setSelectedIdx(i)}
@@ -1664,14 +1694,43 @@ function MastermindSection() {
             }`}
           >
             {m.name}
-            <span className="ml-1 text-[10px] text-neutral-500">({m.kind})</span>
+            <span className="ml-1 text-[10px] text-neutral-500">(5 cards)</span>
           </button>
         ))}
       </aside>
 
-      {/* Right: mastermind card */}
+      {/* Right: mastermind card + 4 tactic cards — same pattern as HeroSection */}
       <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
-        <MastermindCardArt def={mm} />
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-base font-semibold text-neutral-100">{mm.name}</h2>
+          <span className="text-xs text-neutral-500">1 mastermind · 4 tactics</span>
+        </div>
+        <div className="flex flex-wrap gap-6">
+          {/* Mastermind card */}
+          <div className="flex flex-col items-center gap-2">
+            <MastermindCardArt def={mm} />
+            <div className="text-xs text-neutral-500">Mastermind</div>
+            {mm.text && (
+              <div className="w-[280px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
+                {mm.text}
+              </div>
+            )}
+          </div>
+          {/* 4 tactic cards */}
+          {tactics.map(tactic => (
+            <div key={tactic.cardId} className="flex flex-col items-center gap-2">
+              <TacticCardArt def={tactic} />
+              <div className="text-xs text-neutral-500">
+                <span className="font-mono">4VP</span>
+              </div>
+              {tactic.text && (
+                <div className="w-[220px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
+                  {tactic.text}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </section>
     </div>
   );

@@ -66,7 +66,18 @@ type RevealAnim = {
   exitY: number;
   /** For hero reveals: which HQ slot index received the new card (used to hide it until landing). */
   hqSlot?: number;
+  /** For master_strike: the active mastermind's strike ability text to show on the card. */
+  strikeText?: string;
 };
+
+/** Extract "Master Strike: …" text from a mastermind def for display on the card. */
+function getMasterStrikeText(mastermindId: string): string | undefined {
+  const def = CARDS[mastermindId];
+  if (!def || def.kind !== 'mastermind') return undefined;
+  const text = (def as { text?: string }).text ?? '';
+  const m = text.match(/Master Strike[:\s]+(.+)/i);
+  return (m?.[1]?.trim()) || (text || undefined);
+}
 
 export default function LegendaryBoard({
   state, currentUserId, isHost, disabled,
@@ -295,8 +306,10 @@ export default function LegendaryBoard({
     // DO NOT return a cleanup here — the cleanup fires on every log change and
     // would cancel exit timers mid-animation. Keys keep stale callbacks no-ops.
     const key = Date.now();
+    const strikeText = kind === 'master_strike' ? getMasterStrikeText(state.mastermindId) : undefined;
     setRevealAnim({ key, cardId, kind, phase: 'entering', exitX, exitY,
-      hqSlot: kind === 'hero' && hqSlot >= 0 ? hqSlot : undefined });
+      hqSlot: kind === 'hero' && hqSlot >= 0 ? hqSlot : undefined,
+      strikeText });
     window.setTimeout(() =>
       setRevealAnim(a => a?.key === key ? { ...a, phase: 'showing' } : a), 50);
     window.setTimeout(() =>
@@ -364,7 +377,8 @@ export default function LegendaryBoard({
           exitY = r.top  + r.height / 2 - cy;
         }
         const key = Date.now();
-        setRevealAnim({ key, cardId: animCardId, kind: animKind, phase: 'entering', exitX, exitY });
+        const strikeText = animKind === 'master_strike' ? getMasterStrikeText(state.mastermindId) : undefined;
+        setRevealAnim({ key, cardId: animCardId, kind: animKind, phase: 'entering', exitX, exitY, strikeText });
         window.setTimeout(() =>
           setRevealAnim(a => a?.key === key ? { ...a, phase: 'showing' } : a), 50);
         window.setTimeout(() =>
@@ -418,7 +432,8 @@ export default function LegendaryBoard({
           exitY = r.top  + r.height / 2 - cy;
         }
         const key = Date.now();
-        setRevealAnim({ key, cardId: animKind, kind: animKind, phase: 'entering', exitX, exitY });
+        const strikeText = animKind === 'master_strike' ? getMasterStrikeText(state.mastermindId) : undefined;
+        setRevealAnim({ key, cardId: animKind, kind: animKind, phase: 'entering', exitX, exitY, strikeText });
         window.setTimeout(() =>
           setRevealAnim(a => a?.key === key ? { ...a, phase: 'showing' } : a), 50);
         window.setTimeout(() =>
@@ -528,8 +543,8 @@ export default function LegendaryBoard({
               fill
               pileStyle={{ borderColor: '#404040', background: 'linear-gradient(135deg,rgba(40,40,40,.6),rgba(20,20,20,.6))' }}
             />
-            {/* Master Strikes already appear in the Strikes pile — filter them. */}
-            <HoverCardList cards={state.ko.filter(c => c.cardId !== 'master_strike')} heading="KO'd" />
+            {/* Strikes → their own pile. Twists → scheme pile. Both excluded here. */}
+            <HoverCardList cards={state.ko.filter(c => c.cardId !== 'master_strike' && c.cardId !== 'scheme_twist')} heading="KO'd" />
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
@@ -644,7 +659,8 @@ export default function LegendaryBoard({
               pileStyle={{ borderColor: '#909090', background: 'linear-gradient(135deg,#7a7a7a,#686868)' }} />
           </div>
           <div className="col-span-10">
-            <div className="grid grid-cols-5 gap-2">
+            {/* Fixed 200 px columns — cards never resize as slots fill/empty */}
+            <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(5, 200px)' }}>
               {state.hq.map((card, slot) => {
                 // While the hero reveal overlay is entering/showing for this slot,
                 // hide the card so it only "appears" when the overlay lands.
@@ -1250,7 +1266,7 @@ function HQSlot({
 }) {
   if (!card) {
     return (
-      <div className="flex h-40 items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
+      <div className="flex h-[165px] items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
         empty
       </div>
     );
@@ -1675,6 +1691,7 @@ function RevealCardContent({ anim }: { anim: RevealAnim }) {
         name="Master Strike"
         borderColor="#c45000"
         bg="linear-gradient(135deg, #8a3800, #6a2c00)"
+        text={anim.strikeText}
       />
     );
   }

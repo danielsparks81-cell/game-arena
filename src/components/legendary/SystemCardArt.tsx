@@ -4,7 +4,7 @@
 // Imported by both the sandbox (browse preview) and the live board (CitySlot,
 // HandCard). Keeping them here means the board and sandbox can't drift apart.
 
-import type { VillainCardDef, HenchmanCardDef } from '@/lib/games/legendary';
+import type { VillainCardDef, HenchmanCardDef, TacticCardDef } from '@/lib/games/legendary';
 
 // ─── Strike icon — three claw scratch marks ──────────────────────────────────
 export function StrikeIcon({ size = 14 }: { size?: number }) {
@@ -123,6 +123,37 @@ export function HenchmanCardArt({
           {def.attack}<StrikeIcon />
         </span>
       </div>
+      <VpBadge vp={def.vp} />
+    </div>
+  );
+}
+
+// ─── Tactic card ─────────────────────────────────────────────────────────────
+/** One of a mastermind's four tactic cards. Earned by landing a hit. */
+export function TacticCardArt({
+  def, wide = false,
+}: {
+  def: TacticCardDef;
+  wide?: boolean;
+}) {
+  const borderColor = '#DC143C'; // crimson — same family as the mastermind card
+  const widthClass = wide ? 'w-full' : 'w-[220px]';
+
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className={`relative flex h-40 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
+    >
+      <div className="flex items-center gap-1 min-w-0">
+        <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
+      </div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Tactic
+      </div>
+      {def.text && (
+        <div className="my-1 flex-1 px-1 text-[11px] leading-snug text-neutral-300">{def.text}</div>
+      )}
+      {!def.text && <div className="flex-1" />}
       <VpBadge vp={def.vp} />
     </div>
   );
