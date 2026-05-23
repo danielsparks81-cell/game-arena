@@ -295,7 +295,10 @@ export default function LegendaryBoard({
     if (!isMyTurn) return;
 
     const nextCard = state.villainDeck[0] ?? null;
-    if (nextCard) {
+    // The villain deck is projected as hidden cards (cardId '__hidden__') on the
+    // client — we cannot peek at the real card. Skip the preview animation; the
+    // log-watcher fires the animation when the server response arrives.
+    if (nextCard && nextCard.cardId !== '__hidden__') {
       const def = getCard(nextCard.cardId);
       const cx = window.innerWidth / 2;
       const cy = window.innerHeight / 2;
@@ -368,6 +371,12 @@ export default function LegendaryBoard({
   function handleEndTurn() {
     if (isMyTurn && state.villainDeck.length > 0) {
       const nextCard = state.villainDeck[0];
+      // Villain deck cards are projected as hidden (cardId '__hidden__') on the
+      // client — skip the preview peek; the log-watcher animates on server response.
+      if (nextCard.cardId === '__hidden__') {
+        onEndTurn();
+        return;
+      }
       const def = getCard(nextCard.cardId);
       let animKind: RevealAnim['kind'] | null = null;
       if (def.kind === 'scheme_twist')  animKind = 'scheme_twist';
