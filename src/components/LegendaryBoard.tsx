@@ -819,93 +819,125 @@ export default function LegendaryBoard({
           ? 'Your hand — choose a card to put on top of your deck'
           : 'Choose a card to ' + (pendingChoice!.kind === 'ko_from_hand' ? 'KO' : 'discard')
         : 'Your hand'}</ZoneLabel>
-      <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[140px]">
-        {me ? (
-          me.hand.length === 0 ? (
-            <div className="text-xs text-neutral-600">empty hand</div>
-          ) : (
-            [...me.hand]
-              .sort((a, b) => {
-                // In choice mode: valid targets first.
-                if (isChoiceMode) {
-                  const aValid = isChoiceTarget(a.cardId, pendingChoice!);
-                  const bValid = isChoiceTarget(b.cardId, pendingChoice!);
-                  if (aValid !== bValid) return aValid ? -1 : 1;
-                }
-                // Wounds always first, troopers/agents always last
-                const priority = (id: string) => {
-                  if (id === 'wound')          return -2;
-                  if (id === 'shield_trooper') return  1;
-                  if (id === 'shield_agent')   return  2;
-                  return 0;
-                };
-                const ap = priority(a.cardId), bp = priority(b.cardId);
-                if (ap !== bp) return ap - bp;
-                // Otherwise highest cost first
-                const aD = CARDS[a.cardId];
-                const bD = CARDS[b.cardId];
-                return (bD?.kind === 'hero' ? bD.cost : 0) - (aD?.kind === 'hero' ? aD.cost : 0);
-              })
-              .map((card) => {
-                if (isChoiceMode && !isBinaryChoice) {
-                  const valid = isChoiceTarget(card.cardId, pendingChoice!);
-                  return (
-                    <HandCard
-                      key={card.instanceId}
-                      card={card}
-                      disabled={!valid || disabled}
-                      choiceMode={valid ? pendingChoice!.kind : undefined}
-                      onClick={() => onResolveChoice(card.instanceId)}
-                    />
-                  );
-                }
-                return (
-                  <HandCard
-                    key={card.instanceId}
-                    card={card}
-                    disabled={!isMyTurn || isChoiceMode || disabled || state.phase === 'finished' || !isPlayable(card.cardId)}
-                    onClick={() => onPlay(card.instanceId)}
-                  />
-                );
-              })
-          )
-        ) : (
-          <div className="text-xs text-neutral-600">Spectating</div>
-        )}
-      </div>
+      {/* Hand grid — columns are 1fr each (fill available width) capped at 230 px so
+          cards never exceed their natural size. Works for 6-card hands at any
+          viewport ≥ ~900 px; wider screens approach the full 230 px naturally. */}
+      {(() => {
+        const handLen = me?.hand.length ?? 0;
+        const gridStyle: React.CSSProperties = handLen > 0 ? {
+          display: 'grid',
+          gridTemplateColumns: `repeat(${handLen}, minmax(0, 1fr))`,
+          gap: '6px',
+          maxWidth: `${handLen * 236 - 6}px`,
+        } : {
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        };
+        return (
+          <div className="mx-auto w-full min-h-[140px]" style={gridStyle}>
+            {me ? (
+              me.hand.length === 0 ? (
+                <div className="text-xs text-neutral-600">empty hand</div>
+              ) : (
+                [...me.hand]
+                  .sort((a, b) => {
+                    // In choice mode: valid targets first.
+                    if (isChoiceMode) {
+                      const aValid = isChoiceTarget(a.cardId, pendingChoice!);
+                      const bValid = isChoiceTarget(b.cardId, pendingChoice!);
+                      if (aValid !== bValid) return aValid ? -1 : 1;
+                    }
+                    // Wounds always first, troopers/agents always last
+                    const priority = (id: string) => {
+                      if (id === 'wound')          return -2;
+                      if (id === 'shield_trooper') return  1;
+                      if (id === 'shield_agent')   return  2;
+                      return 0;
+                    };
+                    const ap = priority(a.cardId), bp = priority(b.cardId);
+                    if (ap !== bp) return ap - bp;
+                    // Otherwise highest cost first
+                    const aD = CARDS[a.cardId];
+                    const bD = CARDS[b.cardId];
+                    return (bD?.kind === 'hero' ? bD.cost : 0) - (aD?.kind === 'hero' ? aD.cost : 0);
+                  })
+                  .map((card) => {
+                    if (isChoiceMode && !isBinaryChoice) {
+                      const valid = isChoiceTarget(card.cardId, pendingChoice!);
+                      return (
+                        <HandCard
+                          key={card.instanceId}
+                          card={card}
+                          wide
+                          disabled={!valid || disabled}
+                          choiceMode={valid ? pendingChoice!.kind : undefined}
+                          onClick={() => onResolveChoice(card.instanceId)}
+                        />
+                      );
+                    }
+                    return (
+                      <HandCard
+                        key={card.instanceId}
+                        card={card}
+                        wide
+                        disabled={!isMyTurn || isChoiceMode || disabled || state.phase === 'finished' || !isPlayable(card.cardId)}
+                        onClick={() => onPlay(card.instanceId)}
+                      />
+                    );
+                  })
+              )
+            ) : (
+              <div className="text-xs text-neutral-600">Spectating</div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Discard zone — shown in choice mode when the effect allows picking
           from the discard pile (e.g. Dangerous Rescue: hand OR discard). */}
       {isChoiceMode && 'sources' in pendingChoice! && pendingChoice!.sources?.includes('discard') && me && (
         <>
           <ZoneLabel>Your discard pile — choose a card to KO</ZoneLabel>
-          <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[100px]">
-            {me.discard.length === 0 ? (
-              <div className="text-xs text-neutral-600">discard pile empty</div>
-            ) : (
-              [...me.discard]
-                .sort((a, b) => {
-                  const aValid = isChoiceTarget(a.cardId, pendingChoice!);
-                  const bValid = isChoiceTarget(b.cardId, pendingChoice!);
-                  if (aValid !== bValid) return aValid ? -1 : 1;
-                  const aD = CARDS[a.cardId];
-                  const bD = CARDS[b.cardId];
-                  return (bD?.kind === 'hero' ? bD.cost : 0) - (aD?.kind === 'hero' ? aD.cost : 0);
-                })
-                .map((card) => {
-                  const valid = isChoiceTarget(card.cardId, pendingChoice!);
-                  return (
-                    <HandCard
-                      key={card.instanceId}
-                      card={card}
-                      disabled={!valid || disabled}
-                      choiceMode={valid ? pendingChoice!.kind : undefined}
-                      onClick={() => onResolveChoice(card.instanceId)}
-                    />
-                  );
-                })
-            )}
-          </div>
+          {(() => {
+            const discardLen = me.discard.length;
+            const gs: React.CSSProperties = discardLen > 0 ? {
+              display: 'grid',
+              gridTemplateColumns: `repeat(${discardLen}, minmax(0, 1fr))`,
+              gap: '6px',
+              maxWidth: `${discardLen * 236 - 6}px`,
+            } : { display: 'flex', alignItems: 'center', justifyContent: 'center' };
+            return (
+              <div className="mx-auto w-full min-h-[100px]" style={gs}>
+                {discardLen === 0 ? (
+                  <div className="text-xs text-neutral-600">discard pile empty</div>
+                ) : (
+                  [...me.discard]
+                    .sort((a, b) => {
+                      const aValid = isChoiceTarget(a.cardId, pendingChoice!);
+                      const bValid = isChoiceTarget(b.cardId, pendingChoice!);
+                      if (aValid !== bValid) return aValid ? -1 : 1;
+                      const aD = CARDS[a.cardId];
+                      const bD = CARDS[b.cardId];
+                      return (bD?.kind === 'hero' ? bD.cost : 0) - (aD?.kind === 'hero' ? aD.cost : 0);
+                    })
+                    .map((card) => {
+                      const valid = isChoiceTarget(card.cardId, pendingChoice!);
+                      return (
+                        <HandCard
+                          key={card.instanceId}
+                          card={card}
+                          wide
+                          disabled={!valid || disabled}
+                          choiceMode={valid ? pendingChoice!.kind : undefined}
+                          onClick={() => onResolveChoice(card.instanceId)}
+                        />
+                      );
+                    })
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -915,21 +947,33 @@ export default function LegendaryBoard({
        state.thisTurn.playedThisTurn.length > 0 && me && (
         <>
           <ZoneLabel>Played this turn — click a Hero to copy its ability</ZoneLabel>
-          <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[100px]">
-            {state.thisTurn.playedThisTurn.map((card) => {
-              const def = CARDS[card.cardId];
-              const valid = def?.kind === 'hero' && card.cardId !== 'rogue_copy_powers';
-              return (
-                <HandCard
-                  key={card.instanceId}
-                  card={card}
-                  disabled={!valid || disabled}
-                  choiceMode={valid ? 'copy_played_hero' : undefined}
-                  onClick={() => valid && onResolveChoice(card.instanceId)}
-                />
-              );
-            })}
-          </div>
+          {(() => {
+            const n = state.thisTurn.playedThisTurn.length;
+            const gs: React.CSSProperties = {
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(0, 1fr))`,
+              gap: '6px',
+              maxWidth: `${Math.max(1, n) * 236 - 6}px`,
+            };
+            return (
+              <div className="mx-auto w-full min-h-[100px]" style={gs}>
+                {state.thisTurn.playedThisTurn.map((card) => {
+                  const def = CARDS[card.cardId];
+                  const valid = def?.kind === 'hero' && card.cardId !== 'rogue_copy_powers';
+                  return (
+                    <HandCard
+                      key={card.instanceId}
+                      card={card}
+                      wide
+                      disabled={!valid || disabled}
+                      choiceMode={valid ? 'copy_played_hero' : undefined}
+                      onClick={() => valid && onResolveChoice(card.instanceId)}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -939,20 +983,32 @@ export default function LegendaryBoard({
        state.thisTurn.playedThisTurn.length > 0 && me && (
         <>
           <ZoneLabel>Played this turn — choose a card to KO</ZoneLabel>
-          <div className="flex flex-wrap items-stretch justify-center gap-2 min-h-[100px]">
-            {state.thisTurn.playedThisTurn.map((card) => {
-              const valid = isChoiceTarget(card.cardId, pendingChoice!);
-              return (
-                <HandCard
-                  key={card.instanceId}
-                  card={card}
-                  disabled={!valid || disabled}
-                  choiceMode={valid ? 'ko_from_hand' : undefined}
-                  onClick={() => onResolveChoice(card.instanceId)}
-                />
-              );
-            })}
-          </div>
+          {(() => {
+            const n = state.thisTurn.playedThisTurn.length;
+            const gs: React.CSSProperties = {
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(0, 1fr))`,
+              gap: '6px',
+              maxWidth: `${Math.max(1, n) * 236 - 6}px`,
+            };
+            return (
+              <div className="mx-auto w-full min-h-[100px]" style={gs}>
+                {state.thisTurn.playedThisTurn.map((card) => {
+                  const valid = isChoiceTarget(card.cardId, pendingChoice!);
+                  return (
+                    <HandCard
+                      key={card.instanceId}
+                      card={card}
+                      wide
+                      disabled={!valid || disabled}
+                      choiceMode={valid ? 'ko_from_hand' : undefined}
+                      onClick={() => onResolveChoice(card.instanceId)}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -1146,13 +1202,15 @@ function HQSlot({
 }
 
 function HandCard({
-  card, disabled, onClick, choiceMode,
+  card, disabled, onClick, choiceMode, wide = false,
 }: {
   card: CardInstance;
   disabled: boolean;
   onClick: () => void;
   /** When set the card is highlighted as a KO/discard/topdeck/reveal/copy target. */
   choiceMode?: 'ko_from_hand' | 'discard_from_hand' | 'reveal_to_prevent_wound' | 'put_card_on_deck' | 'copy_played_hero' | 'move_villain_select_villain' | 'move_villain_select_dest';
+  /** Stretch the card to fill a CSS grid cell instead of using a fixed pixel width. */
+  wide?: boolean;
 }) {
   const def = CARDS[card.cardId];
   // Wounds / bystanders in hand — junk cards that match sandbox system card art.
@@ -1177,14 +1235,14 @@ function HandCard({
           className={`transition ${systemChoiceRing || (disabled ? 'cursor-default opacity-80' : 'hover:-translate-y-1 hover:shadow-lg')}`}
         >
           {isWound
-            ? <SystemCardArt name="Wound"     borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)"   height="h-[165px]" />
-            : <SystemCardArt name="Bystander" borderColor="#c4a800" bg="linear-gradient(135deg, #c4a800, #a08600)"   height="h-[165px]" vp={1} />
+            ? <SystemCardArt name="Wound"     borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)"   height="h-[165px]" wide={wide} />
+            : <SystemCardArt name="Bystander" borderColor="#c4a800" bg="linear-gradient(135deg, #c4a800, #a08600)"   height="h-[165px]" wide={wide} vp={1} />
           }
         </button>
       );
     }
     return (
-      <div className="flex h-40 w-[220px] flex-col items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 opacity-60 text-[11px] text-neutral-500">
+      <div className={`flex h-[165px] ${wide ? 'w-full' : 'w-[220px]'} flex-col items-center justify-center rounded-lg border border-neutral-800 bg-neutral-900 opacity-60 text-[11px] text-neutral-500`}>
         Unknown card
       </div>
     );
@@ -1211,7 +1269,7 @@ function HandCard({
       title={def.text}
       className={`transition ${choiceRing || (disabled ? 'opacity-50' : 'hover:-translate-y-1 hover:shadow-lg')}`}
     >
-      <HeroCardArt def={def} copies={copies} style={shieldStyle} lightBg={!!shieldStyle} />
+      <HeroCardArt def={def} copies={copies} wide={wide} style={shieldStyle} lightBg={!!shieldStyle} />
     </button>
   );
 }
