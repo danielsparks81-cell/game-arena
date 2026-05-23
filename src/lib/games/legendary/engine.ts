@@ -1130,6 +1130,28 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Dr. Doom Tactic 2: Dark Technology ───────────────────────────────────
+    case 'free_recruit_tech_or_ranged_from_hq': {
+      const hasEligible = state.hq.some(card => {
+        if (!card) return false;
+        const d = getCard(card.cardId);
+        return d.kind === 'hero' && (d.classes.includes('tech') || d.classes.includes('ranged'));
+      });
+      if (!hasEligible) {
+        pushLog(state, { kind: 'system', text: `${me.username}: No Tech or Ranged Heroes in the HQ — Dark Technology has no targets.` });
+        return;
+      }
+      state.thisTurn.pendingChoice = { kind: 'free_recruit_from_hq' };
+      return;
+    }
+
+    // ── Dr. Doom Tactic 3: Treasures of Latveria ──────────────────────────────
+    case 'extra_hand_cards': {
+      me.endOfTurnExtraDraw = (me.endOfTurnExtraDraw ?? 0) + effect.amount;
+      pushLog(state, { kind: 'system', text: `${me.username} will draw ${effect.amount} extra cards next hand (Treasures of Latveria)!` });
+      return;
+    }
+
     // ── Dr. Doom Master Strike ────────────────────────────────────────────────
     case 'doom_master_strike': {
       // Called once per player (me) by the outer loop. Only affects players with
@@ -1473,6 +1495,31 @@ function doResolveChoice(
     return state;
   }
 
+  // ── Dark Technology: free Tech/Ranged recruit from HQ ────────────────────
+  if (choice.kind === 'free_recruit_from_hq') {
+    const slotIdx = state.hq.findIndex(c => c?.instanceId === instanceId);
+    if (slotIdx < 0) return { error: 'That card is not in the HQ' };
+    const card = state.hq[slotIdx]!;
+    const def = getCard(card.cardId);
+    if (def.kind !== 'hero') return { error: 'Not a hero card' };
+    if (!def.classes.includes('tech') && !def.classes.includes('ranged')) {
+      return { error: 'Dark Technology: choose a Tech or Ranged Hero' };
+    }
+    state.thisTurn.pendingChoice = undefined;
+    state.hq[slotIdx] = null;
+    me.discard.push(card);
+    refillHQ(state, true);
+    pushLog(state, {
+      kind: 'hero_recruited',
+      seat: me.seat,
+      username: me.username,
+      cardId: def.cardId,
+      cardName: def.cardName,
+      cost: 0,
+    });
+    return state;
+  }
+
   // Binary choices don't involve card selection — reject if dispatched.
   if (choice.kind === 'discard_hand_draw_four' ||
       choice.kind === 'optional_gain_wound_pass_left' ||
@@ -1763,6 +1810,12 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
     pushLog(state, { kind: 'system', text: `${me.username} declined the wound.` });
     return state;
   }
+  // Dark Technology: player chose not to take the free recruit — nothing happens.
+  if (choice.kind === 'free_recruit_from_hq') {
+    const me = state.players[state.currentPlayerIdx];
+    pushLog(state, { kind: 'system', text: `${me.username} passes on the free Tech/Ranged recruit.` });
+    return state;
+  }
   // Covering Fire (Skip): each other player discards a card from their hand.
   if (choice.kind === 'choose_others_draw_or_discard') {
     const me = state.players[state.currentPlayerIdx];
@@ -1998,18 +2051,22 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
     const samePlayer = state.players[state.currentPlayerIdx];
     state.turn++;
     state.thisTurn = emptyTurnState();
-    drawUpTo(samePlayer, STARTING_HAND_SIZE);
+    const extraDraw = samePlayer.endOfTurnExtraDraw ?? 0;
+    samePlayer.endOfTurnExtraDraw = undefined;
+    drawUpTo(samePlayer, STARTING_HAND_SIZE + extraDraw);
     pushLog(state, { kind: 'system', text: `${samePlayer.username} takes an extra turn!` });
     pushLog(state, { kind: 'turn_started', seat: samePlayer.seat, username: samePlayer.username });
     return state;
   }
 
-  // 4. Advance to next player, reset turn state, deal 6.
+  // 4. Advance to next player, reset turn state, deal 6 (+ any Latveria bonus).
   state.currentPlayerIdx = (state.currentPlayerIdx + 1) % state.players.length;
   state.turn++;
   state.thisTurn = emptyTurnState();
   const nextPlayer = state.players[state.currentPlayerIdx];
-  drawUpTo(nextPlayer, STARTING_HAND_SIZE);
+  const extraDraw = nextPlayer.endOfTurnExtraDraw ?? 0;
+  nextPlayer.endOfTurnExtraDraw = undefined;
+  drawUpTo(nextPlayer, STARTING_HAND_SIZE + extraDraw);
 
   // ── Pending Master Strike KO: if this player was flagged by a master strike,
   // they must choose a Hero to KO from their freshly drawn hand. ───────────

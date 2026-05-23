@@ -841,6 +841,8 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'draw_per_hydra_in_victory_pile':                 return { kind };
     // Dr. Doom
     case 'doom_master_strike':                             return { kind };
+    case 'free_recruit_tech_or_ranged_from_hq':            return { kind };
+    case 'extra_hand_cards':                               return { kind, amount: 3 };
     case 'extra_turn':                                     return { kind };
   }
 }

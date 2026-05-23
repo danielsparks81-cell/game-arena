@@ -202,6 +202,14 @@ export type Effect =
   /** Dr. Doom Master Strike: for each player with exactly 6 cards in hand,
    *  auto-move the 2 cheapest cards from their hand to the top of their deck. */
   | { kind: 'doom_master_strike' }
+  // ── Dr. Doom Tactic 2 ────────────────────────────────────────────────────
+  /** Dark Technology: prompts the player to recruit one Tech or Ranged Hero
+   *  from the HQ for free (no recruit cost). Sets a pending choice; skippable. */
+  | { kind: 'free_recruit_tech_or_ranged_from_hq' }
+  // ── Dr. Doom Tactic 3 ────────────────────────────────────────────────────
+  /** Treasures of Latveria: the player draws `amount` extra cards when they
+   *  draw their next full hand (stored on PlayerState until hand-deal time). */
+  | { kind: 'extra_hand_cards'; amount: number }
   // ── Dr. Doom Tactic 4 ────────────────────────────────────────────────────
   /** Secrets of Time Travel: flag the current turn so the active player takes
    *  another turn immediately after this one ends. */
@@ -438,6 +446,9 @@ export type PlayerState = {
   /** Set by a Master Strike effect (e.g. Red Skull). The player must KO a Hero
    *  of their choice from their new hand at the start of their next turn. */
   pendingMasterStrikeKO?: boolean;
+  /** Set by Treasures of Latveria (Dr. Doom Tactic 3). This many extra cards
+   *  are added to the player's next hand draw. Consumed and cleared on draw. */
+  endOfTurnExtraDraw?: number;
 };
 
 /** Describes a card-choice the current player must resolve before taking
@@ -491,7 +502,10 @@ export type PendingChoice =
   | { kind: 'move_villain_select_dest'; sourceSlot: number; sourceName: string; card: CardInstance }
   /** Sidekick: "You may return this card to the Sidekick stack. If you do,
    *  draw two cards." Accept = return + draw; Skip = keep in played area. */
-  | { kind: 'optional_return_sidekick_draw_two' };
+  | { kind: 'optional_return_sidekick_draw_two' }
+  /** Dark Technology (Dr. Doom Tactic 2): player clicks a Tech or Ranged Hero
+   *  in the HQ to recruit it for free; skippable ("may"). */
+  | { kind: 'free_recruit_from_hq' };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already

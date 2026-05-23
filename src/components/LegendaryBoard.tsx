@@ -115,7 +115,8 @@ export default function LegendaryBoard({
   // Pending choice: the engine is waiting for the active player to pick a card
   // from their hand to KO or discard (from a card effect like Diving Block).
   const pendingChoice: PendingChoice | undefined = state.thisTurn.pendingChoice;
-  const isChoiceMode = isMyTurn && !!pendingChoice;
+  // free_recruit_from_hq targets the HQ row, not the hand — exclude it from hand-choice mode.
+  const isChoiceMode = isMyTurn && !!pendingChoice && pendingChoice.kind !== 'free_recruit_from_hq';
   // Binary choices don't require card selection — the player just clicks
   // Accept or Skip in the banner (Deadpool Do-Over / Random Acts, Gambit Hypnotic Charm).
   const isBinaryChoice =
@@ -127,6 +128,7 @@ export default function LegendaryBoard({
   const isCopyHeroChoice            = pendingChoice?.kind === 'copy_played_hero';
   const isMoveVillainSelectVillain  = pendingChoice?.kind === 'move_villain_select_villain';
   const isMoveVillainSelectDest     = pendingChoice?.kind === 'move_villain_select_dest';
+  const isFreeRecruitFromHQ         = isMyTurn && pendingChoice?.kind === 'free_recruit_from_hq';
 
   // ----- Lobby phase: setup-confirmation screen -----
   if (state.phase === 'lobby') {
@@ -685,6 +687,9 @@ export default function LegendaryBoard({
                       disabled={!isMyTurn || disabled || state.phase === 'finished'}
                       onRecruit={() => onRecruit(slot)}
                       refillAnim={animatingHqSlots.has(slot)}
+                      onFreeRecruit={isFreeRecruitFromHQ && visibleCard
+                        ? () => onResolveChoice(visibleCard.instanceId)
+                        : undefined}
                     />
                   </div>
                 );
@@ -788,6 +793,8 @@ export default function LegendaryBoard({
             ? 'border-rose-500 bg-rose-950/50'
             : (pendingChoice.kind === 'move_villain_select_villain' || pendingChoice.kind === 'move_villain_select_dest')
             ? 'border-sky-500 bg-sky-950/50'
+            : pendingChoice.kind === 'free_recruit_from_hq'
+            ? 'border-cyan-400 bg-cyan-950/50'
             : isBinaryChoice
             ? 'border-purple-500 bg-purple-950/50'
             : 'border-amber-500 bg-amber-950/50'
@@ -807,6 +814,8 @@ export default function LegendaryBoard({
                   ? 'text-rose-300'
                   : (pendingChoice.kind === 'move_villain_select_villain' || pendingChoice.kind === 'move_villain_select_dest')
                   ? 'text-sky-300'
+                  : pendingChoice.kind === 'free_recruit_from_hq'
+                  ? 'text-cyan-300'
                   : isBinaryChoice
                   ? 'text-purple-300'
                   : 'text-amber-300'
@@ -835,6 +844,8 @@ export default function LegendaryBoard({
                   ? '🌀 Storm — click a Villain in the city to move it'
                   : pendingChoice.kind === 'move_villain_select_dest'
                   ? `🌀 Storm — moving ${(pendingChoice as { sourceName: string }).sourceName} — click a city space to place it`
+                  : pendingChoice.kind === 'free_recruit_from_hq'
+                  ? '⚙️ Dark Technology — click a Tech or Ranged Hero in the HQ to recruit it for free'
                   : pendingChoice.kind === 'ko_from_hand'
                   ? '🗑️ KO a card — from your hand, played area, or discard pile'
                   : 'mandatory' in pendingChoice && pendingChoice.mandatory
@@ -1274,7 +1285,7 @@ function CitySlot({
 }
 
 function HQSlot({
-  card, slot, recruit, disabled, onRecruit, refillAnim = false,
+  card, slot, recruit, disabled, onRecruit, refillAnim = false, onFreeRecruit,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1283,6 +1294,9 @@ function HQSlot({
   onRecruit: () => void;
   /** When true the card plays a flip-in animation (just placed from the Hero Deck). */
   refillAnim?: boolean;
+  /** Dark Technology: when provided, this slot is in free-recruit mode.
+   *  Eligible (Tech/Ranged) cards are highlighted and clickable; others are dimmed. */
+  onFreeRecruit?: () => void;
 }) {
   if (!card) {
     return (
@@ -1293,8 +1307,31 @@ function HQSlot({
   }
   const def = getCard(card.cardId);
   if (def.kind !== 'hero') return <div className="h-40 rounded-lg bg-neutral-900" />;
-  const canAfford = !disabled && recruit >= def.cost;
   const copies = CARD_COPIES[card.cardId];
+
+  // ── Dark Technology free-recruit mode ──────────────────────────────────────
+  if (onFreeRecruit !== undefined) {
+    const isEligible = def.classes.includes('tech') || def.classes.includes('ranged');
+    return (
+      <button
+        type="button"
+        disabled={!isEligible}
+        onClick={isEligible ? onFreeRecruit : undefined}
+        className={[
+          'transition-all duration-150',
+          refillAnim ? 'animate-hq-flip-in' : '',
+          isEligible
+            ? '-translate-y-3 shadow-lg ring-2 ring-cyan-400 hover:-translate-y-4 hover:shadow-xl hover:ring-cyan-300'
+            : 'opacity-40',
+        ].join(' ')}
+      >
+        <HeroCardArt def={def} wide height="h-[165px]" copies={copies} />
+        <span className="sr-only">Recruit {def.cardName} for free</span>
+      </button>
+    );
+  }
+
+  const canAfford = !disabled && recruit >= def.cost;
   return (
     <button
       type="button"

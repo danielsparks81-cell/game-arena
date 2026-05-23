@@ -22,7 +22,7 @@ export const DR_DOOM_TACTIC_2: TacticCardDef = {
   mastermindId: 'mm_dr_doom',
   vp: 5,
   text: 'Fight: You may recruit a [tech] or [ranged] Hero from the HQ for free.',
-  fightSelf: [],
+  fightSelf: [{ kind: 'free_recruit_tech_or_ranged_from_hq' }],
 };
 
 export const DR_DOOM_TACTIC_3: TacticCardDef = {
@@ -32,7 +32,7 @@ export const DR_DOOM_TACTIC_3: TacticCardDef = {
   mastermindId: 'mm_dr_doom',
   vp: 5,
   text: 'Fight: When you draw a new hand of cards at the end of this turn, draw three extra cards.',
-  fightSelf: [{ kind: 'draw', amount: 3 }],
+  fightSelf: [{ kind: 'extra_hand_cards', amount: 3 }],
 };
 
 export const DR_DOOM_TACTIC_4: TacticCardDef = {
