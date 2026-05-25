@@ -21,6 +21,12 @@ import { LOKI, LOKI_TACTICS } from './masterminds/loki';
 import { MAGNETO, MAGNETO_TACTICS } from './masterminds/magneto';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from './schemes/prison-breakout';
 import { COSMIC_CUBE } from './schemes/cosmic-cube';
+import { SUPER_HERO_CIVIL_WAR } from './schemes/super-hero-civil-war';
+import { KILLBOTS } from './schemes/killbots';
+import { DARK_PORTALS } from './schemes/dark-portals';
+import { SKRULL_INVASION } from './schemes/skrull-invasion';
+import { MIDTOWN_BANK_ROBBERY } from './schemes/bank-robbery';
+import { LEGACY_VIRUS } from './schemes/legacy-virus';
 
 // Hero classes available for selection at game-setup time.
 // All 15 base-set classes are registered so their baseAttack/baseRecruit
@@ -35,7 +41,16 @@ export const HENCHMAN_GROUPS = [
   SENTINEL_GROUP,
 ] as const;
 export const MASTERMINDS = [RED_SKULL, DR_DOOM, LOKI, MAGNETO] as const;
-export const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT, COSMIC_CUBE] as const;
+export const SCHEMES = [
+  NEGATIVE_ZONE_PRISON_BREAKOUT,
+  COSMIC_CUBE,
+  SUPER_HERO_CIVIL_WAR,
+  KILLBOTS,
+  DARK_PORTALS,
+  SKRULL_INVASION,
+  MIDTOWN_BANK_ROBBERY,
+  LEGACY_VIRUS,
+] as const;
 
 // "System" cards — wounds and bystanders. Fixed defs the engine references
 // directly via these constants.
