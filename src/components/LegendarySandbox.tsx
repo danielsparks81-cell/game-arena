@@ -13,7 +13,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, CLASS_CHIP_COLORS, CLASS_ICONS, TEAM_ICON_DATA, CardText } from '@/components/legendary/HeroCardArt';
+import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, CLASS_CHIP_COLORS, CLASS_ICONS, TEAM_ICON_DATA, CardText, useAutoFitFontSize } from '@/components/legendary/HeroCardArt';
 import { VillainCardArt, HenchmanCardArt, TacticCardArt } from '@/components/legendary/SystemCardArt';
 import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, TacticCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
@@ -2090,29 +2090,32 @@ function MastermindCardArt({ def }: { def: MastermindCardDef }) {
 }
 
 /** Board-accurate scheme panel — matches SchemeZone on the live board exactly.
- *  Same dimensions as SandboxMastermindPanel: w-[448px] h-36. */
+ *  Same dimensions as SandboxMastermindPanel: w-[448px] h-36.
+ *  Body text auto-fits via useAutoFitFontSize so long schemes (Killbots,
+ *  Skrull Invasion) stay readable without clipping. */
 function SchemeCardArt({ def }: { def: SchemeCardDef }) {
   const labelColor = '#a78bfa'; // violet-400 — matches board SchemeZone
+  const textRef = useAutoFitFontSize(11, 8, [def.text, def.cardId]);
 
   return (
     <div className="flex h-36 w-[448px] flex-col rounded-lg border-2 border-solid border-violet-700/70 bg-gradient-to-br from-violet-950/40 to-neutral-950/40 px-2 py-1">
       <span className="truncate text-[14px] font-bold leading-tight text-white">{def.name}</span>
       <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: labelColor }}>Scheme</span>
       {def.text && (
-        <div className="mt-1 flex-1 overflow-hidden">
+        <div ref={textRef} className="mt-1 flex-1 overflow-hidden leading-tight">
           {def.text.split('\n').map((segment, i) => {
             const colonIdx = segment.indexOf(':');
             if (colonIdx > 0) {
               const label = segment.slice(0, colonIdx + 1);
               const body  = segment.slice(colonIdx + 1).trim();
               return (
-                <div key={i} className="mb-0.5 text-[11px] leading-snug">
+                <div key={i}>
                   <span className="font-bold" style={{ color: labelColor }}>{label}</span>
                   {body && <span className="ml-0.5 text-white"><CardText text={body} /></span>}
                 </div>
               );
             }
-            return <div key={i} className="mb-0.5 text-[11px] leading-snug text-white"><CardText text={segment} /></div>;
+            return <div key={i} className="text-white"><CardText text={segment} /></div>;
           })}
         </div>
       )}

@@ -5,8 +5,40 @@
 // No interaction props (onClick, disabled) — those are the caller's job. Wrap
 // in a <button> if you want a clickable card, leave bare for static preview.
 
-import React from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import type { HeroClass, HeroCardDef, Team } from '@/lib/games/legendary';
+
+// ─── Auto-fit hook ───────────────────────────────────────────────────────────
+/**
+ * Attach the returned ref to a fixed-height text container. The hook measures
+ * scrollHeight vs clientHeight on every dep change and steps the container's
+ * font-size down (in 0.5px increments from `maxPx` to `minPx`) until the
+ * content stops overflowing.
+ *
+ * Children must NOT set their own font-size (no `text-[11px]` etc.) — they
+ * inherit from the container so scaling cascades through. Run inside a
+ * useLayoutEffect so the size is correct before paint (no flash).
+ */
+export function useAutoFitFontSize(
+  maxPx: number,
+  minPx: number,
+  deps: React.DependencyList,
+): React.RefObject<HTMLDivElement | null> {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let size = maxPx;
+    el.style.fontSize = `${size}px`;
+    // Step down until content fits or we hit the minimum.
+    while (size > minPx && el.scrollHeight > el.clientHeight) {
+      size -= 0.5;
+      el.style.fontSize = `${size}px`;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  return ref;
+}
 
 // ─── Class colors ────────────────────────────────────────────────────────────
 // Colors as they appear in the game UI (dot next to the hero class name):

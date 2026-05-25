@@ -47,6 +47,7 @@ import {
   ClassChips,
   CostBadge,
   CardText,
+  useAutoFitFontSize,
   HeroCardArt,
   TeamChip,
   classBorderStyle,
@@ -2016,6 +2017,12 @@ function SchemeZone({
   schemeDef: ReturnType<typeof getCard>;
   twistsRevealed: number;
 }) {
+  // Hooks must run unconditionally — call before any early return.
+  const textRef = useAutoFitFontSize(
+    11, 8,
+    [schemeDef.kind === 'scheme' ? schemeDef.text : '', schemeDef.cardId],
+  );
+
   if (schemeDef.kind !== 'scheme') {
     return <div className="h-full rounded-lg border border-dashed border-neutral-800" />;
   }
@@ -2028,20 +2035,20 @@ function SchemeZone({
       <span className="truncate text-[14px] font-bold text-white leading-tight">{schemeDef.name}</span>
       <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: labelColor }}>Scheme</span>
       {schemeDef.text && (
-        <div className="mt-1 flex-1 overflow-hidden">
+        <div ref={textRef} className="mt-1 flex-1 overflow-hidden leading-tight">
           {schemeDef.text.split('\n').map((segment, i) => {
             const colonIdx = segment.indexOf(':');
             if (colonIdx > 0) {
               const label = segment.slice(0, colonIdx + 1);
               const body  = segment.slice(colonIdx + 1).trim();
               return (
-                <div key={i} className="mb-0.5 text-[11px] leading-snug">
+                <div key={i}>
                   <span className="font-bold" style={{ color: labelColor }}>{label}</span>
                   {body && <span className="ml-0.5 text-white"><CardText text={body} /></span>}
                 </div>
               );
             }
-            return <div key={i} className="mb-0.5 text-[11px] leading-snug text-white"><CardText text={segment} /></div>;
+            return <div key={i} className="text-white"><CardText text={segment} /></div>;
           })}
         </div>
       )}
