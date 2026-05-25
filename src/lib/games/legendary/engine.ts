@@ -1373,8 +1373,19 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Loki Master Strike ────────────────────────────────────────────────────
     case 'loki_master_strike': {
-      // Skip players with empty hands (current player just discarded).
-      if (me.hand.length === 0) return;
+      // If hand is empty (= active player at end-of-turn villain reveal, just
+      // discarded), defer to start of their next turn so the strike actually
+      // hits their freshly drawn hand. Non-empty hands resolve immediately.
+      if (me.hand.length === 0) {
+        if (!me.pendingLokiStrike) {
+          me.pendingLokiStrike = true;
+          pushLog(state, {
+            kind: 'system',
+            text: `${me.username}: Loki's Master Strike will fire at the start of their next turn (reveal a Strength Hero or gain a Wound).`,
+          });
+        }
+        return;
+      }
       const hasStrength = me.hand.some(c => {
         const d = getCard(c.cardId);
         return d.kind === 'hero' && (d as HeroCardDef).classes.includes('strength');
@@ -1456,7 +1467,19 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Magneto Master Strike ─────────────────────────────────────────────────
     case 'magneto_master_strike': {
-      if (me.hand.length === 0) return;
+      // If hand is empty (= active player at end-of-turn villain reveal, just
+      // discarded), defer to start of their next turn so the strike actually
+      // hits their freshly drawn hand. Non-empty hands resolve immediately.
+      if (me.hand.length === 0) {
+        if (!me.pendingMagnetoStrike) {
+          me.pendingMagnetoStrike = true;
+          pushLog(state, {
+            kind: 'system',
+            text: `${me.username}: Magneto's Master Strike will fire at the start of their next turn (reveal an X-Men Hero or discard down to 4).`,
+          });
+        }
+        return;
+      }
       const hasXmen = me.hand.some(c => {
         const d = getCard(c.cardId);
         return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
@@ -3004,6 +3027,80 @@ function doRevealFirstVillain(state: LegendaryState): LegendaryState | { error: 
 
 // ---------------- End turn ----------------
 
+/**
+ * Resolve any master-strike effects that were deferred because the player's
+ * hand was empty when the strike fired (active player at end-of-turn villain
+ * reveal). Called after a fresh hand is drawn, so the deferred effect lands
+ * on the new hand. Currently handles Red Skull (KO a Hero), Magneto (reveal
+ * X-Men or discard down to 4), and Loki (reveal Strength Hero or gain Wound).
+ */
+function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void {
+  // Red Skull: KO a Hero of your choice (prompt via pendingChoice).
+  if (player.pendingMasterStrikeKO) {
+    player.pendingMasterStrikeKO = undefined;
+    const heroes = player.hand.filter(c => getCard(c.cardId).kind === 'hero');
+    if (heroes.length > 0) {
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_from_hand',
+        mandatory: true,
+        bonus: [],
+        filter: 'heroes_only',
+      };
+      pushLog(state, {
+        kind: 'system',
+        text: `${player.username}: Master Strike — KO a Hero from your hand before acting.`,
+      });
+    }
+  }
+
+  // Magneto: reveal an X-Men Hero, or discard the hand down to 4 cards.
+  if (player.pendingMagnetoStrike) {
+    player.pendingMagnetoStrike = undefined;
+    const hasXmen = player.hand.some(c => {
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
+    });
+    if (hasXmen) {
+      pushLog(state, {
+        kind: 'system',
+        text: `${player.username}: revealed an X-Men Hero — no penalty from Magneto's Master Strike.`,
+      });
+    } else {
+      while (player.hand.length > 4) {
+        const discarded = player.hand.splice(0, 1)[0];
+        player.discard.push(discarded);
+        const dDef = getCard(discarded.cardId);
+        const dName = dDef.kind === 'hero' ? dDef.cardName : 'name' in dDef ? (dDef as { name: string }).name : discarded.cardId;
+        pushLog(state, {
+          kind: 'system',
+          text: `${player.username} discards ${dName} (Magneto Master Strike — down to 4).`,
+        });
+      }
+    }
+  }
+
+  // Loki: reveal a Strength Hero, or gain a Wound.
+  if (player.pendingLokiStrike) {
+    player.pendingLokiStrike = undefined;
+    const hasStrength = player.hand.some(c => {
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' && (d as HeroCardDef).classes.includes('strength');
+    });
+    if (hasStrength) {
+      pushLog(state, {
+        kind: 'system',
+        text: `${player.username}: revealed a Strength Hero — no wound from Loki's Master Strike.`,
+      });
+    } else {
+      const wound = state.woundDeck.shift();
+      if (wound) {
+        player.discard.push(wound);
+        pushLog(state, { kind: 'wound_taken', seat: player.seat, username: player.username });
+      }
+    }
+  }
+}
+
 function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   const me = state.players[state.currentPlayerIdx];
 
@@ -3086,6 +3183,7 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
       samePlayer.nextHandBonusCard = undefined;
       pushLog(state, { kind: 'system', text: `${samePlayer.username}: ${bonusName} added to hand as 7th card (Electromagnetic Bubble).` });
     }
+    resolvePendingStrikes(state, samePlayer);
     pushLog(state, { kind: 'system', text: `${samePlayer.username} takes an extra turn!` });
     pushLog(state, { kind: 'turn_started', seat: samePlayer.seat, username: samePlayer.username });
     return state;
@@ -3114,24 +3212,7 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
     pushLog(state, { kind: 'system', text: `${nextPlayer.username}: ${bonusName} added to hand as 7th card (Electromagnetic Bubble).` });
   }
 
-  // ── Pending Master Strike KO: if this player was flagged by a master strike,
-  // they must choose a Hero to KO from their freshly drawn hand. ───────────
-  if (nextPlayer.pendingMasterStrikeKO) {
-    nextPlayer.pendingMasterStrikeKO = undefined;
-    const heroes = nextPlayer.hand.filter(c => getCard(c.cardId).kind === 'hero');
-    if (heroes.length > 0) {
-      state.thisTurn.pendingChoice = {
-        kind: 'ko_from_hand',
-        mandatory: true,
-        bonus: [],
-        filter: 'heroes_only',
-      };
-      pushLog(state, {
-        kind: 'system',
-        text: `${nextPlayer.username}: Master Strike — KO a Hero from your hand before acting.`,
-      });
-    }
-  }
+  resolvePendingStrikes(state, nextPlayer);
 
   pushLog(state, { kind: 'turn_started', seat: nextPlayer.seat, username: nextPlayer.username });
   return state;

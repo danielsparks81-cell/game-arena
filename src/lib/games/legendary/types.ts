@@ -559,6 +559,13 @@ export type PlayerState = {
   /** Set by a Master Strike effect (e.g. Red Skull). The player must KO a Hero
    *  of their choice from their new hand at the start of their next turn. */
   pendingMasterStrikeKO?: boolean;
+  /** Set by Magneto's Master Strike when fired on an empty hand (the active
+   *  player just discarded). Resolved at the start of this player's next turn
+   *  against their freshly drawn hand: reveal an X-Men Hero or discard to 4. */
+  pendingMagnetoStrike?: boolean;
+  /** Set by Loki's Master Strike when fired on an empty hand. Resolved at the
+   *  start of this player's next turn: reveal a Strength Hero or gain a Wound. */
+  pendingLokiStrike?: boolean;
   /** Set by Treasures of Latveria (Dr. Doom Tactic 3). This many extra cards
    *  are added to the player's next hand draw. Consumed and cleared on draw. */
   endOfTurnExtraDraw?: number;
