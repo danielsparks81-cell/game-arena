@@ -11,7 +11,7 @@
 // so refreshing the page never loses work. There's no DB roundtrip — exporting
 // produces a TypeScript file you paste into src/lib/games/legendary/heroes/.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, CLASS_CHIP_COLORS, CLASS_ICONS, TEAM_ICON_DATA, CardText } from '@/components/legendary/HeroCardArt';
 import { VillainCardArt, HenchmanCardArt, TacticCardArt } from '@/components/legendary/SystemCardArt';
@@ -32,7 +32,7 @@ import { MAGNETO, MAGNETO_TACTICS } from '@/lib/games/legendary/masterminds/magn
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
 import { COSMIC_CUBE } from '@/lib/games/legendary/schemes/cosmic-cube';
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
-import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK, teamDisplayName, SCHEMES as ALL_SCHEMES } from '@/lib/games/legendary';
+import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK, teamDisplayName, SCHEMES as ALL_SCHEMES, groupBySource } from '@/lib/games/legendary';
 import type { WoundCardDef, BystanderCardDef, MasterStrikeCardDef, SchemeTwistCardDef } from '@/lib/games/legendary';
 import { KEYWORDS, type KeywordCategory } from '@/lib/games/legendary/keywords';
 
@@ -1202,21 +1202,31 @@ function HeroSection() {
         <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">
           Hero classes ({SORTED_HERO_CLASSES.length})
         </div>
-        {SORTED_HERO_CLASSES.map((hc, i) => (
-          <button
-            key={hc.className}
-            onClick={() => setSelectedIdx(i)}
-            className={`rounded px-2 py-1.5 text-left text-sm transition ${
-              i === selectedIdx
-                ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/40'
-                : 'text-neutral-300 hover:bg-neutral-800'
-            }`}
-          >
-            {hc.className}
-            <span className="ml-1 text-[10px] text-neutral-500">
-              ({hc.cards.reduce((s, c) => s + c.copies, 0)})
-            </span>
-          </button>
+        {groupBySource(SORTED_HERO_CLASSES).map(({ source, items }) => (
+          <Fragment key={source.id}>
+            <div className="mt-2 px-2 text-[9px] font-semibold uppercase tracking-wider text-neutral-600 first:mt-0">
+              {source.shortName}
+            </div>
+            {items.map(hc => {
+              const i = SORTED_HERO_CLASSES.indexOf(hc);
+              return (
+                <button
+                  key={hc.className}
+                  onClick={() => setSelectedIdx(i)}
+                  className={`rounded px-2 py-1.5 text-left text-sm transition ${
+                    i === selectedIdx
+                      ? 'bg-emerald-500/10 text-emerald-300 ring-1 ring-emerald-500/40'
+                      : 'text-neutral-300 hover:bg-neutral-800'
+                  }`}
+                >
+                  {hc.className}
+                  <span className="ml-1 text-[10px] text-neutral-500">
+                    ({hc.cards.reduce((s, c) => s + c.copies, 0)})
+                  </span>
+                </button>
+              );
+            })}
+          </Fragment>
         ))}
       </aside>
 
@@ -1658,21 +1668,32 @@ function VillainsSection() {
       {/* Left: group list */}
       <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Villain groups</div>
-        {VILLAIN_GROUPS.map((g, i) => (
-          <button
-            key={g.groupId}
-            onClick={() => setSelectedGroup(i)}
-            className={`rounded px-2 py-1.5 text-left text-sm transition ${
-              i === selectedGroup
-                ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
-                : 'text-neutral-300 hover:bg-neutral-800'
-            }`}
-          >
-            {g.groupId}
-            <span className="ml-1 text-[10px] text-neutral-500">
-              ({g.cards.reduce((s, c) => s + c.copies, 0)})
-            </span>
-          </button>
+        {/* groupBySource falls back to 'base' for groups that don't yet set source */}
+        {groupBySource(VILLAIN_GROUPS).map(({ source, items }) => (
+          <Fragment key={source.id}>
+            <div className="mt-2 px-2 text-[9px] font-semibold uppercase tracking-wider text-neutral-600 first:mt-0">
+              {source.shortName}
+            </div>
+            {items.map(g => {
+              const i = VILLAIN_GROUPS.indexOf(g);
+              return (
+                <button
+                  key={g.groupId}
+                  onClick={() => setSelectedGroup(i)}
+                  className={`rounded px-2 py-1.5 text-left text-sm transition ${
+                    i === selectedGroup
+                      ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
+                      : 'text-neutral-300 hover:bg-neutral-800'
+                  }`}
+                >
+                  {g.groupId}
+                  <span className="ml-1 text-[10px] text-neutral-500">
+                    ({g.cards.reduce((s, c) => s + c.copies, 0)})
+                  </span>
+                </button>
+              );
+            })}
+          </Fragment>
         ))}
       </aside>
 
@@ -1706,21 +1727,31 @@ function HenchmenSection() {
       {/* Left: group list */}
       <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Henchman groups</div>
-        {HENCHMAN_GROUPS.map((g, i) => (
-          <button
-            key={g.groupId}
-            onClick={() => setSelectedGroup(i)}
-            className={`rounded px-2 py-1.5 text-left text-sm transition ${
-              i === selectedGroup
-                ? 'bg-slate-500/10 text-slate-300 ring-1 ring-slate-500/40'
-                : 'text-neutral-300 hover:bg-neutral-800'
-            }`}
-          >
-            {g.groupId}
-            <span className="ml-1 text-[10px] text-neutral-500">
-              ({g.cards.reduce((s, c) => s + c.copies, 0)})
-            </span>
-          </button>
+        {groupBySource(HENCHMAN_GROUPS).map(({ source, items }) => (
+          <Fragment key={source.id}>
+            <div className="mt-2 px-2 text-[9px] font-semibold uppercase tracking-wider text-neutral-600 first:mt-0">
+              {source.shortName}
+            </div>
+            {items.map(g => {
+              const i = HENCHMAN_GROUPS.indexOf(g);
+              return (
+                <button
+                  key={g.groupId}
+                  onClick={() => setSelectedGroup(i)}
+                  className={`rounded px-2 py-1.5 text-left text-sm transition ${
+                    i === selectedGroup
+                      ? 'bg-slate-500/10 text-slate-300 ring-1 ring-slate-500/40'
+                      : 'text-neutral-300 hover:bg-neutral-800'
+                  }`}
+                >
+                  {g.groupId}
+                  <span className="ml-1 text-[10px] text-neutral-500">
+                    ({g.cards.reduce((s, c) => s + c.copies, 0)})
+                  </span>
+                </button>
+              );
+            })}
+          </Fragment>
         ))}
       </aside>
 
@@ -1817,19 +1848,30 @@ function MastermindSection() {
       {/* Left: mastermind list */}
       <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Masterminds</div>
-        {MASTERMINDS.map(({ card: m }, i) => (
-          <button
-            key={m.cardId}
-            onClick={() => setSelectedIdx(i)}
-            className={`rounded px-2 py-1.5 text-left text-sm transition ${
-              i === selectedIdx
-                ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
-                : 'text-neutral-300 hover:bg-neutral-800'
-            }`}
-          >
-            {m.name}
-            <span className="ml-1 text-[10px] text-neutral-500">(5 cards)</span>
-          </button>
+        {/* groupBySource reads the `source` field off each MM card def */}
+        {groupBySource(MASTERMINDS.map(e => e.card)).map(({ source, items }) => (
+          <Fragment key={source.id}>
+            <div className="mt-2 px-2 text-[9px] font-semibold uppercase tracking-wider text-neutral-600 first:mt-0">
+              {source.shortName}
+            </div>
+            {items.map(m => {
+              const i = MASTERMINDS.findIndex(e => e.card.cardId === m.cardId);
+              return (
+                <button
+                  key={m.cardId}
+                  onClick={() => setSelectedIdx(i)}
+                  className={`rounded px-2 py-1.5 text-left text-sm transition ${
+                    i === selectedIdx
+                      ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
+                      : 'text-neutral-300 hover:bg-neutral-800'
+                  }`}
+                >
+                  {m.name}
+                  <span className="ml-1 text-[10px] text-neutral-500">(5 cards)</span>
+                </button>
+              );
+            })}
+          </Fragment>
         ))}
       </aside>
 
@@ -1877,19 +1919,29 @@ function SchemeSection() {
       {/* Left: scheme list */}
       <aside className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">Schemes</div>
-        {SCHEMES.map((s, i) => (
-          <button
-            key={s.cardId}
-            onClick={() => setSelectedIdx(i)}
-            className={`rounded px-2 py-1.5 text-left text-sm transition ${
-              i === selectedIdx
-                ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
-                : 'text-neutral-300 hover:bg-neutral-800'
-            }`}
-          >
-            {s.name}
-            <span className="ml-1 text-[10px] text-neutral-500">({s.twists})</span>
-          </button>
+        {groupBySource(SCHEMES).map(({ source, items }) => (
+          <Fragment key={source.id}>
+            <div className="mt-2 px-2 text-[9px] font-semibold uppercase tracking-wider text-neutral-600 first:mt-0">
+              {source.shortName}
+            </div>
+            {items.map(s => {
+              const i = SCHEMES.indexOf(s);
+              return (
+                <button
+                  key={s.cardId}
+                  onClick={() => setSelectedIdx(i)}
+                  className={`rounded px-2 py-1.5 text-left text-sm transition ${
+                    i === selectedIdx
+                      ? 'bg-rose-500/10 text-rose-300 ring-1 ring-rose-500/40'
+                      : 'text-neutral-300 hover:bg-neutral-800'
+                  }`}
+                >
+                  {s.name}
+                  <span className="ml-1 text-[10px] text-neutral-500">({s.twists})</span>
+                </button>
+              );
+            })}
+          </Fragment>
         ))}
       </aside>
 

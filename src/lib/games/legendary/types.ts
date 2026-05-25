@@ -11,6 +11,8 @@
 // card definitions in heroes/* villains/* masterminds/* schemes/*.
 // =====================================================================
 
+import type { SourceId } from './sources';
+
 /** Stable identifier for a card DEFINITION (the printed card). Many physical
  *  cards can share a cardId (e.g. all 5 "S.H.I.E.L.D. Trooper" cards). */
 export type CardId = string;
@@ -307,6 +309,8 @@ export type Effect =
 export type HeroCardDef = {
   kind: 'hero';
   cardId: CardId;
+  /** Optional expansion source — defaults to 'base' via getSource() when omitted. */
+  source?: SourceId;
   /** Hero class name e.g. "Spider-Man", "Hulk". All cards in a class share
    *  this string — used by HQ filtering / "another Spider-Man this turn"
    *  triggers / display grouping. */
@@ -348,6 +352,8 @@ export type HandPassive =
 export type VillainCardDef = {
   kind: 'villain';
   cardId: CardId;
+  /** Optional expansion source — defaults to 'base' via getSource() when omitted. */
+  source?: SourceId;
   name: string;
   /** Attack ⚔ required to defeat. */
   attack: number;
@@ -380,6 +386,8 @@ export type VillainCardDef = {
 export type HenchmanCardDef = {
   kind: 'henchman';
   cardId: CardId;
+  /** Optional expansion source — defaults to 'base' via getSource() when omitted. */
+  source?: SourceId;
   name: string;
   attack: number;
   vp: number;
@@ -411,6 +419,8 @@ export type SchemeTwistCardDef = {
 export type MastermindCardDef = {
   kind: 'mastermind';
   cardId: CardId;
+  /** Optional expansion source — defaults to 'base' via getSource() when omitted. */
+  source?: SourceId;
   name: string;
   /** Attack needed to land one hit on the Mastermind. */
   attack: number;
@@ -459,6 +469,8 @@ export type TacticCardDef = {
 export type SchemeCardDef = {
   kind: 'scheme';
   cardId: CardId;
+  /** Optional expansion source — defaults to 'base' via getSource() when omitted. */
+  source?: SourceId;
   name: string;
   /** Total Scheme Twists shuffled into the Villain Deck for this scheme. */
   twists: number;
