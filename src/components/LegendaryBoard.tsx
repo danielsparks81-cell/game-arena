@@ -227,6 +227,7 @@ export default function LegendaryBoard({
   const villainDeckRef = useRef<HTMLDivElement>(null); // villain deck pile (animation source)
   const heroDeckRef    = useRef<HTMLDivElement>(null); // hero deck pile (animation source)
   const myDiscardRef   = useRef<HTMLElement | null>(null); // active player's discard pile
+  const myVpRef        = useRef<HTMLElement | null>(null); // active player's victory pile
   // One ref per HQ slot — used as exit destination for the hero reveal overlay.
   const hqSlotRefs = useRef<(HTMLElement | null)[]>([null, null, null, null, null]);
 
@@ -370,6 +371,7 @@ export default function LegendaryBoard({
       else if (kind === 'bystander')                 destEl = bystanderDest === 'villain' ? sewersRef.current : mastermindRef.current;
       else if (kind === 'hero' && hqSlot >= 0)       destEl = hqSlotRefs.current[hqSlot];
       else if (kind === 'hero_recruited')             destEl = myDiscardRef.current;
+      else if (kind === 'tactic')                     destEl = myVpRef.current;
 
       const dest = centerOf(destEl);
       const exitX = dest ? dest.x - cx : (kind === 'villain' || kind === 'henchman' ? 340 : kind === 'master_strike' ? -380 : -200);
@@ -820,12 +822,17 @@ export default function LegendaryBoard({
             {me && (
               <>
                 <PlayerBox label="Deck"    value={me.deck.length}    shade="emerald" backFace />
-                <span ref={myDiscardRef as React.Ref<HTMLSpanElement>}>
-                  <PlayerBox label="Discard" value={me.discard.length} shade="emerald" backFace />
-                </span>
                 <div className="group relative">
-                  <PlayerBox label="VP" value={me.vp} shade="rose" />
-                  <HoverCardList cards={me.victoryPile} heading="Victory Pile" />
+                  <span ref={myDiscardRef as React.Ref<HTMLSpanElement>}>
+                    <PlayerBox label="Discard" value={me.discard.length} shade="emerald" backFace />
+                  </span>
+                  <HoverCardList cards={me.discard} heading="Discard Pile" placement="below" previewSide="left" />
+                </div>
+                <div className="group relative">
+                  <span ref={myVpRef as React.Ref<HTMLSpanElement>}>
+                    <PlayerBox label="VP" value={me.vp} shade="rose" />
+                  </span>
+                  <HoverCardList cards={me.victoryPile} heading="Victory Pile" placement="below" previewSide="left" />
                 </div>
               </>
             )}
@@ -2386,16 +2393,28 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
 
 /** Floating card-name list shown when hovering a pile that wraps this component.
  *  The parent must have `position: relative` and `group` Tailwind class.
- *  `placement="below"` drops the list downward (use when the pile is near the top of the viewport). */
-function HoverCardList({ cards, heading, placement = 'above' }: {
+ *  `placement="below"` drops the list downward (use when the pile is near the top of the viewport).
+ *  Each row is itself hoverable to show the full card art (PlayedCardPreview)
+ *  alongside, so players can read individual cards without leaving the popup. */
+function HoverCardList({ cards, heading, placement = 'above', previewSide = 'right' }: {
   cards: CardInstance[];
   heading: string;
   placement?: 'above' | 'below';
+  /** Side to display the per-row card preview on. Defaults to 'right'; use
+   *  'left' for piles on the right edge of the screen so the preview doesn't
+   *  clip the viewport. */
+  previewSide?: 'left' | 'right';
 }) {
   if (cards.length === 0) return null;
-  const posClass = placement === 'below' ? 'top-full mt-1' : 'bottom-full mb-1';
+  // No gap between pile and popup so the cursor can move from the pile into
+  // the popup without dropping out of group-hover. pointer-events-auto lets
+  // hovering inside the popup keep the parent group hovered.
+  const posClass = placement === 'below' ? 'top-full' : 'bottom-full';
+  const previewPosClass = previewSide === 'left'
+    ? 'right-full mr-2'
+    : 'left-full ml-2';
   return (
-    <div className={`pointer-events-none absolute left-0 z-[300] hidden w-52 rounded-lg border border-neutral-700 bg-neutral-900/95 p-2 shadow-xl backdrop-blur-sm group-hover:block ${posClass}`}>
+    <div className={`pointer-events-auto absolute left-0 z-[300] hidden w-52 rounded-lg border border-neutral-700 bg-neutral-900/95 p-2 shadow-xl backdrop-blur-sm group-hover:block ${posClass}`}>
       <div className="mb-1.5 text-[9px] uppercase tracking-wider text-neutral-500">
         {heading} — {cards.length}
       </div>
@@ -2419,11 +2438,15 @@ function HoverCardList({ cards, heading, placement = 'above' }: {
             : c.cardId === 'master_strike' ? 'text-orange-400'
             : 'text-neutral-400';
           return (
-            <div key={i} className={`flex items-center justify-between gap-2 text-[10px] ${color}`}>
+            <div key={i} className={`group/row relative flex cursor-default items-center justify-between gap-2 rounded px-1 text-[10px] hover:bg-neutral-800/60 ${color}`}>
               <span className="truncate">{name}</span>
               {vp !== null && (
                 <span className="shrink-0 text-[9px] text-neutral-500">{vp}VP</span>
               )}
+              {/* Full card art preview — shown beside the row on hover */}
+              <div className={`pointer-events-none absolute top-1/2 z-[400] -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 ${previewPosClass}`}>
+                <PlayedCardPreview card={c} />
+              </div>
             </div>
           );
         })}
