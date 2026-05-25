@@ -10,7 +10,7 @@ export const NEGATIVE_ZONE_PRISON_BREAKOUT: SchemeCardDef = {
   kind: 'scheme',
   cardId: 'scheme_negative_zone',
   name: 'Negative Zone Prison Breakout',
-  text: 'Setup: Add an extra Henchman group to the Villain Deck.\nTwist: Play the top 2 cards of the Villain Deck.\nEvil Wins: If 12 Villains escape.',
+  text: 'Setup: 8 Twists. Add an extra Henchman group to the Villain Deck.\nTwist: Play the top 2 cards of the Villain Deck.\nEvil Wins: If 12 Villains escape.',
   twists: 8,
   bystanders: 2,
   extraHenchmanGroups: 1,

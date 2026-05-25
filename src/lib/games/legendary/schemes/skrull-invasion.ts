@@ -24,7 +24,7 @@ export const SKRULL_INVASION: SchemeCardDef = {
   kind: 'scheme',
   cardId: 'scheme_skrull_invasion',
   name: 'Secret Invasion of the Skrull Shapeshifters',
-  text: 'Setup: 8 Twists. 6 Heroes. Skrull Villain Group required. Shuffle 12 random Heroes from the Hero Deck into the Villain Deck.\nSpecial Rules: Heroes in the Villain Deck count as Skrull Villains with [strike] equal to the Heroes [cost]+2. If you defeat that Hero, you gain it.\nTwist: The highest-cost Hero from the HQ moves into the Sewers as a Skrull Villain, as above.\nEvil Wins: If 6 Heroes get into the Escaped Villains pile.',
+  text: 'Setup: 8 Twists. 6 Heroes. Skrull Villain Group required. Shuffle 12 random Heroes from the Hero Deck into the Villain Deck.\nSpecial Rules: Heroes in the Villain Deck count as Skrull Villains with [strike] equal to the Heroes [cost]+2. If you defeat that Hero, you gain it.\nTwist: The highest-cost Hero from the HQ moves into the Sewers as a Skrull Villain.\nEvil Wins: If 6 Heroes get into the Escaped Villains pile.',
   twists: 8,
   bystanders: 2,
   evilWinsAfterEscapes: 6,

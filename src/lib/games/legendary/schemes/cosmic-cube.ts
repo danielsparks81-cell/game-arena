@@ -12,7 +12,7 @@ export const COSMIC_CUBE: SchemeCardDef = {
   kind: 'scheme',
   cardId: 'scheme_cosmic_cube',
   name: 'Unleash the Power of the Cosmic Cube',
-  text: 'Setup: 8 Twists.\nTwist 1-4: Nothing happens.\nTwist 5-6: Each player gains a Wound.\nTwist 7: Each player gains 3 Wounds.\nTwist 8: Evil Wins!',
+  text: 'Setup: 8 Twists.\nTwist: Put the Twist next to this Scheme.\nTwist 5-6: Each player gains a Wound.\nTwist 7: Each player gains 3 Wounds.\nTwist 8: Evil Wins!',
   twists: 8,
   bystanders: 2,
   evilWinsAfterTwists: 8,
