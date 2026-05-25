@@ -1779,7 +1779,7 @@ function SandboxMastermindPanel({ def }: { def: MastermindCardDef }) {
         return (
           <div className="mt-1 line-clamp-2 pr-8 text-[11px] leading-snug">
             {label && (
-              <span className="font-bold uppercase tracking-wide" style={{ color: borderColor }}>{label} </span>
+              <span className="font-bold" style={{ color: borderColor }}>{label} </span>
             )}
             <span className="text-white"><CardText text={body} /></span>
           </div>
@@ -2048,7 +2048,7 @@ function SchemeCardArt({ def }: { def: SchemeCardDef }) {
           const body  = segment.slice(colonIdx + 1).trim(); // e.g. "Add an extra…"
           return (
             <div key={i} className="mb-1.5 text-[11px] leading-snug text-neutral-300">
-              <span className="mr-1 font-bold uppercase tracking-wide" style={{ color: borderColor }}>
+              <span className="mr-1 font-bold" style={{ color: borderColor }}>
                 {label}
               </span>
               <CardText text={body} />

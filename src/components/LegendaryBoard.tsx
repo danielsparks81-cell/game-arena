@@ -2115,7 +2115,7 @@ function MastermindZone({
         const body  = colonIdx > 0 ? mmDef.text!.slice(colonIdx + 1).trim() : mmDef.text!;
         return (
           <div className="mt-1 line-clamp-2 pr-7 text-[11px] leading-snug">
-            {label && <span className="font-bold uppercase tracking-wide" style={{ color: '#DC143C' }}>{label} </span>}
+            {label && <span className="font-bold" style={{ color: '#DC143C' }}>{label} </span>}
             <span className="text-white"><CardText text={body} /></span>
           </div>
         );
