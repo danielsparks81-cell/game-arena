@@ -45,11 +45,14 @@ export const NICK_FURY_LEGENDARY_COMMANDER: HeroCardDef = {
   baseAttack: 1,
   baseAttackScales: true,
   classes: ['strength'],
-  teams: ['shield-officer'],
+  // Tagged with the generic 'shield' team so the SHIELD starter cards
+  // (Trooper / Agent / Officer — all teams: ['shield']) all count toward the
+  // bonus. Previously this was 'shield-officer', which only matched itself.
+  teams: ['shield'],
   text: 'You get +1[strike] for each other [shield] Hero you played this turn.',
   onPlay: [
-    // Card IS shield-officer → includeSelf: false subtracts itself, giving 0 when alone.
-    { kind: 'gain_attack_per_team', team: 'shield-officer', bonus: 1, includeSelf: false },
+    // Card IS shield → includeSelf: false subtracts itself, giving 0 when alone.
+    { kind: 'gain_attack_per_team', team: 'shield', bonus: 1, includeSelf: false },
   ],
 };
 
