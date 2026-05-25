@@ -10,7 +10,7 @@ export const RED_SKULL_TACTIC_1: TacticCardDef = {
   name: 'Ruthless Dictator',
   mastermindId: 'mm_red_skull',
   vp: 5,
-  text: 'Fight: Look at the top three cards of your deck. KO one, discard one, and put one back on top.',
+  text: 'Fight: Look at the top three cards of your deck. KO one, discard one, and put one back on top of your deck.',
   fightSelf: [{ kind: 'look_top_three_ko_discard_return' }],
 };
 

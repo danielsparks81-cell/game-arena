@@ -2036,12 +2036,12 @@ function SchemeZone({
               const body  = segment.slice(colonIdx + 1).trim();
               return (
                 <div key={i} className="mb-0.5 text-[11px] leading-snug">
-                  <span className="font-bold uppercase tracking-wide" style={{ color: labelColor }}>{label}</span>
-                  {body && <span className="ml-0.5 text-white">{body}</span>}
+                  <span className="font-bold" style={{ color: labelColor }}>{label}</span>
+                  {body && <span className="ml-0.5 text-white"><CardText text={body} /></span>}
                 </div>
               );
             }
-            return <div key={i} className="mb-0.5 text-[11px] leading-snug text-white">{segment}</div>;
+            return <div key={i} className="mb-0.5 text-[11px] leading-snug text-white"><CardText text={segment} /></div>;
           })}
         </div>
       )}

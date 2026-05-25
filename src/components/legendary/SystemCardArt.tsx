@@ -239,7 +239,7 @@ export function TacticCardArt({
         {typeLabel}
       </div>
       {def.text && (
-        <div className="mt-[6px] mb-1 flex-1 pr-7 text-[11px] leading-snug text-neutral-300">
+        <div className="mt-3 mb-1 flex-1 pr-7 text-[11px] leading-snug text-neutral-300">
           <CardText text={def.text} />
         </div>
       )}

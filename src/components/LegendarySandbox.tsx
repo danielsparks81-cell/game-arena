@@ -2035,44 +2035,39 @@ function MastermindCardArt({ def }: { def: MastermindCardDef }) {
   );
 }
 
+/** Board-accurate scheme panel — matches SchemeZone on the live board exactly.
+ *  Same dimensions as SandboxMastermindPanel: w-[448px] h-36. */
 function SchemeCardArt({ def }: { def: SchemeCardDef }) {
-  const borderColor = '#6366f1'; // indigo-500
-
-  // Split text on newlines; for each segment render the "Label:" portion bold
-  // inline, immediately followed by the description on the same line.
-  const textLines = def.text
-    ? def.text.split('\n').map((segment, i) => {
-        const colonIdx = segment.indexOf(':');
-        if (colonIdx > 0) {
-          const label = segment.slice(0, colonIdx + 1); // e.g. "Setup:"
-          const body  = segment.slice(colonIdx + 1).trim(); // e.g. "Add an extra…"
-          return (
-            <div key={i} className="mb-1.5 text-[11px] leading-snug text-neutral-300">
-              <span className="mr-1 font-bold" style={{ color: borderColor }}>
-                {label}
-              </span>
-              <CardText text={body} />
-            </div>
-          );
-        }
-        return <div key={i} className="mb-1.5 text-[11px] leading-snug text-neutral-300"><CardText text={segment} /></div>;
-      })
-    : null;
+  const labelColor = '#a78bfa'; // violet-400 — matches board SchemeZone
 
   return (
-    <div
-      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className="flex w-[320px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-3"
-    >
-      <div className="text-[13px] font-bold text-neutral-100">{def.name}</div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
-        Scheme
-      </div>
-      {textLines && (
-        <div className="mt-2 border-t border-neutral-800 pt-2">
-          {textLines}
+    <div className="flex h-36 w-[448px] flex-col rounded-lg border-2 border-solid border-violet-700/70 bg-gradient-to-br from-violet-950/40 to-neutral-950/40 px-2 py-1">
+      <span className="truncate text-[14px] font-bold leading-tight text-white">{def.name}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: labelColor }}>Scheme</span>
+      {def.text && (
+        <div className="mt-1 flex-1 overflow-hidden">
+          {def.text.split('\n').map((segment, i) => {
+            const colonIdx = segment.indexOf(':');
+            if (colonIdx > 0) {
+              const label = segment.slice(0, colonIdx + 1);
+              const body  = segment.slice(colonIdx + 1).trim();
+              return (
+                <div key={i} className="mb-0.5 text-[11px] leading-snug">
+                  <span className="font-bold" style={{ color: labelColor }}>{label}</span>
+                  {body && <span className="ml-0.5 text-white"><CardText text={body} /></span>}
+                </div>
+              );
+            }
+            return <div key={i} className="mb-0.5 text-[11px] leading-snug text-white"><CardText text={segment} /></div>;
+          })}
         </div>
       )}
+      {/* Twist progress pips — unlit in the static sandbox preview */}
+      <div className="mt-auto flex gap-0.5">
+        {Array.from({ length: def.twists }).map((_, i) => (
+          <div key={i} className="h-1.5 flex-1 rounded bg-neutral-700" />
+        ))}
+      </div>
     </div>
   );
 }
