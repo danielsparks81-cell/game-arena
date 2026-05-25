@@ -1,49 +1,22 @@
-import type { VillainCardDef } from '../types';
+import type { HenchmanCardDef } from '../types';
 
-// DOOMBOT LEGION — Dr. Doom's "Always Leads" group.
-// Composition: ruthless robotic enforcers of Latveria.
-//   3× Doombot Guard      (basic patrol units)
-//   3× Doombot Elite      (mid-tier upgraded models)
-//   1× Doom's Champion    (rare enforcer with ambush wound)
+// DOOMBOT LEGION henchman group — Dr. Doom's "Always Leads" group.
+// 10 identical henchman cards.
+// Fight: look at top 2 cards of your deck, KO one, return the other.
 
-export const DOOMBOT_GUARD: VillainCardDef = {
-  kind: 'villain',
-  cardId: 'doombot_guard',
-  name: 'Doombot Guard',
+export const DOOMBOT_HENCHMAN: HenchmanCardDef = {
+  kind: 'henchman',
+  cardId: 'doombot_henchman',
+  name: 'Doombot Legion',
   attack: 3,
   vp: 1,
   team: 'doombot-legion',
-  text: 'The streets of Latveria are never safe.',
+  fight: [{ kind: 'look_top_two_ko_one_return_one' }],
+  text: 'Fight: Look at the top two cards of your deck. KO one of them and put the other back.',
 };
 
-export const DOOMBOT_ELITE: VillainCardDef = {
-  kind: 'villain',
-  cardId: 'doombot_elite',
-  name: 'Doombot Elite',
-  attack: 5,
-  vp: 3,
-  team: 'doombot-legion',
-  text: 'Ambush: Each player discards a card from their hand.',
-  ambush: [{ kind: 'discard_from_hand', up_to: 1, bonus: [] }],
-};
-
-export const DOOMS_CHAMPION: VillainCardDef = {
-  kind: 'villain',
-  cardId: 'dooms_champion',
-  name: "Doom's Champion",
-  attack: 7,
-  vp: 4,
-  team: 'doombot-legion',
-  text: 'Ambush: Each player gains a Wound.',
-  ambush: [{ kind: 'gain_wound' }],
-};
-
-export const DOOMBOT_LEGION_GROUP = {
-  groupId: 'doombot-legion',
+export const DOOMBOT_HENCHMAN_GROUP = {
+  groupId: 'doombot_legion_henchman',
   team: 'doombot-legion' as const,
-  cards: [
-    { def: DOOMBOT_GUARD,    copies: 3 },
-    { def: DOOMBOT_ELITE,    copies: 3 },
-    { def: DOOMS_CHAMPION,   copies: 1 },
-  ],
+  cards: [{ def: DOOMBOT_HENCHMAN, copies: 10 }],
 };

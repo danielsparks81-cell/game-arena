@@ -7,6 +7,7 @@ import {
   type BoggleState, type BoggleGameMode,
 } from '@/lib/games/boggle';
 import { safeAccent } from '@/lib/accentColors';
+import { sounds, unlockAudio } from '@/lib/sounds';
 
 export default function BoggleBoard({
   state, currentUserId, isHost, disabled, onSubmitWord, onStart, onSetMode, onNextRound, onFinalize,
@@ -41,6 +42,20 @@ export default function BoggleBoard({
     }
     if (state.phase !== 'playing') finalizedRef.current = false;
   }, [state.phase, remaining, onFinalize]);
+
+  // Ticking clock sound for the last 15 seconds. Fires once per second by
+  // watching which integer-second bucket `remaining` is in. The 250 ms tick
+  // interval of `now` means we'll capture each second boundary within a
+  // quarter-second, good enough for a game countdown.
+  const lastTickSec = useRef(-1);
+  useEffect(() => {
+    if (state.phase !== 'playing') { lastTickSec.current = -1; return; }
+    const secs = Math.ceil(remaining / 1000);
+    if (secs > 0 && secs <= 15 && secs !== lastTickSec.current) {
+      lastTickSec.current = secs;
+      sounds.tick();
+    }
+  }, [remaining, state.phase]);
 
   // ---------- Lobby ----------
   if (state.phase === 'lobby') {
@@ -287,6 +302,7 @@ function TraceBoard({
   // ---- Pointer handlers ----
   const onPointerDown = (e: React.PointerEvent, idx: number) => {
     if (errorCooldown) return; // lockout after a rejected submission
+    unlockAudio(); // prime AudioContext on first gesture so countdown tick plays
     e.preventDefault();
     setTracing(true);
     setPath([idx]);
@@ -458,21 +474,31 @@ function RoundScoresBlock({ scores, me, medals = false, animated = false, accent
   /** Optional map of playerId → accent color for coloring usernames in the header. */
   accentByPlayerId?: Record<string, string | undefined>;
 }) {
-  const ranked = useMemo(() => [...scores].sort((a, b) => b.total - a.total), [scores]);
   const medalEmoji = ['🥇', '🥈', '🥉'];
+
+  // Pre-compute each player's final rank so medals can be assigned correctly
+  // after tallying, regardless of display order.
+  const finalRanks = useMemo(() => {
+    const sorted = [...scores].sort((a, b) => b.total - a.total);
+    const map = new Map<string, number>();
+    sorted.forEach((s, i) => map.set(s.playerId, i));
+    return map;
+  }, [scores]);
 
   // Build the global reveal sequence: for each word length 3..8+, iterate every player
   // and emit each of their words of that length. This gives the dramatic "all 3-letter
-  // words first, player 1 then player 2, then all 4-letter words, etc." order.
+  // words first, then all 4-letter words, etc." order.
+  // IMPORTANT: playerIdx indexes into `scores` (original, unsorted order) — never into a
+  // score-sorted copy, which would reveal the winner's position before tallying is done.
   const sequence = useMemo(() => {
     type Item = { playerIdx: number; word: string; rawPoints: number; len: number };
     const items: Item[] = [];
     const lengths = new Set<number>();
-    for (const r of ranked) for (const b of r.breakdown) lengths.add(b.word.length);
+    for (const r of scores) for (const b of r.breakdown) lengths.add(b.word.length);
     const sortedLens = [...lengths].sort((a, b) => a - b);
     for (const len of sortedLens) {
-      for (let p = 0; p < ranked.length; p++) {
-        const words = ranked[p].breakdown
+      for (let p = 0; p < scores.length; p++) {
+        const words = scores[p].breakdown
           .filter(b => b.word.length === len)
           .sort((a, b) => a.word.localeCompare(b.word));
         for (const w of words) {
@@ -481,9 +507,12 @@ function RoundScoresBlock({ scores, me, medals = false, animated = false, accent
       }
     }
     return items;
-  }, [ranked]);
+  }, [scores]);
 
   const [step, setStep] = useState(0);
+  // Tallying is "done" when not animated (static view) OR when all words have been revealed.
+  const done = !animated || step >= sequence.length;
+
   useEffect(() => {
     if (!animated) { setStep(sequence.length); return; }
     // (Re)start the reveal whenever the sequence's identity changes (new round).
@@ -493,13 +522,14 @@ function RoundScoresBlock({ scores, me, medals = false, animated = false, accent
       n += 1;
       setStep(n);
       if (n >= sequence.length) window.clearInterval(id);
-    }, 2600);
+    }, 650); // quarter of the original 2600 ms — snappier reveal
     return () => window.clearInterval(id);
   }, [animated, sequence]);
 
   // Compute each player's revealed words + duplicate flags + running total at this step.
+  // Uses `scores` (original order) as the source of truth — no score-based sorting.
   const view = useMemo(() => {
-    const revealedPerPlayer: { word: string; rawPoints: number; len: number }[][] = ranked.map(() => []);
+    const revealedPerPlayer: { word: string; rawPoints: number; len: number }[][] = scores.map(() => []);
     for (let i = 0; i < Math.min(step, sequence.length); i++) {
       const it = sequence[i];
       revealedPerPlayer[it.playerIdx].push({ word: it.word, rawPoints: it.rawPoints, len: it.len });
@@ -521,68 +551,75 @@ function RoundScoresBlock({ scores, me, medals = false, animated = false, accent
         if (!byLen.has(w.len)) byLen.set(w.len, []);
         byLen.get(w.len)!.push(w);
       }
-      return { player: ranked[p], words: flagged, byLen, total };
+      return { player: scores[p], words: flagged, byLen, total };
     });
-  }, [ranked, sequence, step]);
+  }, [scores, sequence, step]);
 
   const lastRevealed = step > 0 && step <= sequence.length ? sequence[step - 1] : null;
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {view.map((v, idx) => (
-        <div
-          key={v.player.playerId}
-          className={`rounded-md border p-3 text-sm ${
-            v.player.playerId === me
-              ? 'border-emerald-500/50 bg-emerald-500/5'
-              : 'border-neutral-800 bg-neutral-900'
-          }`}
-        >
-          {/* Header: name + score directly under it */}
-          <div className="mb-3 text-center">
-            <div className="font-medium">
-              {medals && <span className="mr-1">{medalEmoji[idx] ?? ''}</span>}
-              <span style={{ color: safeAccent(accentByPlayerId?.[v.player.playerId]) }}>
-                {v.player.username}
-              </span>
+      {view.map((v, idx) => {
+        // Medals are only shown once tallying is complete, and rank is derived from
+        // the final totals — not from display position.
+        const rank = done && medals ? (finalRanks.get(v.player.playerId) ?? idx) : -1;
+        return (
+          <div
+            key={v.player.playerId}
+            className={`rounded-md border p-3 text-sm ${
+              v.player.playerId === me
+                ? 'border-emerald-500/50 bg-emerald-500/5'
+                : 'border-neutral-800 bg-neutral-900'
+            }`}
+          >
+            {/* Header: name + score. Score stays hidden until tallying is done. */}
+            <div className="mb-3 text-center">
+              <div className="font-medium">
+                {rank >= 0 && <span className="mr-1">{medalEmoji[rank] ?? ''}</span>}
+                <span style={{ color: safeAccent(accentByPlayerId?.[v.player.playerId]) }}>
+                  {v.player.username}
+                </span>
+              </div>
+              <div className="font-mono text-2xl font-bold text-amber-400">
+                {done ? v.total : '—'}
+              </div>
             </div>
-            <div className="font-mono text-2xl font-bold text-amber-400">{v.total}</div>
-          </div>
-          {v.player.breakdown.length === 0 ? (
-            <p className="text-xs text-neutral-500">No words submitted.</p>
-          ) : v.words.length === 0 ? (
-            <p className="text-xs text-neutral-600">…</p>
-          ) : (
-            <div className="space-y-2">
-              {[...v.byLen.entries()].sort((a, b) => a[0] - b[0]).map(([len, words]) => (
-                <div key={len}>
-                  <div className="mb-0.5 text-[10px] uppercase tracking-wider text-neutral-500">
-                    {len} letters
+            {v.player.breakdown.length === 0 ? (
+              <p className="text-xs text-neutral-500">No words submitted.</p>
+            ) : v.words.length === 0 ? (
+              <p className="text-xs text-neutral-600">…</p>
+            ) : (
+              <div className="space-y-2">
+                {[...v.byLen.entries()].sort((a, b) => a[0] - b[0]).map(([len, words]) => (
+                  <div key={len}>
+                    <div className="mb-0.5 text-[10px] uppercase tracking-wider text-neutral-500">
+                      {len} letters
+                    </div>
+                    <ul className="flex flex-wrap gap-1.5">
+                      {words.map(b => {
+                        const isLatest = lastRevealed?.playerIdx === idx && lastRevealed?.word === b.word;
+                        return (
+                          <li
+                            key={b.word}
+                            className={`rounded px-2 py-0.5 font-mono text-xs transition-all ${
+                              b.duplicate
+                                ? 'bg-neutral-800 text-neutral-500 line-through'
+                                : 'bg-emerald-500/10 text-emerald-300'
+                            } ${isLatest ? 'animate-pop' : ''}`}
+                            title={b.duplicate ? 'Cancelled — another player also found it' : `+${b.rawPoints}`}
+                          >
+                            {b.word} <span className="text-neutral-500">·{b.rawPoints}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
                   </div>
-                  <ul className="flex flex-wrap gap-1.5">
-                    {words.map(b => {
-                      const isLatest = lastRevealed?.playerIdx === idx && lastRevealed?.word === b.word;
-                      return (
-                        <li
-                          key={b.word}
-                          className={`rounded px-2 py-0.5 font-mono text-xs transition-all ${
-                            b.duplicate
-                              ? 'bg-neutral-800 text-neutral-500 line-through'
-                              : 'bg-emerald-500/10 text-emerald-300'
-                          } ${isLatest ? 'animate-pop' : ''}`}
-                          title={b.duplicate ? 'Cancelled — another player also found it' : `+${b.rawPoints}`}
-                        >
-                          {b.word} <span className="text-neutral-500">·{b.rawPoints}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -671,9 +708,11 @@ function ScoringPanel({ state, me }: { state: BoggleState; me: string | null }) 
   const standings = [...(state.finalResults ?? [])].sort((a, b) => b.total - a.total);
   const medals = ['🥇', '🥈', '🥉'];
   const winner = standings[0];
-  // For single-round games, play the dramatic word-by-word reveal directly on the
-  // final panel (the user never sees BetweenRoundsView in 1-round mode).
-  const singleRound = state.rounds.length === 1 ? state.rounds[0] : null;
+  // Always animate the last round's tally — for single-round games the user never
+  // saw BetweenRoundsView, and for multi-round games the final round goes straight
+  // to `finished` (skipping between-rounds), so neither path showed the reveal.
+  const lastRound = state.rounds[state.rounds.length - 1] ?? null;
+  const isSingleRound = state.rounds.length === 1;
   const accentByPlayerId: Record<string, string | undefined> = {};
   for (const p of state.players) accentByPlayerId[p.playerId] = p.accent_color;
   return (
@@ -690,11 +729,15 @@ function ScoringPanel({ state, me }: { state: BoggleState; me: string | null }) 
           )}
         </div>
 
-        {/* Single-round dramatic reveal — all words tick in shortest first, interleaved
-            across players, with duplicates discovered + crossed out mid-stream. */}
-        {singleRound && (
+        {/* Last-round dramatic reveal — words tick in shortest-first, interleaved
+            across players, duplicates crossed out mid-stream. Always runs: for
+            single-round games the user never saw BetweenRoundsView, and for
+            multi-round games the final round skips between-rounds entirely.
+            Medals only shown for single-round (multi-round medals live in the
+            overall standings table below, not in the per-round tally). */}
+        {lastRound && (
           <div className="mb-4">
-            <RoundScoresBlock scores={singleRound.scores} me={me} animated medals accentByPlayerId={accentByPlayerId} />
+            <RoundScoresBlock scores={lastRound.scores} me={me} animated medals={isSingleRound} accentByPlayerId={accentByPlayerId} />
           </div>
         )}
 

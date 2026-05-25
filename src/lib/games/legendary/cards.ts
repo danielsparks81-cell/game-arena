@@ -8,27 +8,40 @@ import type { CardDef, CardId } from './types';
 import { TROOPER, AGENT, SHIELD_CARDS } from './heroes/shield';
 import { ALL_HERO_CLASSES } from './heroes/all-heroes';
 import { HYDRA_GROUP } from './villains/hydra';
-import { DOOMBOT_LEGION_GROUP } from './villains/doombot-legion';
+import { MASTERS_OF_EVIL_GROUP } from './villains/masters-of-evil';
+import { BROTHERHOOD_GROUP } from './villains/brotherhood';
+import { DOOMBOT_HENCHMAN_GROUP } from './villains/doombot-legion';
+import { ENEMIES_OF_ASGARD_GROUP } from './villains/enemies-of-asgard';
 import { HAND_NINJA_GROUP } from './villains/hand-ninjas';
+import { SAVAGE_LAND_MUTATES_GROUP } from './villains/savage-land-mutates';
+import { SENTINEL_GROUP } from './villains/sentinels';
 import { RED_SKULL, RED_SKULL_TACTICS } from './masterminds/red-skull';
 import { DR_DOOM, DR_DOOM_TACTICS } from './masterminds/dr-doom';
+import { LOKI, LOKI_TACTICS } from './masterminds/loki';
+import { MAGNETO, MAGNETO_TACTICS } from './masterminds/magneto';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from './schemes/prison-breakout';
+import { COSMIC_CUBE } from './schemes/cosmic-cube';
 
 // Hero classes available for selection at game-setup time.
 // All 15 base-set classes are registered so their baseAttack/baseRecruit
 // stats work when cards are played from the hand.
 export const HERO_CLASSES = ALL_HERO_CLASSES;
 
-export const VILLAIN_GROUPS = [HYDRA_GROUP, DOOMBOT_LEGION_GROUP] as const;
-export const HENCHMAN_GROUPS = [HAND_NINJA_GROUP] as const;
-export const MASTERMINDS = [RED_SKULL, DR_DOOM] as const;
-export const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT] as const;
+export const VILLAIN_GROUPS = [HYDRA_GROUP, BROTHERHOOD_GROUP, ENEMIES_OF_ASGARD_GROUP, MASTERS_OF_EVIL_GROUP] as const;
+export const HENCHMAN_GROUPS = [
+  HAND_NINJA_GROUP,
+  DOOMBOT_HENCHMAN_GROUP,
+  SAVAGE_LAND_MUTATES_GROUP,
+  SENTINEL_GROUP,
+] as const;
+export const MASTERMINDS = [RED_SKULL, DR_DOOM, LOKI, MAGNETO] as const;
+export const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT, COSMIC_CUBE] as const;
 
 // "System" cards — wounds and bystanders. Fixed defs the engine references
 // directly via these constants.
 export const WOUND: CardDef = {
   kind: 'wound', cardId: 'wound', name: 'Wound',
-  text: 'Healing: If you don\'t recruit any Heroes or defeat any Villains on your turn, you may KO all Wounds from your hand.',
+  text: 'Healing: If you don\'t recruit or fight anything on your turn, you may KO all the Wounds from your hand.',
 };
 export const BYSTANDER: CardDef = {
   kind: 'bystander', cardId: 'bystander', name: 'Bystander', vp: 1,
@@ -58,6 +71,8 @@ function buildCatalog(): Record<CardId, CardDef> {
   // Mastermind Tactic cards — not iterated from a group, registered individually.
   for (const t of RED_SKULL_TACTICS) add(t);
   for (const t of DR_DOOM_TACTICS) add(t);
+  for (const t of LOKI_TACTICS) add(t);
+  for (const t of MAGNETO_TACTICS) add(t);
   add(WOUND); add(BYSTANDER); add(MASTER_STRIKE); add(SCHEME_TWIST);
   return cat;
 }
@@ -101,6 +116,6 @@ export const TROOPERS_AVAILABLE_TOTAL = 30;
 export const AGENTS_AVAILABLE_TOTAL = 16;
 
 // Engine constants
-export const LOG_MAX = 60;
+export const LOG_MAX = 500;
 export const STATE_VERSION = 1;
 export const HIDDEN_CARD: CardId = '__hidden__';

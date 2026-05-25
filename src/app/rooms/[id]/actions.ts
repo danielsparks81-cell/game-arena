@@ -67,7 +67,9 @@ import {
 import {
   applyAction as applyActionLG,
   startGame as lgStartGame,
+  applyLobbyConfig as applyLobbyConfigLG,
   type LegendaryAction,
+  type LegendaryLobbyAction,
   type LegendaryState,
 } from '@/lib/games/legendary';
 
@@ -620,6 +622,12 @@ export type GameAction =
 
   // Legendary — Marvel co-op deck builder
   | { game: 'legendary'; kind: 'startGame' }
+  // Lobby configuration (host-only, before startGame)
+  | { game: 'legendary'; kind: 'set_mastermind'; mastermindId: string }
+  | { game: 'legendary'; kind: 'set_scheme'; schemeId: string }
+  | { game: 'legendary'; kind: 'set_hero_classes'; classNames: string[] }
+  | { game: 'legendary'; kind: 'randomize_heroes' }
+  // In-game actions
   | { game: 'legendary'; kind: 'play_card'; instanceId: string }
   | { game: 'legendary'; kind: 'recruit_hero'; slot: number }
   | { game: 'legendary'; kind: 'recruit_sidekick' }
@@ -628,8 +636,10 @@ export type GameAction =
   | { game: 'legendary'; kind: 'fight_mastermind' }
   | { game: 'legendary'; kind: 'resolve_choice'; instanceId: string }
   | { game: 'legendary'; kind: 'skip_choice' }
+  | { game: 'legendary'; kind: 'accept_choice' }
   | { game: 'legendary'; kind: 'end_turn' }
   | { game: 'legendary'; kind: 'reveal_first_villain' }
+  | { game: 'legendary'; kind: 'play_wound_healing' }
 
   // Long Shot
   | { game: 'longshot'; kind: 'roll' }
@@ -680,6 +690,12 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       break;
     case 'legendary':
       if (action.kind === 'startGame')        return startGameLG(roomId);
+      // Lobby config actions (host-only, before startGame)
+      if (action.kind === 'set_mastermind')   return lobbyConfigLG(roomId, { kind: 'set_mastermind', mastermindId: action.mastermindId });
+      if (action.kind === 'set_scheme')       return lobbyConfigLG(roomId, { kind: 'set_scheme', schemeId: action.schemeId });
+      if (action.kind === 'set_hero_classes') return lobbyConfigLG(roomId, { kind: 'set_hero_classes', classNames: action.classNames });
+      if (action.kind === 'randomize_heroes') return lobbyConfigLG(roomId, { kind: 'randomize_heroes' });
+      // In-game actions
       if (action.kind === 'play_card')        return makeMoveLG(roomId, { kind: 'play_card', instanceId: action.instanceId });
       if (action.kind === 'recruit_hero')     return makeMoveLG(roomId, { kind: 'recruit_hero', slot: action.slot });
       if (action.kind === 'recruit_sidekick') return makeMoveLG(roomId, { kind: 'recruit_sidekick' });
@@ -688,8 +704,10 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'fight_mastermind') return makeMoveLG(roomId, { kind: 'fight_mastermind' });
       if (action.kind === 'resolve_choice')   return makeMoveLG(roomId, { kind: 'resolve_choice', instanceId: action.instanceId });
       if (action.kind === 'skip_choice')         return makeMoveLG(roomId, { kind: 'skip_choice' });
+      if (action.kind === 'accept_choice')       return makeMoveLG(roomId, { kind: 'accept_choice' });
       if (action.kind === 'end_turn')            return makeMoveLG(roomId, { kind: 'end_turn' });
       if (action.kind === 'reveal_first_villain') return makeMoveLG(roomId, { kind: 'reveal_first_villain' });
+      if (action.kind === 'play_wound_healing')   return makeMoveLG(roomId, { kind: 'play_wound_healing' });
       break;
     case 'longshot':
       if (action.kind === 'startGame') return startGame(roomId);
@@ -861,6 +879,32 @@ export async function makeMoveSD(
   await supabase.from('rooms').update(updates).eq('id', roomId);
 
   if (next.winner) await recordHistoryIfFinished(supabase, roomId, 'spellduel', next);
+  await notifyRoom(roomId);
+}
+
+/**
+ * Host-only: mutate the Legendary lobby configuration (mastermind / scheme /
+ * hero classes) before the game starts. State is persisted and broadcast so
+ * all players in the room see the changes live.
+ */
+export async function lobbyConfigLG(roomId: string, action: LegendaryLobbyAction) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type, host_id')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'legendary') throw new Error('Wrong game type');
+  if (room.host_id !== user.id) throw new Error('Only the host can change game settings');
+
+  const result = applyLobbyConfigLG((room.state || {}) as LegendaryState, action);
+  if ('error' in result) throw new Error(result.error);
+
+  await supabase.from('rooms').update({ state: result }).eq('id', roomId);
   await notifyRoom(roomId);
 }
 

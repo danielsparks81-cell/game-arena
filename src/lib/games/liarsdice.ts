@@ -108,12 +108,18 @@ function rollHand(n: number): number[] {
 export function startGame(state: LDState): LDState | { error: string } {
   if (state.phase !== 'lobby') return { error: 'Game already started' };
   if (state.players.length < 2) return { error: 'Need at least 2 players' };
-  const players = state.players.map(p => ({ ...p, dice: rollHand(STARTING_DICE) }));
+  // Rotate players so the randomly-chosen first player is at index 0,
+  // keeping state.players in true turn order so MembersPanel matches gameplay.
+  const startIdx = Math.floor(Math.random() * state.players.length);
+  const players = [
+    ...state.players.slice(startIdx),
+    ...state.players.slice(0, startIdx),
+  ].map(p => ({ ...p, dice: rollHand(STARTING_DICE) }));
   return {
     ...state,
     phase: 'playing',
     round: 1,
-    turnIndex: Math.floor(Math.random() * state.players.length),
+    turnIndex: 0,
     bid: null,
     players,
     lastReveal: null,

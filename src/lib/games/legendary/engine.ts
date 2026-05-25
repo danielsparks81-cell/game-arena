@@ -81,6 +81,11 @@ function mkInstance(cardId: CardId): CardInstance {
 function clone<T>(x: T): T { return JSON.parse(JSON.stringify(x)); }
 
 function pushLog(state: LegendaryState, ev: LegendaryEvent): void {
+  // Stamp a monotonically-increasing sequence number so the board can track
+  // "which events have been animated" by seq rather than by array index.
+  // This survives log rotation (LOG_MAX trim) without desynchronising the cursor.
+  state.logSeq = (state.logSeq ?? 0) + 1;
+  (ev as LegendaryEvent & { seq: number }).seq = state.logSeq;
   state.log.push(ev);
   if (state.log.length > LOG_MAX) state.log.splice(0, state.log.length - LOG_MAX);
 }
@@ -108,12 +113,15 @@ export function initialState(): LegendaryState {
     ko: [],
     woundDeck: [],
     bystanderDeck: [],
+    sidekickPoolCount: 30,
+    officerPoolCount: 30,
     mastermind: { cardId: MASTERMINDS[0].cardId, hitsTaken: 0, tactics: [], bystanders: [] },
     players: [],
     currentPlayerIdx: 0,
     turn: 0,
     thisTurn: emptyTurnState(),
     schemeTwistsRevealed: 0,
+    logSeq: 0,
     log: [],
   };
 }
@@ -137,6 +145,8 @@ function emptyTurnState(): TurnState {
     mastermindAttackDebuff: 0,
     recruitAsAttackEnabled: false,
     extraCardsDrawnThisTurn: 0,
+    foughtThisTurn: false,
+    recruitedThisTurn: false,
   };
 }
 
@@ -184,6 +194,85 @@ export function removePlayer(state: LegendaryState, playerId: string): Legendary
 }
 
 // =====================================================================
+// Lobby configuration — host-only, runs before startGame
+// =====================================================================
+
+/** Per-player count → how many hero classes to include in the game. */
+function heroClassCountForPlayers(playerCount: number): number {
+  if (playerCount <= 1) return 3;
+  if (playerCount >= 5) return 6;
+  return 5;
+}
+
+/** Official setup table — Villain Groups by player count (2-5 players). */
+function villainGroupsForPlayers(n: number): number {
+  if (n >= 5) return 5;
+  if (n === 4) return 4;
+  if (n === 3) return 3;
+  return 2; // 2 players
+}
+
+/** Official setup table — Henchman Groups by player count (2-5 players). */
+function henchmanGroupsForPlayers(n: number): number {
+  return n >= 4 ? 2 : 1; // 4-5 players: 2 groups; 2-3 players: 1 group
+}
+
+/** Official setup table — Bystanders placed in Villain Deck by player count (2-5 players). */
+function bystandersInVillainDeckForPlayers(n: number): number {
+  if (n >= 5) return 16;
+  if (n >= 3) return 8;
+  return 2; // 1-2 players
+}
+
+export type LegendaryLobbyAction =
+  | { kind: 'set_mastermind'; mastermindId: string }
+  | { kind: 'set_scheme'; schemeId: string }
+  | { kind: 'set_hero_classes'; classNames: string[] }
+  | { kind: 'randomize_heroes' };
+
+/**
+ * Host-only: mutate the lobby configuration (mastermind, scheme, hero
+ * classes). Safe to call any time before startGame — returns a new state.
+ */
+export function applyLobbyConfig(
+  state: LegendaryState,
+  action: LegendaryLobbyAction,
+): LegendaryState | { error: string } {
+  if (state.phase !== 'lobby') return { error: 'Game already started' };
+  const next = clone(state);
+
+  switch (action.kind) {
+    case 'set_mastermind': {
+      if (!MASTERMINDS.find(m => m.cardId === action.mastermindId)) {
+        return { error: 'Unknown mastermind' };
+      }
+      next.mastermindId = action.mastermindId;
+      next.mastermind = { cardId: action.mastermindId, hitsTaken: 0, tactics: [], bystanders: [] };
+      return next;
+    }
+    case 'set_scheme': {
+      if (!SCHEMES.find(s => s.cardId === action.schemeId)) {
+        return { error: 'Unknown scheme' };
+      }
+      next.schemeId = action.schemeId;
+      return next;
+    }
+    case 'set_hero_classes': {
+      const valid = action.classNames.filter(
+        cn => HERO_CLASSES.some(c => c.className === cn)
+      );
+      next.heroClassIds = valid;
+      return next;
+    }
+    case 'randomize_heroes': {
+      const count = heroClassCountForPlayers(next.players.length);
+      next.heroClassIds = shuffle([...HERO_CLASSES]).slice(0, count).map(c => c.className);
+      return next;
+    }
+  }
+}
+
+// =====================================================================
 // Game setup — runs once when the host clicks Start
 // =====================================================================
 
@@ -203,9 +292,66 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
   const scheme     = SCHEMES.find(s => s.cardId === next.schemeId);
   if (!mastermind || !scheme) return { error: 'Invalid mastermind/scheme selection' };
 
-  // ----- Seed villain groups based on Mastermind's Always Leads + scheme -----
-  next.villainGroupIds   = [mastermind.alwaysLeads];
-  next.henchmanGroupIds  = [HENCHMAN_GROUPS[0].groupId];
+  const playerCount = next.players.length;
+  const neededHeroClasses = heroClassCountForPlayers(playerCount);
+
+  // Auto-fill hero classes if the host never picked any (or not enough).
+  if (next.heroClassIds.length < neededHeroClasses) {
+    const existing = new Set(next.heroClassIds);
+    const pool = shuffle(HERO_CLASSES.filter(c => !existing.has(c.className)));
+    while (next.heroClassIds.length < neededHeroClasses && pool.length > 0) {
+      next.heroClassIds.push(pool.shift()!.className);
+    }
+  }
+  // Trim to max if somehow too many.
+  if (next.heroClassIds.length > neededHeroClasses) {
+    next.heroClassIds = next.heroClassIds.slice(0, neededHeroClasses);
+  }
+
+  // ----- Villain / Henchman groups -----------------------------------------
+  // A Mastermind "Always Leads" exactly one group — either a villain group
+  // (city-row cards) or a henchman group. We match by team field on the group.
+  const leadsVillainGroup  = VILLAIN_GROUPS.find(g => g.team === mastermind.alwaysLeads);
+  const leadsHenchmanGroup = !leadsVillainGroup
+    ? HENCHMAN_GROUPS.find(g => g.team === mastermind.alwaysLeads)
+    : undefined;
+
+  // Seed with the alwaysLeads group; it counts toward the total for its type.
+  next.villainGroupIds  = leadsVillainGroup  ? [leadsVillainGroup.groupId]  : [];
+  next.henchmanGroupIds = leadsHenchmanGroup ? [leadsHenchmanGroup.groupId] : [];
+
+  if (playerCount >= 2) {
+    // Official table-driven counts (2–5 players).
+    // Scheme bonus (e.g. Prison Breakout +1 henchman) is added on top.
+    const targetVillains = villainGroupsForPlayers(playerCount);
+    const targetHenchmen = henchmanGroupsForPlayers(playerCount) + (scheme.extraHenchmanGroups ?? 0);
+
+    const availableVillains = shuffle(VILLAIN_GROUPS.filter(g => !next.villainGroupIds.includes(g.groupId)));
+    while (next.villainGroupIds.length < targetVillains && availableVillains.length > 0) {
+      next.villainGroupIds.push(availableVillains.shift()!.groupId);
+    }
+    const availableHenchmen = shuffle(HENCHMAN_GROUPS.filter(g => !next.henchmanGroupIds.includes(g.groupId)));
+    while (next.henchmanGroupIds.length < targetHenchmen && availableHenchmen.length > 0) {
+      next.henchmanGroupIds.push(availableHenchmen.shift()!.groupId);
+    }
+  } else {
+    // 1-player: official solo rules — ignore "Always Leads", pick groups at random.
+    // This ensures variety and allows non-alwaysLeads groups to appear in solo.
+    next.villainGroupIds  = [];
+    next.henchmanGroupIds = [];
+    const soloVillain  = shuffle([...VILLAIN_GROUPS])[0];
+    const soloHenchman = shuffle([...HENCHMAN_GROUPS])[0];
+    if (soloVillain)  next.villainGroupIds  = [soloVillain.groupId];
+    if (soloHenchman) next.henchmanGroupIds = [soloHenchman.groupId];
+    // Scheme bonus henchman groups still apply — use all 10 from the extra group.
+    const schemeExtraHenchman = scheme.extraHenchmanGroups ?? 0;
+    for (let i = 0; i < schemeExtraHenchman; i++) {
+      const additional = shuffle(HENCHMAN_GROUPS.filter(g => !next.henchmanGroupIds.includes(g.groupId)))[0];
+      if (additional) next.henchmanGroupIds.push(additional.groupId);
+    }
+    // Starting henchmen: 2 will be set aside in the villain deck builder below.
+    next.soloStartingHenchmenPlaced = false;
+  }
 
   // ----- Build hero deck from selected classes + the always-available
   //       Trooper + Agent pools (which are NOT in the HQ rotation in real
@@ -231,20 +377,39 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
       for (let i = 0; i < copies; i++) villainDeck.push(mkInstance(def.cardId));
     }
   }
-  for (const gid of next.henchmanGroupIds) {
-    const grp = HENCHMAN_GROUPS.find(g => g.groupId === gid);
+  // Henchman groups. In solo mode the FIRST (primary) group is split: only 2 cards
+  // go into the villain deck; 2 more are set aside to enter the city at turn 1.
+  // Scheme-bonus groups (e.g. Prison Breakout +1) always use all 10 cards.
+  for (let hIdx = 0; hIdx < next.henchmanGroupIds.length; hIdx++) {
+    const grp = HENCHMAN_GROUPS.find(g => g.groupId === next.henchmanGroupIds[hIdx]);
     if (!grp) continue;
+    const allCards: CardInstance[] = [];
     for (const { def, copies } of grp.cards) {
-      for (let i = 0; i < copies; i++) villainDeck.push(mkInstance(def.cardId));
+      for (let i = 0; i < copies; i++) allCards.push(mkInstance(def.cardId));
+    }
+    if (playerCount === 1 && hIdx === 0) {
+      // Solo primary henchman group: 2 in villain deck, 2 set aside for city start.
+      const shuffledH = shuffle(allCards);
+      villainDeck.push(shuffledH[0], shuffledH[1]);
+      next.soloStartingHenchmen = [shuffledH[2], shuffledH[3]];
+      // Remaining 6 cards are simply not used (per the rules).
+    } else {
+      for (const c of allCards) villainDeck.push(c);
     }
   }
   for (let i = 0; i < MASTER_STRIKES_IN_DECK; i++) villainDeck.push(mkInstance('master_strike'));
-  for (let i = 0; i < scheme.twists; i++)         villainDeck.push(mkInstance('scheme_twist'));
-  for (let i = 0; i < scheme.bystanders; i++)     villainDeck.push(mkInstance('bystander'));
+  for (let i = 0; i < scheme.twists; i++)           villainDeck.push(mkInstance('scheme_twist'));
+  // Bystanders in villain deck: official table for 2+ players; exactly 1 for solo.
+  const villainDeckBystanders = playerCount >= 2
+    ? bystandersInVillainDeckForPlayers(playerCount)
+    : 1;
+  for (let i = 0; i < villainDeckBystanders; i++)  villainDeck.push(mkInstance('bystander'));
   next.villainDeck = shuffle(villainDeck);
 
-  // ----- Bystander stack (rescues drawn from here; refilled by rescuing) -----
-  next.bystanderDeck = []; // For MVP we just use the bystanders mixed into the Villain Deck.
+  // ----- Bystander stack (30 bystanders, separate from villain-deck bystanders) -----
+  // Per the rules: the Bystander Deck is a finite 30-card pile. When it runs out,
+  // rescue effects simply don't produce any cards — the game continues as normal.
+  next.bystanderDeck = Array(30).fill(0).map(() => mkInstance('bystander'));
 
   // ----- Wound deck — a generic stack of wound cards. Real Legendary uses 30. -----
   next.woundDeck = Array(30).fill(0).map(() => mkInstance('wound'));
@@ -259,7 +424,7 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
     bystanders: [],
   };
 
-  // ----- Per-player starting deck: 8 Troopers + 4 Agents, shuffled, then
+  // ----- Per-player starting deck: 8 Agents + 4 Troopers, shuffled, then
   //       deal STARTING_HAND_SIZE to the active player only at first. -----
   for (const p of next.players) {
     const personal: CardInstance[] = [];
@@ -356,7 +521,10 @@ export type LegendaryAction =
   /** Reveal the first villain card at the start of the game (triggered when
    *  the current player clicks "Game Begins"). Only valid on turn 1 while
    *  all city slots are still empty. */
-  | { kind: 'reveal_first_villain' };
+  | { kind: 'reveal_first_villain' }
+  /** Heal wounds: if the player has not fought or recruited this turn, KO all
+   *  Wounds from their hand. Only valid when the player has wounds in hand. */
+  | { kind: 'play_wound_healing' };
 
 export function applyAction(
   state: LegendaryState,
@@ -387,6 +555,7 @@ export function applyAction(
     case 'recruit_officer':   return doRecruitPool(next, meNext, 'shield_officer');
     case 'fight_city':        return doFightCity(next, meNext, action.slot);
     case 'fight_mastermind':  return doFightMastermind(next, meNext);
+    case 'play_wound_healing': return doWoundHealing(next, meNext);
     case 'resolve_choice':    return doResolveChoice(next, meNext, action.instanceId);
     case 'skip_choice':       return doSkipChoice(next);
     case 'accept_choice':     return doAcceptChoice(next, meNext);
@@ -512,11 +681,12 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
     case 'rescue_bystander': {
-      // Pull from the bystander pool; fall back to a synthetic instance so
-      // Jean Grey / Hawkeye effects always deliver the promised VP and triggers.
+      // Pull from the finite bystander deck. Per the rules: if the Bystander Deck
+      // runs out, the player simply doesn't receive the card — game continues.
       let n = 0;
       for (let i = 0; i < effect.amount; i++) {
-        const b = state.bystanderDeck.shift() ?? mkInstance('bystander');
+        const b = state.bystanderDeck.shift();
+        if (!b) break; // bystander deck exhausted — no more to rescue
         me.victoryPile.push(b); n++;
       }
       if (n > 0) {
@@ -674,25 +844,22 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Deadpool-specific effects ──────────────────────────────────────────
     case 'villain_captures_bystander': {
-      // Force the leftmost city villain/henchman to capture a fresh Bystander.
-      // If the city is empty, the Mastermind captures instead.
+      // Player chooses which city Villain/Henchman captures a Bystander.
+      // If the city has no villain, the Mastermind captures instead.
       const bystander = mkInstance('bystander');
-      let captured = false;
-      for (const c of state.city) {
-        if (!c) continue;
+      const hasVillainInCity = state.city.some(c => {
+        if (!c) return false;
         const d = getCard(c.cardId);
-        if (d.kind === 'villain' || d.kind === 'henchman') {
-          state.cityBystanders[c.instanceId] = [
-            ...(state.cityBystanders[c.instanceId] ?? []),
-            bystander,
-          ];
-          pushLog(state, { kind: 'bystander_captured', capturedBy: 'villain', captorName: d.name });
-          captured = true;
-          break;
-        }
+        return d.kind === 'villain' || d.kind === 'henchman';
+      });
+      if (hasVillainInCity) {
+        // Let the player pick — board shows a targeting ring on each villain.
+        state.thisTurn.pendingChoice = { kind: 'choose_city_villain_for_bystander', bystander };
+        pushLog(state, { kind: 'system', text: `${me.username}: choose a Villain in the city to capture a Bystander.` });
+        return;
       }
-      if (!captured) {
-        // City empty — Mastermind captures.
+      // City is empty — Mastermind captures.
+      {
         const mmDef = getCard(state.mastermind.cardId);
         const mmName = mmDef.kind === 'mastermind' ? mmDef.name : 'The Mastermind';
         state.mastermind.bystanders.push(bystander);
@@ -747,7 +914,8 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       if (count === 0) return;
       let rescued = 0;
       for (let i = 0; i < count; i++) {
-        const b = state.bystanderDeck.shift() ?? mkInstance('bystander');
+        const b = state.bystanderDeck.shift();
+        if (!b) break; // bystander deck exhausted
         me.victoryPile.push(b); rescued++;
       }
       pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
@@ -782,7 +950,8 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       // Accept = each other player draws a card.
       // Skip  = each other player discards a card.
       if (state.players.length < 2) {
-        // Solo: no "other players" to affect — silently skip the prompt.
+        // Solo: no "other players" to affect — log and skip.
+        pushLog(state, { kind: 'system', text: 'Solo game: no other players to draw or discard (effect skipped).' });
         return;
       }
       state.thisTurn.pendingChoice = { kind: 'choose_others_draw_or_discard' };
@@ -834,11 +1003,16 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Nick Fury-specific effects ────────────────────────────────────────
     case 'gain_card_to_hand': {
-      const instance = mkInstance(effect.cardId);
-      me.hand.push(instance);
       const cDef = getCard(effect.cardId);
       const cName = cDef.kind === 'hero' ? cDef.cardName
         : 'name' in cDef ? (cDef as { name: string }).name : effect.cardId;
+      if (effect.may) {
+        // "MAY gain" — prompt the player first.
+        state.thisTurn.pendingChoice = { kind: 'optional_gain_card', cardId: effect.cardId, label: cName };
+        return;
+      }
+      const instance = mkInstance(effect.cardId);
+      me.hand.push(instance);
       pushLog(state, { kind: 'system', text: `${me.username} gains a ${cName} to their hand.` });
       return;
     }
@@ -875,11 +1049,14 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
           const n = state.thisTurn.rescueBystandersOnKillCount;
           let rescued = 0;
           for (let j = 0; j < n; j++) {
-            const b = state.bystanderDeck.shift() ?? mkInstance('bystander');
+            const b = state.bystanderDeck.shift();
+            if (!b) break; // bystander deck exhausted
             me.victoryPile.push(b); rescued++;
           }
-          pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
-          applyRescueBonuses(state, me, rescued);
+          if (rescued > 0) {
+            pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+            applyRescueBonuses(state, me, rescued);
+          }
         }
         pushLog(state, {
           kind: 'villain_defeated', seat: me.seat, username: me.username,
@@ -920,16 +1097,21 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
             const n = state.thisTurn.rescueBystandersOnKillCount;
             let rescued = 0;
             for (let j = 0; j < n; j++) {
-              const b = state.bystanderDeck.shift() ?? mkInstance('bystander');
+              const b = state.bystanderDeck.shift();
+              if (!b) break; // bystander deck exhausted
               me.victoryPile.push(b); rescued++;
             }
-            pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
-            applyRescueBonuses(state, me, rescued);
+            if (rescued > 0) {
+              pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+              applyRescueBonuses(state, me, rescued);
+            }
           }
           pushLog(state, {
             kind: 'mastermind_hit', seat: me.seat, username: me.username,
             tacticName: tacticDef.name, tacticVp: tacticDef.vp,
             tacticsRemaining: state.mastermind.tactics.length,
+            tacticCardId: tacticDef.cardId,
+            tacticText: tacticDef.text ?? '',
           });
           if (state.mastermind.tactics.length === 0) {
             state.pendingResult = 'win';
@@ -982,6 +1164,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         bonus: effect.bonus ?? [],
         filter: effect.filter,
         sources,
+        mandatory: effect.mandatory,
       };
       state.thisTurn.pendingChoice = choice;
       return;
@@ -1116,10 +1299,10 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     // ── Red Skull Master Strike ───────────────────────────────────────────────
     case 'each_player_ko_hero_from_hand': {
       // Called once per player (me) by the outer loop in the master_strike handler.
-      // Set a pending flag — the player chooses which Hero to KO at the start
-      // of their next turn (after drawing their new hand).
-      const heroes = me.hand.filter(c => getCard(c.cardId).kind === 'hero');
-      if (heroes.length === 0) return; // no heroes in hand — unaffected
+      // Always set the flag — the "are there heroes in hand?" check happens at
+      // turn-start when the player has drawn their fresh 6-card hand. We cannot
+      // check here because at end-of-turn the current player's hand is already
+      // discarded (empty), which would incorrectly skip them.
       if (!me.pendingMasterStrikeKO) {
         me.pendingMasterStrikeKO = true;
         pushLog(state, {
@@ -1188,6 +1371,161 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Loki Master Strike ────────────────────────────────────────────────────
+    case 'loki_master_strike': {
+      // Skip players with empty hands (current player just discarded).
+      if (me.hand.length === 0) return;
+      const hasStrength = me.hand.some(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && (d as HeroCardDef).classes.includes('strength');
+      });
+      if (hasStrength) {
+        pushLog(state, { kind: 'system', text: `${me.username} reveals a Strength Hero — no wound from Loki's Master Strike.` });
+      } else {
+        const wound = state.woundDeck.shift();
+        if (wound) {
+          me.discard.push(wound);
+          pushLog(state, { kind: 'wound_taken', seat: me.seat, username: me.username });
+        }
+      }
+      return;
+    }
+
+    // ── Loki Tactic 1: Vanishing Illusions ────────────────────────────────────
+    case 'ko_villain_from_vp': {
+      // Auto-KO the highest-VP Villain/Henchman in this player's Victory Pile.
+      let bestIdx = -1, bestVp = -1;
+      for (let i = 0; i < me.victoryPile.length; i++) {
+        const d = getCard(me.victoryPile[i].cardId);
+        if (d.kind !== 'villain' && d.kind !== 'henchman') continue;
+        const v = (d as { vp: number }).vp;
+        if (v > bestVp) { bestVp = v; bestIdx = i; }
+      }
+      if (bestIdx >= 0) {
+        const koCard = me.victoryPile.splice(bestIdx, 1)[0];
+        state.ko.push(koCard);
+        const def = getCard(koCard.cardId);
+        const name = 'name' in def ? (def as { name: string }).name : koCard.cardId;
+        recomputeVp(me);
+        pushLog(state, { kind: 'system', text: `${me.username} KOs ${name} from their Victory Pile (Vanishing Illusions).` });
+      } else {
+        pushLog(state, { kind: 'system', text: `${me.username} has no Villain in their Victory Pile.` });
+      }
+      return;
+    }
+
+    // ── Loki Tactic 2: Whispers and Lies ─────────────────────────────────────
+    case 'ko_bystanders_from_vp': {
+      let removed = 0;
+      for (let i = 0; i < effect.count; i++) {
+        const idx = me.victoryPile.findIndex(c => c.cardId === 'bystander');
+        if (idx < 0) break;
+        const koCard = me.victoryPile.splice(idx, 1)[0];
+        state.ko.push(koCard);
+        removed++;
+      }
+      recomputeVp(me);
+      if (removed > 0) {
+        pushLog(state, { kind: 'system', text: `${me.username} KOs ${removed} Bystander${removed === 1 ? '' : 's'} from their Victory Pile (Whispers and Lies).` });
+      } else {
+        pushLog(state, { kind: 'system', text: `${me.username} has no Bystanders in their Victory Pile.` });
+      }
+      return;
+    }
+
+    // ── Loki Tactic 3: Cruel Ruler ────────────────────────────────────────────
+    case 'grant_fight_city_free': {
+      state.thisTurn.fightCityFreeAvailable = true;
+      pushLog(state, { kind: 'system', text: `${me.username} may fight one Villain in the City for free (Cruel Ruler)!` });
+      return;
+    }
+
+    // ── Loki Tactic 4: Maniacal Tyrant ───────────────────────────────────────
+    case 'ko_up_to_from_discard': {
+      if (me.discard.length === 0) {
+        pushLog(state, { kind: 'system', text: `${me.username} has no cards in discard pile to KO.` });
+        return;
+      }
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_up_to_from_discard',
+        remaining: effect.amount,
+        cards: [...me.discard],
+      };
+      return;
+    }
+
+    // ── Magneto Master Strike ─────────────────────────────────────────────────
+    case 'magneto_master_strike': {
+      if (me.hand.length === 0) return;
+      const hasXmen = me.hand.some(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
+      });
+      if (hasXmen) {
+        pushLog(state, { kind: 'system', text: `${me.username} reveals an X-Men Hero — no penalty from Magneto's Master Strike.` });
+      } else {
+        // Discard down to 4 cards (auto-discard from top of hand)
+        while (me.hand.length > 4) {
+          const discarded = me.hand.splice(0, 1)[0];
+          me.discard.push(discarded);
+          const dDef = getCard(discarded.cardId);
+          const dName = dDef.kind === 'hero' ? dDef.cardName : 'name' in dDef ? (dDef as { name: string }).name : discarded.cardId;
+          pushLog(state, { kind: 'system', text: `${me.username} discards ${dName} (Magneto Master Strike — down to 4).` });
+        }
+      }
+      return;
+    }
+
+    // ── Magneto Tactic 2: Bitter Captor ──────────────────────────────────────
+    case 'free_recruit_xmen_from_hq_effect': {
+      const hasXmen = state.hq.some(card => {
+        if (!card) return false;
+        const d = getCard(card.cardId);
+        return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
+      });
+      if (!hasXmen) {
+        pushLog(state, { kind: 'system', text: `${me.username}: No X-Men Heroes in the HQ — Bitter Captor has no targets.` });
+        return;
+      }
+      state.thisTurn.pendingChoice = { kind: 'free_recruit_xmen_from_hq' };
+      return;
+    }
+
+    // ── Magneto Tactic 3: Electromagnetic Bubble ──────────────────────────────
+    case 'em_bubble': {
+      const xmenPlayed = state.thisTurn.playedThisTurn.filter(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
+      });
+      if (xmenPlayed.length === 0) {
+        pushLog(state, { kind: 'system', text: `${me.username} has no X-Men Heroes in played area — Electromagnetic Bubble has no effect.` });
+        return;
+      }
+      state.thisTurn.pendingChoice = { kind: 'em_bubble_select_hero' };
+      return;
+    }
+
+    // ── Magneto Tactic 4: Crushing Shockwave ─────────────────────────────────
+    case 'reveal_xmen_or_gain_wounds': {
+      if (me.hand.length === 0) return;
+      const hasXmenCrushing = me.hand.some(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
+      });
+      if (hasXmenCrushing) {
+        pushLog(state, { kind: 'system', text: `${me.username} reveals an X-Men Hero — no wounds from Crushing Shockwave.` });
+      } else {
+        for (let i = 0; i < effect.amount; i++) {
+          const wound = state.woundDeck.shift();
+          if (wound) {
+            me.hand.push(wound);
+            pushLog(state, { kind: 'wound_taken', seat: me.seat, username: me.username });
+          }
+        }
+      }
+      return;
+    }
+
     // ── Red Skull Tactic 1 ────────────────────────────────────────────────────
     case 'look_top_three_ko_discard_return': {
       // Reveal the top 3 cards; sort by cost and auto-resolve:
@@ -1218,7 +1556,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       const hydraCount = me.victoryPile.filter(c => {
         const d = getCard(c.cardId);
         return (d.kind === 'villain' || d.kind === 'henchman') &&
-               'team' in d && (d as import('./types').VillainCardDef).team === 'hydra';
+               'team' in d && (d as VillainCardDef).team === 'hydra';
       }).length;
       if (hydraCount === 0) return;
       const before = me.hand.length;
@@ -1231,6 +1569,387 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       }
       return;
     }
+
+    // ── Brotherhood villain effects ───────────────────────────────────────────
+
+    // Sabretooth Escape (per-player, escape handler iterates):
+    case 'reveal_xmen_or_wound': {
+      const xmenCard = me.hand.find(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && 'teams' in d && (d as HeroCardDef).teams.includes('x-men');
+      });
+      if (xmenCard) {
+        const xDef = getCard(xmenCard.cardId) as import('./types').HeroCardDef;
+        pushLog(state, { kind: 'system', text: `${me.username} reveals ${xDef.cardName} (X-Men) to satisfy Sabretooth.` });
+      } else {
+        const wound = state.woundDeck.shift();
+        if (wound) {
+          me.discard.push(wound);
+          pushLog(state, { kind: 'system', text: `${me.username} has no X-Men Hero — gains a Wound from Sabretooth.` });
+          recomputeVp(me);
+        }
+      }
+      return;
+    }
+
+    // Sabretooth Fight (active player only — iterates all players internally):
+    case 'each_player_reveal_xmen_or_wound': {
+      for (const player of state.players) {
+        const xmenCard = player.hand.find(c => {
+          const d = getCard(c.cardId);
+          return d.kind === 'hero' && 'teams' in d && (d as HeroCardDef).teams.includes('x-men');
+        });
+        if (xmenCard) {
+          const xDef = getCard(xmenCard.cardId) as import('./types').HeroCardDef;
+          pushLog(state, { kind: 'system', text: `${player.username} reveals ${xDef.cardName} (X-Men) to satisfy Sabretooth.` });
+        } else {
+          const wound = state.woundDeck.shift();
+          if (wound) {
+            player.discard.push(wound);
+            pushLog(state, { kind: 'system', text: `${player.username} has no X-Men Hero — gains a Wound from Sabretooth.` });
+            recomputeVp(player);
+          }
+        }
+      }
+      return;
+    }
+
+    // Juggernaut Ambush (per-player): KO up to `amount` Heroes from discard.
+    case 'ko_heroes_from_discard': {
+      let koed = 0;
+      for (let i = 0; i < effect.amount; i++) {
+        const idx = me.discard.findIndex(c => getCard(c.cardId).kind === 'hero');
+        if (idx < 0) break;
+        state.ko.push(me.discard.splice(idx, 1)[0]);
+        koed++;
+      }
+      if (koed > 0) {
+        pushLog(state, { kind: 'system', text: `${me.username} KOs ${koed} Hero${koed > 1 ? 's' : ''} from their discard pile (Juggernaut).` });
+        recomputeVp(me);
+      }
+      return;
+    }
+
+    // Juggernaut Escape (per-player): KO up to `amount` Heroes from hand.
+    case 'ko_heroes_from_hand_immediate': {
+      let koed = 0;
+      for (let i = 0; i < effect.amount; i++) {
+        const idx = me.hand.findIndex(c => getCard(c.cardId).kind === 'hero');
+        if (idx < 0) break;
+        state.ko.push(me.hand.splice(idx, 1)[0]);
+        koed++;
+      }
+      if (koed > 0) {
+        pushLog(state, { kind: 'system', text: `${me.username} KOs ${koed} Hero${koed > 1 ? 's' : ''} from their hand (Juggernaut Escape).` });
+        recomputeVp(me);
+      }
+      return;
+    }
+
+    // Scheme twist conditional: fires inner effects only when the current
+    // schemeTwistsRevealed count is within [min, max] (inclusive).
+    case 'if_twists_revealed': {
+      const n = state.schemeTwistsRevealed;
+      const inRange = (effect.min === undefined || n >= effect.min)
+                   && (effect.max === undefined || n <= effect.max);
+      if (inRange) {
+        for (const inner of effect.effects) resolveEffect(state, me, inner);
+      }
+      return;
+    }
+
+    // Mystique Escape: trigger the current Scheme's twist effect immediately.
+    case 'trigger_scheme_twist': {
+      const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
+      state.schemeTwistsRevealed++;
+      pushLog(state, {
+        kind: 'scheme_twist',
+        twistsRevealed: state.schemeTwistsRevealed,
+        twistsTotal: scheme?.twists ?? state.schemeTwistsRevealed,
+      });
+      pushLog(state, { kind: 'system', text: `Mystique triggers a Scheme Twist! (${state.schemeTwistsRevealed} total)` });
+      if (scheme?.onTwist) {
+        for (const eff of scheme.onTwist) {
+          for (const p of state.players) resolveEffect(state, p, eff);
+        }
+      }
+      // Check the evil-wins condition immediately (same logic as doEndTurn).
+      if (scheme && scheme.evilWinsAfterTwists !== undefined
+          && state.schemeTwistsRevealed >= scheme.evilWinsAfterTwists
+          && !state.result && !state.pendingResult) {
+        state.result = 'loss';
+        state.resultReason = `The scheme has succeeded — ${scheme.evilWinsAfterTwists} Scheme Twists revealed (Mystique).`;
+        pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+      }
+      return;
+    }
+
+    // ── Enemies of Asgard villain effects ────────────────────────────────────
+
+    // Frost Giant Escape (per-player, engine iterates): reveal a [ranged] Hero or gain a Wound.
+    case 'reveal_ranged_or_wound': {
+      const rangedCard = me.hand.find(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && 'classes' in d &&
+          (d as HeroCardDef).classes.includes('ranged');
+      });
+      if (rangedCard) {
+        const rDef = getCard(rangedCard.cardId) as import('./types').HeroCardDef;
+        pushLog(state, { kind: 'system', text: `${me.username} reveals ${rDef.cardName} (Ranged) — no Wound gained.` });
+      } else {
+        const wound = state.woundDeck.shift();
+        if (wound) {
+          me.discard.push(wound);
+          pushLog(state, { kind: 'system', text: `${me.username} has no Ranged Hero — gains a Wound.` });
+          recomputeVp(me);
+        }
+      }
+      return;
+    }
+
+    // Frost Giant Fight (active player only — iterates all players internally).
+    case 'each_player_reveal_ranged_or_wound': {
+      for (const player of state.players) {
+        const rangedCard = player.hand.find(c => {
+          const d = getCard(c.cardId);
+          return d.kind === 'hero' && 'classes' in d &&
+            (d as HeroCardDef).classes.includes('ranged');
+        });
+        if (rangedCard) {
+          const rDef = getCard(rangedCard.cardId) as import('./types').HeroCardDef;
+          pushLog(state, { kind: 'system', text: `${player.username} reveals ${rDef.cardName} (Ranged) — no Wound gained.` });
+        } else {
+          const wound = state.woundDeck.shift();
+          if (wound) {
+            player.discard.push(wound);
+            pushLog(state, { kind: 'system', text: `${player.username} has no Ranged Hero — gains a Wound.` });
+            recomputeVp(player);
+          }
+        }
+      }
+      return;
+    }
+
+    // Ymir Fight: KO all Wounds from active player's hand and discard pile.
+    case 'ko_wounds_from_hand_and_discard': {
+      const handWounds   = me.hand.filter(c => c.cardId === 'wound');
+      const discardWounds = me.discard.filter(c => c.cardId === 'wound');
+      me.hand    = me.hand.filter(c => c.cardId !== 'wound');
+      me.discard = me.discard.filter(c => c.cardId !== 'wound');
+      const total = handWounds.length + discardWounds.length;
+      if (total > 0) {
+        state.ko.push(...handWounds, ...discardWounds);
+        pushLog(state, { kind: 'system', text: `${me.username} KOs ${total} Wound${total !== 1 ? 's' : ''} (Ymir).` });
+        recomputeVp(me);
+      } else {
+        pushLog(state, { kind: 'system', text: `${me.username} has no Wounds to KO (Ymir).` });
+      }
+      return;
+    }
+
+    // Destroyer Fight: auto-KO all S.H.I.E.L.D. Heroes from active player's hand.
+    case 'ko_all_shield_from_hand': {
+      const shieldCards = me.hand.filter(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' &&
+          (d as HeroCardDef).className === 'S.H.I.E.L.D.';
+      });
+      me.hand = me.hand.filter(c => {
+        const d = getCard(c.cardId);
+        return !(d.kind === 'hero' &&
+          (d as HeroCardDef).className === 'S.H.I.E.L.D.');
+      });
+      if (shieldCards.length > 0) {
+        state.ko.push(...shieldCards);
+        pushLog(state, { kind: 'system', text: `${me.username} KOs ${shieldCards.length} S.H.I.E.L.D. Hero${shieldCards.length !== 1 ? 'es' : ''} (Destroyer).` });
+        recomputeVp(me);
+      } else {
+        pushLog(state, { kind: 'system', text: `${me.username} has no S.H.I.E.L.D. Heroes to KO (Destroyer).` });
+      }
+      return;
+    }
+
+    // ── HYDRA villain effects ─────────────────────────────────────────────────
+    case 'villain_deck_reveal_top': {
+      // Endless Armies of Hydra Fight: reveal top N cards of the Villain Deck.
+      pushLog(state, { kind: 'system', text: `${me.username} triggers Endless Armies — revealing top ${effect.amount} card(s) from the Villain Deck!` });
+      for (let i = 0; i < effect.amount; i++) {
+        if (state.villainDeck.length === 0) break;
+        revealOneVillainCard(state);
+        if (state.result) break; // stop immediately if evil wins mid-reveal
+      }
+      return;
+    }
+
+    case 'each_player_without_hydra_vp_gains_wound': {
+      // Viper Ambush / Fight / Escape: wound every player with no HYDRA villain in their VP.
+      for (const player of state.players) {
+        const hasHydra = player.victoryPile.some(c => {
+          const d = getCard(c.cardId);
+          return d.kind === 'villain' && (d as VillainCardDef).team === 'hydra';
+        });
+        if (!hasHydra) {
+          const wound = state.woundDeck.shift();
+          if (wound) {
+            player.discard.push(wound);
+            pushLog(state, { kind: 'system', text: `${player.username} has no HYDRA Villain — gains a Wound (Viper).` });
+            recomputeVp(player);
+          }
+        } else {
+          pushLog(state, { kind: 'system', text: `${player.username} has a HYDRA Villain — safe from Viper.` });
+        }
+      }
+      return;
+    }
+
+    // ── Masters of Evil villain effects ──────────────────────────────────────
+    case 'rescue_bystander_per_avengers_hero': {
+      // Baron Zemo Fight: rescue one Bystander per Avengers Hero the active
+      // player has in hand or played this turn.
+      const allCards = [...me.hand, ...state.thisTurn.playedThisTurn];
+      const avengersCount = allCards.filter(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' &&
+          (d as HeroCardDef).teams.includes('avengers');
+      }).length;
+      pushLog(state, { kind: 'system', text:
+        `${me.username} has ${avengersCount} Avengers Hero${avengersCount !== 1 ? 'es' : ''} — Baron Zemo: rescuing ${avengersCount} Bystander${avengersCount !== 1 ? 's' : ''}.` });
+      let rescued = 0;
+      for (let i = 0; i < avengersCount; i++) {
+        const b = state.bystanderDeck.shift();
+        if (!b) break; // bystander deck exhausted
+        me.victoryPile.push(b); rescued++;
+      }
+      if (rescued > 0) {
+        pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+        applyRescueBonuses(state, me, rescued);
+        recomputeVp(me);
+      }
+      return;
+    }
+
+    case 'ko_heroes_from_hand_if_at_location': {
+      // Whirlwind Fight: if the villain was fought at a named city location,
+      // the active player must KO `amount` Heroes — chosen from hand OR played area.
+      const locationMap: Record<string, number> = {
+        sewers: 0, bank: 1, rooftops: 2, streets: 3, bridge: 4,
+      };
+      const locationNames: Record<number, string> = {
+        0: 'Sewers', 1: 'Bank', 2: 'Rooftops', 3: 'Streets', 4: 'Bridge',
+      };
+      const targetSlots = effect.locations
+        .map(l => locationMap[l.toLowerCase()])
+        .filter((s): s is number => s !== undefined);
+      const fightSlot = state.thisTurn.lastFightSlot;
+      if (fightSlot === undefined || !targetSlots.includes(fightSlot)) {
+        const locName = fightSlot !== undefined ? locationNames[fightSlot] : 'unknown';
+        pushLog(state, { kind: 'system', text:
+          `Whirlwind: fought at ${locName} — not Rooftops or Bridge, no effect.` });
+        return;
+      }
+      const locName = locationNames[fightSlot];
+      // Check if there are any Heroes available to KO across hand AND played area.
+      const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
+      const hasEligible =
+        me.hand.some(isHero) ||
+        state.thisTurn.playedThisTurn.some(isHero);
+      if (!hasEligible) {
+        pushLog(state, { kind: 'system', text:
+          `${me.username} fought Whirlwind at the ${locName} — no Heroes available to KO.` });
+        return;
+      }
+      pushLog(state, { kind: 'system', text:
+        `${me.username} fought Whirlwind at the ${locName} — KO ${effect.amount} Hero${effect.amount !== 1 ? 'es' : ''} from hand or played area!` });
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_from_hand',
+        bonus: [],
+        filter: 'heroes_only',
+        sources: ['hand', 'played'],
+        mandatory: true,
+        // `remaining` = additional KOs still needed AFTER this one resolves.
+        remaining: effect.amount - 1,
+      };
+      return;
+    }
+
+    case 'each_player_reveal_tech_hero_or_wound': {
+      // Ultron Escape: each player reveals a [tech] Hero from their hand
+      // or gains a Wound.
+      for (const player of state.players) {
+        const hasTech = player.hand.some(c => {
+          const d = getCard(c.cardId);
+          return d.kind === 'hero' && (d as HeroCardDef).classes.includes('tech');
+        });
+        if (!hasTech) {
+          const wound = state.woundDeck.shift();
+          if (wound) {
+            player.discard.push(wound);
+            recomputeVp(player);
+            pushLog(state, { kind: 'wound_taken', seat: player.seat, username: player.username });
+            pushLog(state, { kind: 'system', text:
+              `${player.username} has no [tech] Hero in hand — gains a Wound (Ultron Escape).` });
+          }
+        } else {
+          pushLog(state, { kind: 'system', text:
+            `${player.username} reveals a [tech] Hero — safe from Ultron.` });
+        }
+      }
+      return;
+    }
+
+    case 'melter_reveal_top_each_player': {
+      // Melter Fight: reveal the top card of each player's deck. The active
+      // player may choose to KO it or return it. MVP: auto-KOs all revealed
+      // cards. TODO: add interactive PendingChoice for each revealed card.
+      pushLog(state, { kind: 'system', text:
+        `${me.username} triggers Melter — each player reveals their top deck card!` });
+      for (const player of state.players) {
+        const topCard = player.deck[0];
+        if (!topCard) {
+          pushLog(state, { kind: 'system', text:
+            `${player.username}'s deck is empty — no card to reveal.` });
+          continue;
+        }
+        const topDef = getCard(topCard.cardId);
+        const topName = topDef.kind === 'hero' ? topDef.cardName
+          : 'name' in topDef ? (topDef as { name: string }).name : topCard.cardId;
+        player.deck.shift();
+        state.ko.push(topCard);
+        pushLog(state, { kind: 'system', text:
+          `${player.username} reveals ${topName} — KO'd by Melter!` });
+      }
+      return;
+    }
+
+    // ── Doombot Legion henchman fight ────────────────────────────────────────
+    case 'look_top_two_ko_one_return_one': {
+      // Shuffle discard into deck if needed to get 2 cards.
+      if (me.deck.length < 2 && me.discard.length > 0) {
+        me.deck = shuffle([...me.deck, ...me.discard]); me.discard = [];
+      }
+      // Peek top 1 or 2 cards (may be fewer if deck is tiny).
+      const peeked = me.deck.splice(0, Math.min(2, me.deck.length));
+      if (peeked.length === 0) {
+        pushLog(state, { kind: 'system', text: `${me.username}'s deck is empty — Doombot Legion fight has no effect.` });
+        return;
+      }
+      if (peeked.length === 1) {
+        // Only one card — forced KO.
+        const card = peeked[0];
+        const cardName = (() => { const d = getCard(card.cardId); return d.kind === 'hero' ? d.cardName : 'name' in d ? (d as { name: string }).name : card.cardId; })();
+        state.ko.push(card);
+        pushLog(state, { kind: 'system', text: `${me.username} KO'd ${cardName} (only card available — Doombot Legion).` });
+        return;
+      }
+      // Two cards — player must choose one to KO; other goes back on top.
+      state.thisTurn.pendingChoice = {
+        kind: 'look_top_two_ko_one_return_one',
+        cards: peeked,
+        mandatory: true,
+      };
+      return;
+    }
+
     default: {
       // Exhaustiveness guard — TypeScript will flag this if a new Effect kind
       // is added to types.ts without a corresponding case here.
@@ -1258,11 +1977,12 @@ function doRecruit(
     return { error: `Need ${def.cost} Recruit, have ${state.thisTurn.recruit}` };
   }
   state.thisTurn.recruit -= def.cost;
+  state.thisTurn.recruitedThisTurn = true;
   state.hq[slot] = null;
   me.discard.push(card);
   pushLog(state, {
     kind: 'hero_recruited', seat: me.seat, username: me.username,
-    cardId: def.cardId, cardName: def.cardName, cost: def.cost,
+    cardId: def.cardId, cardName: def.cardName, cost: def.cost, slot,
   });
   refillHQ(state, true);
   return state;
@@ -1270,9 +1990,9 @@ function doRecruit(
 
 // ---------------- Recruit from always-available pool ----------------
 /** Sidekick (cardId 'sidekick') and S.H.I.E.L.D. Officer ('shield_officer')
- *  sit in unlimited pools beside the board — any player can buy one per turn
- *  for the printed cost. We create a fresh CardInstance rather than pulling
- *  from a pre-seeded stack (the pool is treated as infinite for MVP). */
+ *  sit in finite pools beside the board. Each starts at 30 cards. If the pool
+ *  is empty the recruit is simply unavailable — per the rules, the game
+ *  continues without giving the card. */
 function doRecruitPool(
   state: LegendaryState,
   me: PlayerState,
@@ -1285,17 +2005,31 @@ function doRecruitPool(
   if (cardId === 'sidekick' && state.thisTurn.sidekickRecruited) {
     return { error: 'You can only recruit one Sidekick per turn' };
   }
+  // Pool exhaustion: if the finite pool is empty the card cannot be recruited.
+  if (cardId === 'sidekick' && state.sidekickPoolCount <= 0) {
+    return { error: 'The Sidekick pool is empty' };
+  }
+  if (cardId === 'shield_officer' && state.officerPoolCount <= 0) {
+    return { error: 'The Officer pool is empty' };
+  }
   // Recruit cost paid from recruit pool only (God of Thunder is recruit→attack, not vice versa).
   if (state.thisTurn.recruit < def.cost) {
     return { error: `Need ${def.cost} Recruit, have ${state.thisTurn.recruit}` };
   }
   state.thisTurn.recruit -= def.cost;
+  state.thisTurn.recruitedThisTurn = true;
   const instance = mkInstance(cardId);
   me.discard.push(instance);
-  if (cardId === 'sidekick') state.thisTurn.sidekickRecruited = true;
+  if (cardId === 'sidekick') {
+    state.thisTurn.sidekickRecruited = true;
+    state.sidekickPoolCount--;
+  }
+  if (cardId === 'shield_officer') {
+    state.officerPoolCount--;
+  }
   pushLog(state, {
     kind: 'hero_recruited', seat: me.seat, username: me.username,
-    cardId: def.cardId, cardName: def.cardName, cost: def.cost,
+    cardId: def.cardId, cardName: def.cardName, cost: def.cost, slot: -1,
   });
   return state;
 }
@@ -1333,7 +2067,8 @@ function doFightCity(
 
   // Silent Sniper's "fight a villain with a bystander for free" flag.
   const attached = state.cityBystanders[card.instanceId] ?? [];
-  const freeFight = state.thisTurn.freeBystanderFightAvailable && attached.length > 0;
+  const freeBystanderFight = state.thisTurn.freeBystanderFightAvailable && attached.length > 0;
+  const freeFight = freeBystanderFight || !!state.thisTurn.fightCityFreeAvailable;
 
   // Storm – location debuff (Lightning Bolt / Tidal Wave).
   const locationDebuff = state.thisTurn.locationVillainDebuffs[slot] ?? 0;
@@ -1344,12 +2079,26 @@ function doFightCity(
     ? state.thisTurn.attack + state.thisTurn.recruit
     : state.thisTurn.attack;
 
+  // Villain fight condition (e.g. Blob requires an X-Men Hero in hand or played).
+  if (def.kind === 'villain' && def.fightCondition?.requires === 'xmen_hero') {
+    const hasXmen = [...me.hand, ...state.thisTurn.playedThisTurn].some(c => {
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' && 'teams' in d && (d as HeroCardDef).teams.includes('x-men');
+    });
+    if (!hasXmen) return { error: `You cannot defeat ${def.name} without an X-Men Hero in your hand or played this turn.` };
+  }
+
   if (!freeFight && availableAttack < requiredAttack) {
     return { error: `Need ${requiredAttack} Attack, have ${state.thisTurn.attack}` };
   }
+  state.thisTurn.foughtThisTurn = true;
   if (freeFight) {
-    // Consume the free-fight flag — it's a "once per turn" ability.
-    state.thisTurn.freeBystanderFightAvailable = false;
+    // Consume whichever free-fight flag was active.
+    if (freeBystanderFight) {
+      state.thisTurn.freeBystanderFightAvailable = false;
+    } else {
+      state.thisTurn.fightCityFreeAvailable = false;
+    }
   } else if (state.thisTurn.recruitAsAttackEnabled) {
     const fromAttack = Math.min(state.thisTurn.attack, requiredAttack);
     state.thisTurn.attack -= fromAttack;
@@ -1368,8 +2117,12 @@ function doFightCity(
     applyRescueBonuses(state, me, attached.length);
   }
 
-  // Fight effect on the villain (if any)
-  if (def.kind === 'villain' && def.fight) {
+  // Record which slot this fight is happening at so location-conditional
+  // fight effects (e.g. Whirlwind) can read it during resolution.
+  state.thisTurn.lastFightSlot = slot;
+
+  // Fight effect on the villain or henchman (if any)
+  if ((def.kind === 'villain' || def.kind === 'henchman') && def.fight) {
     for (const e of def.fight) resolveEffect(state, me, e);
   }
 
@@ -1378,11 +2131,14 @@ function doFightCity(
     const n = state.thisTurn.rescueBystandersOnKillCount;
     let rescued = 0;
     for (let i = 0; i < n; i++) {
-      const b = state.bystanderDeck.shift() ?? mkInstance('bystander');
+      const b = state.bystanderDeck.shift();
+      if (!b) break; // bystander deck exhausted
       me.victoryPile.push(b); rescued++;
     }
-    pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
-    applyRescueBonuses(state, me, rescued);
+    if (rescued > 0) {
+      pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+      applyRescueBonuses(state, me, rescued);
+    }
   }
 
   pushLog(state, {
@@ -1516,7 +2272,124 @@ function doResolveChoice(
       cardId: def.cardId,
       cardName: def.cardName,
       cost: 0,
+      slot: slotIdx,
     });
+    return state;
+  }
+
+  // ── Solo Twist tuck: player clicked a HQ Hero (cost ≤ 6) to put on bottom of Hero Deck ──
+  if (choice.kind === 'solo_twist_tuck_hero') {
+    const slotIdx = state.hq.findIndex(c => c?.instanceId === instanceId);
+    if (slotIdx < 0) return { error: 'That card is not in the HQ' };
+    const card = state.hq[slotIdx]!;
+    const def = getCard(card.cardId);
+    if (def.kind !== 'hero') return { error: 'Select a Hero card from the HQ' };
+    if ((def as { cost: number }).cost > 6) return { error: 'Select a Hero costing 6 or less' };
+    state.thisTurn.pendingChoice = undefined;
+    state.hq[slotIdx] = null;
+    state.heroDeck.push(card); // bottom of the Hero Deck
+    refillHQ(state, true);
+    pushLog(state, {
+      kind: 'system',
+      text: `${me.username} tucks ${def.cardName} to the bottom of the Hero Deck (Solo Twist bonus).`,
+    });
+    return state;
+  }
+
+  // ── Bitter Captor: free X-Men recruit from HQ ──────────────────────────────
+  if (choice.kind === 'free_recruit_xmen_from_hq') {
+    const slotIdx = state.hq.findIndex(c => c?.instanceId === instanceId);
+    if (slotIdx < 0) return { error: 'That card is not in the HQ' };
+    const card = state.hq[slotIdx]!;
+    const def = getCard(card.cardId);
+    if (def.kind !== 'hero') return { error: 'Not a hero card' };
+    if (!(def as HeroCardDef).teams.includes('x-men')) return { error: 'Bitter Captor: choose an X-Men Hero' };
+    state.thisTurn.pendingChoice = undefined;
+    state.hq[slotIdx] = null;
+    me.discard.push(card);
+    refillHQ(state, true);
+    state.thisTurn.recruitedThisTurn = true;
+    pushLog(state, {
+      kind: 'hero_recruited',
+      seat: me.seat, username: me.username,
+      cardId: def.cardId, cardName: def.cardName,
+      cost: 0, slot: slotIdx,
+    });
+    return state;
+  }
+
+  // ── Maniacal Tyrant: KO from discard ──────────────────────────────────────
+  if (choice.kind === 'ko_up_to_from_discard') {
+    const idx = me.discard.findIndex(c => c.instanceId === instanceId);
+    if (idx < 0) return { error: 'Card not found in discard pile' };
+    const card = me.discard.splice(idx, 1)[0];
+    state.ko.push(card);
+    const def = getCard(card.cardId);
+    const name = def.kind === 'hero' ? def.cardName : 'name' in def ? (def as { name: string }).name : card.cardId;
+    pushLog(state, { kind: 'system', text: `${me.username} KOs ${name} from discard (Maniacal Tyrant).` });
+    const remaining = choice.remaining - 1;
+    if (remaining > 0 && me.discard.length > 0) {
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_up_to_from_discard',
+        remaining,
+        cards: [...me.discard],
+      };
+    } else {
+      state.thisTurn.pendingChoice = undefined;
+    }
+    return state;
+  }
+
+  // ── Electromagnetic Bubble: select X-Men hero from played area ─────────────
+  if (choice.kind === 'em_bubble_select_hero') {
+    const idx = state.thisTurn.playedThisTurn.findIndex(c => c.instanceId === instanceId);
+    if (idx < 0) return { error: 'Card not found in played area' };
+    const card = state.thisTurn.playedThisTurn[idx];
+    const def = getCard(card.cardId);
+    if (def.kind !== 'hero') return { error: 'Select a Hero card' };
+    if (!(def as HeroCardDef).teams.includes('x-men')) return { error: 'Select an X-Men Hero' };
+    // Remove from playedThisTurn so it won't be discarded at end of turn.
+    state.thisTurn.playedThisTurn.splice(idx, 1);
+    me.nextHandBonusCard = card;
+    state.thisTurn.pendingChoice = undefined;
+    pushLog(state, {
+      kind: 'system',
+      text: `${me.username} selects ${def.cardName} — it will be added to their next hand (Electromagnetic Bubble).`,
+    });
+    return state;
+  }
+
+  // ── Deadpool "Here, Hold This": player clicked a city villain to capture the bystander ──
+  if (choice.kind === 'choose_city_villain_for_bystander') {
+    const slot = state.city.findIndex(c => c?.instanceId === instanceId);
+    if (slot < 0) return { error: 'That card is not in the city' };
+    const target = state.city[slot]!;
+    const targetDef = getCard(target.cardId);
+    if (targetDef.kind !== 'villain' && targetDef.kind !== 'henchman') {
+      return { error: 'Choose a Villain or Henchman in the city' };
+    }
+    const targetName = 'name' in targetDef ? (targetDef as { name: string }).name : target.cardId;
+    state.cityBystanders[target.instanceId] = [
+      ...(state.cityBystanders[target.instanceId] ?? []),
+      choice.bystander,
+    ];
+    pushLog(state, { kind: 'bystander_captured', capturedBy: 'villain', captorName: targetName });
+    state.thisTurn.pendingChoice = undefined;
+    return state;
+  }
+
+  // ── Doombot Legion: player picks one of the two peeked cards to KO ─────────
+  if (choice.kind === 'look_top_two_ko_one_return_one') {
+    const koIdx = choice.cards.findIndex(c => c.instanceId === instanceId);
+    if (koIdx < 0) return { error: 'Choose one of the two revealed cards to KO' };
+    const toKO = choice.cards[koIdx];
+    const toReturn = choice.cards[1 - koIdx]; // the other one
+    const koName = (() => { const d = getCard(toKO.cardId); return d.kind === 'hero' ? d.cardName : 'name' in d ? (d as { name: string }).name : toKO.cardId; })();
+    const retName = (() => { const d = getCard(toReturn.cardId); return d.kind === 'hero' ? d.cardName : 'name' in d ? (d as { name: string }).name : toReturn.cardId; })();
+    state.ko.push(toKO);
+    me.deck.unshift(toReturn); // return other to top of deck
+    pushLog(state, { kind: 'system', text: `${me.username} KO'd ${koName} and returned ${retName} to the top of their deck (Doombot Legion).` });
+    state.thisTurn.pendingChoice = undefined;
     return state;
   }
 
@@ -1524,7 +2397,8 @@ function doResolveChoice(
   if (choice.kind === 'discard_hand_draw_four' ||
       choice.kind === 'optional_gain_wound_pass_left' ||
       choice.kind === 'reveal_top_discard_or_return' ||
-      choice.kind === 'choose_others_draw_or_discard') {
+      choice.kind === 'choose_others_draw_or_discard' ||
+      choice.kind === 'optional_gain_card') {
     return { error: 'Use accept_choice / skip_choice for this pending choice — no card selection needed.' };
   }
 
@@ -1621,6 +2495,39 @@ function doResolveChoice(
 
   // Clear choice BEFORE resolving bonus (bonus could chain another choice).
   state.thisTurn.pendingChoice = undefined;
+
+  // Multi-KO chain: if `remaining > 0` (e.g. Whirlwind "KO 2 Heroes"), queue the
+  // next KO prompt — but only if there are still eligible cards left to pick from.
+  if (choice.kind === 'ko_from_hand' && (choice.remaining ?? 0) > 0) {
+    const isHeroCard  = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
+    const isShieldCard = (c: CardInstance) => {
+      const d = getCard(c.cardId);
+      if (d.kind !== 'hero') return false;
+      const st = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
+      return (d as HeroCardDef).teams.some(t => st.has(t));
+    };
+    const isWoundCard = (c: CardInstance) => c.cardId === 'wound';
+    const matchFn =
+      choice.filter === 'heroes_only'  ? isHeroCard  :
+      choice.filter === 'shield_heroes' ? isShieldCard :
+      choice.filter === 'wounds_only'   ? isWoundCard  :
+      () => true;
+    const srcs = choice.sources ?? ['hand', 'played'];
+    const hasMore =
+      (srcs.includes('hand')    && me.hand.some(matchFn)) ||
+      (srcs.includes('played')  && state.thisTurn.playedThisTurn.some(matchFn)) ||
+      (srcs.includes('discard') && me.discard.some(matchFn));
+    if (hasMore) {
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_from_hand',
+        bonus: [],
+        filter: choice.filter,
+        sources: choice.sources,
+        mandatory: choice.mandatory,
+        remaining: (choice.remaining ?? 0) - 1,
+      };
+    }
+  }
 
   // Resolve the "If you do…" bonus effects.
   const bonus = 'bonus' in choice ? choice.bonus : [];
@@ -1740,6 +2647,17 @@ function doAcceptChoice(
     return state;
   }
 
+  if (choice.kind === 'optional_gain_card') {
+    state.thisTurn.pendingChoice = undefined;
+    const instance = mkInstance(choice.cardId);
+    me.hand.push(instance);
+    const cDef = getCard(choice.cardId);
+    const cName = cDef.kind === 'hero' ? cDef.cardName
+      : 'name' in cDef ? (cDef as { name: string }).name : choice.cardId;
+    pushLog(state, { kind: 'system', text: `${me.username} gains a ${cName} to their hand.` });
+    return state;
+  }
+
   return { error: 'Nothing to accept for this choice kind' };
 }
 
@@ -1771,10 +2689,8 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
       me.discard.push(w);
       pushLog(state, { kind: 'wound_taken', seat: me.seat, username: me.username });
     } else {
-      state.result       = 'loss';
-      state.resultReason = 'The wound deck is empty — evil wins!';
-      state.phase        = 'finished';
-      pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: 'The wound deck is empty — evil wins!' });
+      // Per the rules: if the Wound Deck is empty, no wound is given — game continues.
+      pushLog(state, { kind: 'system', text: 'The Wound Deck is empty — no wound taken.' });
     }
     return state;
   }
@@ -1816,6 +2732,24 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
     pushLog(state, { kind: 'system', text: `${me.username} passes on the free Tech/Ranged recruit.` });
     return state;
   }
+  // Bitter Captor: player chose not to take the free X-Men recruit.
+  if (choice.kind === 'free_recruit_xmen_from_hq') {
+    const me = state.players[state.currentPlayerIdx];
+    pushLog(state, { kind: 'system', text: `${me.username} passes on the free X-Men recruit.` });
+    return state;
+  }
+  // Maniacal Tyrant: player stops KO-ing from discard.
+  if (choice.kind === 'ko_up_to_from_discard') {
+    const me = state.players[state.currentPlayerIdx];
+    pushLog(state, { kind: 'system', text: `${me.username} stops discarding (Maniacal Tyrant).` });
+    return state;
+  }
+  // Electromagnetic Bubble: player skips selecting a hero.
+  if (choice.kind === 'em_bubble_select_hero') {
+    const me = state.players[state.currentPlayerIdx];
+    pushLog(state, { kind: 'system', text: `${me.username} skips Electromagnetic Bubble.` });
+    return state;
+  }
   // Covering Fire (Skip): each other player discards a card from their hand.
   if (choice.kind === 'choose_others_draw_or_discard') {
     const me = state.players[state.currentPlayerIdx];
@@ -1827,6 +2761,12 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
         pushLog(state, { kind: 'system', text: `${p.username} discards a card.` });
       }
     }
+    return state;
+  }
+  // optional_gain_card: player declined — nothing happens.
+  if (choice.kind === 'optional_gain_card') {
+    const me = state.players[state.currentPlayerIdx];
+    pushLog(state, { kind: 'system', text: `${me.username} declined to gain a ${choice.label}.` });
     return state;
   }
   pushLog(state, { kind: 'system', text: 'Choice skipped.' });
@@ -1861,6 +2801,7 @@ function doFightMastermind(
   if (!mmFreeFight && mmAvailable < mmRequired) {
     return { error: `Need ${mmRequired} Attack to hit ${mmDef.name}` };
   }
+  state.thisTurn.foughtThisTurn = true;
   if (mmFreeFight) {
     state.thisTurn.freeBystanderFightAvailable = false;
   } else if (state.thisTurn.recruitAsAttackEnabled) {
@@ -1920,11 +2861,14 @@ function doFightMastermind(
     const n = state.thisTurn.rescueBystandersOnKillCount;
     let rescued = 0;
     for (let i = 0; i < n; i++) {
-      const b = state.bystanderDeck.shift() ?? mkInstance('bystander');
+      const b = state.bystanderDeck.shift();
+      if (!b) break; // bystander deck exhausted
       me.victoryPile.push(b); rescued++;
     }
-    pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
-    applyRescueBonuses(state, me, rescued);
+    if (rescued > 0) {
+      pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+      applyRescueBonuses(state, me, rescued);
+    }
   }
 
   pushLog(state, {
@@ -1934,6 +2878,8 @@ function doFightMastermind(
     tacticName: tacticDef.name,
     tacticVp: tacticDef.vp,
     tacticsRemaining: state.mastermind.tactics.length,
+    tacticCardId: tacticDef.cardId,
+    tacticText: tacticDef.text ?? '',
   });
   recomputeVp(me);
 
@@ -1954,11 +2900,54 @@ function doFightMastermind(
   return state;
 }
 
+function doWoundHealing(
+  state: LegendaryState,
+  me: PlayerState,
+): LegendaryState | { error: string } {
+  if (state.thisTurn.foughtThisTurn) {
+    return { error: 'You have already fought this turn — Healing is no longer available.' };
+  }
+  if (state.thisTurn.recruitedThisTurn) {
+    return { error: 'You have already recruited this turn — Healing is no longer available.' };
+  }
+  const wounds = me.hand.filter(c => c.cardId === 'wound');
+  if (wounds.length === 0) return { error: 'No Wounds in hand to KO.' };
+  // KO all wounds from hand
+  me.hand = me.hand.filter(c => c.cardId !== 'wound');
+  for (const w of wounds) state.ko.push(w);
+  pushLog(state, { kind: 'system', text: `${me.username} heals: KO'd ${wounds.length} Wound${wounds.length === 1 ? '' : 's'} from their hand.` });
+  return state;
+}
+
 function recomputeVp(p: PlayerState): void {
   let vp = 0;
   for (const c of p.victoryPile) {
     const d = getCard(c.cardId);
-    if (d.kind === 'villain')    vp += d.vp;
+    if (d.kind === 'villain') {
+      vp += d.vp;
+      // Team-scaling — e.g. Supreme HYDRA: +3 VP per other HYDRA villain in VP.
+      if (d.vpScale) {
+        const { team, amount } = d.vpScale;
+        const otherCount = p.victoryPile.filter(vc => {
+          if (vc.instanceId === c.instanceId) return false; // exclude self
+          const od = getCard(vc.cardId);
+          return od.kind === 'villain' && (od as import('./types').VillainCardDef).team === team;
+        }).length;
+        vp += otherCount * amount;
+      }
+      // Class-scaling across all cards — e.g. Ultron: +1 VP per [black] Hero
+      // among all the player's cards (hand + deck + discard + victoryPile).
+      if (d.vpScaleClass) {
+        const { cls, amount } = d.vpScaleClass;
+        const allCards = [...p.hand, ...p.deck, ...p.discard, ...p.victoryPile];
+        const count = allCards.filter(vc => {
+          const od = getCard(vc.cardId);
+          return od.kind === 'hero' &&
+            (od as HeroCardDef).classes.includes(cls as import('./types').HeroClass);
+        }).length;
+        vp += count * amount;
+      }
+    }
     if (d.kind === 'henchman')   vp += d.vp;
     if (d.kind === 'mastermind') vp += d.vp;
     if (d.kind === 'tactic')     vp += d.vp; // Mastermind Tactics carry the MM's VP
@@ -1971,9 +2960,23 @@ function recomputeVp(p: PlayerState): void {
 
 /** Triggered when the current player (seat 0, turn 1) clicks "Game Begins".
  *  Reveals the opening villain into the city so the reveal animation fires
- *  exactly when the player expects it — not during headless setup. */
+ *  exactly when the player expects it — not during headless setup.
+ *
+ *  Solo mode: the 2 starting henchmen enter the city one at a time (each with
+ *  their own enterCity call so ambush effects fire correctly), then the normal
+ *  first villain-deck reveal happens immediately after. */
 function doRevealFirstVillain(state: LegendaryState): LegendaryState | { error: string } {
   if (state.city.some(c => c !== null)) return { error: 'City is not empty — first villain already revealed' };
+
+  if (state.players.length === 1 && !state.soloStartingHenchmenPlaced) {
+    state.soloStartingHenchmenPlaced = true;
+    for (const hCard of state.soloStartingHenchmen ?? []) {
+      const hDef = getCard(hCard.cardId);
+      enterCity(state, hCard, hDef);
+    }
+    state.soloStartingHenchmen = [];
+  }
+
   revealOneVillainCard(state);
   return state;
 }
@@ -2026,7 +3029,8 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   if (state.result) return state; // set inside revealOneVillainCard if needed
 
   const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
-  if (scheme && state.schemeTwistsRevealed >= scheme.evilWinsAfterTwists) {
+  if (scheme && scheme.evilWinsAfterTwists !== undefined
+      && state.schemeTwistsRevealed >= scheme.evilWinsAfterTwists) {
     state.result       = 'loss';
     state.resultReason = `${scheme.name} succeeded — the heroes have lost.`;
     state.phase        = 'finished';
@@ -2054,19 +3058,40 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
     const extraDraw = samePlayer.endOfTurnExtraDraw ?? 0;
     samePlayer.endOfTurnExtraDraw = undefined;
     drawUpTo(samePlayer, STARTING_HAND_SIZE + extraDraw);
+    if (samePlayer.nextHandBonusCard) {
+      const bonusDef = getCard(samePlayer.nextHandBonusCard.cardId);
+      const bonusName = bonusDef.kind === 'hero' ? bonusDef.cardName : samePlayer.nextHandBonusCard.cardId;
+      samePlayer.hand.push(samePlayer.nextHandBonusCard);
+      samePlayer.nextHandBonusCard = undefined;
+      pushLog(state, { kind: 'system', text: `${samePlayer.username}: ${bonusName} added to hand as 7th card (Electromagnetic Bubble).` });
+    }
     pushLog(state, { kind: 'system', text: `${samePlayer.username} takes an extra turn!` });
     pushLog(state, { kind: 'turn_started', seat: samePlayer.seat, username: samePlayer.username });
     return state;
   }
 
   // 4. Advance to next player, reset turn state, deal 6 (+ any Latveria bonus).
+  // Solo twist tuck: the pendingChoice was set inside revealOneVillainCard, which
+  // runs BEFORE this emptyTurnState() call. Preserve it so the solo player is
+  // prompted at the start of their next turn rather than having it silently wiped.
+  const carryoverTwistTuck = state.thisTurn.pendingChoice?.kind === 'solo_twist_tuck_hero'
+    ? state.thisTurn.pendingChoice
+    : undefined;
   state.currentPlayerIdx = (state.currentPlayerIdx + 1) % state.players.length;
   state.turn++;
   state.thisTurn = emptyTurnState();
+  if (carryoverTwistTuck) state.thisTurn.pendingChoice = carryoverTwistTuck;
   const nextPlayer = state.players[state.currentPlayerIdx];
   const extraDraw = nextPlayer.endOfTurnExtraDraw ?? 0;
   nextPlayer.endOfTurnExtraDraw = undefined;
   drawUpTo(nextPlayer, STARTING_HAND_SIZE + extraDraw);
+  if (nextPlayer.nextHandBonusCard) {
+    const bonusDef = getCard(nextPlayer.nextHandBonusCard.cardId);
+    const bonusName = bonusDef.kind === 'hero' ? bonusDef.cardName : nextPlayer.nextHandBonusCard.cardId;
+    nextPlayer.hand.push(nextPlayer.nextHandBonusCard);
+    nextPlayer.nextHandBonusCard = undefined;
+    pushLog(state, { kind: 'system', text: `${nextPlayer.username}: ${bonusName} added to hand as 7th card (Electromagnetic Bubble).` });
+  }
 
   // ── Pending Master Strike KO: if this player was flagged by a master strike,
   // they must choose a Hero to KO from their freshly drawn hand. ───────────
@@ -2150,17 +3175,40 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
           for (const p of state.players) resolveEffect(state, p, eff);
         }
       }
+      // Immediately check if this twist triggers the evil-wins condition
+      // (e.g. Cosmic Cube Twist 8: Evil Wins!). Mirrors the Mystique check.
+      if (scheme && scheme.evilWinsAfterTwists !== undefined
+          && state.schemeTwistsRevealed >= scheme.evilWinsAfterTwists
+          && !state.result && !state.pendingResult) {
+        state.result = 'loss';
+        state.resultReason = `${scheme.name} succeeded — the heroes have lost.`;
+        state.phase = 'finished';
+        pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+      }
       // Scheme Twists go to the KO pile (they do not enter the city and do
       // NOT push any existing city villains forward — only villain/henchman
       // cards entering the city cause the push).
       state.ko.push(card);
-      // Some schemes (e.g. Negative Zone Prison Breakout) trigger an
-      // additional villain-deck reveal on each twist. Recurse once; the
-      // extra card follows the same routing rules — only a villain or
-      // henchman will push the city, all other types resolve without pushing.
-      if (scheme?.onTwistReveal && !state.result) {
-        pushLog(state, { kind: 'system', text: 'Scheme Twist: revealing an extra card from the Villain Deck...' });
+      // Some schemes (e.g. Negative Zone Prison Breakout) trigger additional
+      // villain-deck reveals on each twist. Each extra reveal follows the same
+      // routing rules — only villain/henchman cards push the city.
+      const extraReveals = scheme?.onTwistRevealCount ?? 0;
+      for (let i = 0; i < extraReveals && !state.result; i++) {
+        pushLog(state, { kind: 'system', text: `Scheme Twist: revealing extra card ${i + 1} of ${extraReveals} from the Villain Deck...` });
         revealOneVillainCard(state);
+      }
+      // Solo extra twist effect: tuck one HQ Hero (cost ≤ 6) to the bottom of the
+      // Hero Deck. Only queued once per twist chain (soloTwistTuckPending guards it).
+      if (state.players.length === 1 && !state.thisTurn.soloTwistTuckPending && !state.result) {
+        const hasEligible = state.hq.some(c => {
+          if (!c) return false;
+          const d = getCard(c.cardId);
+          return d.kind === 'hero' && (d as { cost: number }).cost <= 6;
+        });
+        if (hasEligible) {
+          state.thisTurn.soloTwistTuckPending = true;
+          state.thisTurn.pendingChoice = { kind: 'solo_twist_tuck_hero' };
+        }
       }
       return card;
     }
@@ -2218,87 +3266,114 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
  *  We auto-pick the KO target (highest cost ≤ 6) since player-choice prompts
  *  are a future pass. */
 function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): void {
-  // Push the rightmost slot off first.
-  const lastIdx = state.city.length - 1;
-  const escaped = state.city[lastIdx];
-  if (escaped) {
-    const eDef = getCard(escaped.cardId);
-    if (eDef.kind === 'villain' || eDef.kind === 'henchman') {
-      pushLog(state, { kind: 'villain_escaped', cardId: eDef.cardId, cardName: eDef.name });
+  // Domino-push rule: a new villain entering at the Sewers (slot 0) only
+  // pushes the contiguous leading block of villains toward the Bridge.
+  // Any villain that has a gap (empty slot) between itself and slot 0 stays
+  // in place — it only moves when something physically fills that gap later.
+  //
+  // Example: city = [HN, HN, _, HN, _]
+  //   firstEmpty = 2 → only slots 0–1 shift → [new, HN, HN, HN, _]
+  //   The isolated HN at slot 3 is unaffected.
+  //
+  // When the city is completely full (firstEmpty === -1) the Bridge villain
+  // is pushed off and escapes as normal.
+  const firstEmpty = state.city.findIndex(c => !c);
 
-      // ── Step 1: KO a hero from HQ (highest cost ≤ 6) ─────────────────
-      let koSlot = -1;
-      let koMaxCost = -1;
-      for (let i = 0; i < state.hq.length; i++) {
-        const hqCard = state.hq[i];
-        if (!hqCard) continue;
-        const hqDef = getCard(hqCard.cardId);
-        if (hqDef.kind !== 'hero') continue;
-        if (hqDef.cost <= 6 && hqDef.cost > koMaxCost) {
-          koMaxCost = hqDef.cost;
-          koSlot = i;
-        }
-      }
-      if (koSlot >= 0) {
-        const koCard = state.hq[koSlot]!;
-        state.hq[koSlot] = null;
-        state.ko.push(koCard);
-        const koHeroDef = getCard(koCard.cardId);
-        const heroName = koHeroDef.kind === 'hero' ? koHeroDef.cardName : koCard.cardId;
-        pushLog(state, { kind: 'system', text: `Escape: ${eDef.name} KO'd ${heroName} from the HQ.` });
-        refillHQ(state, true);
-      }
+  if (firstEmpty === -1) {
+    // ── City fully occupied: Bridge villain escapes ───────────────────────
+    const lastIdx = state.city.length - 1;
+    const escaped = state.city[lastIdx];
+    if (escaped) {
+      const eDef = getCard(escaped.cardId);
+      if (eDef.kind === 'villain' || eDef.kind === 'henchman') {
+        pushLog(state, { kind: 'villain_escaped', cardId: eDef.cardId, cardName: eDef.name });
 
-      // ── Step 2: Bystander penalty ──────────────────────────────────────
-      // Bystanders stay in the Escape Pile (attached to the escaped villain).
-      // Each player that has cards in hand must discard one.
-      const bys = state.cityBystanders[escaped.instanceId] ?? [];
-      if (bys.length > 0) {
-        const byCount = bys.length;
-        delete state.cityBystanders[escaped.instanceId];
-        for (const p of state.players) {
-          if (p.hand.length > 0) {
-            const discarded = p.hand.splice(0, 1)[0];
-            p.discard.push(discarded);
-            pushLog(state, {
-              kind: 'system',
-              text: `${p.username} discarded a card — ${eDef.name} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
-            });
+        // ── Step 1: KO a hero from HQ (highest cost ≤ 6) ─────────────────
+        let koSlot = -1;
+        let koMaxCost = -1;
+        for (let i = 0; i < state.hq.length; i++) {
+          const hqCard = state.hq[i];
+          if (!hqCard) continue;
+          const hqDef = getCard(hqCard.cardId);
+          if (hqDef.kind !== 'hero') continue;
+          if (hqDef.cost <= 6 && hqDef.cost > koMaxCost) {
+            koMaxCost = hqDef.cost;
+            koSlot = i;
           }
         }
-      } else {
-        delete state.cityBystanders[escaped.instanceId];
-      }
-
-      // ── Step 3: Villain's own Escape effect ───────────────────────────
-      if (eDef.kind === 'villain' && eDef.escape) {
-        for (const eff of eDef.escape) {
-          for (const p of state.players) resolveEffect(state, p, eff);
+        if (koSlot >= 0) {
+          const koCard = state.hq[koSlot]!;
+          state.hq[koSlot] = null;
+          state.ko.push(koCard);
+          const koHeroDef = getCard(koCard.cardId);
+          const heroName = koHeroDef.kind === 'hero' ? koHeroDef.cardName : koCard.cardId;
+          pushLog(state, { kind: 'system', text: `Escape: ${eDef.name} KO'd ${heroName} from the HQ.` });
+          refillHQ(state, true);
         }
-      }
 
-      state.escapedPile.push(escaped);
+        // ── Step 2: Bystander penalty ──────────────────────────────────────
+        // Bystanders stay in the Escape Pile (attached to the escaped villain).
+        // Each player that has cards in hand must discard one.
+        const bys = state.cityBystanders[escaped.instanceId] ?? [];
+        if (bys.length > 0) {
+          const byCount = bys.length;
+          delete state.cityBystanders[escaped.instanceId];
+          for (const p of state.players) {
+            if (p.hand.length > 0) {
+              const discarded = p.hand.splice(0, 1)[0];
+              p.discard.push(discarded);
+              pushLog(state, {
+                kind: 'system',
+                text: `${p.username} discarded a card — ${eDef.name} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
+              });
+            }
+          }
+        } else {
+          delete state.cityBystanders[escaped.instanceId];
+        }
 
-      // ── Check escape-count loss condition immediately (e.g. Prison Breakout). ──
-      if (!state.result) {
-        const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
-        if (scheme?.evilWinsAfterEscapes !== undefined
-            && state.escapedPile.length >= scheme.evilWinsAfterEscapes) {
-          const n = state.escapedPile.length;
-          state.result       = 'loss';
-          state.resultReason = `${n} villain${n === 1 ? '' : 's'} escaped — ${scheme.name} succeeded.`;
-          state.phase        = 'finished';
-          pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+        // ── Step 3: Villain's own Escape effect ───────────────────────────
+        if (eDef.kind === 'villain' && eDef.escape) {
+          for (const eff of eDef.escape) {
+            // trigger_scheme_twist must fire exactly once (not once per player).
+            if (eff.kind === 'trigger_scheme_twist') {
+              resolveEffect(state, state.players[state.currentPlayerIdx], eff);
+            } else {
+              for (const p of state.players) resolveEffect(state, p, eff);
+            }
+          }
+        }
+
+        state.escapedPile.push(escaped);
+
+        // ── Check escape-count loss condition immediately (e.g. Prison Breakout). ──
+        if (!state.result) {
+          const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
+          if (scheme?.evilWinsAfterEscapes !== undefined
+              && state.escapedPile.length >= scheme.evilWinsAfterEscapes) {
+            const n = state.escapedPile.length;
+            state.result       = 'loss';
+            state.resultReason = `${n} villain${n === 1 ? '' : 's'} escaped — ${scheme.name} succeeded.`;
+            state.phase        = 'finished';
+            pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+          }
         }
       }
     }
+    // Full shift — city was fully occupied so every slot advances one step.
+    // cityBystanders is keyed by instanceId so bystanders travel with their
+    // villain automatically (no separate move needed).
+    for (let i = state.city.length - 1; i > 0; i--) {
+      state.city[i] = state.city[i - 1];
+    }
+  } else {
+    // ── Gap exists: push only the leading block (slots 0 → firstEmpty−1) ──
+    // Villains beyond the first empty slot are unaffected — they stay put.
+    for (let i = firstEmpty; i > 0; i--) {
+      state.city[i] = state.city[i - 1];
+    }
   }
-  // Shift right — all existing villains move one slot toward Bridge.
-  // cityBystanders is keyed by instanceId so bystanders travel with their
-  // villain automatically (no separate move needed).
-  for (let i = state.city.length - 1; i > 0; i--) {
-    state.city[i] = state.city[i - 1];
-  }
+
   state.city[0] = card;
 
   // Log the reveal first, THEN fire Ambush. Per the rules:

@@ -13,15 +13,24 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, TEAM_ICON_DATA } from '@/components/legendary/HeroCardArt';
+import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, CLASS_CHIP_COLORS, CLASS_ICONS, TEAM_ICON_DATA, CardText } from '@/components/legendary/HeroCardArt';
 import { VillainCardArt, HenchmanCardArt, TacticCardArt } from '@/components/legendary/SystemCardArt';
 import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, TacticCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
 import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
+import { BROTHERHOOD_GROUP } from '@/lib/games/legendary/villains/brotherhood';
+import { ENEMIES_OF_ASGARD_GROUP } from '@/lib/games/legendary/villains/enemies-of-asgard';
+import { MASTERS_OF_EVIL_GROUP } from '@/lib/games/legendary/villains/masters-of-evil';
 import { HAND_NINJA_GROUP } from '@/lib/games/legendary/villains/hand-ninjas';
+import { DOOMBOT_HENCHMAN_GROUP } from '@/lib/games/legendary/villains/doombot-legion';
+import { SAVAGE_LAND_MUTATES_GROUP } from '@/lib/games/legendary/villains/savage-land-mutates';
+import { SENTINEL_GROUP } from '@/lib/games/legendary/villains/sentinels';
 import { RED_SKULL, RED_SKULL_TACTICS } from '@/lib/games/legendary/masterminds/red-skull';
 import { DR_DOOM, DR_DOOM_TACTICS } from '@/lib/games/legendary/masterminds/dr-doom';
+import { LOKI, LOKI_TACTICS } from '@/lib/games/legendary/masterminds/loki';
+import { MAGNETO, MAGNETO_TACTICS } from '@/lib/games/legendary/masterminds/magneto';
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
+import { COSMIC_CUBE } from '@/lib/games/legendary/schemes/cosmic-cube';
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
 import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK } from '@/lib/games/legendary';
 import type { WoundCardDef, BystanderCardDef, MasterStrikeCardDef, SchemeTwistCardDef } from '@/lib/games/legendary';
@@ -121,7 +130,16 @@ const EFFECT_KINDS: { kind: EffectKind; label: string; description: string }[] =
   { kind: 'if_recruit_ge',                      label: 'If recruit ≥ N',                 description: 'Conditional: fires nested effects if the current Recruit pool is ≥ threshold.' },
   { kind: 'enable_recruit_as_attack',           label: 'Recruit → Attack (one-way)',      description: 'For this turn, Recruit can be spent as Attack. Attack cannot pay Recruit costs.' },
   // Wolverine-specific
-  { kind: 'gain_attack_per_extra_card_drawn_this_turn', label: '+Strike per extra card drawn', description: '+N Attack for each extra card drawn via effects this turn (Berserker Rage).' },
+  { kind: 'gain_attack_per_extra_card_drawn_this_turn', label: '+Strike per extra card drawn',   description: '+N Attack for each extra card drawn via effects this turn (Berserker Rage).' },
+  { kind: 'gain_attack_per_unique_class_in_hand',       label: '+Strike per unique class in hand', description: '+1 Strike per distinct hero class among cards in hand + played this turn.' },
+  { kind: 'gain_recruit_per_unique_class_in_hand',      label: '+Recruit per unique class in hand', description: '+1 Recruit per distinct hero class among cards in hand + played this turn.' },
+  // Masters of Evil villain effects
+  { kind: 'rescue_bystander_per_avengers_hero',    label: 'Rescue per Avengers Hero',        description: 'Rescue one Bystander for each Avengers Hero the active player has in hand or played this turn.' },
+  { kind: 'ko_heroes_from_hand_if_at_location',    label: 'KO Heroes if at location',         description: 'KO N Heroes from hand if the villain was fought at one of the given city locations.' },
+  { kind: 'each_player_reveal_tech_hero_or_wound',  label: 'Reveal [tech] or Wound (all)',    description: 'Each player reveals a [tech] Hero from hand or gains a Wound.' },
+  { kind: 'melter_reveal_top_each_player',         label: 'Reveal top deck (all) KO/return', description: 'Each player reveals their top deck card; active player KOs or returns each.' },
+  // Scheme twist conditional
+  { kind: 'if_twists_revealed', label: 'If twists in range', description: 'Fire inner effects only when the twist count is within the given range.' },
 ];
 
 // All teams known to the engine.
@@ -592,11 +610,13 @@ function EffectParams({ effect, onChange }: { effect: Effect; onChange: (next: E
           <Field label="Filter" inline>
             <select
               value={effect.filter ?? ''}
-              onChange={e => onChange({ ...effect, filter: (e.target.value || undefined) as 'wounds_only' | undefined })}
+              onChange={e => onChange({ ...effect, filter: (e.target.value || undefined) as 'wounds_only' | 'shield_heroes' | 'heroes_only' | undefined })}
               className={inputSm()}
             >
               <option value="">Any card</option>
               <option value="wounds_only">Wounds only</option>
+              <option value="shield_heroes">S.H.I.E.L.D. Heroes only</option>
+              <option value="heroes_only">Heroes only</option>
             </select>
           </Field>
           <Field label="Bonus effects (if player does)">
@@ -844,6 +864,39 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'free_recruit_tech_or_ranged_from_hq':            return { kind };
     case 'extra_hand_cards':                               return { kind, amount: 3 };
     case 'extra_turn':                                     return { kind };
+    // Doombot Legion henchman fight
+    case 'look_top_two_ko_one_return_one':                 return { kind };
+    // Brotherhood villain effects
+    case 'reveal_xmen_or_wound':                           return { kind };
+    case 'each_player_reveal_xmen_or_wound':               return { kind };
+    case 'ko_heroes_from_discard':                         return { kind, amount: 2 };
+    case 'ko_heroes_from_hand_immediate':                  return { kind, amount: 2 };
+    case 'trigger_scheme_twist':                           return { kind };
+    case 'reveal_ranged_or_wound':                         return { kind };
+    case 'each_player_reveal_ranged_or_wound':             return { kind };
+    case 'ko_wounds_from_hand_and_discard':                return { kind };
+    case 'ko_all_shield_from_hand':                        return { kind };
+    // HYDRA villain effects
+    case 'villain_deck_reveal_top':                        return { kind, amount: 2 };
+    case 'each_player_without_hydra_vp_gains_wound':       return { kind };
+    // Masters of Evil villain effects
+    case 'rescue_bystander_per_avengers_hero':             return { kind };
+    case 'ko_heroes_from_hand_if_at_location':             return { kind, locations: ['rooftops', 'bridge'], amount: 2 };
+    case 'each_player_reveal_tech_hero_or_wound':          return { kind };
+    case 'melter_reveal_top_each_player':                  return { kind };
+    // Scheme twist conditional
+    case 'if_twists_revealed':                             return { kind, min: 5, max: 6, effects: [] };
+    // Loki effects
+    case 'loki_master_strike':                             return { kind };
+    case 'ko_villain_from_vp':                             return { kind };
+    case 'ko_bystanders_from_vp':                          return { kind, count: 2 };
+    case 'grant_fight_city_free':                          return { kind };
+    case 'ko_up_to_from_discard':                          return { kind, amount: 4 };
+    // Magneto effects
+    case 'magneto_master_strike':                          return { kind };
+    case 'free_recruit_xmen_from_hq_effect':               return { kind };
+    case 'em_bubble':                                      return { kind };
+    case 'reveal_xmen_or_gain_wounds':                     return { kind, amount: 2 };
   }
 }
 
@@ -1055,7 +1108,7 @@ function tsForCard(def: HeroCardDef): string {
 // Card browser — read-only view of ALL base-set cards with type filter
 // ---------------------------------------------------------------------------
 
-type CardFilter = 'heroes' | 'teams' | 'starters' | 'villains' | 'henchmen' | 'mastermind' | 'scheme' | 'rules';
+type CardFilter = 'heroes' | 'teams' | 'starters' | 'villains' | 'henchmen' | 'mastermind' | 'scheme' | 'rules' | 'icons';
 
 const FILTER_TABS: { id: CardFilter; label: string; badge: string }[] = [
   { id: 'heroes',      label: 'Heroes',          badge: '15 classes' },
@@ -1066,6 +1119,7 @@ const FILTER_TABS: { id: CardFilter; label: string; badge: string }[] = [
   { id: 'mastermind', label: 'Mastermind',       badge: 'Red Skull' },
   { id: 'scheme',     label: 'Scheme',           badge: 'Negative Zone' },
   { id: 'rules',      label: 'Rules & Keywords', badge: 'glossary' },
+  { id: 'icons',      label: 'Icons',            badge: 'class symbols' },
 ];
 
 function CardBrowser({ onAuthor }: { onAuthor: (type: SandboxMode) => void }) {
@@ -1125,6 +1179,7 @@ function CardBrowser({ onAuthor }: { onAuthor: (type: SandboxMode) => void }) {
       {filter === 'mastermind' && <MastermindSection />}
       {filter === 'scheme'     && <SchemeSection />}
       {filter === 'rules'      && <RulesSection />}
+      {filter === 'icons'      && <IconsSection />}
     </div>
   );
 }
@@ -1256,7 +1311,7 @@ function TeamsSection() {
               <div className="flex items-center gap-3">
                 <div
                   style={{ backgroundColor: data.color, color: data.textColor ?? '#000' }}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-xl font-black shadow"
+                  className={`flex h-11 w-11 shrink-0 items-center justify-center text-xl font-black shadow ${team.startsWith('shield') ? 'rounded-full' : 'rounded-md'}`}
                 >
                   {data.abbr}
                 </div>
@@ -1298,7 +1353,7 @@ function TeamsSection() {
               <div key={team} className="flex items-center gap-2">
                 <div
                   style={{ backgroundColor: data.color, color: data.textColor ?? '#000' }}
-                  className="flex h-[14px] w-[14px] shrink-0 items-center justify-center rounded-sm text-[7px] font-black leading-none"
+                  className={`flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[7px] font-black leading-none ${team.startsWith('shield') ? 'rounded-full' : 'rounded-sm'}`}
                 >
                   {data.abbr}
                 </div>
@@ -1447,9 +1502,10 @@ function GenericSidekickPanel() {
   );
 }
 
-/** Unified system card — name centered (no text) or name-at-top + body (with text). */
-function SystemCardArt({ name, borderColor, vp, bg, text }: {
-  name: string; borderColor: string; vp?: number; bg?: string; text?: string;
+/** Unified system card — name centered (no text) or name-at-top + ability-text layout.
+ *  Two-row header matches hero card structure so ability text aligns at the same position. */
+function SystemCardArt({ name, borderColor, vp, bg, text, typeLabel }: {
+  name: string; borderColor: string; vp?: number; bg?: string; text?: string; typeLabel?: string;
 }) {
   if (text) {
     return (
@@ -1457,8 +1513,17 @@ function SystemCardArt({ name, borderColor, vp, bg, text }: {
         style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}
         className="relative flex h-[165px] w-[220px] flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2"
       >
+        {/* Row 1 — card name */}
         <span className="text-[12px] font-bold leading-tight text-neutral-100">{name}</span>
-        <div className="mt-1 flex-1 text-[10px] leading-snug text-neutral-300">{text}</div>
+        {/* Row 2 — type label; transparent when absent so text still starts at the same height */}
+        <div
+          className="text-[10px] font-semibold uppercase tracking-wider"
+          style={{ color: typeLabel ? borderColor : 'transparent' }}
+        >
+          {typeLabel ?? ' '}
+        </div>
+        {/* Ability text — pt-3 + text-[12px] matches hero card text start position */}
+        <div className="mb-1 flex-1 pr-2 pt-3 text-[12px] leading-snug text-neutral-300">{text}</div>
         {vp !== undefined && (
           <div
             aria-label={`${vp} VP`}
@@ -1502,7 +1567,7 @@ function GenericWoundPanel() {
       </div>
       <div className="flex flex-wrap gap-6">
         <div className="flex flex-col items-start gap-2">
-          <SystemCardArt name="Wound" borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)" />
+          <SystemCardArt name="Wound" borderColor="#7a3030" bg="linear-gradient(135deg, #6b2525, #5a1e1e)" text={(WOUND as { text?: string }).text} />
           <div className="text-xs text-neutral-500">30 in wound stack</div>
         </div>
       </div>
@@ -1516,8 +1581,10 @@ function GenericBystanderPanel() {
       <div className="mb-3">
         <h2 className="text-base font-semibold text-neutral-100">Bystander</h2>
         <p className="mt-1 text-xs text-neutral-500">
-          Civilians caught up in the fight. Attached to villain cards when they are revealed.
-          Rescue a bystander by defeating the villain carrying it — worth 1 VP per bystander.
+          Civilians caught up in the fight. Attached to villain cards when revealed — worth 1 VP each.
+          Card effects that say "rescue a Bystander" draw from the Bystander Deck and put it
+          directly in your Victory Pile. To save Bystanders held by a specific villain in the
+          City, you must defeat that villain — rescue effects can't reach them.
         </p>
       </div>
       <div className="flex flex-wrap gap-6">
@@ -1536,8 +1603,9 @@ function GenericMasterStrikePanel() {
       <div className="mb-3">
         <h2 className="text-base font-semibold text-neutral-100">Master Strike</h2>
         <p className="mt-1 text-xs text-neutral-500">
-          Shuffled into the Villain Deck. When revealed, the Mastermind's strike effect fires
-          against every player simultaneously. The card is KO'd (does not enter the City).
+          Shuffled into the Villain Deck. When revealed, the active Mastermind's strike effect fires.
+          Most strikes affect each player, but some only affect the current player — check the
+          Mastermind card for the exact wording. The Master Strike card is then KO'd (does not enter the City).
         </p>
       </div>
       <div className="flex flex-wrap gap-6">
@@ -1569,7 +1637,7 @@ function GenericSchemeTwistPanel() {
       <div className="flex flex-wrap gap-6">
         <div className="flex flex-col items-start gap-2">
           <SystemCardArt name="Scheme Twist" borderColor="#4a2880" bg="linear-gradient(135deg, #3a2068, #2d1855)" />
-          <div className="text-xs text-neutral-500">{scheme.twists} copies · evil wins after {scheme.evilWinsAfterTwists} twists</div>
+          <div className="text-xs text-neutral-500">{scheme.twists} twists · {scheme.bystanders} bystanders</div>
         </div>
       </div>
     </>
@@ -1579,7 +1647,7 @@ function GenericSchemeTwistPanel() {
 
 // ─── Villain section ──────────────────────────────────────────────────────────
 
-const VILLAIN_GROUPS = [HYDRA_GROUP];
+const VILLAIN_GROUPS = [HYDRA_GROUP, BROTHERHOOD_GROUP, ENEMIES_OF_ASGARD_GROUP, MASTERS_OF_EVIL_GROUP];
 
 function VillainsSection() {
   const [selectedGroup, setSelectedGroup] = useState(0);
@@ -1627,7 +1695,7 @@ function VillainsSection() {
 
 // ─── Henchmen section ────────────────────────────────────────────────────────
 
-const HENCHMAN_GROUPS = [HAND_NINJA_GROUP];
+const HENCHMAN_GROUPS = [HAND_NINJA_GROUP, DOOMBOT_HENCHMAN_GROUP, SAVAGE_LAND_MUTATES_GROUP, SENTINEL_GROUP];
 
 function HenchmenSection() {
   const [selectedGroup, setSelectedGroup] = useState(0);
@@ -1679,7 +1747,66 @@ type MastermindEntry = { card: MastermindCardDef; tactics: readonly TacticCardDe
 const MASTERMINDS: MastermindEntry[] = [
   { card: RED_SKULL, tactics: RED_SKULL_TACTICS },
   { card: DR_DOOM,   tactics: DR_DOOM_TACTICS   },
+  { card: LOKI,      tactics: LOKI_TACTICS      },
+  { card: MAGNETO,   tactics: MAGNETO_TACTICS   },
 ];
+
+/** Static board-accurate mastermind panel — matches MastermindZone in LegendaryBoard.tsx
+ *  but rendered as a plain div (no fight button) for sandbox preview. */
+function SandboxMastermindPanel({ def }: { def: MastermindCardDef }) {
+  const borderColor = '#DC143C';
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
+      className="relative flex h-36 w-[448px] flex-col rounded-lg bg-gradient-to-br from-red-950/40 to-neutral-950/40 p-2 text-left"
+    >
+      {/* Name */}
+      <div className="truncate text-[15px] font-bold leading-tight text-white">{def.name}</div>
+      {/* Type label */}
+      <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Mastermind
+      </div>
+      {/* Always Leads */}
+      <div className="mt-0.5 text-[11px]">
+        <span className="font-semibold" style={{ color: borderColor }}>Always Leads: </span>
+        <span className="font-bold text-white">{def.alwaysLeads}</span>
+      </div>
+      {/* Master Strike text — "Label:" in crimson, body in white */}
+      {def.text && (() => {
+        const colonIdx = def.text!.indexOf(':');
+        const label = colonIdx > 0 ? def.text!.slice(0, colonIdx + 1) : '';
+        const body  = colonIdx > 0 ? def.text!.slice(colonIdx + 1).trim() : def.text!;
+        return (
+          <div className="mt-1 line-clamp-2 pr-8 text-[11px] leading-snug">
+            {label && (
+              <span className="font-bold uppercase tracking-wide" style={{ color: borderColor }}>{label} </span>
+            )}
+            <span className="text-white"><CardText text={body} /></span>
+          </div>
+        );
+      })()}
+      {/* Tactic bars — all filled (none taken in preview) */}
+      <div className="mt-auto pt-1">
+        <div className="flex gap-1.5">
+          {Array.from({ length: def.hits }).map((_, i) => (
+            <div key={i} className="h-2 flex-1 rounded bg-rose-800" />
+          ))}
+        </div>
+      </div>
+      {/* VP badge */}
+      <div
+        className="absolute right-1 top-1/2 -translate-y-1/2 flex h-[22px] w-[22px] items-center justify-center rounded-full text-[10px] font-bold shadow"
+        style={{ backgroundColor: '#b91c1c', border: '1px solid #ef4444', color: '#fff' }}
+      >
+        {def.vp}
+      </div>
+      {/* Attack stat — pinned above the tactic bars */}
+      <span className="absolute right-1 bottom-[20px] flex items-center gap-0.5 text-[13px] font-semibold text-white">
+        {def.attack}<SbStrikeIcon />
+      </span>
+    </div>
+  );
+}
 
 function MastermindSection() {
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -1706,30 +1833,22 @@ function MastermindSection() {
         ))}
       </aside>
 
-      {/* Right: mastermind card + 4 tactic cards — same pattern as HeroSection */}
+      {/* Right: board-accurate mastermind panel + tactics in a single row */}
       <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-4">
         <div className="mb-3 flex items-baseline justify-between">
           <h2 className="text-base font-semibold text-neutral-100">{mm.name}</h2>
           <span className="text-xs text-neutral-500">1 mastermind · 4 tactics</span>
         </div>
-        <div className="flex flex-wrap gap-6">
-          {/* Mastermind card */}
-          <div className="flex flex-col items-center gap-2">
-            <MastermindCardArt def={mm} />
-            <div className="text-xs text-neutral-500">Mastermind</div>
-            {mm.text && (
-              <div className="w-[280px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
-                {mm.text}
-              </div>
-            )}
-          </div>
-          {/* 4 tactic cards */}
+
+        {/* Board-style mastermind panel — full width, matches the live game board */}
+        <SandboxMastermindPanel def={mm} />
+
+        {/* 4 tactic cards in a single horizontal row */}
+        <div className="mt-6 flex gap-4 overflow-x-auto pb-2">
           {tactics.map(tactic => (
-            <div key={tactic.cardId} className="flex flex-col items-center gap-2">
+            <div key={tactic.cardId} className="flex shrink-0 flex-col items-center gap-2">
               <TacticCardArt def={tactic} mastermindName={mm.name} attack={mm.attack} />
-              <div className="text-xs text-neutral-500">
-                <span className="font-mono">{tactic.vp}VP</span>
-              </div>
+              <div className="text-xs text-neutral-500">{tactic.vp}VP</div>
               {tactic.text && (
                 <div className="w-[220px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
                   {tactic.text}
@@ -1745,7 +1864,7 @@ function MastermindSection() {
 
 // ─── Scheme section ───────────────────────────────────────────────────────────
 
-const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT];
+const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT, COSMIC_CUBE];
 
 function SchemeSection() {
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -1894,7 +2013,7 @@ function MastermindCardArt({ def }: { def: MastermindCardDef }) {
         Mastermind
       </div>
       <div className="mt-1 text-[11px] text-neutral-400">
-        Always Leads: <span className="font-semibold text-neutral-200">{def.alwaysLeads.toUpperCase()}</span>
+        Always Leads: <span className="font-semibold text-neutral-200">{def.alwaysLeads}</span>
       </div>
       {def.text && (
         <div className="my-2 border-t border-neutral-800 pt-2 text-[11px] leading-snug text-neutral-300">
@@ -1919,6 +2038,27 @@ function MastermindCardArt({ def }: { def: MastermindCardDef }) {
 function SchemeCardArt({ def }: { def: SchemeCardDef }) {
   const borderColor = '#6366f1'; // indigo-500
 
+  // Split text on newlines; for each segment render the "Label:" portion bold
+  // inline, immediately followed by the description on the same line.
+  const textLines = def.text
+    ? def.text.split('\n').map((segment, i) => {
+        const colonIdx = segment.indexOf(':');
+        if (colonIdx > 0) {
+          const label = segment.slice(0, colonIdx + 1); // e.g. "Setup:"
+          const body  = segment.slice(colonIdx + 1).trim(); // e.g. "Add an extra…"
+          return (
+            <div key={i} className="mb-1.5 text-[11px] leading-snug text-neutral-300">
+              <span className="mr-1 font-bold uppercase tracking-wide" style={{ color: borderColor }}>
+                {label}
+              </span>
+              {body}
+            </div>
+          );
+        }
+        return <div key={i} className="mb-1.5 text-[11px] leading-snug text-neutral-300">{segment}</div>;
+      })
+    : null;
+
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
@@ -1928,26 +2068,776 @@ function SchemeCardArt({ def }: { def: SchemeCardDef }) {
       <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
         Scheme
       </div>
-      {def.text && (
-        <div className="my-2 border-t border-neutral-800 pt-2 text-[11px] leading-snug text-neutral-300">
-          {def.text}
+      {textLines && (
+        <div className="mt-2 border-t border-neutral-800 pt-2">
+          {textLines}
         </div>
       )}
-      <div className="mt-auto flex flex-wrap gap-4 border-t border-neutral-800 pt-2 text-[12px]">
-        <span>
-          <span className="font-bold text-white">{def.twists}</span>
-          <span className="ml-1 text-[10px] text-neutral-500">Scheme Twists</span>
-        </span>
-        <span>
-          <span className="font-bold text-white">{def.bystanders}</span>
-          <span className="ml-1 text-[10px] text-neutral-500">Bystanders</span>
-        </span>
-        <span>
-          <span className="text-[10px] text-neutral-500">Evil wins after</span>
-          <span className="ml-1 font-bold text-white">{def.evilWinsAfterTwists}</span>
-          <span className="ml-1 text-[10px] text-neutral-500">twists</span>
-        </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Icons section — class icon comparison across all three iterations
+// ---------------------------------------------------------------------------
+
+const ICON_CLASSES: { key: 'strength' | 'instinct' | 'covert' | 'tech' | 'ranged'; label: string; dotColor: string }[] = [
+  { key: 'strength', label: 'Strength', dotColor: '#22c55e' },
+  { key: 'instinct', label: 'Instinct', dotColor: '#eab308' },
+  { key: 'covert',   label: 'Covert',   dotColor: '#ef4444' },
+  { key: 'tech',     label: 'Tech',     dotColor: '#4a5568' },
+  { key: 'ranged',   label: 'Ranged',   dotColor: '#3b82f6' },
+];
+
+const ICON_SIZES = [12, 16, 24, 32, 48] as const;
+
+/** SVG icons — hand-crafted geometric approximations (v2, replaced by PNG). */
+const SVG_ICONS_V2: Record<string, React.ReactElement> = {
+  strength: (
+    <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+      <rect x="3.5" y="1"   width="2.8" height="4.5" rx="1.4" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+      <rect x="7"   y="1.5" width="2.8" height="4"   rx="1.4" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+      <rect x="10"  y="2"   width="2.5" height="3.5" rx="1.2" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+      <rect x="3"   y="4.5" width="10"  height="8.5" rx="1.5" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+      <rect x="1"   y="7.5" width="3.5" height="4"   rx="1.5" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+      <rect x="4"   y="5.8" width="8.5" height="1.2" rx="0.6" fill="#14532d" opacity="0.5"/>
+      <rect x="4"   y="1.2" width="1.4" height="1.2" rx="0.5" fill="#86efac" opacity="0.7"/>
+      <rect x="7.5" y="1.7" width="1.4" height="1.2" rx="0.5" fill="#86efac" opacity="0.7"/>
+      <rect x="10.5" y="2.2" width="1.2" height="1"  rx="0.5" fill="#86efac" opacity="0.7"/>
+    </svg>
+  ),
+  instinct: (
+    <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+      <polygon
+        points="8,0.8 9.9,4.9 14.2,4.3 11.4,7.8 13.4,12.1 8.8,10.5 8,15.2 7.2,10.5 2.6,12.1 4.6,7.8 1.8,4.3 6.1,4.9"
+        fill="#eab308" stroke="#92400e" strokeWidth="0.4" strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8" r="2.6" fill="#ca8a04"/>
+      <circle cx="7.2" cy="7.2" r="1" fill="#fde047" opacity="0.55"/>
+    </svg>
+  ),
+  covert: (
+    <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+      <path d="M 2.5 8.5 A 5.5 5.5 0 0 1 13.5 7.5" stroke="#ef4444" strokeWidth="2.4" strokeLinecap="round"/>
+      <polygon points="12,4.5 15.2,7.8 11.8,9.5" fill="#ef4444"/>
+      <path d="M 13.5 7.5 A 5.5 5.5 0 0 1 2.5 8.5" stroke="#ef4444" strokeWidth="2.4" strokeLinecap="round"/>
+      <polygon points="4,11.5 0.8,8.2 4.2,6.5" fill="#ef4444"/>
+    </svg>
+  ),
+  tech: (
+    <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+      <rect x="4"    y="4"    width="8"   height="8"   rx="1.2" fill="#374151" stroke="#9ca3af" strokeWidth="0.8"/>
+      <rect x="5.8"  y="5.8"  width="4.4" height="4.4" rx="0.6" fill="#6b7280"/>
+      <rect x="6.6"  y="6.6"  width="1.2" height="1.2" rx="0.2" fill="#9ca3af"/>
+      <rect x="8.2"  y="6.6"  width="1.2" height="1.2" rx="0.2" fill="#9ca3af"/>
+      <rect x="6.6"  y="8.2"  width="1.2" height="1.2" rx="0.2" fill="#9ca3af"/>
+      <rect x="8.2"  y="8.2"  width="1.2" height="1.2" rx="0.2" fill="#9ca3af"/>
+      <rect x="6.4"  y="1.8"  width="1.1" height="2.4" rx="0.4" fill="#9ca3af"/>
+      <rect x="8.5"  y="1.8"  width="1.1" height="2.4" rx="0.4" fill="#9ca3af"/>
+      <rect x="6.4"  y="11.8" width="1.1" height="2.4" rx="0.4" fill="#9ca3af"/>
+      <rect x="8.5"  y="11.8" width="1.1" height="2.4" rx="0.4" fill="#9ca3af"/>
+      <rect x="1.8"  y="6.4"  width="2.4" height="1.1" rx="0.4" fill="#9ca3af"/>
+      <rect x="1.8"  y="8.5"  width="2.4" height="1.1" rx="0.4" fill="#9ca3af"/>
+      <rect x="11.8" y="6.4"  width="2.4" height="1.1" rx="0.4" fill="#9ca3af"/>
+      <rect x="11.8" y="8.5"  width="2.4" height="1.1" rx="0.4" fill="#9ca3af"/>
+    </svg>
+  ),
+  ranged: (
+    <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+      <polygon points="8,1 15,8 8,15 1,8" fill="none" stroke="#22d3ee" strokeWidth="1.5"/>
+      <line x1="3.2"  y1="3.2"  x2="12.8" y2="12.8" stroke="#22d3ee" strokeWidth="0.9" opacity="0.65"/>
+      <line x1="12.8" y1="3.2"  x2="3.2"  y2="12.8" stroke="#22d3ee" strokeWidth="0.9" opacity="0.65"/>
+      <polygon points="8,4.5 11.5,8 8,11.5 4.5,8" fill="#22d3ee" opacity="0.25"/>
+      <circle cx="8" cy="8" r="1.8" fill="#22d3ee" opacity="0.9"/>
+    </svg>
+  ),
+};
+
+/** New SVG variant sets for the Icons sandbox tab. */
+const SVG_VARIANTS: {
+  id: string;
+  label: string;
+  notes: string;
+  icons: Record<string, React.ReactElement>;
+}[] = [
+  {
+    id: 'v2',
+    label: 'Original SVG',
+    notes: 'Fist · Star · Dual arcs · Chip · Diamond',
+    icons: SVG_ICONS_V2,
+  },
+  {
+    id: 'B',
+    label: 'Shield · Lightning · Dagger · Gear · Bullseye',
+    notes: 'Strength=shield, Instinct=bolt (not a star), Covert=dagger, Tech=cog, Ranged=target',
+    icons: {
+      strength: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M8,1.2 L13.8,4 L13.8,9.5 Q13.8,14.5 8,15.2 Q2.2,14.5 2.2,9.5 L2.2,4 Z" fill="#22c55e" stroke="#14532d" strokeWidth="0.6"/>
+          <rect x="7.1" y="3.8" width="1.8" height="7.5" rx="0.5" fill="#14532d" opacity="0.45"/>
+          <rect x="4"   y="6.5" width="8"   height="1.8" rx="0.5" fill="#14532d" opacity="0.45"/>
+        </svg>
+      ),
+      instinct: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M10.5,1.5 L5.5,8.5 L9.2,8.5 L5.8,14.5 L12.5,6.5 L8.8,6.5 Z" fill="#eab308" stroke="#92400e" strokeWidth="0.4" strokeLinejoin="round"/>
+          <line x1="9.5" y1="2.5" x2="7" y2="7" stroke="#fde047" strokeWidth="0.7" strokeLinecap="round" opacity="0.65"/>
+        </svg>
+      ),
+      covert: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M8,1.2 L9.8,7.8 L8,9.5 L6.2,7.8 Z" fill="#ef4444" stroke="#7f1d1d" strokeWidth="0.4"/>
+          <rect x="4.5" y="8.5" width="7"  height="2"   rx="1"   fill="#ef4444" stroke="#7f1d1d" strokeWidth="0.4"/>
+          <rect x="7"   y="10.5" width="2" height="4"   rx="0.8" fill="#ef4444" stroke="#7f1d1d" strokeWidth="0.4"/>
+          <line x1="7.6" y1="2.5" x2="7.2" y2="7.2" stroke="#fca5a5" strokeWidth="0.7" strokeLinecap="round" opacity="0.6"/>
+        </svg>
+      ),
+      tech: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <circle cx="8" cy="8" r="5.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.8"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(0,8,8)"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(45,8,8)"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(90,8,8)"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(135,8,8)"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(180,8,8)"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(225,8,8)"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(270,8,8)"/>
+          <rect x="6.5" y="0.5" width="3" height="2" rx="0.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.6" transform="rotate(315,8,8)"/>
+          <circle cx="8" cy="8" r="2.2" fill="#1f2937"/>
+          <circle cx="8" cy="8" r="1"   fill="#374151"/>
+        </svg>
+      ),
+      ranged: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <circle cx="8" cy="8" r="6.5" stroke="#22d3ee" strokeWidth="1.2" fill="none"/>
+          <circle cx="8" cy="8" r="4.2" stroke="#22d3ee" strokeWidth="1.2" fill="none"/>
+          <circle cx="8" cy="8" r="2"   fill="#22d3ee" opacity="0.9"/>
+          <line x1="8"   y1="0.5"  x2="8"   y2="3"    stroke="#22d3ee" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="8"   y1="13"   x2="8"   y2="15.5" stroke="#22d3ee" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="0.5" y1="8"    x2="3"   y2="8"    stroke="#22d3ee" strokeWidth="1" strokeLinecap="round"/>
+          <line x1="13"  y1="8"    x2="15.5" y2="8"   stroke="#22d3ee" strokeWidth="1" strokeLinecap="round"/>
+        </svg>
+      ),
+    },
+  },
+  {
+    id: 'C',
+    label: 'Clean fist · Claw marks · Eye mask · Circuit · Arrow',
+    notes: 'Strength=tighter fist, Instinct=3 claw slashes, Covert=domino mask, Tech=circuit traces, Ranged=diagonal arrow',
+    icons: {
+      strength: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <rect x="3.5" y="1.5" width="2"   height="4"   rx="1"   fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <rect x="6"   y="1"   width="2"   height="4.5" rx="1"   fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <rect x="8.5" y="1.3" width="2"   height="4.2" rx="1"   fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <rect x="11"  y="2"   width="1.8" height="3.5" rx="1"   fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <rect x="3"   y="4.5" width="10"  height="8"   rx="1.5" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+          <rect x="0.8" y="7"   width="3.5" height="3.5" rx="1.5" fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <line x1="3.5" y1="6.2" x2="12.5" y2="6.2" stroke="#14532d" strokeWidth="0.7" opacity="0.4"/>
+        </svg>
+      ),
+      instinct: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M4.5,1.5 C3.5,5 4,9 5.5,14"    stroke="#eab308" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+          <path d="M8,1.2 C7.5,5 7.5,9 8,14"       stroke="#eab308" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+          <path d="M11.5,1.5 C12.5,5 12,9 10.5,14" stroke="#eab308" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+        </svg>
+      ),
+      covert: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M1,7 Q4,4.5 8,5.5 Q12,4.5 15,7 L15,10 Q12,12.5 8,11.5 Q4,12.5 1,10 Z" fill="#ef4444"/>
+          <ellipse cx="5"  cy="8.2" rx="2"   ry="2.3" fill="#1a0505"/>
+          <ellipse cx="11" cy="8.2" rx="2"   ry="2.3" fill="#1a0505"/>
+          <rect x="7" y="5.5" width="2" height="5.8" rx="0.8" fill="#ef4444"/>
+          <path d="M2,7.5 Q8,4.5 14,7.5" stroke="#fca5a5" strokeWidth="0.6" strokeLinecap="round" opacity="0.45" fill="none"/>
+        </svg>
+      ),
+      tech: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <line x1="2"  y1="4"  x2="7"  y2="4"  stroke="#9ca3af" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="7"  y1="4"  x2="7"  y2="8"  stroke="#9ca3af" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="7"  y1="8"  x2="12" y2="8"  stroke="#9ca3af" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="12" y1="8"  x2="12" y2="12" stroke="#9ca3af" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="12" y1="12" x2="14" y2="12" stroke="#9ca3af" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="2"  y1="12" x2="7"  y2="12" stroke="#9ca3af" strokeWidth="1.2" strokeLinecap="round"/>
+          <line x1="4"  y1="8"  x2="4"  y2="12" stroke="#9ca3af" strokeWidth="1.2" strokeLinecap="round"/>
+          <circle cx="2"  cy="4"  r="1.2" fill="#9ca3af"/>
+          <circle cx="7"  cy="4"  r="1.2" fill="#9ca3af"/>
+          <circle cx="12" cy="8"  r="1.2" fill="#9ca3af"/>
+          <circle cx="14" cy="12" r="1.2" fill="#9ca3af"/>
+          <circle cx="2"  cy="12" r="1.2" fill="#9ca3af"/>
+          <circle cx="4"  cy="12" r="1.2" fill="#9ca3af"/>
+        </svg>
+      ),
+      ranged: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <line x1="3" y1="13" x2="12" y2="4" stroke="#22d3ee" strokeWidth="2" strokeLinecap="round"/>
+          <polygon points="12,4 8.5,4.5 11.5,7.5" fill="#22d3ee"/>
+          <path d="M3,13 L1,11 L4,10"    stroke="#22d3ee" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
+          <path d="M3,13 L2,15.5 L5,13.5" stroke="#22d3ee" strokeWidth="1.2" strokeLinecap="round" fill="none"/>
+        </svg>
+      ),
+    },
+  },
+  {
+    id: 'D',
+    label: 'Power bars · Animal eye · Separated arrows · Wrench · Bow',
+    notes: 'Strength=3 bars, Instinct=slit-pupil eye, Covert=2 non-overlapping arcs (fixed), Tech=wrench, Ranged=bow+arrow',
+    icons: {
+      strength: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <rect x="1.5" y="2.5"  width="13" height="3" rx="1.5" fill="#22c55e"/>
+          <rect x="1.5" y="6.5"  width="13" height="3" rx="1.5" fill="#22c55e" opacity="0.75"/>
+          <rect x="1.5" y="10.5" width="13" height="3" rx="1.5" fill="#22c55e" opacity="0.5"/>
+          <rect x="2.5" y="3"    width="5"  height="1" rx="0.5" fill="#86efac" opacity="0.5"/>
+        </svg>
+      ),
+      instinct: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M1.5,8 Q4,3 8,3 Q12,3 14.5,8 Q12,13 8,13 Q4,13 1.5,8 Z" fill="#eab308" opacity="0.9"/>
+          <circle cx="8" cy="8" r="3.2" fill="#ca8a04"/>
+          <ellipse cx="8" cy="8" rx="1.1" ry="2.8" fill="#1a0a00"/>
+          <ellipse cx="6.8" cy="6.5" rx="0.8" ry="0.5" fill="#fde047" opacity="0.5"/>
+        </svg>
+      ),
+      covert: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M10.5,3 A2.5,2.5 0 0,1 13,5.5" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+          <polygon points="13,6.8 11.5,4.2 14.5,4.2" fill="#ef4444"/>
+          <path d="M5.5,13 A2.5,2.5 0 0,1 3,10.5" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+          <polygon points="3,9.2 4.5,11.8 1.5,11.8" fill="#ef4444"/>
+        </svg>
+      ),
+      tech: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M4,12 L11,5" stroke="#9ca3af" strokeWidth="2.8" strokeLinecap="round"/>
+          <path d="M9.5,3.5 Q12.5,1 14.5,3 Q15.5,5.5 13.5,7 L11,5 Z" fill="#374151" stroke="#9ca3af" strokeWidth="0.8"/>
+          <circle cx="12.2" cy="4.4" r="1.2" fill="#1f2937"/>
+          <circle cx="3.5"  cy="12.5" r="2"   fill="#374151" stroke="#9ca3af" strokeWidth="0.7"/>
+          <circle cx="3.5"  cy="12.5" r="0.9" fill="#1f2937"/>
+        </svg>
+      ),
+      ranged: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          <path d="M3,2 Q0,8 3,14" stroke="#22d3ee" strokeWidth="2" strokeLinecap="round" fill="none"/>
+          <line x1="3" y1="2"  x2="3" y2="14" stroke="#22d3ee" strokeWidth="0.8" opacity="0.6"/>
+          <line x1="3" y1="8"  x2="14" y2="8" stroke="#22d3ee" strokeWidth="1.5" strokeLinecap="round"/>
+          <polygon points="14,8 11,6.2 11,9.8" fill="#22d3ee"/>
+          <circle cx="3" cy="8" r="0.8" fill="#22d3ee"/>
+        </svg>
+      ),
+    },
+  },
+  // ── Variant E ──────────────────────────────────────────────────────────────
+  {
+    id: 'E',
+    label: 'Front fist · Paw print · Swirl arrows · Hex nut · Arrow+diamond',
+    notes: 'Strength=face-on fist (4 knuckles), Instinct=paw print, Covert=2 swirling arcs, Tech=hex nut, Ranged=darker blue',
+    icons: {
+      strength: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Knuckle row — 4 bumps */}
+          <rect x="2.5"  y="2.5" width="2.5" height="3"   rx="1.2" fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <rect x="5.5"  y="2"   width="2.5" height="3.5" rx="1.2" fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <rect x="8.5"  y="2"   width="2.5" height="3.5" rx="1.2" fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          <rect x="11.5" y="2.5" width="2"   height="3"   rx="1"   fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          {/* Fist body */}
+          <rect x="2.5" y="5"   width="11"  height="8"   rx="1.5" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+          {/* Thumb */}
+          <rect x="0.5" y="9.5" width="3.5" height="2.5" rx="1.2" fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          {/* Finger dividers */}
+          <line x1="5.5"  y1="5.5" x2="5.5"  y2="9" stroke="#14532d" strokeWidth="0.5" opacity="0.35"/>
+          <line x1="8.5"  y1="5.5" x2="8.5"  y2="9" stroke="#14532d" strokeWidth="0.5" opacity="0.35"/>
+          <line x1="11.5" y1="5.5" x2="11.5" y2="9" stroke="#14532d" strokeWidth="0.5" opacity="0.35"/>
+        </svg>
+      ),
+      instinct: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Three toe pads */}
+          <circle cx="5.5"  cy="4"  r="1.5" fill="#eab308"/>
+          <circle cx="8"    cy="3"  r="1.5" fill="#eab308"/>
+          <circle cx="10.5" cy="4"  r="1.5" fill="#eab308"/>
+          {/* Main pad */}
+          <ellipse cx="8" cy="9.5" rx="3.5" ry="3" fill="#eab308"/>
+          {/* Lower toe pads */}
+          <circle cx="5"  cy="13" r="1.3" fill="#eab308"/>
+          <circle cx="11" cy="13" r="1.3" fill="#eab308"/>
+        </svg>
+      ),
+      covert: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Arc 1: from 1-o'clock to 6-o'clock, clockwise (~150°) */}
+          <path d="M10.5,3.7 A5,5 0 0,1 8,13" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+          <polygon points="6.5,13 8.5,11.5 8.5,14.5" fill="#ef4444"/>
+          {/* Arc 2: from 7-o'clock to 12-o'clock, clockwise (~150°) */}
+          <path d="M5.5,12.3 A5,5 0 0,1 8,3" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+          <polygon points="9.5,3 7.5,1.5 7.5,4.5" fill="#ef4444"/>
+        </svg>
+      ),
+      tech: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Hexagon outer */}
+          <polygon points="8,1 13.5,4.5 13.5,11.5 8,15 2.5,11.5 2.5,4.5" fill="#374151" stroke="#9ca3af" strokeWidth="0.8"/>
+          {/* Inner hex recess */}
+          <polygon points="8,3.8 12,6 12,10.5 8,12.5 4,10.5 4,6" fill="#1f2937"/>
+          {/* Centre bolt hole */}
+          <circle cx="8" cy="8" r="2" fill="#374151" stroke="#9ca3af" strokeWidth="0.6"/>
+        </svg>
+      ),
+      ranged: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Diamond target */}
+          <polygon points="8,2 12.5,8 8,14 3.5,8" fill="none" stroke="#3b82f6" strokeWidth="1.3"/>
+          {/* Arrow through it */}
+          <line x1="0.5" y1="8" x2="12" y2="8" stroke="#3b82f6" strokeWidth="1.8" strokeLinecap="round"/>
+          <polygon points="15,8 11.5,6.2 11.5,9.8" fill="#3b82f6"/>
+        </svg>
+      ),
+    },
+  },
+  // ── Variant F ──────────────────────────────────────────────────────────────
+  {
+    id: 'F',
+    label: 'Dumbbell · Sunburst · Swoosh loop · Signal bars · Arrow',
+    notes: 'Strength=dumbbell, Instinct=8-spoke radiate, Covert=¾-circle swoosh, Tech=signal bars, Ranged=clean arrow darker blue',
+    icons: {
+      strength: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Left weight */}
+          <rect x="0.5" y="4.5" width="3.5" height="7" rx="1.5" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+          {/* Right weight */}
+          <rect x="12"  y="4.5" width="3.5" height="7" rx="1.5" fill="#22c55e" stroke="#14532d" strokeWidth="0.5"/>
+          {/* Handle */}
+          <rect x="4"   y="6.5" width="8"   height="3" rx="1"   fill="#22c55e" stroke="#14532d" strokeWidth="0.4"/>
+          {/* Grip marks */}
+          <rect x="5.5" y="7"   width="0.9" height="2" rx="0.3" fill="#14532d" opacity="0.3"/>
+          <rect x="7.5" y="7"   width="0.9" height="2" rx="0.3" fill="#14532d" opacity="0.3"/>
+          <rect x="9.5" y="7"   width="0.9" height="2" rx="0.3" fill="#14532d" opacity="0.3"/>
+        </svg>
+      ),
+      instinct: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* 8 spokes */}
+          <line x1="8" y1="1.5"  x2="8"    y2="3.5"  stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="8" y1="12.5" x2="8"    y2="14.5" stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="1.5" y1="8"  x2="3.5"  y2="8"    stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="12.5" y1="8" x2="14.5" y2="8"    stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="3.5"  y1="3.5"  x2="5"    y2="5"    stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="11"   y1="3.5"  x2="12.5" y2="5"    stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="3.5"  y1="12.5" x2="5"    y2="11"   stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          <line x1="11"   y1="12.5" x2="12.5" y2="11"   stroke="#eab308" strokeWidth="1.5" strokeLinecap="round"/>
+          {/* Centre */}
+          <circle cx="8" cy="8" r="2.8" fill="#eab308"/>
+        </svg>
+      ),
+      covert: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* ¾-circle clockwise arc, arrowhead at end */}
+          <path d="M13,5 A6.5,6.5 0 1,1 13,11" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" fill="none"/>
+          <polygon points="13,12.5 11,10 15,10" fill="#ef4444"/>
+        </svg>
+      ),
+      tech: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* 4 signal bars — tallest on right */}
+          <rect x="1.5"  y="12"   width="2.5" height="2.5"  rx="0.5" fill="#9ca3af"/>
+          <rect x="5.5"  y="9"    width="2.5" height="5.5"  rx="0.5" fill="#9ca3af"/>
+          <rect x="9.5"  y="5.5"  width="2.5" height="9"    rx="0.5" fill="#9ca3af"/>
+          <rect x="13.5" y="2"    width="2"   height="12.5" rx="0.5" fill="#9ca3af"/>
+        </svg>
+      ),
+      ranged: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Shaft */}
+          <line x1="3" y1="8" x2="12.5" y2="8" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round"/>
+          {/* Head */}
+          <polygon points="15,8 11.5,6 11.5,10" fill="#3b82f6"/>
+          {/* Fletching */}
+          <path d="M3,8 L1.5,6"  stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+          <path d="M3,8 L1.5,10" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+        </svg>
+      ),
+    },
+  },
+  // ── Variant G ──────────────────────────────────────────────────────────────
+  {
+    id: 'G',
+    label: 'Chevrons · Crossing curves · Crossed blades · Bolt-in-box · Arc trajectory',
+    notes: 'Strength=double chevron up, Instinct=crossing S-curves, Covert=crossed blades (×), Tech=lightning in chip, Ranged=arc trajectory darker blue',
+    icons: {
+      strength: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Two stacked chevrons pointing up */}
+          <polygon points="8,2 14,8.5 12,8.5 8,4.5 4,8.5 2,8.5" fill="#22c55e"/>
+          <polygon points="8,7 14,13.5 12,13.5 8,9.5 4,13.5 2,13.5" fill="#22c55e" opacity="0.6"/>
+        </svg>
+      ),
+      instinct: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Two S-curves crossing — like a fast pounce/lunge */}
+          <path d="M1.5,2.5 C5,5 11,5 14.5,8 C11,11 5,11 1.5,13.5" stroke="#eab308" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+          <path d="M14.5,2.5 C11,5 5,5 1.5,8 C5,11 11,11 14.5,13.5" stroke="#eab308" strokeWidth="2.4" strokeLinecap="round" fill="none"/>
+        </svg>
+      ),
+      covert: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Crossed blades × */}
+          <rect x="7" y="2" width="2" height="12" rx="0.8" fill="#ef4444" stroke="#7f1d1d" strokeWidth="0.4" transform="rotate(45,8,8)"/>
+          <rect x="7" y="2" width="2" height="12" rx="0.8" fill="#ef4444" stroke="#7f1d1d" strokeWidth="0.4" transform="rotate(-45,8,8)"/>
+          {/* Centre jewel */}
+          <circle cx="8" cy="8" r="1.8" fill="#7f1d1d" stroke="#ef4444" strokeWidth="0.6"/>
+        </svg>
+      ),
+      tech: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Chip frame */}
+          <rect x="2" y="2" width="12" height="12" rx="1.5" fill="none" stroke="#9ca3af" strokeWidth="1.2"/>
+          {/* Lightning bolt inside */}
+          <path d="M9.5,4 L6.5,8.5 L8.5,8.5 L6.5,12 L11,7.2 L9,7.2 Z" fill="#9ca3af"/>
+        </svg>
+      ),
+      ranged: (
+        <svg viewBox="0 0 16 16" fill="none" width="100%" height="100%">
+          {/* Arc trajectory */}
+          <path d="M2,14 Q5,2.5 14,4" stroke="#3b82f6" strokeWidth="1.2" strokeLinecap="round" strokeDasharray="1.5 1.5" fill="none"/>
+          {/* Launch point */}
+          <circle cx="2.5" cy="13.5" r="1.3" fill="#3b82f6"/>
+          {/* Projectile tip + arrowhead */}
+          <circle cx="14" cy="4" r="1"   fill="#3b82f6"/>
+          <polygon points="15.5,3.5 12.5,2 13,5.5" fill="#3b82f6"/>
+        </svg>
+      ),
+    },
+  },
+];
+
+// ── Team icon gallery — data + render helpers ─────────────────────────────────
+const TEAM_ICON_TEAMS = [
+  { key: 'avengers'       as const, label: 'Avengers',       letter: 'A', abbr: 'AV', pri: '#1a3370', acc: '#f5a623' },
+  { key: 'x-men'          as const, label: 'X-Men',           letter: 'X', abbr: 'XM', pri: '#002D72', acc: '#FFD700' },
+  { key: 'spider-friends' as const, label: 'Spider-Friends',  letter: 'S', abbr: 'SF', pri: '#7f1d1d', acc: '#fef2f2' },
+  { key: 'fantastic-four' as const, label: 'Fantastic Four',  letter: '4', abbr: 'FF', pri: '#003A70', acc: '#FF6B00' },
+  { key: 'shield'         as const, label: 'S.H.I.E.L.D.',   letter: 'S', abbr: 'SH', pri: '#1e293b', acc: '#60a5fa' },
+];
+type TID = typeof TEAM_ICON_TEAMS[number];
+
+function tiSquare(t: TID, s: number) {
+  return (
+    <div style={{ width: s, height: s, borderRadius: Math.round(s * 0.18), backgroundColor: t.pri, color: t.acc, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(s * 0.52), fontWeight: 900, fontFamily: '"Arial Black", Arial, sans-serif', flexShrink: 0 }}>
+      {t.letter}
+    </div>
+  );
+}
+
+function tiRing(t: TID, s: number) {
+  const bw = Math.max(2, Math.round(s * 0.06));
+  return (
+    <div style={{ width: s, height: s, borderRadius: '50%', backgroundColor: t.pri, color: t.acc, border: `${bw}px solid ${t.acc}`, outline: `${Math.max(1, Math.round(s * 0.04))}px solid ${t.acc}30`, outlineOffset: `${bw + 1}px`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(s * 0.48), fontWeight: 900, fontFamily: '"Arial Black", Arial, sans-serif', flexShrink: 0 }}>
+      {t.letter}
+    </div>
+  );
+}
+
+function tiEmblem(t: TID, s: number) {
+  if (t.key === 'avengers') return (
+    <svg key="av" width={s} height={s} viewBox="0 0 48 48" style={{ display: 'block', flexShrink: 0 }}>
+      <circle cx="24" cy="24" r="24" fill={t.pri}/>
+      <circle cx="24" cy="24" r="19.5" fill="none" stroke={t.acc} strokeWidth="1" opacity="0.45"/>
+      <text x="24" y="34.5" textAnchor="middle" fill={t.acc} fontSize="30" fontWeight="900" fontFamily="Georgia, serif" fontStyle="italic">A</text>
+    </svg>
+  );
+  if (t.key === 'x-men') return (
+    <svg key="xm" width={s} height={s} viewBox="0 0 48 48" style={{ display: 'block', flexShrink: 0 }}>
+      <rect width="48" height="48" rx="7" fill={t.pri}/>
+      <circle cx="24" cy="24" r="16.5" fill="none" stroke={t.acc} strokeWidth="2.5"/>
+      <line x1="14.5" y1="14.5" x2="33.5" y2="33.5" stroke={t.acc} strokeWidth="5" strokeLinecap="round"/>
+      <line x1="33.5" y1="14.5" x2="14.5" y2="33.5" stroke={t.acc} strokeWidth="5" strokeLinecap="round"/>
+    </svg>
+  );
+  if (t.key === 'spider-friends') return (
+    <svg key="sf" width={s} height={s} viewBox="0 0 48 48" style={{ display: 'block', flexShrink: 0 }}>
+      <circle cx="24" cy="24" r="24" fill={t.pri}/>
+      <ellipse cx="24" cy="30" rx="6.5" ry="7.5" fill={t.acc}/>
+      <circle cx="24" cy="18.5" r="4.5" fill={t.acc}/>
+      <line x1="18" y1="24" x2="5"  y2="17" stroke={t.acc} strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1="18" y1="29" x2="5"  y2="30" stroke={t.acc} strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1="19" y1="34" x2="8"  y2="42" stroke={t.acc} strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1="30" y1="24" x2="43" y2="17" stroke={t.acc} strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1="30" y1="29" x2="43" y2="30" stroke={t.acc} strokeWidth="2.5" strokeLinecap="round"/>
+      <line x1="29" y1="34" x2="40" y2="42" stroke={t.acc} strokeWidth="2.5" strokeLinecap="round"/>
+    </svg>
+  );
+  if (t.key === 'fantastic-four') return (
+    <svg key="ff" width={s} height={s} viewBox="0 0 48 48" style={{ display: 'block', flexShrink: 0 }}>
+      <rect width="48" height="48" rx="7" fill={t.pri}/>
+      <circle cx="24" cy="24" r="16.5" fill="none" stroke={t.acc} strokeWidth="2.5"/>
+      <text x="24" y="36" textAnchor="middle" fill={t.acc} fontSize="28" fontWeight="900" fontFamily='"Arial Black", Arial, sans-serif'>4</text>
+    </svg>
+  );
+  // S.H.I.E.L.D. — crest + eagle
+  return (
+    <svg key="sh" width={s} height={s} viewBox="0 0 48 48" style={{ display: 'block', flexShrink: 0 }}>
+      <path d="M24 3 L43 11 V27 C43 38 34 45 24 46 C14 45 5 38 5 27 V11 Z" fill={t.pri} stroke={t.acc} strokeWidth="2.5" strokeLinejoin="round"/>
+      <path d="M12 21 C16 17 20 19.5 24 19.5 C28 19.5 32 17 36 21" fill="none" stroke={t.acc} strokeWidth="2" strokeLinecap="round"/>
+      <circle cx="24" cy="18" r="2.5" fill={t.acc}/>
+      <line x1="24" y1="20.5" x2="24" y2="35" stroke={t.acc} strokeWidth="2" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
+function tiOutlined(t: TID, s: number) {
+  return (
+    <div style={{ width: s, height: s, borderRadius: Math.round(s * 0.18), backgroundColor: 'transparent', color: t.acc, border: `${Math.max(2, Math.round(s * 0.07))}px solid ${t.acc}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(s * 0.48), fontWeight: 900, fontFamily: '"Arial Black", Arial, sans-serif', flexShrink: 0 }}>
+      {t.letter}
+    </div>
+  );
+}
+
+function tiMonogram(t: TID, s: number) {
+  return (
+    <div style={{ height: s, borderRadius: Math.round(s * 0.2), padding: `0 ${Math.round(s * 0.22)}px`, minWidth: Math.round(s * 1.5), backgroundColor: t.pri, color: t.acc, border: `${Math.max(1, Math.round(s * 0.05))}px solid ${t.acc}50`, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: Math.round(s * 0.38), fontWeight: 900, fontFamily: '"Arial Black", Arial, sans-serif', letterSpacing: '1.5px', flexShrink: 0 }}>
+      {t.abbr}
+    </div>
+  );
+}
+
+const TEAM_ICON_STYLES: { id: string; label: string; desc: string; fn: (t: TID, s: number) => React.ReactElement }[] = [
+  { id: 'A', label: 'A — Square',   desc: 'Rounded rect, bold letter (current)',  fn: tiSquare   },
+  { id: 'B', label: 'B — Ring',     desc: 'Circle with double accent border',     fn: tiRing     },
+  { id: 'C', label: 'C — Emblem',   desc: 'Team-specific SVG symbol',             fn: tiEmblem   },
+  { id: 'D', label: 'D — Outlined', desc: 'Transparent fill, accent border only', fn: tiOutlined },
+  { id: 'E', label: 'E — Monogram', desc: 'Two-letter abbreviation',              fn: tiMonogram },
+];
+
+function IconsSection() {
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-base font-semibold text-neutral-100">Class Icon Comparison</h2>
+        <p className="mt-1 text-xs text-neutral-500">
+          All three iterations of the 5 class symbols, shown at multiple sizes.
+          The PNG version (v3) is what renders in the live game.
+        </p>
       </div>
+
+      {/* ── one block per style ── */}
+      {[
+        {
+          version: 'v1',
+          label: 'Colored dot',
+          desc: 'Original — a filled circle in each class color.',
+          current: false,
+          renderIcon: (cls: typeof ICON_CLASSES[number], sz: number) => (
+            <span
+              style={{
+                display: 'inline-block',
+                width:  sz,
+                height: sz,
+                borderRadius: '50%',
+                backgroundColor: cls.dotColor,
+                border: '1px solid rgba(255,255,255,0.5)',
+                flexShrink: 0,
+              }}
+            />
+          ),
+        },
+        {
+          version: 'v2',
+          label: 'SVG icon',
+          desc: 'Hand-crafted SVG — geometric approximations of the game art.',
+          current: false,
+          renderIcon: (cls: typeof ICON_CLASSES[number], sz: number) => (
+            <span style={{ display: 'inline-flex', width: sz, height: sz, flexShrink: 0 }}>
+              {SVG_ICONS_V2[cls.key]}
+            </span>
+          ),
+        },
+        {
+          version: 'v3',
+          label: 'PNG icon',
+          desc: 'Pixel-art PNGs cropped from the reference image — currently in use.',
+          current: true,
+          renderIcon: (cls: typeof ICON_CLASSES[number], sz: number) => (
+            <img
+              src={`/legendary/class-${cls.key}.png`}
+              alt={cls.label}
+              style={{ width: sz, height: sz, objectFit: 'contain', imageRendering: 'pixelated', flexShrink: 0 }}
+            />
+          ),
+        },
+      ].map(({ version, label, desc, current, renderIcon }) => (
+        <div key={version} className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-5">
+          {/* Block header */}
+          <div className="mb-4 flex items-center gap-3">
+            <span className="rounded bg-neutral-800 px-2 py-0.5 font-mono text-[11px] text-neutral-400">{version}</span>
+            <span className="text-sm font-semibold text-neutral-200">{label}</span>
+            {current && (
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-400 ring-1 ring-emerald-500/30">
+                current
+              </span>
+            )}
+            <span className="text-xs text-neutral-500">{desc}</span>
+          </div>
+
+          {/* 5-column class grid */}
+          <div className="grid grid-cols-5 gap-4">
+            {ICON_CLASSES.map(cls => (
+              <div key={cls.key} className="flex flex-col items-center gap-3">
+                {/* Class name + color swatch */}
+                <div className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: cls.dotColor }}
+                  />
+                  <span className="text-[11px] font-semibold text-neutral-300">{cls.label}</span>
+                </div>
+
+                {/* Icon at each size */}
+                <div className="flex flex-col items-center gap-3">
+                  {ICON_SIZES.map(sz => (
+                    <div key={sz} className="flex flex-col items-center gap-1">
+                      <div
+                        className="flex items-center justify-center rounded bg-neutral-800/60"
+                        style={{ width: Math.max(sz + 16, 40), height: Math.max(sz + 16, 40) }}
+                      >
+                        {renderIcon(cls, sz)}
+                      </div>
+                      <span className="font-mono text-[9px] text-neutral-600">{sz}px</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* ── side-by-side at card chip size (14 px) ── */}
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-5">
+        <div className="mb-4 text-sm font-semibold text-neutral-200">
+          Side-by-side at card chip size (14 px)
+        </div>
+        <div className="flex flex-col gap-4">
+          {ICON_CLASSES.map(cls => (
+            <div key={cls.key} className="flex items-center gap-6">
+              {/* Label */}
+              <div className="w-20 text-[11px] font-semibold text-neutral-400">{cls.label}</div>
+              {/* v1 dot */}
+              <div className="flex w-24 items-center gap-2">
+                <span className="text-[9px] text-neutral-600">v1</span>
+                <span
+                  style={{
+                    display: 'inline-block', width: 14, height: 14, borderRadius: '50%',
+                    backgroundColor: cls.dotColor, border: '1px solid rgba(255,255,255,0.5)',
+                  }}
+                />
+              </div>
+              {/* v2 svg */}
+              <div className="flex w-24 items-center gap-2">
+                <span className="text-[9px] text-neutral-600">v2</span>
+                <span style={{ display: 'inline-flex', width: 14, height: 14 }}>
+                  {SVG_ICONS_V2[cls.key]}
+                </span>
+              </div>
+              {/* v3 png */}
+              <div className="flex w-24 items-center gap-2">
+                <span className="text-[9px] text-neutral-600">v3 ✓</span>
+                <img
+                  src={`/legendary/class-${cls.key}.png`}
+                  alt={cls.label}
+                  style={{ width: 14, height: 14, objectFit: 'contain', imageRendering: 'pixelated' }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── SVG variant exploration ── */}
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-5">
+        <div className="mb-1 text-sm font-semibold text-neutral-200">SVG Variant Exploration</div>
+        <p className="mb-5 text-xs text-neutral-500">
+          New designs — each row is a variant set, columns are the 5 classes. Shown at 24 px and 14 px (actual chip size).
+          Tech and Ranged from <span className="font-mono text-neutral-400">v2</span> are the benchmark to beat.
+        </p>
+
+        {/* Column headers */}
+        <div className="mb-2 grid grid-cols-[140px_repeat(5,1fr)] gap-2">
+          <div />
+          {ICON_CLASSES.map(cls => (
+            <div key={cls.key} className="flex items-center gap-1.5 text-[11px] font-semibold text-neutral-300">
+              <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: cls.dotColor }} />
+              {cls.label}
+            </div>
+          ))}
+        </div>
+
+        {/* Variant rows */}
+        {SVG_VARIANTS.map(variant => (
+          <div key={variant.id} className="mb-3 grid grid-cols-[140px_repeat(5,1fr)] gap-2 rounded border border-neutral-800/60 bg-neutral-900/30 p-3">
+            {/* Row label */}
+            <div className="flex flex-col justify-center gap-1 pr-2">
+              <span className="font-mono text-[12px] font-semibold text-neutral-200">{variant.id}</span>
+              <span className="text-[9px] leading-tight text-neutral-600">{variant.notes}</span>
+            </div>
+            {/* Icons — 24px preview + 14px chip */}
+            {ICON_CLASSES.map(cls => (
+              <div key={cls.key} className="flex flex-col items-center gap-2">
+                <div className="flex h-10 w-10 items-center justify-center rounded bg-neutral-800/60">
+                  <span style={{ display: 'inline-flex', width: 24, height: 24 }}>
+                    {variant.icons[cls.key]}
+                  </span>
+                </div>
+                <div className="flex h-5 w-5 items-center justify-center rounded bg-neutral-800/40">
+                  <span style={{ display: 'inline-flex', width: 14, height: 14 }}>
+                    {variant.icons[cls.key]}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Team icon options ── */}
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950/50 p-5">
+        <div className="mb-1 text-sm font-semibold text-neutral-200">Team Icon Options</div>
+        <p className="mb-5 text-xs text-neutral-500">
+          Five design options for each hero team. Shown at 40 px and 13 px (actual inline card-text size).
+          Tell me which style — or mix — to implement.
+        </p>
+
+        {/* Column headers */}
+        <div className="mb-2 grid grid-cols-[160px_repeat(5,1fr)] gap-2">
+          <div />
+          {TEAM_ICON_TEAMS.map(t => (
+            <div key={t.key} className="text-center text-[11px] font-semibold text-neutral-300">{t.label}</div>
+          ))}
+        </div>
+
+        {/* Style rows */}
+        {TEAM_ICON_STYLES.map(({ id, label, desc, fn }) => (
+          <div key={id} className="mb-2 grid grid-cols-[160px_repeat(5,1fr)] gap-2 rounded border border-neutral-800/60 bg-neutral-900/30 p-3">
+            <div className="flex flex-col justify-center gap-0.5 pr-2">
+              <span className="font-mono text-[12px] font-semibold text-neutral-200">{label}</span>
+              <span className="text-[9px] leading-tight text-neutral-500">{desc}</span>
+            </div>
+            {TEAM_ICON_TEAMS.map(t => (
+              <div key={t.key} className="flex flex-col items-center gap-2">
+                {/* 40 px — easy to evaluate */}
+                <div className="flex h-12 w-12 items-center justify-center rounded bg-neutral-800/60">
+                  {fn(t, 40)}
+                </div>
+                {/* 13 px — actual card-text size */}
+                <div className="flex h-5 w-8 items-center justify-center">
+                  {fn(t, 13)}
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
     </div>
   );
 }

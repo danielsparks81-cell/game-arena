@@ -36,6 +36,7 @@ export type Team =
   | 'avengers' | 'x-men' | 'spider-friends' | 'fantastic-four'
   | 'shield' | 'shield-officer' | 'shield-agent' | 'shield-trooper'
   | 'hydra' | 'doombot-legion' | 'brotherhood' | 'masters-of-evil' | 'enemies-of-asgard'
+  | 'hand' | 'savage-land-mutates' | 'sentinels'
   | 'system'; // for wounds / bystanders / scheme twists / master strikes
 
 // ---------- Card definitions ----------
@@ -53,10 +54,10 @@ export type Effect =
    *  `filter: 'wounds_only'` restricts the choice to Wound cards only.
    *  `sources` defaults to `['hand']`; set to `['hand','discard']` for cards
    *  like Dangerous Rescue that let you pick from either zone. */
-  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only' | 'shield_heroes'; sources?: ('hand' | 'discard')[] }
+  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only' | 'shield_heroes' | 'heroes_only'; mandatory?: boolean; sources?: ('hand' | 'discard')[] }
   /** Nick Fury – Field Promotion bonus: place a new instance of `cardId` directly
    *  into the player's hand (bypassing cost and the discard pile). */
-  | { kind: 'gain_card_to_hand'; cardId: CardId }
+  | { kind: 'gain_card_to_hand'; cardId: CardId; may?: true }
   | { kind: 'discard_from_hand'; up_to: number; bonus?: Effect[]; mandatory?: boolean }
   // Wounds + bystanders
   | { kind: 'gain_wound' }
@@ -221,7 +222,86 @@ export type Effect =
   | { kind: 'look_top_three_ko_discard_return' }
   /** Red Skull Tactic 3 bonus: draw one additional card for each Hydra Villain
    *  currently in the active player's Victory Pile. */
-  | { kind: 'draw_per_hydra_in_victory_pile' };
+  | { kind: 'draw_per_hydra_in_victory_pile' }
+  // ── Doombot Legion henchman fight effect ──────────────────────────────────
+  /** Doombot Legion Fight: peek the top 2 cards of the player's deck; the player
+   *  must KO one and return the other to the top of their deck. */
+  | { kind: 'look_top_two_ko_one_return_one' }
+  // ── Brotherhood villain effects ────────────────────────────────────────────
+  /** Sabretooth Escape (per-player, escape handler iterates): the player
+   *  auto-reveals an X-Men Hero from their hand, or gains a Wound if they have none. */
+  | { kind: 'reveal_xmen_or_wound' }
+  /** Sabretooth Fight (iterates all players internally, since fight fires for
+   *  the active player only): each player reveals an X-Men Hero or gains a Wound. */
+  | { kind: 'each_player_reveal_xmen_or_wound' }
+  /** Juggernaut Ambush / general (per-player): KO up to `amount` Heroes from
+   *  this player's discard pile. */
+  | { kind: 'ko_heroes_from_discard'; amount: number }
+  /** Juggernaut Escape (per-player): KO up to `amount` Heroes from this
+   *  player's hand immediately. */
+  | { kind: 'ko_heroes_from_hand_immediate'; amount: number }
+  /** Mystique Escape: immediately trigger the current Scheme's twist effect
+   *  (increments twist counter, fires onTwist effects, checks loss). Fired
+   *  once only — the escape handler special-cases this kind. */
+  | { kind: 'trigger_scheme_twist' }
+  /** Scheme twist conditional: fires `effects` only when the current
+   *  schemeTwistsRevealed count falls within [min, max] (inclusive).
+   *  Either bound may be omitted to mean "no limit in that direction".
+   *  Useful for escalating twist schemes like Cosmic Cube. */
+  | { kind: 'if_twists_revealed'; min?: number; max?: number; effects: Effect[] }
+  // ── Enemies of Asgard villain effects ──────────────────────────────────────
+  /** Frost Giant Escape (per-player): reveal a [ranged] Hero or gain a Wound. */
+  | { kind: 'reveal_ranged_or_wound' }
+  /** Frost Giant Fight (iterates all players internally): each player reveals a
+   *  [ranged] Hero or gains a Wound. */
+  | { kind: 'each_player_reveal_ranged_or_wound' }
+  /** Ymir Fight: KO all Wounds from the active player's hand and discard pile. */
+  | { kind: 'ko_wounds_from_hand_and_discard' }
+  /** Destroyer Fight: auto-KO all S.H.I.E.L.D. Heroes from the active player's hand. */
+  | { kind: 'ko_all_shield_from_hand' }
+  // ── HYDRA villain effects ──────────────────────────────────────────────────
+  /** Endless Armies of Hydra Fight: reveal and immediately resolve the top
+   *  `amount` cards of the Villain Deck (same routing as end-of-turn reveal). */
+  | { kind: 'villain_deck_reveal_top'; amount: number }
+  /** Viper Ambush / Fight / Escape: for each player who has NO HYDRA Villain
+   *  in their Victory Pile, that player gains a Wound. */
+  | { kind: 'each_player_without_hydra_vp_gains_wound' }
+  // ── Masters of Evil villain effects ───────────────────────────────────────
+  /** Baron Zemo Fight: rescue one Bystander for each Avengers Hero the active
+   *  player has in hand or played this turn. */
+  | { kind: 'rescue_bystander_per_avengers_hero' }
+  /** Whirlwind Fight: if the active player fights Whirlwind from a specific
+   *  city location, they must KO `amount` Heroes from their hand. */
+  | { kind: 'ko_heroes_from_hand_if_at_location'; locations: string[]; amount: number }
+  /** Ultron Escape: each player reveals a [tech] Hero from their hand or
+   *  gains a Wound. */
+  | { kind: 'each_player_reveal_tech_hero_or_wound' }
+  /** Melter Fight: each player reveals their top deck card. For each revealed
+   *  card, the active player chooses to KO it or return it to the top.
+   *  MVP: auto-KOs all revealed cards (TODO: add interactive choice UI). */
+  | { kind: 'melter_reveal_top_each_player' }
+  // ── Loki effects ──────────────────────────────────────────────────────────────
+  /** Loki Master Strike: reveals [strength] Hero (no penalty) or gains a Wound. Skip if hand empty. */
+  | { kind: 'loki_master_strike' }
+  /** Vanishing Illusions: KO the highest-VP Villain/Henchman from this player's Victory Pile. */
+  | { kind: 'ko_villain_from_vp' }
+  /** Whispers and Lies: KO up to `count` Bystanders from this player's Victory Pile. */
+  | { kind: 'ko_bystanders_from_vp'; count: number }
+  /** Cruel Ruler: grants one free City fight this turn (bypass attack cost once). */
+  | { kind: 'grant_fight_city_free' }
+  /** Maniacal Tyrant: KO up to `amount` cards from your discard pile (sets pending choice). */
+  | { kind: 'ko_up_to_from_discard'; amount: number }
+  // ── Magneto effects ───────────────────────────────────────────────────────────
+  /** Magneto Master Strike: reveals [x-men] Hero (no penalty) or discards down to 4. Skip if hand empty. */
+  | { kind: 'magneto_master_strike' }
+  /** Xavier's Nemesis: rescue 1 Bystander per [x-men] Hero in your played-this-turn area. */
+  | { kind: 'rescue_bystander_per_xmen_played' }
+  /** Bitter Captor: sets a pending choice to recruit an [x-men] Hero from the HQ for free. */
+  | { kind: 'free_recruit_xmen_from_hq_effect' }
+  /** Electromagnetic Bubble: sets pending choice to select an [x-men] Hero from played area for next hand. */
+  | { kind: 'em_bubble' }
+  /** Crushing Shockwave: reveals [x-men] Hero (no penalty) or gains `amount` Wounds. */
+  | { kind: 'reveal_xmen_or_gain_wounds'; amount: number };
 
 /** Hero card — the cards that go into player decks. Sit in HQ to be bought. */
 export type HeroCardDef = {
@@ -281,6 +361,18 @@ export type VillainCardDef = {
   fight?: Effect[];
   /** "Escape" fires when the villain escapes off the right edge of the City. */
   escape?: Effect[];
+  /** Optional requirement that must be satisfied before a player can fight
+   *  this villain. Checked in doFightCity before attack is spent. */
+  fightCondition?: { requires: 'xmen_hero' };
+  /** Dynamic VP bonus applied during scoring. The card is worth +`amount` VP
+   *  for each OTHER villain of the given team in the player's Victory Pile.
+   *  Handled by recomputeVp. Example: Supreme HYDRA +3 per other HYDRA villain. */
+  vpScale?: { team: Team; amount: number };
+  /** Dynamic VP bonus counted across ALL the player's cards (hand + deck +
+   *  discard + victoryPile). The card is worth +`amount` VP per Hero of class
+   *  `cls` found anywhere in the player's collection. Handled by recomputeVp.
+   *  Example: Ultron +1 VP per [black] Hero among all your cards. */
+  vpScaleClass?: { cls: string; among: 'all_cards'; amount: number };
   text?: string;
 };
 
@@ -292,6 +384,10 @@ export type HenchmanCardDef = {
   attack: number;
   vp: number;
   team: Team;
+  /** "Fight" fires when a player defeats this henchman (same semantics as VillainCardDef.fight). */
+  fight?: Effect[];
+  /** Player-readable card text (shown on card face). */
+  text?: string;
 };
 
 /** Master Strike — shuffled into the Villain Deck. When revealed, the
@@ -374,20 +470,21 @@ export type SchemeCardDef = {
   /** Description for UI and the rules-text hover. */
   text: string;
   /** Evil wins when this many Scheme Twists have been revealed (some schemes
-   *  use twist-count as their primary loss timer). */
-  evilWinsAfterTwists: number;
+   *  use twist-count as their primary loss timer). Optional — when omitted,
+   *  twist count alone never triggers the loss condition. */
+  evilWinsAfterTwists?: number;
   /** Evil wins when this many villains/henchmen have escaped the city.
    *  When set, this is checked immediately on each escape (before twist count). */
   evilWinsAfterEscapes?: number;
   /** Effect that fires when a Scheme Twist is revealed (in addition to
    *  bumping the twist counter). */
   onTwist?: Effect[];
-  /** When true, each Scheme Twist immediately triggers one additional reveal
-   *  from the Villain Deck (e.g. Negative Zone Prison Breakout: "Reveal an
-   *  extra Villain"). The extra reveal is processed by the same routing logic
+  /** When set to N, each Scheme Twist immediately triggers N additional reveals
+   *  from the Villain Deck (e.g. Negative Zone Prison Breakout reveals 2 extra
+   *  cards per twist). Each extra reveal is processed by the same routing logic
    *  as the main end-of-turn reveal — only villain/henchman cards push the
    *  city; bystanders/twists/strikes do not. */
-  onTwistReveal?: boolean;
+  onTwistRevealCount?: number;
 };
 
 /** Wound — clutter card that goes into discard when you take damage. Adds
@@ -449,6 +546,8 @@ export type PlayerState = {
   /** Set by Treasures of Latveria (Dr. Doom Tactic 3). This many extra cards
    *  are added to the player's next hand draw. Consumed and cleared on draw. */
   endOfTurnExtraDraw?: number;
+  /** Electromagnetic Bubble (Magneto Tactic 3): Hero card to add to this player's next hand draw as a 7th card. */
+  nextHandBonusCard?: CardInstance;
 };
 
 /** Describes a card-choice the current player must resolve before taking
@@ -466,6 +565,9 @@ export type PendingChoice =
       sources?: ('hand' | 'discard' | 'played')[];
       /** When true the player MUST pick a card — the Skip button is hidden. */
       mandatory?: boolean;
+      /** For multi-KO effects (e.g. Whirlwind "KO 2 Heroes"): how many additional
+       *  KO prompts still need to fire after this one resolves. 0 = last KO. */
+      remaining?: number;
     }
   | {
       /** Cap's "reveal to prevent a wound" passive. The player reveals this card
@@ -505,7 +607,27 @@ export type PendingChoice =
   | { kind: 'optional_return_sidekick_draw_two' }
   /** Dark Technology (Dr. Doom Tactic 2): player clicks a Tech or Ranged Hero
    *  in the HQ to recruit it for free; skippable ("may"). */
-  | { kind: 'free_recruit_from_hq' };
+  | { kind: 'free_recruit_from_hq' }
+  /** Deadpool – Here, Hold This: player clicks a Villain or Henchman in the
+   *  city to assign a captured Bystander (mandatory — must pick a target). */
+  | { kind: 'choose_city_villain_for_bystander'; bystander: CardInstance }
+  /** Doombot Legion Fight: two cards peeked from the deck are shown; the player
+   *  clicks one to KO — the other is automatically returned to the top of the
+   *  deck. Mandatory (no skip). */
+  | { kind: 'look_top_two_ko_one_return_one'; cards: CardInstance[]; mandatory: true }
+  /** "MAY gain [card] to hand" prompt — fires when a fight effect with `may: true`
+   *  is resolved. Accept = gain the card; Skip = decline. */
+  | { kind: 'optional_gain_card'; cardId: CardId; label: string }
+  /** Solo mode: after a Scheme Twist, choose a Hero from the HQ costing 6 or less
+   *  to put on the bottom of the Hero Deck. Mandatory when eligible targets exist.
+   *  At most once per twist chain (even if Prison Breakout fires multiple twists). */
+  | { kind: 'solo_twist_tuck_hero' }
+  /** Bitter Captor: player clicks an [x-men] Hero in the HQ to recruit it for free. */
+  | { kind: 'free_recruit_xmen_from_hq' }
+  /** Maniacal Tyrant: KO up to `remaining` cards from your discard pile; click to KO, skip to stop. */
+  | { kind: 'ko_up_to_from_discard'; remaining: number; cards: CardInstance[] }
+  /** Electromagnetic Bubble: player clicks an [x-men] Hero from their played-this-turn area. */
+  | { kind: 'em_bubble_select_hero' };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already
@@ -545,6 +667,11 @@ export type TurnState = {
   /** Set by Jean Grey – Telekinetic Mastery. Each time a Bystander is rescued
    *  this turn the active player gains this much Attack. Stacks. */
   rescueBonusAttack: number;
+  /** Whirlwind Fight: records which city slot (0–4) the last villain fight
+   *  occurred at, so location-conditional effects can read it during resolution.
+   *  Set by doFightCity immediately before firing fight effects; undefined at
+   *  turn start and between fights. */
+  lastFightSlot?: number;
   /** Storm – Lightning Bolt / Tidal Wave: per-city-slot villain attack reduction.
    *  Key = slot index (0 = Sewers … 4 = Bridge). */
   locationVillainDebuffs: Partial<Record<number, number>>;
@@ -560,17 +687,28 @@ export type TurnState = {
   /** Set by Secrets of Time Travel (Dr. Doom Tactic 4). When true, the active
    *  player takes another full turn after this one ends instead of passing. */
   extraTurn?: boolean;
+  /** Solo mode: set to true when the solo-twist tuck choice has been queued this
+   *  turn, preventing a Prison Breakout twist chain from triggering it twice. */
+  soloTwistTuckPending?: boolean;
+  /** Set to true the first time the player successfully fights a villain or
+   *  mastermind this turn. Used for Wound healing eligibility check. */
+  foughtThisTurn: boolean;
+  /** Set to true the first time the player recruits a card (HQ, sidekick, or
+   *  officer pool) this turn. Used for Wound healing eligibility check. */
+  recruitedThisTurn: boolean;
+  /** Cruel Ruler (Loki Tactic 3): when true, the next fight_city action is free (no attack cost). */
+  fightCityFreeAvailable?: boolean;
 };
 
 export type LegendaryEvent =
   | { kind: 'system'; text: string }
   | { kind: 'turn_started'; seat: number; username: string }
   | { kind: 'card_played'; seat: number; username: string; cardId: CardId; cardName: string }
-  | { kind: 'hero_recruited'; seat: number; username: string; cardId: CardId; cardName: string; cost: number }
+  | { kind: 'hero_recruited'; seat: number; username: string; cardId: CardId; cardName: string; cost: number; slot: number }
   | { kind: 'villain_defeated'; seat: number; username: string; cardId: CardId; cardName: string; vp: number }
   | { kind: 'villain_revealed'; cardId: CardId; cardName: string }
   | { kind: 'villain_escaped'; cardId: CardId; cardName: string }
-  | { kind: 'mastermind_hit'; seat: number; username: string; tacticName: string; tacticVp: number; tacticsRemaining: number }
+  | { kind: 'mastermind_hit'; seat: number; username: string; tacticName: string; tacticVp: number; tacticsRemaining: number; tacticCardId: string; tacticText: string }
   | { kind: 'master_strike'; effectText: string }
   | { kind: 'scheme_twist'; twistsRevealed: number; twistsTotal: number }
   | { kind: 'wound_taken'; seat: number; username: string }
@@ -614,6 +752,12 @@ export type LegendaryState = {
   ko: CardInstance[]; // permanent KO pile (cards removed from the game)
   woundDeck: CardInstance[];
   bystanderDeck: CardInstance[];
+  /** Cards remaining in the finite Sidekick pool (starts at 30). Recruits are
+   *  blocked when this reaches 0; the card is simply not given. */
+  sidekickPoolCount: number;
+  /** Cards remaining in the finite S.H.I.E.L.D. Officer pool (starts at 30).
+   *  Recruits are blocked when this reaches 0. */
+  officerPoolCount: number;
   mastermind: {
     cardId: CardId;
     hitsTaken: number;
@@ -636,6 +780,14 @@ export type LegendaryState = {
   // ----- Scheme bookkeeping -----
   schemeTwistsRevealed: number;
 
+  // ----- Solo mode -----
+  /** Solo: the 2 Henchman cards set aside at setup to enter the city before the
+   *  first villain-deck reveal on turn 1 (one at a time, with any ambush effects).
+   *  Cleared to [] once placed. */
+  soloStartingHenchmen?: CardInstance[];
+  /** Solo: true once the starting henchmen have entered the city. */
+  soloStartingHenchmenPlaced?: boolean;
+
   // ----- Result + log -----
   result?: 'win' | 'loss' | 'tie';
   resultReason?: string;
@@ -647,5 +799,10 @@ export type LegendaryState = {
    *  The current player finishes their turn as a final chance to win;
    *  if no win/loss is achieved by End Turn the game ends in a tie. */
   lastTurnTie?: boolean;
+  /** Monotonically-increasing counter. Every call to pushLog stamps the event
+   *  with the current value, incremented by 1. The board uses this seq number
+   *  instead of an array-index cursor so log rotation (LOG_MAX trim) never
+   *  desynchronises the animation tracker. */
+  logSeq: number;
   log: LegendaryEvent[];
 };

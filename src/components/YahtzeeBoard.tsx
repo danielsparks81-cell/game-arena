@@ -185,7 +185,12 @@ function Scorecard({
 
   return (
     <div className="overflow-x-auto rounded-xl border border-neutral-800 bg-neutral-900">
-      <table className="w-full min-w-[420px] text-sm">
+      <table className="w-full min-w-[420px] table-fixed text-sm">
+        <colgroup>
+          {/* Category column: fixed width so player columns share the rest equally */}
+          <col style={{ width: '160px' }} />
+          {state.players.map(p => <col key={p.playerId} />)}
+        </colgroup>
         <thead>
           <tr className="bg-neutral-950/60 text-xs uppercase tracking-wider text-neutral-500">
             <th className="px-2 py-1.5 text-left">Category</th>

@@ -1,20 +1,21 @@
 import type { SchemeCardDef } from '../types';
 
 // "Negative Zone Prison Breakout" — the iconic introductory scheme.
-// 8 twists; on each twist, an additional villain card is revealed from the
-// Villain Deck (we'll wire this in the engine). Evil wins when 8 villains
-// have escaped OR all 8 twists have been revealed (we use the twist count
-// as the loss timer for simplicity in MVP).
+//
+// Setup:  8 Twists, 2 Bystanders, + 1 extra Henchman group in the Villain Deck.
+// Twist:  Play the top 2 cards of the Villain Deck.
+// Lose:   12 Villains escape.
 
 export const NEGATIVE_ZONE_PRISON_BREAKOUT: SchemeCardDef = {
   kind: 'scheme',
   cardId: 'scheme_negative_zone',
   name: 'Negative Zone Prison Breakout',
-  text: 'Scheme Twists: Reveal an extra Villain. Evil Wins if 8 Villains escape.',
+  text: 'Setup: Add an extra Henchman group to the Villain Deck.\nTwist: Play the top 2 cards of the Villain Deck.\nEvil Wins: If 12 Villains escape.',
   twists: 8,
   bystanders: 2,
-  evilWinsAfterTwists: 8,   // backup: if all 8 twists are revealed evil also wins
-  evilWinsAfterEscapes: 8,  // primary: evil wins the moment the 8th villain escapes
-  // Each Scheme Twist causes one extra villain-deck reveal immediately.
-  onTwistReveal: true,
+  extraHenchmanGroups: 1,
+  // Each Scheme Twist immediately plays 2 more cards from the Villain Deck.
+  onTwistRevealCount: 2,
+  // Primary loss condition: 12 villains escape the city.
+  evilWinsAfterEscapes: 12,
 };

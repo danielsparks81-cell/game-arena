@@ -151,6 +151,11 @@ export const sounds = {
   sdPayHp: () => play([
     { freq: 180, duration: 0.10, type: 'sine' },
   ], 0.07),
+  /** Single clock tick — short, punchy mechanical click for countdown use. */
+  tick: () => play([
+    { freq: 1100, duration: 0.016, type: 'square'   },
+    { freq:  650, duration: 0.022, type: 'triangle', delay: 0.013 },
+  ], 0.08),
   /** Tense low hum as a trigger arms. */
   sdTriggerArmed: () => play([
     { freq: 280, duration: 0.12, type: 'triangle' },

@@ -32,7 +32,7 @@ export const NICK_FURY_BATTLEFIELD_PROMOTION: HeroCardDef = {
   text: 'You may KO a [shield] Hero from your hand or discard pile. If you do, you may gain a S.H.I.E.L.D. Officer to your hand.',
   onPlay: [
     { kind: 'ko_from_hand', up_to: 1, filter: 'shield_heroes', sources: ['hand', 'discard'],
-      bonus: [{ kind: 'gain_card_to_hand', cardId: 'shield_officer' }] },
+      bonus: [{ kind: 'gain_card_to_hand', cardId: 'shield_officer', may: true }] },
   ],
 };
 

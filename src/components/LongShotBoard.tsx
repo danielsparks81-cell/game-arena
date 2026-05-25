@@ -636,12 +636,20 @@ export default function LongShotBoard({
               if (state.step === 'action' && !isMyTurnToAct) {
                 return waitingBox({
                   who: currentTurnPlayer?.username ?? 'someone',
-                  nameClass: 'text-amber-400',
-                  boxClass: 'border-amber-900/40 bg-amber-500/5 text-neutral-300',
+                  suffix: state.finalRound ? 'final action' : undefined,
+                  nameClass: state.finalRound ? 'text-red-400' : 'text-amber-400',
+                  boxClass: state.finalRound
+                    ? 'border-red-900/40 bg-red-500/5 text-neutral-300'
+                    : 'border-amber-900/40 bg-amber-500/5 text-neutral-300',
                 });
               }
               if (state.step === 'action' && isMyTurnToAct) {
-                return (
+                return state.finalRound ? (
+                  <div className="flex w-full flex-col items-center justify-center rounded-md border border-red-500/60 bg-red-500/15 px-2 py-1.5 text-center leading-tight">
+                    <span className="text-[10px] text-red-200">🏁 Final action</span>
+                    <span className="text-sm font-bold text-red-300">act now — then scoring!</span>
+                  </div>
+                ) : (
                   <div className="flex w-full flex-col items-center justify-center rounded-md border border-emerald-500/60 bg-emerald-500/15 px-2 py-1.5 text-center leading-tight">
                     <span className="text-[10px] text-emerald-200">Your turn</span>
                     <span className="text-sm font-bold text-emerald-300">act now</span>
@@ -1984,9 +1992,11 @@ function Track({ state, bonusPick, infieldMessage }: {
         <line x1={finishInner.x} y1={finishInner.y} x2={finishOuter.x} y2={finishOuter.y}
               stroke="#fafafa" strokeWidth="4" strokeDasharray="3 3" />
 
-        {/* No-Bet line — red dashed */}
+        {/* No-Bet line — candy-cane: bright red base + white dashes on top */}
         <line x1={noBetInner.x} y1={noBetInner.y} x2={noBetOuter.x} y2={noBetOuter.y}
-              stroke="#ef4444" strokeWidth="4" strokeDasharray="4 3" />
+              stroke="#ff2020" strokeWidth="6" />
+        <line x1={noBetInner.x} y1={noBetInner.y} x2={noBetOuter.x} y2={noBetOuter.y}
+              stroke="#fff" strokeWidth="6" strokeDasharray="4 4" />
 
 
         {/* Horse tokens — sequenced, with starting-gate column behind the line */}

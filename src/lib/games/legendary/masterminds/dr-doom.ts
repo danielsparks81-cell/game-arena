@@ -61,6 +61,6 @@ export const DR_DOOM: MastermindCardDef = {
   alwaysLeads: 'doombot-legion',
   hits: 4,
   tacticIds: DR_DOOM_TACTICS.map(t => t.cardId),
-  text: 'Master Strike: Each player with exactly 6 cards in hand reveals a Hero or puts 2 cards from their hand on top of their deck.',
+  text: 'Master Strike: Each player with exactly 6 cards in hand reveals a [tech] Hero or puts 2 cards from their hand on top of their deck.',
   strike: [{ kind: 'doom_master_strike' }],
 };

@@ -26,16 +26,35 @@ export function StrikeIcon({ size = 14 }: { size?: number }) {
 }
 
 // ─── VP badge — red circle, vertically centred on right edge ─────────────────
-export function VpBadge({ vp }: { vp: number }) {
+export function VpBadge({ vp, label }: { vp: number; label?: string }) {
+  const display = label ?? String(vp);
+  // Shrink font slightly for multi-char labels like "3*"
+  const fontSize = display.length > 1 ? 'text-[9px]' : 'text-[11px]';
   return (
     <div
       aria-label={`${vp} VP`}
-      className="absolute right-1 top-1/2 -translate-y-1/2 flex h-[26px] w-[26px] items-center justify-center rounded-full font-sans text-[11px] font-bold shadow-[0_1px_3px_rgba(0,0,0,0.6)]"
+      className={`absolute right-1 top-1/2 -translate-y-1/2 flex h-[26px] w-[26px] items-center justify-center rounded-full font-sans ${fontSize} font-bold shadow-[0_1px_3px_rgba(0,0,0,0.6)]`}
       style={{ backgroundColor: '#b91c1c', border: '1px solid #ef4444', color: '#fff' }}
     >
-      {vp}
+      {display}
     </div>
   );
+}
+
+// ─── Team label helper ────────────────────────────────────────────────────────
+const TEAM_LABELS: Record<string, string> = {
+  'hydra':                 'Hydra',
+  'brotherhood':           'Brotherhood',
+  'doombot-legion':        'Doombot Legion',
+  'masters-of-evil':       'Masters of Evil',
+  'enemies-of-asgard':     'Enemies of Asgard',
+  'hand':                  'The Hand',
+  'savage-land-mutates':   'Savage Land Mutates',
+  'sentinels':             'Sentinels',
+};
+
+function teamLabel(team: string): string {
+  return TEAM_LABELS[team] ?? team.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 }
 
 // ─── Villain card ─────────────────────────────────────────────────────────────
@@ -48,45 +67,74 @@ export function VpBadge({ vp }: { vp: number }) {
  * `canFight` / `fightable` are purely visual — the caller wraps in a <button>.
  */
 export function VillainCardArt({
-  def, wide = false, attachedBystanders = 0,
+  def, wide = false, attachedBystanders = 0, locationDebuff = 0,
 }: {
   def: VillainCardDef;
   wide?: boolean;
   attachedBystanders?: number;
+  /** Storm/Lightning Bolt location debuff — reduces effective attack shown on the card. */
+  locationDebuff?: number;
 }) {
   const borderColor = '#ef4444'; // covert red — villains have no team color
-  const widthClass = wide ? 'w-full' : 'w-[220px]';
+  const widthClass  = wide ? 'w-full'  : 'w-[220px]';
+  const heightClass = wide ? 'h-36'    : 'h-40';
 
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className={`relative flex h-40 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
+      className={`relative flex ${heightClass} ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2 text-left`}
     >
+      {/* Bystander tab — sticks up above the card top */}
+      {attachedBystanders > 0 && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-none"
+          style={{
+            top: -15,
+            backgroundColor: '#c4a800',
+            border: '2px solid #f0c000',
+            borderBottom: 'none',
+            borderRadius: '4px 4px 0 0',
+            padding: '2px 8px 3px',
+            fontSize: '9px',
+            fontWeight: 700,
+            color: '#1a1000',
+            whiteSpace: 'nowrap',
+            zIndex: 20,
+            boxShadow: '0 -2px 6px rgba(196,168,0,0.5)',
+          }}
+        >
+          <span>👤</span>
+          <span>×{attachedBystanders}</span>
+        </div>
+      )}
       {/* Name row */}
       <div className="flex items-center gap-1 min-w-0">
         <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
       </div>
-      {/* Type label */}
+      {/* Type label — "Villain - Brotherhood" etc. */}
       <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
-        Villain
+        Villain - {teamLabel(def.team)}
       </div>
-      {/* Card text */}
+      {/* Card text — pr-8 clears the VP badge; CardText renders inline tokens */}
       {def.text && (
-        <div className="my-1 flex-1 px-1 text-[11px] leading-snug text-neutral-300">{def.text}</div>
+        <div className="my-1 flex-1 pl-3 pr-8 text-[11px] leading-snug text-neutral-300">
+          <CardText text={def.text} />
+        </div>
       )}
       {!def.text && <div className="flex-1" />}
-      {/* Footer: bystander count left, attack right */}
-      <div className="mt-auto flex items-end justify-between">
-        {attachedBystanders > 0 ? (
-          <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">
-            +{attachedBystanders} 👤
-          </span>
-        ) : <span />}
-        <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
-          {def.attack}<StrikeIcon />
-        </span>
-      </div>
-      <VpBadge vp={def.vp} />
+      {/* Attack — absolute bottom-right; shows debuffed effective value in emerald when reduced */}
+      <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold">
+        {locationDebuff > 0 ? (
+          <>
+            <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>
+            <span style={{ color: '#34d399' }}>{Math.max(0, def.attack - locationDebuff)}</span>
+          </>
+        ) : (
+          <span className="text-white">{def.attack}</span>
+        )}
+        <StrikeIcon />
+      </span>
+      <VpBadge vp={def.vp} label={(def.vpScale || def.vpScaleClass) ? `${def.vp}*` : undefined} />
     </div>
   );
 }
@@ -99,31 +147,63 @@ export function HenchmanCardArt({
   wide?: boolean;
   attachedBystanders?: number;
 }) {
-  const widthClass = wide ? 'w-full' : 'w-[220px]';
+  const widthClass  = wide ? 'w-full'  : 'w-[230px]';
+  const heightClass = wide ? 'h-36'    : 'h-[165px]';
 
   return (
     <div
       style={{ borderWidth: 2, borderColor: '#eab308', borderStyle: 'solid' }}
-      className={`relative flex h-40 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
+      className={`relative flex ${heightClass} ${widthClass} flex-col items-stretch rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2 text-left`}
     >
+      {/* Bystander tab — sticks up above the card top */}
+      {attachedBystanders > 0 && (
+        <div
+          className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-none"
+          style={{
+            top: -15,
+            backgroundColor: '#c4a800',
+            border: '2px solid #f0c000',
+            borderBottom: 'none',
+            borderRadius: '4px 4px 0 0',
+            padding: '2px 8px 3px',
+            fontSize: '9px',
+            fontWeight: 700,
+            color: '#1a1000',
+            whiteSpace: 'nowrap',
+            zIndex: 20,
+            boxShadow: '0 -2px 6px rgba(196,168,0,0.5)',
+          }}
+        >
+          <span>👤</span>
+          <span>×{attachedBystanders}</span>
+        </div>
+      )}
+
+      {/* Line 1: card name — mirrors hero card layout */}
       <div className="flex items-center gap-1 min-w-0">
-        <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
       </div>
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: '#eab308' }}>
-        Henchman
-      </div>
-      <div className="flex-1" />
-      {/* Footer: bystander count left, attack right */}
-      <div className="mt-auto flex items-end justify-between">
-        {attachedBystanders > 0 ? (
-          <span className="rounded bg-amber-500/20 px-1 text-[10px] text-amber-300">
-            +{attachedBystanders} 👤
-          </span>
-        ) : <span />}
-        <span className="flex items-center gap-0.5 text-[12px] font-semibold text-white">
-          {def.attack}<StrikeIcon />
+
+      {/* Line 2: type label */}
+      <div className="flex items-center gap-1">
+        <span className="text-[12px] font-medium" style={{ color: '#eab308' }}>
+          Henchman - Villain
         </span>
       </div>
+
+      {/* Card text — pr-8 keeps text clear of the VP badge on the right edge */}
+      {def.text && (
+        <div className="mb-1 flex-1 pl-3 pr-8 pt-3 text-[12px] leading-snug text-neutral-300">
+          <CardText text={def.text} />
+        </div>
+      )}
+      {!def.text && <div className="flex-1" />}
+
+      {/* Attack — absolute bottom-right, same position as the cost badge on hero cards */}
+      <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold text-white">
+        {def.attack}<StrikeIcon size={16} />
+      </span>
+
       <VpBadge vp={def.vp} />
     </div>
   );
@@ -184,29 +264,46 @@ export function TacticCardArt({
  * size. Hand cards in the board use the h-28 height override.
  */
 export function SystemCardArt({
-  name, borderColor, vp, bg, text,
+  name, borderColor, vp, bg, text, typeLabel,
   wide = false, height = 'h-[165px]',
 }: {
   name: string;
   borderColor: string;
   vp?: number;
   bg?: string;
-  /** When provided, switches from centered-name to name-at-top + body-text layout. */
+  /** When provided, switches from centered-name to name-at-top + ability-text layout. */
   text?: string;
+  /** Optional sub-label rendered below the name (e.g. mastermind name for Master Strike).
+   *  Always occupies a row — invisible when omitted — so ability text aligns with
+   *  hero card ability text regardless of whether a label is shown. */
+  typeLabel?: string;
   wide?: boolean;
   height?: 'h-28' | 'h-32' | 'h-40' | 'h-[165px]';
 }) {
   const widthClass = wide ? 'w-full' : 'w-[220px]';
 
   if (text) {
-    // Name-at-top layout (matches hero card structure) for cards with ability text.
+    // Name-at-top layout. Two-row header matches hero card structure so ability
+    // text starts at the same vertical position as on hero cards.
     return (
       <div
         style={{ borderWidth: 2, borderColor, borderStyle: 'solid', background: bg }}
         className={`relative flex ${height} ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
       >
+        {/* Row 1 — card name */}
         <span className="text-[12px] font-bold leading-tight text-neutral-100">{name}</span>
-        <div className="mt-1 flex-1 text-[10px] leading-snug text-neutral-300">{text}</div>
+        {/* Row 2 — type label (mirrors hero card's class-name row). Transparent when absent
+             so it still takes up space and keeps the ability text at a consistent height. */}
+        <div
+          className="text-[10px] font-semibold uppercase tracking-wider"
+          style={{ color: typeLabel ? borderColor : 'transparent' }}
+        >
+          {typeLabel ?? ' '}
+        </div>
+        {/* Ability text — pt-3 + text-[12px] matches hero card text start position */}
+        <div className="mb-1 flex-1 pr-2 pt-3 text-[12px] leading-snug text-neutral-300">
+          <CardText text={text} />
+        </div>
         {vp !== undefined && <VpBadge vp={vp} />}
       </div>
     );

@@ -158,6 +158,12 @@ export type LSState = {
   movementDie: number | null;
   horses: LSHorse[];
   finishedCount: number;
+  /**
+   * Set to true when the 3rd horse finishes. All players still take one final
+   * action turn before scoring. The game transitions to 'finished' only after
+   * the last player acts on that final round.
+   */
+  finalRound?: boolean;
   market: number[];
   players: LSPlayer[];
   log: string[];
@@ -350,6 +356,13 @@ export function startRace(state: LSState): LSState | { error: string } {
     };
   });
 
+  // Rotate players so the first roller is at index 0, keeping state.players
+  // in true action order so MembersPanel always matches gameplay.
+  const startIdx = players.findIndex(p => p.seat === startSeat);
+  const orderedPlayers = startIdx > 0
+    ? [...players.slice(startIdx), ...players.slice(0, startIdx)]
+    : players;
+
   return {
     ...state,
     phase: 'playing',
@@ -358,7 +371,7 @@ export function startRace(state: LSState): LSState | { error: string } {
     currentTurnSeat: null,
     step: 'roll',
     concessionGrid,
-    players,
+    players: orderedPlayers,
     assignedAbilities: assignAbilities(),
     log: [`Race begins! ${startName} rolls first.`],
   };
@@ -569,15 +582,18 @@ export function rollDice(state: LSState, horseDie: number, movementDie: number):
     }
   }
 
-  // Race end check
-  if (next.finishedCount >= FINISH_POSITIONS) {
+  // Race end check — when the 3rd horse finishes, grant all players one final
+  // action turn before scoring instead of ending immediately.
+  if (next.finishedCount >= FINISH_POSITIONS && !next.finalRound) {
     next = {
       ...next,
-      phase: 'finished',
-      step: 'done',
-      currentTurnSeat: null,
+      finalRound: true,
+      step: 'action',
+      currentTurnSeat: state.activePlayerSeat,
+      players: next.players.map(p => ({ ...p, actedThisRound: false })),
+      ...(fairPlayPending ? { pendingChoice: fairPlayPending } : {}),
     };
-    log.push('🏁 Race complete!');
+    log.push('🏁 3rd horse finished! Everyone gets one final action before scoring.');
   } else {
     // Transition to action phase — all players act starting with active
     next = {
@@ -621,7 +637,16 @@ function advanceActionTurn(state: LSState, justActedSeat: number, log: string[])
       return { ...state, currentTurnSeat: candidate, log: [...state.log, ...log].slice(-50) };
     }
   }
-  // Everyone has acted — round ends
+  // Everyone has acted — if this was the final round, end the race; otherwise start the next round.
+  if (state.finalRound) {
+    return {
+      ...state,
+      phase: 'finished',
+      step: 'done',
+      currentTurnSeat: null,
+      log: [...state.log, ...log, '🏁 Race complete!'].slice(-50),
+    };
+  }
   const advanced = advanceRound(state);
   return { ...advanced, log: [...state.log, ...log, `— round ${advanced.round} —`].slice(-50) };
 }

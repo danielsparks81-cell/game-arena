@@ -119,10 +119,19 @@ export function removePlayer(state: YState, playerId: string): YState {
 export function startGame(state: YState): YState | { error: string } {
   if (state.phase !== 'lobby') return { error: 'Game already started' };
   if (state.players.length < 1) return { error: 'Need at least 1 player' };
+  // Rotate players so the randomly-chosen first player is at index 0.
+  // This keeps state.players in true turn order for the whole game —
+  // MembersPanel and scorecard columns will always match gameplay.
+  const startIdx = Math.floor(Math.random() * state.players.length);
+  const players = [
+    ...state.players.slice(startIdx),
+    ...state.players.slice(0, startIdx),
+  ];
   return {
     ...state,
+    players,
     phase: 'playing',
-    turnIndex: Math.floor(Math.random() * state.players.length),
+    turnIndex: 0,
     dice: [0, 0, 0, 0, 0],
     held: [false, false, false, false, false],
     rollsLeft: ROLLS_PER_TURN,

@@ -191,6 +191,10 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       isHost={isHost}
       disabled={pending}
       onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'startGame' }); })}
+      onSetMastermind={(mastermindId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'set_mastermind', mastermindId }); })}
+      onSetScheme={(schemeId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'set_scheme', schemeId }); })}
+      onSetHeroClasses={(classNames) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'set_hero_classes', classNames }); })}
+      onRandomizeHeroes={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'randomize_heroes' }); })}
       onPlay={(instanceId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'play_card', instanceId }); })}
       onRecruit={(slot) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_hero', slot }); })}
       onRecruitSidekick={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_sidekick' }); })}
@@ -199,8 +203,10 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onFightMastermind={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'fight_mastermind' }); })}
       onResolveChoice={(instanceId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'resolve_choice', instanceId }); })}
       onSkipChoice={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'skip_choice' }); })}
+      onAcceptChoice={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'accept_choice' }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'end_turn' }); })}
       onRevealFirstVillain={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'reveal_first_villain' }); })}
+      onWoundHeal={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'play_wound_healing' }); })}
     />
   ),
 

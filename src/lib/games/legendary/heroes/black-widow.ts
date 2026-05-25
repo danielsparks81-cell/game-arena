@@ -34,8 +34,8 @@ export const BW_MISSION_ACCOMPLISHED: HeroCardDef = {
   text: 'Draw a card.\n[tech]: Rescue a Bystander.',
   onPlay: [
     { kind: 'draw', amount: 1 },
-    // This card IS Tech, so the trigger fires when it is played (tech count ≥ 1).
-    { kind: 'if_played_class_this_turn', cls: 'tech', minOthers: 1,
+    // "[tech]:" requires another tech card played this turn (not counting this one).
+    { kind: 'if_played_class_this_turn', cls: 'tech', minOthers: 2,
       effects: [{ kind: 'rescue_bystander', amount: 1 }] },
   ],
 };
@@ -51,8 +51,9 @@ export const BW_DANGEROUS_RESCUE: HeroCardDef = {
   teams: ['avengers'],
   text: '[covert]: You may KO a card from your hand or discard pile. If you do, rescue a Bystander.',
   onPlay: [
-    // This card IS Covert, so the trigger fires when it is played (covert count ≥ 1).
-    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 1,
+    // "[covert]:" means you need ANOTHER covert card played this turn (not counting
+    // this one). Since Dangerous Rescue IS Covert, minOthers: 2 = self(1) + other(1).
+    { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 2,
       effects: [
         // sources: ['hand', 'discard'] — player may pick from either zone.
         { kind: 'ko_from_hand', up_to: 1,
