@@ -115,6 +115,24 @@ export const HERO_CLASSES_PER_GAME = 5;
 export const TROOPERS_AVAILABLE_TOTAL = 30;
 export const AGENTS_AVAILABLE_TOTAL = 16;
 
+/** Human-readable display names for every villain/henchman team ID. Used when
+ *  rendering the mastermind's "Always Leads" label in both the board and sandbox. */
+export const TEAM_DISPLAY_NAMES: Record<string, string> = {
+  'hydra':               'HYDRA',
+  'doombot-legion':      'Doombot Legion',
+  'enemies-of-asgard':   'Enemies of Asgard',
+  'brotherhood':         'Brotherhood',
+  'masters-of-evil':     'Masters of Evil',
+  'hand_ninjas':         'Hand Ninjas',
+  'sentinels':           'Sentinels',
+  'savage_land_mutates': 'Savage Land Mutates',
+};
+
+/** Resolve a team ID to its display name, falling back to the raw id. */
+export function teamDisplayName(team: string): string {
+  return TEAM_DISPLAY_NAMES[team] ?? team;
+}
+
 // Engine constants
 export const LOG_MAX = 500;
 export const STATE_VERSION = 1;

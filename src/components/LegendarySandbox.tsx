@@ -32,7 +32,7 @@ import { MAGNETO, MAGNETO_TACTICS } from '@/lib/games/legendary/masterminds/magn
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
 import { COSMIC_CUBE } from '@/lib/games/legendary/schemes/cosmic-cube';
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
-import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK } from '@/lib/games/legendary';
+import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK, teamDisplayName } from '@/lib/games/legendary';
 import type { WoundCardDef, BystanderCardDef, MasterStrikeCardDef, SchemeTwistCardDef } from '@/lib/games/legendary';
 import { KEYWORDS, type KeywordCategory } from '@/lib/games/legendary/keywords';
 
@@ -1238,7 +1238,7 @@ function HeroSection() {
               </div>
               {def.text && (
                 <div className="w-[230px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
-                  {def.text}
+                  <CardText text={def.text} />
                 </div>
               )}
             </div>
@@ -1769,7 +1769,7 @@ function SandboxMastermindPanel({ def }: { def: MastermindCardDef }) {
       {/* Always Leads */}
       <div className="mt-0.5 text-[11px]">
         <span className="font-semibold" style={{ color: borderColor }}>Always Leads: </span>
-        <span className="font-bold text-white">{def.alwaysLeads}</span>
+        <span className="font-bold text-white">{teamDisplayName(def.alwaysLeads)}</span>
       </div>
       {/* Master Strike text — "Label:" in crimson, body in white */}
       {def.text && (() => {
@@ -1851,7 +1851,7 @@ function MastermindSection() {
               <div className="text-xs text-neutral-500">{tactic.vp}VP</div>
               {tactic.text && (
                 <div className="w-[220px] rounded border border-neutral-800 bg-neutral-900/60 p-2 text-[10px] leading-snug text-neutral-400">
-                  {tactic.text}
+                  <CardText text={tactic.text} />
                 </div>
               )}
             </div>
@@ -2013,11 +2013,11 @@ function MastermindCardArt({ def }: { def: MastermindCardDef }) {
         Mastermind
       </div>
       <div className="mt-1 text-[11px] text-neutral-400">
-        Always Leads: <span className="font-semibold text-neutral-200">{def.alwaysLeads}</span>
+        Always Leads: <span className="font-semibold text-neutral-200">{teamDisplayName(def.alwaysLeads)}</span>
       </div>
       {def.text && (
         <div className="my-2 border-t border-neutral-800 pt-2 text-[11px] leading-snug text-neutral-300">
-          {def.text}
+          <CardText text={def.text} />
         </div>
       )}
       <div className="mt-auto flex items-center gap-4 border-t border-neutral-800 pt-2 text-[12px]">
@@ -2051,11 +2051,11 @@ function SchemeCardArt({ def }: { def: SchemeCardDef }) {
               <span className="mr-1 font-bold uppercase tracking-wide" style={{ color: borderColor }}>
                 {label}
               </span>
-              {body}
+              <CardText text={body} />
             </div>
           );
         }
-        return <div key={i} className="mb-1.5 text-[11px] leading-snug text-neutral-300">{segment}</div>;
+        return <div key={i} className="mb-1.5 text-[11px] leading-snug text-neutral-300"><CardText text={segment} /></div>;
       })
     : null;
 

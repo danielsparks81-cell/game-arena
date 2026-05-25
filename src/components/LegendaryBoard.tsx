@@ -37,7 +37,7 @@ import {
   type PlayerState,
 } from '@/lib/games/legendary';
 import { SIDEKICK, OFFICER } from '@/lib/games/legendary/heroes/shield';
-import { WOUND } from '@/lib/games/legendary/cards';
+import { WOUND, teamDisplayName } from '@/lib/games/legendary/cards';
 // Card render primitives. Extracted so the sandbox preview at
 // /legendary-sandbox renders cards identically — no drift between author-time
 // and play-time visuals.
@@ -2106,7 +2106,7 @@ function MastermindZone({
       {/* Always Leads */}
       <div className="mt-0.5 text-[11px]">
         <span className="font-semibold" style={{ color: '#DC143C' }}>Always Leads: </span>
-        <span className="font-bold text-white">{mmDef.alwaysLeads}</span>
+        <span className="font-bold text-white">{teamDisplayName(mmDef.alwaysLeads)}</span>
       </div>
       {/* Strike text — label in crimson, body in white; truncated to 2 lines */}
       {mmDef.text && (() => {
@@ -2566,12 +2566,7 @@ function floaterFor(ev: LegendaryEvent): { seat: number; sign: '+' | '-'; amount
 
 /** Human-readable label for a villain/henchman group id. */
 function groupLabel(id: string): string {
-  switch (id) {
-    case 'hydra':         return 'HYDRA';
-    case 'doombot-legion': return 'Doombot Legion';
-    case 'hand_ninjas':   return 'Hand Ninjas';
-    default:              return id;
-  }
+  return teamDisplayName(id);
 }
 
 /** How many hero classes are needed for a given player count. */
