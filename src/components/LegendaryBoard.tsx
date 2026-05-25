@@ -166,6 +166,10 @@ export default function LegendaryBoard({
   // Wound healing: clicking a Wound KOs all wounds from hand, but only if the
   // player has not yet fought or recruited this turn (and no choice is pending).
   const woundHealingAvailable = isMyTurn && !state.thisTurn.foughtThisTurn && !state.thisTurn.recruitedThisTurn && !pendingChoice && state.phase !== 'finished';
+  // After using the Healing action, the player can no longer recruit or fight
+  // for the rest of the turn (the Wound card's rule). Gate the recruit/fight
+  // UI affordances so they show as disabled instead of just erroring on click.
+  const actionsLockedByHeal = !!state.thisTurn.healedThisTurn;
 
   // ----- Lobby phase: full setup screen -----
   if (state.phase === 'lobby') {
@@ -610,7 +614,7 @@ export default function LegendaryBoard({
                   : state.thisTurn.attack}
                 mastermindAttackDebuff={state.thisTurn.mastermindAttackDebuff}
                 isMyTurn={isMyTurn}
-                disabled={disabled || state.phase === 'finished'}
+                disabled={disabled || actionsLockedByHeal || state.phase === 'finished'}
                 onFight={onFightMastermind}
                 bystanderCount={state.mastermind.bystanders?.length ?? 0}
               />
@@ -673,7 +677,7 @@ export default function LegendaryBoard({
                         isLast={slot === CITY_SIZE - 1}
                         attack={effectiveAttack}
                         locationDebuff={locationDebuff}
-                        disabled={!isMyTurn || disabled || state.phase === 'finished'}
+                        disabled={!isMyTurn || disabled || actionsLockedByHeal || state.phase === 'finished'}
                         onFight={() => onFightCity(slot)}
                         attachedBystanders={visibleCard ? state.cityBystanders[visibleCard.instanceId]?.length ?? 0 : 0}
                         freeBystanderFightAvailable={state.thisTurn.freeBystanderFightAvailable}
@@ -742,8 +746,8 @@ export default function LegendaryBoard({
             {/* Sidekick pile */}
             <div className="group relative flex flex-col flex-1 min-h-0">
               <PileDisplay label={SIDEKICK.cardName} count={state.sidekickPoolCount} tone="neutral" fill cost={SIDEKICK.cost}
-                canAfford={isMyTurn && !disabled && state.thisTurn.recruit >= SIDEKICK.cost && !state.thisTurn.sidekickRecruited && state.sidekickPoolCount > 0}
-                onClick={isMyTurn && !disabled && !state.thisTurn.sidekickRecruited && state.sidekickPoolCount > 0 ? onRecruitSidekick : undefined}
+                canAfford={isMyTurn && !disabled && !actionsLockedByHeal && state.thisTurn.recruit >= SIDEKICK.cost && !state.thisTurn.sidekickRecruited && state.sidekickPoolCount > 0}
+                onClick={isMyTurn && !disabled && !actionsLockedByHeal && !state.thisTurn.sidekickRecruited && state.sidekickPoolCount > 0 ? onRecruitSidekick : undefined}
                 pileStyle={{ borderColor: '#909090', background: 'linear-gradient(135deg,#7a7a7a,#686868)' }} />
               {/* Hover preview — sibling of button, so z-[500] escapes the button's stacking context */}
               <div className="pointer-events-none absolute left-full top-0 z-[500] ml-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
@@ -753,8 +757,8 @@ export default function LegendaryBoard({
             {/* Officer pile */}
             <div className="group relative flex flex-col flex-1 min-h-0">
               <PileDisplay label={OFFICER.cardName} count={state.officerPoolCount} tone="neutral" fill cost={OFFICER.cost}
-                canAfford={isMyTurn && !disabled && state.thisTurn.recruit >= OFFICER.cost && state.officerPoolCount > 0}
-                onClick={isMyTurn && !disabled && state.officerPoolCount > 0 ? onRecruitOfficer : undefined}
+                canAfford={isMyTurn && !disabled && !actionsLockedByHeal && state.thisTurn.recruit >= OFFICER.cost && state.officerPoolCount > 0}
+                onClick={isMyTurn && !disabled && !actionsLockedByHeal && state.officerPoolCount > 0 ? onRecruitOfficer : undefined}
                 pileStyle={{ borderColor: '#909090', background: 'linear-gradient(135deg,#7a7a7a,#686868)' }} />
               <div className="pointer-events-none absolute left-full top-0 z-[500] ml-2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
                 <HeroCardArt def={OFFICER} style={SHIELD_GREY_STYLE} lightBg />
@@ -778,7 +782,7 @@ export default function LegendaryBoard({
                       card={visibleCard}
                       slot={slot}
                       recruit={state.thisTurn.recruit}
-                      disabled={!isMyTurn || disabled || state.phase === 'finished'}
+                      disabled={!isMyTurn || disabled || actionsLockedByHeal || state.phase === 'finished'}
                       onRecruit={() => onRecruit(slot)}
                       refillAnim={animatingHqSlots.has(slot)}
                       onFreeRecruit={isFreeRecruitFromHQ && visibleCard

@@ -2011,6 +2011,9 @@ function doRecruit(
   me: PlayerState,
   slot: number,
 ): LegendaryState | { error: string } {
+  if (state.thisTurn.healedThisTurn) {
+    return { error: 'You used the Healing action this turn — recruit / fight are locked.' };
+  }
   if (slot < 0 || slot >= state.hq.length) return { error: 'No such HQ slot' };
   const card = state.hq[slot];
   if (!card) return { error: 'HQ slot is empty' };
@@ -2042,6 +2045,9 @@ function doRecruitPool(
   me: PlayerState,
   cardId: CardId,
 ): LegendaryState | { error: string } {
+  if (state.thisTurn.healedThisTurn) {
+    return { error: 'You used the Healing action this turn — recruit / fight are locked.' };
+  }
   const def = getCard(cardId);
   if (def.kind !== 'hero') return { error: 'Pool card is not a hero' };
   // Rules: Sidekicks are limited to once per turn (§ "Sidekick Deck").
@@ -2101,6 +2107,9 @@ function doFightCity(
   me: PlayerState,
   slot: number,
 ): LegendaryState | { error: string } {
+  if (state.thisTurn.healedThisTurn) {
+    return { error: 'You used the Healing action this turn — recruit / fight are locked.' };
+  }
   if (slot < 0 || slot >= state.city.length) return { error: 'No such City slot' };
   const card = state.city[slot];
   if (!card) return { error: 'City slot is empty' };
@@ -2823,6 +2832,9 @@ function doFightMastermind(
   state: LegendaryState,
   me: PlayerState,
 ): LegendaryState | { error: string } {
+  if (state.thisTurn.healedThisTurn) {
+    return { error: 'You used the Healing action this turn — recruit / fight are locked.' };
+  }
   const mmDef = getCard(state.mastermind.cardId);
   if (mmDef.kind !== 'mastermind') return { error: 'Mastermind misconfigured' };
   if (state.mastermind.tactics.length === 0) {
@@ -2959,7 +2971,10 @@ function doWoundHealing(
   // KO all wounds from hand
   me.hand = me.hand.filter(c => c.cardId !== 'wound');
   for (const w of wounds) state.ko.push(w);
-  pushLog(state, { kind: 'system', text: `${me.username} heals: KO'd ${wounds.length} Wound${wounds.length === 1 ? '' : 's'} from their hand.` });
+  // Lock out recruit / fight for the rest of the turn — healing is conditional
+  // on "if you don't recruit or fight anything on your turn".
+  state.thisTurn.healedThisTurn = true;
+  pushLog(state, { kind: 'system', text: `${me.username} heals: KO'd ${wounds.length} Wound${wounds.length === 1 ? '' : 's'} from their hand. (No more recruit / fight this turn.)` });
   return state;
 }
 

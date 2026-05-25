@@ -719,6 +719,10 @@ export type TurnState = {
   /** Set to true the first time the player recruits a card (HQ, sidekick, or
    *  officer pool) this turn. Used for Wound healing eligibility check. */
   recruitedThisTurn: boolean;
+  /** Set when the player KOs their Wounds via the Healing action. While true,
+   *  recruit and fight actions are blocked for the rest of the turn (the
+   *  Healing rule: "if you don't recruit or fight anything on your turn"). */
+  healedThisTurn?: boolean;
   /** Cruel Ruler (Loki Tactic 3): when true, the next fight_city action is free (no attack cost). */
   fightCityFreeAvailable?: boolean;
 };
