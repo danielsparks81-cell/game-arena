@@ -302,6 +302,10 @@ export type Effect =
   | { kind: 'free_recruit_xmen_from_hq_effect' }
   /** Electromagnetic Bubble: sets pending choice to select an [x-men] Hero from played area for next hand. */
   | { kind: 'em_bubble' }
+
+  // ── Scheme-triggered effects ─────────────────────────────────────────────────
+  /** Super Hero Civil War twist: KO every Hero currently in the HQ (then refill). */
+  | { kind: 'ko_all_heroes_in_hq' }
   /** Crushing Shockwave: reveals [x-men] Hero (no penalty) or gains `amount` Wounds. */
   | { kind: 'reveal_xmen_or_gain_wounds'; amount: number };
 

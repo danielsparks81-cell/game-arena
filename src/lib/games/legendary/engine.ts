@@ -1505,6 +1505,27 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Super Hero Civil War twist: KO every Hero in HQ, then refill ──────────
+    case 'ko_all_heroes_in_hq': {
+      let koCount = 0;
+      for (let slot = 0; slot < state.hq.length; slot++) {
+        const card = state.hq[slot];
+        if (!card) continue;
+        const d = getCard(card.cardId);
+        if (d.kind !== 'hero') continue;
+        state.ko.push(card);
+        state.hq[slot] = null;
+        koCount++;
+      }
+      if (koCount > 0) {
+        pushLog(state, { kind: 'system', text: `Super Hero Civil War: ${koCount} Hero${koCount === 1 ? '' : 'es'} KO'd from the HQ.` });
+        refillHQ(state, true);
+      } else {
+        pushLog(state, { kind: 'system', text: 'Super Hero Civil War: HQ was empty — no Heroes to KO.' });
+      }
+      return;
+    }
+
     // ── Magneto Tactic 4: Crushing Shockwave ─────────────────────────────────
     case 'reveal_xmen_or_gain_wounds': {
       if (me.hand.length === 0) return;

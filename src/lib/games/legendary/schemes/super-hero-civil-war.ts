@@ -8,11 +8,11 @@ import type { SchemeCardDef } from '../types';
 //   Twist:     KO all the Heroes in the HQ.
 //   Evil Wins: If the Hero Deck runs out.
 //
-// MVP implementation note: we use a fixed 8 twists (the most-common 1–3p value)
-// and use twist-count as the loss condition placeholder. The "KO all HQ" twist
-// effect and the "hero deck empty = loss" condition both need new engine work
-// (no `ko_all_heroes_in_hq` Effect kind yet, and no `evilWinsIfHeroDeckEmpty`
-// flag). Card text below preserves the official rules wording.
+// MVP implementation note: we use a fixed 8 twists (the most-common 1–3p value).
+// The Twist effect (KO every Hero in the HQ + refill) IS now implemented via
+// the `ko_all_heroes_in_hq` engine effect. The "Hero Deck runs out = loss"
+// condition still needs new engine work (no `evilWinsIfHeroDeckEmpty` flag yet),
+// so loss falls back to twist-count. Card text preserves the official wording.
 
 export const SUPER_HERO_CIVIL_WAR: SchemeCardDef = {
   kind: 'scheme',
@@ -22,4 +22,7 @@ export const SUPER_HERO_CIVIL_WAR: SchemeCardDef = {
   twists: 8,
   bystanders: 2,
   evilWinsAfterTwists: 8,
+  onTwist: [
+    { kind: 'ko_all_heroes_in_hq' },
+  ],
 };

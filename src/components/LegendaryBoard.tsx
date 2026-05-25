@@ -706,13 +706,15 @@ export default function LegendaryBoard({
                   {renderIdx < 4 && (
                     /* CSS border-triangle separator pointing left (villains escape left).
                        Top/bottom use the board bg (#09090b) instead of transparent so
-                       the active card's accent border above doesn't bleed through. */
+                       the active card's accent border above doesn't bleed through.
+                       Uses a single neutral colour so the separators stay uniform
+                       instead of inheriting each slot's tint. */
                     <div style={{
                       width: 0,
                       height: 0,
                       borderTop: '10px solid #09090b',
                       borderBottom: '10px solid #09090b',
-                      borderRight: `8px solid ${CITY_CHEVRON_COLORS[slot]}`,
+                      borderRight: '8px solid #1a1a1a',
                       flexShrink: 0,
                       alignSelf: 'center',
                     }} />
