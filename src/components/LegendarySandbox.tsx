@@ -32,7 +32,7 @@ import { MAGNETO, MAGNETO_TACTICS } from '@/lib/games/legendary/masterminds/magn
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
 import { COSMIC_CUBE } from '@/lib/games/legendary/schemes/cosmic-cube';
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
-import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK, teamDisplayName } from '@/lib/games/legendary';
+import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK, teamDisplayName, SCHEMES as ALL_SCHEMES } from '@/lib/games/legendary';
 import type { WoundCardDef, BystanderCardDef, MasterStrikeCardDef, SchemeTwistCardDef } from '@/lib/games/legendary';
 import { KEYWORDS, type KeywordCategory } from '@/lib/games/legendary/keywords';
 
@@ -1864,7 +1864,9 @@ function MastermindSection() {
 
 // ─── Scheme section ───────────────────────────────────────────────────────────
 
-const SCHEMES = [NEGATIVE_ZONE_PRISON_BREAKOUT, COSMIC_CUBE];
+// Canonical scheme list lives in cards.ts; importing ensures the sandbox
+// automatically picks up new schemes as they're registered there.
+const SCHEMES = ALL_SCHEMES;
 
 function SchemeSection() {
   const [selectedIdx, setSelectedIdx] = useState(0);
