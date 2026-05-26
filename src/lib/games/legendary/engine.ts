@@ -2430,13 +2430,20 @@ function doFightCity(
 
   // Storm – location debuff (Lightning Bolt / Tidal Wave).
   const locationDebuff = state.thisTurn.locationVillainDebuffs[slot] ?? 0;
-  // Skrull attach-hero: if a Hero is tucked under this villain, the villain's
-  // effective strike equals that Hero's cost (replaces the printed value).
+  // Effective base strike:
+  //   1. Skrull attach-hero: attached Hero's cost overrides printed value.
+  //   2. Killbots scheme: Killbot villains' strike = current twist count.
+  //   3. Otherwise: the villain's printed attack.
   const attachedHero = state.cityAttachedHeroes?.[card.instanceId];
   const attachedHeroDef = attachedHero ? getCard(attachedHero.cardId) : undefined;
-  const baseAttack = (attachedHeroDef && attachedHeroDef.kind === 'hero')
-    ? (attachedHeroDef as HeroCardDef).cost
-    : def.attack;
+  let baseAttack: number;
+  if (attachedHeroDef && attachedHeroDef.kind === 'hero') {
+    baseAttack = (attachedHeroDef as HeroCardDef).cost;
+  } else if (card.cardId === 'killbot') {
+    baseAttack = state.schemeTwistsRevealed;
+  } else {
+    baseAttack = def.attack;
+  }
   const requiredAttack = Math.max(0, baseAttack - locationDebuff);
 
   // Thor – God of Thunder: attack and recruit are interchangeable.
@@ -2649,6 +2656,24 @@ function doResolveChoice(
       cost: 0,
       slot: slotIdx,
     });
+    return state;
+  }
+
+  // ── Villain Escape penalty: player clicked an HQ Hero to KO ────────────
+  // Any HQ Hero is valid — the active player chooses (replaces the prior
+  // auto-pick of highest-cost ≤6 Hero).
+  if (choice.kind === 'escape_ko_hq_hero') {
+    const slotIdx = state.hq.findIndex(c => c?.instanceId === instanceId);
+    if (slotIdx < 0) return { error: 'That card is not in the HQ' };
+    const card = state.hq[slotIdx]!;
+    const def = getCard(card.cardId);
+    if (def.kind !== 'hero') return { error: 'Select a Hero card from the HQ' };
+    state.thisTurn.pendingChoice = undefined;
+    state.hq[slotIdx] = null;
+    state.ko.push(card);
+    refillHQ(state, true);
+    pushLog(state, { kind: 'system', text:
+      `${me.username} chose to KO ${def.cardName} from the HQ (${choice.escapedVillainName} escape).` });
     return state;
   }
 
@@ -3622,16 +3647,20 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   // 5. Advance to next player, reset turn state. NO draw here — every player's
   //    hand is dealt at end of their previous turn (or at game start for their
   //    first turn), so the next player already has 6 cards waiting.
-  // Solo twist tuck: the pendingChoice was set inside revealOneVillainCard, which
-  // runs BEFORE this emptyTurnState() call. Preserve it so the solo player is
-  // prompted at the start of their next turn rather than having it silently wiped.
-  const carryoverTwistTuck = state.thisTurn.pendingChoice?.kind === 'solo_twist_tuck_hero'
-    ? state.thisTurn.pendingChoice
-    : undefined;
+  // Carry over pendingChoices that were set during villain reveal (solo twist
+  // tuck, villain escape KO) so they don't get wiped by emptyTurnState() — the
+  // player needs to resolve them at the start of their next turn before they
+  // can play. (Solo twist tuck stays with the active player in solo; escape
+  // KO transfers to whoever is the new active player after advance.)
+  const carryoverChoice =
+    state.thisTurn.pendingChoice?.kind === 'solo_twist_tuck_hero' ||
+    state.thisTurn.pendingChoice?.kind === 'escape_ko_hq_hero'
+      ? state.thisTurn.pendingChoice
+      : undefined;
   state.currentPlayerIdx = (state.currentPlayerIdx + 1) % state.players.length;
   state.turn++;
   state.thisTurn = emptyTurnState();
-  if (carryoverTwistTuck) state.thisTurn.pendingChoice = carryoverTwistTuck;
+  if (carryoverChoice) state.thisTurn.pendingChoice = carryoverChoice;
   const nextPlayer = state.players[state.currentPlayerIdx];
   resolvePendingStrikes(state, nextPlayer);
 
@@ -3736,6 +3765,18 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
       return card;
     }
     case 'bystander': {
+      // Killbots scheme override: bystanders in the Villain Deck count as
+      // Killbot Villains. Convert this bystander instance into a Killbot and
+      // route it through enterCity as a regular villain. Effective strike
+      // scales with the current twist count (handled in doFightCity below).
+      if (state.schemeId === 'scheme_killbots') {
+        const killbotInstance = mkInstance('killbot');
+        const killbotDef = getCard('killbot');
+        pushLog(state, { kind: 'system', text:
+          `Bystander revealed under Killbots — it animates into a Killbot Villain (strike ${state.schemeTwistsRevealed}).` });
+        enterCity(state, killbotInstance, killbotDef);
+        return killbotInstance;
+      }
       // Attach immediately to the villain CLOSEST to the Villain Deck (slot 0 =
       // Sewers / entry edge), per the rules. If the city is empty, the
       // Mastermind captures the bystander instead.
@@ -3811,27 +3852,24 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
       if (eDef.kind === 'villain' || eDef.kind === 'henchman') {
         pushLog(state, { kind: 'villain_escaped', cardId: eDef.cardId, cardName: eDef.name });
 
-        // ── Step 1: KO a hero from HQ (highest cost ≤ 6) ─────────────────
-        let koSlot = -1;
-        let koMaxCost = -1;
-        for (let i = 0; i < state.hq.length; i++) {
-          const hqCard = state.hq[i];
-          if (!hqCard) continue;
-          const hqDef = getCard(hqCard.cardId);
-          if (hqDef.kind !== 'hero') continue;
-          if (hqDef.cost <= 6 && hqDef.cost > koMaxCost) {
-            koMaxCost = hqDef.cost;
-            koSlot = i;
-          }
-        }
-        if (koSlot >= 0) {
-          const koCard = state.hq[koSlot]!;
-          state.hq[koSlot] = null;
-          state.ko.push(koCard);
-          const koHeroDef = getCard(koCard.cardId);
-          const heroName = koHeroDef.kind === 'hero' ? koHeroDef.cardName : koCard.cardId;
-          pushLog(state, { kind: 'system', text: `Escape: ${eDef.name} KO'd ${heroName} from the HQ.` });
-          refillHQ(state, true);
+        // ── Step 1: prompt the active player to KO a Hero from the HQ ───
+        // Was: engine auto-picked the highest-cost (≤6) Hero. Now we set a
+        // mandatory pending choice so the active player clicks which Hero
+        // dies. Only set if there's actually a Hero in the HQ to target.
+        const hasHqHero = state.hq.some(c => {
+          if (!c) return false;
+          return getCard(c.cardId).kind === 'hero';
+        });
+        if (hasHqHero) {
+          state.thisTurn.pendingChoice = {
+            kind: 'escape_ko_hq_hero',
+            escapedVillainName: eDef.name,
+          };
+          pushLog(state, { kind: 'system', text:
+            `Escape: ${eDef.name} escaped — choose a Hero in the HQ to KO.` });
+        } else {
+          pushLog(state, { kind: 'system', text:
+            `Escape: ${eDef.name} escaped — no Heroes in the HQ to KO.` });
         }
 
         // ── Step 2: Bystander penalty ──────────────────────────────────────

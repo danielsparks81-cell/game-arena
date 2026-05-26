@@ -71,6 +71,23 @@ export const SCHEME_TWIST: CardDef = {
   kind: 'scheme_twist', cardId: 'scheme_twist', name: 'Scheme Twist',
 };
 
+/** Killbot — synthetic villain card spawned by the "Replace Earth's Leaders
+ *  with Killbots" scheme. When a Bystander is revealed from the Villain Deck
+ *  during that scheme, the engine converts it into a Killbot and routes it
+ *  through enterCity as a normal villain. Strike scales with the number of
+ *  Twists currently next to the Scheme (handled by effectiveVillainAttack via
+ *  the variableStrike flag — engine reads state.schemeTwistsRevealed). */
+export const KILLBOT: CardDef = {
+  kind: 'villain',
+  cardId: 'killbot',
+  name: 'Killbot',
+  team: 'system',
+  attack: 0,            // base fallback; effective strike = scheme twist count
+  variableStrike: true, // renders "*" in card art when no other source applies
+  vp: 1,
+  text: 'Strike equal to the number of Twists next to this Scheme.',
+};
+
 /**
  * Build the cardId → CardDef map. Every card definition the engine could
  * reference goes through here; the engine deals strictly in cardIds and
@@ -92,6 +109,7 @@ function buildCatalog(): Record<CardId, CardDef> {
   for (const t of LOKI_TACTICS) add(t);
   for (const t of MAGNETO_TACTICS) add(t);
   add(WOUND); add(BYSTANDER); add(MASTER_STRIKE); add(SCHEME_TWIST);
+  add(KILLBOT);
   return cat;
 }
 

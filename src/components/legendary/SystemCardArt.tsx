@@ -68,7 +68,7 @@ function teamLabel(team: string): string {
  */
 export function VillainCardArt({
   def, wide = false, attachedBystanders = 0, locationDebuff = 0,
-  attachedHeroName, attachedHeroCost,
+  attachedHeroName, attachedHeroCost, killbotStrike,
 }: {
   def: VillainCardDef;
   wide?: boolean;
@@ -80,14 +80,24 @@ export function VillainCardArt({
    *  with the Hero's cost. */
   attachedHeroName?: string;
   attachedHeroCost?: number;
+  /** Killbots scheme: the live strike value (= current twist count). When
+   *  provided AND the villain is a Killbot, replaces the printed "*". */
+  killbotStrike?: number;
 }) {
   const borderColor = '#ef4444'; // covert red — villains have no team color
   const widthClass  = wide ? 'w-full'  : 'w-[220px]';
   const heightClass = wide ? 'h-36'    : 'h-40';
   const hasAttachedHero = attachedHeroName !== undefined && attachedHeroCost !== undefined;
-  // Display strike: if a Skrull hero is attached, replace the printed value
-  // with the Hero's cost; otherwise use printed (with Storm debuff applied).
-  const displayedAttack = hasAttachedHero ? attachedHeroCost! : def.attack;
+  const isKillbotWithStrike = def.cardId === 'killbot' && killbotStrike !== undefined;
+  // Display strike priority:
+  //   1. Attached hero cost (Skrull)
+  //   2. Killbot live strike (= twist count)
+  //   3. Printed attack (Storm debuff applied below)
+  const displayedAttack = hasAttachedHero
+    ? attachedHeroCost!
+    : isKillbotWithStrike
+    ? killbotStrike!
+    : def.attack;
 
   return (
     <div
@@ -163,10 +173,11 @@ export function VillainCardArt({
       {!def.text && <div className="flex-1" />}
       {/* Attack — absolute bottom-right. Shows the effective strike:
            - Skrull attach: hero's cost (in green, with * for "variable").
-           - variableStrike (no attach yet): "0*" so the * is visible.
+           - Killbot with live twist count: count in green with strikethrough *.
+           - variableStrike (no override yet): just the white "*" glyph.
            - Storm debuff: emerald reduced value with strikethrough printed. */}
       <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold">
-        {hasAttachedHero ? (
+        {hasAttachedHero || isKillbotWithStrike ? (
           <>
             <span className="mr-0.5 text-neutral-500 line-through text-[10px]">*</span>
             <span style={{ color: '#4ade80' }}>{displayedAttack}</span>

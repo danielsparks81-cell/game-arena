@@ -151,6 +151,7 @@ export default function LegendaryBoard({
     pendingChoice.kind !== 'ko_up_to_from_discard' &&
     pendingChoice.kind !== 'em_bubble_select_hero' &&
     pendingChoice.kind !== 'solo_twist_tuck_hero' &&
+    pendingChoice.kind !== 'escape_ko_hq_hero' &&
     pendingChoice.kind !== 'choose_city_villain_for_bystander' &&
     pendingChoice.kind !== 'look_top_two_ko_one_return_one';
   // Binary choices don't require card selection — the player just clicks
@@ -171,6 +172,7 @@ export default function LegendaryBoard({
   const isKoUpToFromDiscard           = isMyTurn && pendingChoice?.kind === 'ko_up_to_from_discard';
   const isEmBubbleSelectHero          = isMyTurn && pendingChoice?.kind === 'em_bubble_select_hero';
   const isSoloTwistTuck               = isMyTurn && pendingChoice?.kind === 'solo_twist_tuck_hero';
+  const isEscapeKoHqHero              = isMyTurn && pendingChoice?.kind === 'escape_ko_hq_hero';
   const isChooseCityBystanderTarget   = isMyTurn && pendingChoice?.kind === 'choose_city_villain_for_bystander';
   const isLookTopTwoChoice            = isMyTurn && pendingChoice?.kind === 'look_top_two_ko_one_return_one';
   // Wound healing: clicking a Wound KOs all wounds from hand, but only if the
@@ -713,6 +715,9 @@ export default function LegendaryBoard({
                           const hd = CARDS[h.cardId];
                           return hd?.kind === 'hero' ? hd.cost : undefined;
                         })()}
+                        killbotStrike={visibleCard?.cardId === 'killbot'
+                          ? state.schemeTwistsRevealed
+                          : undefined}
                         freeBystanderFightAvailable={state.thisTurn.freeBystanderFightAvailable}
                         fightCityFreeAvailable={!!state.thisTurn.fightCityFreeAvailable}
                         // Storm move-villain support
@@ -825,6 +830,9 @@ export default function LegendaryBoard({
                         ? () => onResolveChoice(visibleCard.instanceId)
                         : undefined}
                       onTuckHero={isSoloTwistTuck && visibleCard
+                        ? () => onResolveChoice(visibleCard.instanceId)
+                        : undefined}
+                      onKoFromHq={isEscapeKoHqHero && visibleCard
                         ? () => onResolveChoice(visibleCard.instanceId)
                         : undefined}
                     />
@@ -945,6 +953,8 @@ export default function LegendaryBoard({
             ? 'border-violet-500 bg-violet-950/50'
             : pendingChoice.kind === 'solo_twist_tuck_hero'
             ? 'border-emerald-500 bg-emerald-950/50'
+            : pendingChoice.kind === 'escape_ko_hq_hero'
+            ? 'border-rose-500 bg-rose-950/50'
             : pendingChoice.kind === 'choose_city_villain_for_bystander'
             ? 'border-amber-500 bg-amber-950/50'
             : pendingChoice.kind === 'look_top_two_ko_one_return_one'
@@ -980,6 +990,8 @@ export default function LegendaryBoard({
                   ? 'text-violet-300'
                   : pendingChoice.kind === 'solo_twist_tuck_hero'
                   ? 'text-emerald-300'
+                  : pendingChoice.kind === 'escape_ko_hq_hero'
+                  ? 'text-rose-300'
                   : pendingChoice.kind === 'choose_city_villain_for_bystander'
                   ? 'text-amber-300'
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
@@ -1027,6 +1039,8 @@ export default function LegendaryBoard({
                   ? '🔮 Electromagnetic Bubble — click an X-Men Hero from your played area to keep in next hand'
                   : pendingChoice.kind === 'solo_twist_tuck_hero'
                   ? '📥 Solo Twist Bonus — click a Hero in the HQ (cost 6 or less) to put it on the bottom of the Hero Deck'
+                  : pendingChoice.kind === 'escape_ko_hq_hero'
+                  ? `💀 ${(pendingChoice as { escapedVillainName: string }).escapedVillainName} escaped — click any Hero in the HQ to KO it`
                   : pendingChoice.kind === 'choose_city_villain_for_bystander'
                   ? '👤 Here, Hold This — click a Villain or Henchman in the city to capture the Bystander'
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
@@ -1522,13 +1536,15 @@ const CITY_EMPTY_STYLES: Record<number, { bg: string; border: string }> = {
 /** Diagonal noise texture layered over atmospheric slot backgrounds. */
 const CITY_TEXTURE = 'repeating-linear-gradient(135deg,rgba(255,255,255,0.025) 0 1px,transparent 1px 12px)';
 
-/** Per-slot fill color for the chevron location strip below the city grid. */
+/** Per-slot fill color for the chevron location strip below the city grid.
+ *  All five slots use the same neutral so the strip reads as one continuous
+ *  divider instead of five differently-tinted segments stitched together. */
 const CITY_CHEVRON_COLORS: Record<number, string> = {
-  0: '#0f2015', // Sewers
-  1: '#1a1505', // Bank
-  2: '#0e1020', // Rooftops
-  3: '#1c1c1c', // Streets
-  4: '#162030', // Bridge
+  0: '#1a1a1a', // Sewers
+  1: '#1a1a1a', // Bank
+  2: '#1a1a1a', // Rooftops
+  3: '#1a1a1a', // Streets
+  4: '#1a1a1a', // Bridge
 };
 
 // ---------------------------------------------------------------------------
@@ -1642,7 +1658,7 @@ function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
-  attachedHeroName, attachedHeroCost,
+  attachedHeroName, attachedHeroCost, killbotStrike,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1665,6 +1681,10 @@ function CitySlot({
   /** Skrull attach mechanic — name and cost of the Hero tucked under this villain. */
   attachedHeroName?: string;
   attachedHeroCost?: number;
+  /** Killbots scheme: when this villain is a Killbot, its effective strike
+   *  equals the current twist count. Used by the canFight gate so the player
+   *  sees the live required attack. */
+  killbotStrike?: number;
 }) {
   // Storm – Spinning Cyclone step 2: every slot is a clickable destination.
   if (onMoveDest) {
@@ -1677,7 +1697,7 @@ function CitySlot({
       const d = getCard(card.cardId);
       if (d.kind === 'villain' || d.kind === 'henchman') {
         inner = d.kind === 'villain'
-          ? <VillainCardArt  def={d} wide attachedBystanders={attachedBystanders} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} />
+          ? <VillainCardArt  def={d} wide attachedBystanders={attachedBystanders} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} killbotStrike={killbotStrike} />
           : <HenchmanCardArt def={d} wide attachedBystanders={attachedBystanders} />;
       }
     }
@@ -1748,8 +1768,11 @@ function CitySlot({
   }
 
   // Skrull attach mechanic: attached Hero's cost replaces the printed attack
-  // when present, mirroring the engine's effectiveVillainAttack logic.
-  const baseAttack = attachedHeroCost !== undefined ? attachedHeroCost : def.attack;
+  // when present. Killbots scheme: Killbot villains scale with twist count.
+  // Mirrors engine's effective-attack logic in doFightCity.
+  const baseAttack = attachedHeroCost !== undefined
+    ? attachedHeroCost
+    : (card?.cardId === 'killbot' ? (killbotStrike ?? 0) : def.attack);
   const effectiveRequired = Math.max(0, baseAttack - locationDebuff);
   // Free bystander fight (Hawkeye): can fight for free if villain has attached bystanders.
   // Free city fight (Loki Cruel Ruler): can fight any one villain for free.
@@ -1774,7 +1797,7 @@ function CitySlot({
       }`}
     >
       {def.kind === 'villain'
-        ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} />
+        ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} killbotStrike={killbotStrike} />
         : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} />
       }
       <span className="sr-only">Slot {slot}</span>
@@ -1783,7 +1806,7 @@ function CitySlot({
 }
 
 function HQSlot({
-  card, slot, recruit, disabled, onRecruit, refillAnim = false, onFreeRecruit, onFreeRecruitXmen, onTuckHero,
+  card, slot, recruit, disabled, onRecruit, refillAnim = false, onFreeRecruit, onFreeRecruitXmen, onTuckHero, onKoFromHq,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1801,6 +1824,8 @@ function HQSlot({
   /** Solo Twist bonus: when provided, click to tuck this Hero (cost ≤ 6) to the
    *  bottom of the Hero Deck. Ineligible (cost > 6) cards are dimmed. */
   onTuckHero?: () => void;
+  /** Villain Escape penalty: when provided, click ANY HQ Hero to KO it. */
+  onKoFromHq?: () => void;
 }) {
   if (!card) {
     return (
@@ -1875,6 +1900,26 @@ function HQSlot({
       >
         <HeroCardArt def={def} wide height="h-36" copies={copies} />
         <span className="sr-only">Tuck {def.cardName} to bottom of Hero Deck</span>
+      </button>
+    );
+  }
+
+  // ── Villain Escape penalty mode ─────────────────────────────────────────────
+  // Player must KO a Hero from the HQ; any HQ Hero is eligible. Click any
+  // slot to choose — every Hero gets the rose ring + lift treatment.
+  if (onKoFromHq !== undefined) {
+    return (
+      <button
+        type="button"
+        onClick={onKoFromHq}
+        className={[
+          'block w-full transition-all duration-150',
+          refillAnim ? 'animate-hq-flip-in' : '',
+          '-translate-y-3 shadow-lg ring-2 ring-rose-500 hover:-translate-y-4 hover:shadow-xl hover:ring-rose-300',
+        ].join(' ')}
+      >
+        <HeroCardArt def={def} wide height="h-36" copies={copies} />
+        <span className="sr-only">KO {def.cardName} from the HQ</span>
       </button>
     );
   }

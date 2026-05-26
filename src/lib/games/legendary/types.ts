@@ -700,7 +700,12 @@ export type PendingChoice =
   | {
       kind: 'melter_decide_card';
       queue: { ownerSeat: number; ownerName: string; card: CardInstance }[];
-    };
+    }
+  /** Villain escape penalty: a villain escaped off the right edge of the City;
+   *  the active player must KO one Hero from the HQ. They click an HQ slot to
+   *  resolve. Mandatory — no skip. `escapedVillainName` is included purely for
+   *  the banner text so the player knows WHY they're being prompted. */
+  | { kind: 'escape_ko_hq_hero'; escapedVillainName: string };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already
