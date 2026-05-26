@@ -173,11 +173,10 @@ export function VillainCardArt({
           </>
         ) : def.variableStrike ? (
           // Printed "*" — variable strike with no Hero attached yet.
-          // Wrap the oversized asterisk in a 14×14 inline-flex box (same
-          // dimensions as the StrikeIcon next to it) and center the glyph
-          // inside. The wrapper participates in the parent's items-center
-          // flex layout cleanly; the glyph itself is free to overflow that
-          // box vertically so it stays visually large.
+          // 14×14 inline-flex wrapper matches the StrikeIcon next to it.
+          // Asterisk glyph naturally sits in the upper portion of its em-box,
+          // so we shift it down 4px via translateY to land its visible
+          // center on the StrikeIcon's middle. Size reduced 25% (36→27).
           <span
             style={{
               display: 'inline-flex',
@@ -187,9 +186,10 @@ export function VillainCardArt({
               height: 14,
               overflow: 'visible',
               color: '#ffffff',
-              fontSize: 36,
+              fontSize: 27,
               lineHeight: 1,
               fontWeight: 700,
+              transform: 'translateY(4px)',
             }}
           >
             *
