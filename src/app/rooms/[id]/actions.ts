@@ -627,6 +627,10 @@ export type GameAction =
   | { game: 'legendary'; kind: 'set_scheme'; schemeId: string }
   | { game: 'legendary'; kind: 'set_hero_classes'; classNames: string[] }
   | { game: 'legendary'; kind: 'randomize_heroes' }
+  | { game: 'legendary'; kind: 'set_villain_groups';  groupIds: string[] }
+  | { game: 'legendary'; kind: 'set_henchman_groups'; groupIds: string[] }
+  | { game: 'legendary'; kind: 'randomize_villains' }
+  | { game: 'legendary'; kind: 'randomize_henchmen' }
   // In-game actions
   | { game: 'legendary'; kind: 'play_card'; instanceId: string }
   | { game: 'legendary'; kind: 'recruit_hero'; slot: number }
@@ -695,6 +699,10 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'set_scheme')       return lobbyConfigLG(roomId, { kind: 'set_scheme', schemeId: action.schemeId });
       if (action.kind === 'set_hero_classes') return lobbyConfigLG(roomId, { kind: 'set_hero_classes', classNames: action.classNames });
       if (action.kind === 'randomize_heroes') return lobbyConfigLG(roomId, { kind: 'randomize_heroes' });
+      if (action.kind === 'set_villain_groups')  return lobbyConfigLG(roomId, { kind: 'set_villain_groups',  groupIds: action.groupIds });
+      if (action.kind === 'set_henchman_groups') return lobbyConfigLG(roomId, { kind: 'set_henchman_groups', groupIds: action.groupIds });
+      if (action.kind === 'randomize_villains')  return lobbyConfigLG(roomId, { kind: 'randomize_villains' });
+      if (action.kind === 'randomize_henchmen')  return lobbyConfigLG(roomId, { kind: 'randomize_henchmen' });
       // In-game actions
       if (action.kind === 'play_card')        return makeMoveLG(roomId, { kind: 'play_card', instanceId: action.instanceId });
       if (action.kind === 'recruit_hero')     return makeMoveLG(roomId, { kind: 'recruit_hero', slot: action.slot });

@@ -35,6 +35,10 @@ import {
   type LegendaryState,
   type PendingChoice,
   type PlayerState,
+  type MastermindCardDef,
+  type SchemeCardDef,
+  type VillainCardDef,
+  type HenchmanCardDef,
 } from '@/lib/games/legendary';
 import { SIDEKICK, OFFICER } from '@/lib/games/legendary/heroes/shield';
 import { WOUND, teamDisplayName } from '@/lib/games/legendary/cards';
@@ -95,6 +99,7 @@ function getMasterStrikeText(mastermindId: string): string | undefined {
 export default function LegendaryBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetMastermind, onSetScheme, onSetHeroClasses, onRandomizeHeroes,
+  onSetVillainGroups, onSetHenchmanGroups, onRandomizeVillains, onRandomizeHenchmen,
   onPlay, onRecruit, onRecruitSidekick, onRecruitOfficer,
   onFightCity, onFightMastermind, onResolveChoice, onSkipChoice, onAcceptChoice, onEndTurn,
   onRevealFirstVillain, onWoundHeal,
@@ -109,6 +114,10 @@ export default function LegendaryBoard({
   onSetScheme?: (schemeId: string) => void;
   onSetHeroClasses?: (classNames: string[]) => void;
   onRandomizeHeroes?: () => void;
+  onSetVillainGroups?: (groupIds: string[]) => void;
+  onSetHenchmanGroups?: (groupIds: string[]) => void;
+  onRandomizeVillains?: () => void;
+  onRandomizeHenchmen?: () => void;
   onPlay: (instanceId: string) => void;
   onRecruit: (slot: number) => void;
   onRecruitSidekick: () => void;
@@ -184,6 +193,10 @@ export default function LegendaryBoard({
         onSetScheme={onSetScheme}
         onSetHeroClasses={onSetHeroClasses}
         onRandomizeHeroes={onRandomizeHeroes}
+        onSetVillainGroups={onSetVillainGroups}
+        onSetHenchmanGroups={onSetHenchmanGroups}
+        onRandomizeVillains={onRandomizeVillains}
+        onRandomizeHenchmen={onRandomizeHenchmen}
       />
     );
   }
@@ -2782,6 +2795,7 @@ function neededHeroClasses(playerCount: number): number {
 function LegendarySetup({
   state, isHost, disabled,
   onStart, onSetMastermind, onSetScheme, onSetHeroClasses, onRandomizeHeroes,
+  onSetVillainGroups, onSetHenchmanGroups, onRandomizeVillains, onRandomizeHenchmen,
 }: {
   state: LegendaryState;
   isHost: boolean;
@@ -2791,26 +2805,37 @@ function LegendarySetup({
   onSetScheme?: (schemeId: string) => void;
   onSetHeroClasses?: (classNames: string[]) => void;
   onRandomizeHeroes?: () => void;
+  onSetVillainGroups?: (groupIds: string[]) => void;
+  onSetHenchmanGroups?: (groupIds: string[]) => void;
+  onRandomizeVillains?: () => void;
+  onRandomizeHenchmen?: () => void;
 }) {
   const playerCount = state.players.length;
   const needed      = neededHeroClasses(playerCount);
   const selectedSet = new Set(state.heroClassIds);
   const selectedCount = selectedSet.size;
 
-  // Preview which villain groups will be seeded.
-  const mmDef = MASTERMINDS.find(m => m.cardId === state.mastermindId);
-  const previewVillainIds: string[] = mmDef ? [mmDef.alwaysLeads] : [];
-  if (playerCount >= 3) {
-    const extra = VILLAIN_GROUPS.find(g => g.groupId !== mmDef?.alwaysLeads);
-    if (extra) previewVillainIds.push(extra.groupId);
-  }
-  const previewHenchmanIds = [HENCHMAN_GROUPS[0].groupId];
+  // Selected villain / henchman groups (host's lobby picks, may be empty).
+  const selectedVillainIds  = new Set(state.villainGroupIds);
+  const selectedHenchmanIds = new Set(state.henchmanGroupIds);
 
   function toggleClass(cn: string) {
     if (!isHost || !onSetHeroClasses) return;
     const next = new Set(selectedSet);
     if (next.has(cn)) { next.delete(cn); } else { next.add(cn); }
     onSetHeroClasses([...next]);
+  }
+  function toggleVillain(groupId: string) {
+    if (!isHost || !onSetVillainGroups) return;
+    const next = new Set(selectedVillainIds);
+    if (next.has(groupId)) { next.delete(groupId); } else { next.add(groupId); }
+    onSetVillainGroups([...next]);
+  }
+  function toggleHenchman(groupId: string) {
+    if (!isHost || !onSetHenchmanGroups) return;
+    const next = new Set(selectedHenchmanIds);
+    if (next.has(groupId)) { next.delete(groupId); } else { next.add(groupId); }
+    onSetHenchmanGroups([...next]);
   }
 
   function randomizeMastermind() {
@@ -2829,6 +2854,8 @@ function LegendarySetup({
     randomizeMastermind();
     randomizeScheme();
     onRandomizeHeroes?.();
+    onRandomizeVillains?.();
+    onRandomizeHenchmen?.();
   }
 
   const canStart = state.players.length >= 1 && selectedCount === needed;
@@ -2853,7 +2880,7 @@ function LegendarySetup({
         )}
       </div>
 
-      {/* ── Mastermind ── */}
+      {/* ── Mastermind ── (compact title chips; hover reveals full details) */}
       <section>
         <div className="mb-2 flex items-center justify-between gap-2">
           <SectionLabel className="mb-0">Mastermind</SectionLabel>
@@ -2864,44 +2891,22 @@ function LegendarySetup({
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {MASTERMINDS.map(mm => {
-            const sel = mm.cardId === state.mastermindId;
-            return (
-              <button
-                key={mm.cardId}
-                type="button"
-                disabled={!isHost || disabled}
-                onClick={() => isHost && onSetMastermind?.(mm.cardId)}
-                className={[
-                  'rounded-xl border-2 p-4 text-left transition',
-                  sel
-                    ? 'border-rose-500 bg-rose-950/60 shadow-lg'
-                    : 'border-neutral-700 bg-neutral-800/50',
-                  isHost && !disabled ? 'hover:border-rose-600 cursor-pointer' : 'cursor-default',
-                ].join(' ')}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-base font-bold text-neutral-100">{mm.name}</div>
-                  {sel && <span className="shrink-0 rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-semibold text-white">Selected</span>}
-                </div>
-                <div className="mt-1 flex gap-4 text-xs text-neutral-400">
-                  <span>⚔ Attack {mm.attack}</span>
-                  <span>✦ {mm.hits} tactics to defeat</span>
-                </div>
-                <div className="mt-1.5 text-xs text-neutral-500 italic">
-                  Always Leads: {groupLabel(mm.alwaysLeads)}
-                </div>
-                {mm.text && (
-                  <div className="mt-2 text-xs leading-relaxed text-neutral-400">{mm.text}</div>
-                )}
-              </button>
-            );
-          })}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {MASTERMINDS.map(mm => (
+            <SetupChip
+              key={mm.cardId}
+              label={mm.name}
+              selected={mm.cardId === state.mastermindId}
+              disabled={!isHost || disabled}
+              tone="rose"
+              onClick={() => isHost && onSetMastermind?.(mm.cardId)}
+              hoverContent={<MastermindHoverCard mm={mm} />}
+            />
+          ))}
         </div>
       </section>
 
-      {/* ── Scheme ── */}
+      {/* ── Scheme ── (compact title chips; hover reveals full details) */}
       <section>
         <div className="mb-2 flex items-center justify-between gap-2">
           <SectionLabel className="mb-0">Scheme</SectionLabel>
@@ -2912,57 +2917,82 @@ function LegendarySetup({
             </button>
           )}
         </div>
-        <div className="grid grid-cols-1 gap-3">
-          {SCHEMES.map(s => {
-            const sel = s.cardId === state.schemeId;
-            return (
-              <button
-                key={s.cardId}
-                type="button"
-                disabled={!isHost || disabled}
-                onClick={() => isHost && onSetScheme?.(s.cardId)}
-                className={[
-                  'rounded-xl border-2 p-4 text-left transition',
-                  sel
-                    ? 'border-violet-500 bg-violet-950/40 shadow-lg'
-                    : 'border-neutral-700 bg-neutral-800/50',
-                  isHost && !disabled ? 'hover:border-violet-600 cursor-pointer' : 'cursor-default',
-                ].join(' ')}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-bold text-neutral-100">{s.name}</div>
-                  {sel && <span className="shrink-0 rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-semibold text-white">Selected</span>}
-                </div>
-                <div className="mt-1 text-xs leading-relaxed text-neutral-400">{s.text}</div>
-              </button>
-            );
-          })}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {SCHEMES.map(s => (
+            <SetupChip
+              key={s.cardId}
+              label={s.name}
+              selected={s.cardId === state.schemeId}
+              disabled={!isHost || disabled}
+              tone="violet"
+              onClick={() => isHost && onSetScheme?.(s.cardId)}
+              hoverContent={<SchemeHoverCard scheme={s} />}
+            />
+          ))}
         </div>
       </section>
 
-      {/* ── Villain deck composition ── */}
+      {/* ── Villain groups ── (multi-select; defaults to mastermind's
+           alwaysLeads + auto-fill at game start when nothing is picked) */}
       <section>
-        <SectionLabel>
-          Villain Deck
-          <span className="ml-1.5 font-normal normal-case text-neutral-600">
-            ({playerCount} player{playerCount === 1 ? '' : 's'})
-          </span>
-        </SectionLabel>
-        <div className="flex flex-wrap gap-2">
-          {previewVillainIds.map(id => (
-            <span key={id} className="rounded-full border border-red-800 bg-red-950/50 px-3 py-1 text-xs font-medium text-red-300">
-              {groupLabel(id)}
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <SectionLabel className="mb-0">
+            Villain Groups
+            <span className="ml-1.5 font-normal normal-case text-neutral-600">
+              ({playerCount} player{playerCount === 1 ? '' : 's'} — leave empty to auto-fill)
             </span>
-          ))}
-          {previewHenchmanIds.map(id => (
-            <span key={id} className="rounded-full border border-orange-800 bg-orange-950/50 px-3 py-1 text-xs font-medium text-orange-300">
-              {groupLabel(id)} <span className="opacity-60">(Henchmen)</span>
-            </span>
+          </SectionLabel>
+          {isHost && (
+            <button type="button" disabled={disabled} onClick={() => onRandomizeVillains?.()}
+              className="rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300 transition hover:border-neutral-400 hover:text-white disabled:opacity-40">
+              🎲 Randomize
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {VILLAIN_GROUPS.map(g => (
+            <SetupChip
+              key={g.groupId}
+              label={teamDisplayName(g.team)}
+              selected={selectedVillainIds.has(g.groupId)}
+              disabled={!isHost || disabled}
+              tone="red"
+              onClick={() => toggleVillain(g.groupId)}
+              hoverContent={<VillainGroupHoverCard group={g} />}
+            />
           ))}
         </div>
-        {playerCount >= 3 && (
-          <p className="mt-1.5 text-xs text-neutral-600">3+ players adds a second villain group.</p>
-        )}
+      </section>
+
+      {/* ── Henchman groups ── (multi-select) */}
+      <section>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <SectionLabel className="mb-0">
+            Henchman Groups
+            <span className="ml-1.5 font-normal normal-case text-neutral-600">
+              (leave empty to auto-fill)
+            </span>
+          </SectionLabel>
+          {isHost && (
+            <button type="button" disabled={disabled} onClick={() => onRandomizeHenchmen?.()}
+              className="rounded-lg border border-neutral-600 bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-300 transition hover:border-neutral-400 hover:text-white disabled:opacity-40">
+              🎲 Randomize
+            </button>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {HENCHMAN_GROUPS.map(g => (
+            <SetupChip
+              key={g.groupId}
+              label={teamDisplayName(g.team)}
+              selected={selectedHenchmanIds.has(g.groupId)}
+              disabled={!isHost || disabled}
+              tone="orange"
+              onClick={() => toggleHenchman(g.groupId)}
+              hoverContent={<HenchmanGroupHoverCard group={g} />}
+            />
+          ))}
+        </div>
       </section>
 
       {/* ── Hero classes ── */}
@@ -3059,6 +3089,200 @@ function LegendarySetup({
         ) : (
           <p className="text-sm text-neutral-500">Waiting for the host to start…</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Setup-screen helpers ────────────────────────────────────────────────────
+
+/** Compact title-only selector button used in the setup screen. Shows a
+ *  floating hover-card with the full details (no click needed). */
+function SetupChip({
+  label, selected, disabled, tone, onClick, hoverContent,
+}: {
+  label: string;
+  selected: boolean;
+  disabled: boolean;
+  tone: 'rose' | 'violet' | 'red' | 'orange';
+  onClick: () => void;
+  hoverContent: React.ReactNode;
+}) {
+  const [hovered, setHovered] = useState<DOMRect | null>(null);
+  // Selected colors per tone — match the section's accent.
+  const selBorder =
+    tone === 'rose'   ? 'border-rose-500 bg-rose-950/60 text-rose-100' :
+    tone === 'violet' ? 'border-violet-500 bg-violet-950/60 text-violet-100' :
+    tone === 'red'    ? 'border-red-600 bg-red-950/60 text-red-100' :
+                        'border-orange-600 bg-orange-950/60 text-orange-100';
+  const baseBorder = 'border-neutral-700 bg-neutral-800/50 text-neutral-300';
+
+  // Position the hover card in viewport coords so it can render outside the
+  // setup grid's overflow box. Card is ~270px wide × ~200px tall.
+  const CARD_W = 320;
+  const CARD_H = 220;
+  const viewportW = typeof window !== 'undefined' ? window.innerWidth  : 1920;
+  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 1080;
+  let hoverX = 0, hoverY = 0;
+  if (hovered) {
+    // Prefer below; flip above if it would overflow the bottom.
+    const wantBelow = hovered.bottom + CARD_H + 8 <= viewportH;
+    hoverY = wantBelow ? hovered.bottom + 8 : Math.max(8, hovered.top - CARD_H - 8);
+    // Anchor horizontally to the chip's left, clamp to viewport.
+    hoverX = Math.max(8, Math.min(viewportW - CARD_W - 8, hovered.left));
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        disabled={disabled}
+        onMouseEnter={e => setHovered(e.currentTarget.getBoundingClientRect())}
+        onMouseLeave={() => setHovered(null)}
+        onClick={onClick}
+        className={[
+          'rounded-lg border-2 px-2 py-2 text-center text-xs font-medium transition',
+          selected ? selBorder : baseBorder,
+          !disabled ? 'cursor-pointer hover:opacity-90' : 'cursor-default opacity-70',
+        ].join(' ')}
+      >
+        {label}
+      </button>
+      {hovered && (
+        <div
+          className="pointer-events-none fixed z-[1000]"
+          style={{ left: hoverX, top: hoverY, width: CARD_W }}
+        >
+          {hoverContent}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Hover preview for a mastermind in the setup screen. */
+function MastermindHoverCard({ mm }: { mm: MastermindCardDef }) {
+  const borderColor = '#DC143C';
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor }}
+      className="rounded-lg border-solid bg-gradient-to-br from-red-950/80 to-neutral-950/90 p-3 shadow-2xl"
+    >
+      <div className="text-sm font-bold leading-tight text-white">{mm.name}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Mastermind
+      </div>
+      <div className="mt-1 text-[11px]">
+        <span className="font-semibold" style={{ color: borderColor }}>Always Leads: </span>
+        <span className="font-bold text-white">{teamDisplayName(mm.alwaysLeads)}</span>
+      </div>
+      <div className="mt-1 flex gap-3 text-[11px] text-neutral-300">
+        <span>⚔ {mm.attack} attack</span>
+        <span>✦ {mm.hits} hits</span>
+        <span>{mm.vp} VP / tactic</span>
+      </div>
+      {mm.text && (() => {
+        const colonIdx = mm.text.indexOf(':');
+        const label = colonIdx > 0 ? mm.text.slice(0, colonIdx + 1) : '';
+        const body  = colonIdx > 0 ? mm.text.slice(colonIdx + 1).trim() : mm.text;
+        return (
+          <div className="mt-2 text-[11px] leading-snug">
+            {label && <span className="font-bold" style={{ color: borderColor }}>{label} </span>}
+            <span className="text-neutral-200"><CardText text={body} /></span>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
+/** Hover preview for a scheme in the setup screen. */
+function SchemeHoverCard({ scheme }: { scheme: SchemeCardDef }) {
+  const labelColor = '#a78bfa';
+  return (
+    <div className="rounded-lg border-2 border-solid border-violet-700/80 bg-gradient-to-br from-violet-950/80 to-neutral-950/90 p-3 shadow-2xl">
+      <div className="text-sm font-bold leading-tight text-white">{scheme.name}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: labelColor }}>
+        Scheme — {scheme.twists} Twists
+      </div>
+      {scheme.text && (
+        <div className="mt-1.5 text-[11px] leading-snug">
+          {scheme.text.split('\n').map((segment, i) => {
+            const colonIdx = segment.indexOf(':');
+            if (colonIdx > 0) {
+              const label = segment.slice(0, colonIdx + 1);
+              const body  = segment.slice(colonIdx + 1).trim();
+              return (
+                <div key={i} className="mb-0.5">
+                  <span className="font-bold" style={{ color: labelColor }}>{label}</span>
+                  {body && <span className="ml-0.5 text-neutral-200"><CardText text={body} /></span>}
+                </div>
+              );
+            }
+            return <div key={i} className="mb-0.5 text-neutral-200"><CardText text={segment} /></div>;
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Hover preview for a villain group — lists each villain with attack/VP. */
+function VillainGroupHoverCard({ group }: { group: { groupId: string; team: string; cards: readonly { def: VillainCardDef; copies: number }[] } }) {
+  const borderColor = '#dc2626';
+  const totalCards = group.cards.reduce((s, c) => s + c.copies, 0);
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor }}
+      className="rounded-lg border-solid bg-gradient-to-br from-red-950/80 to-neutral-950/90 p-3 shadow-2xl"
+    >
+      <div className="text-sm font-bold leading-tight text-white">{teamDisplayName(group.team)}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Villain Group — {totalCards} cards
+      </div>
+      <div className="mt-1.5 space-y-0.5">
+        {group.cards.map(({ def, copies }) => (
+          <div key={def.cardId} className="flex items-center justify-between gap-2 text-[10px] text-neutral-200">
+            <span className="truncate">
+              <span className="font-mono text-neutral-500">{copies}×</span> {def.name}
+            </span>
+            <span className="shrink-0 text-neutral-500">⚔{def.attack} · {def.vp}VP</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Hover preview for a henchman group — shows the (typically single) card. */
+function HenchmanGroupHoverCard({ group }: { group: { groupId: string; team: string; cards: readonly { def: HenchmanCardDef; copies: number }[] } }) {
+  const borderColor = '#ea580c';
+  const totalCards = group.cards.reduce((s, c) => s + c.copies, 0);
+  return (
+    <div
+      style={{ borderWidth: 2, borderColor }}
+      className="rounded-lg border-solid bg-gradient-to-br from-orange-950/80 to-neutral-950/90 p-3 shadow-2xl"
+    >
+      <div className="text-sm font-bold leading-tight text-white">{teamDisplayName(group.team)}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+        Henchman Group — {totalCards} cards
+      </div>
+      <div className="mt-1.5 space-y-0.5">
+        {group.cards.map(({ def, copies }) => (
+          <div key={def.cardId} className="text-[10px] text-neutral-200">
+            <div className="flex items-center justify-between gap-2">
+              <span className="truncate">
+                <span className="font-mono text-neutral-500">{copies}×</span> {def.name}
+              </span>
+              <span className="shrink-0 text-neutral-500">⚔{def.attack} · {def.vp}VP</span>
+            </div>
+            {def.text && (
+              <div className="ml-3 mt-0.5 text-[10px] leading-snug text-neutral-400">
+                <CardText text={def.text} />
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -228,7 +228,11 @@ export type LegendaryLobbyAction =
   | { kind: 'set_mastermind'; mastermindId: string }
   | { kind: 'set_scheme'; schemeId: string }
   | { kind: 'set_hero_classes'; classNames: string[] }
-  | { kind: 'randomize_heroes' };
+  | { kind: 'randomize_heroes' }
+  | { kind: 'set_villain_groups';  groupIds: string[] }
+  | { kind: 'set_henchman_groups'; groupIds: string[] }
+  | { kind: 'randomize_villains' }
+  | { kind: 'randomize_henchmen' };
 
 /**
  * Host-only: mutate the lobby configuration (mastermind, scheme, hero
@@ -269,7 +273,55 @@ export function applyLobbyConfig(
       next.heroClassIds = shuffle([...HERO_CLASSES]).slice(0, count).map(c => c.className);
       return next;
     }
+    case 'set_villain_groups': {
+      const valid = action.groupIds.filter(id => VILLAIN_GROUPS.some(g => g.groupId === id));
+      next.villainGroupIds = valid;
+      return next;
+    }
+    case 'set_henchman_groups': {
+      const valid = action.groupIds.filter(id => HENCHMAN_GROUPS.some(g => g.groupId === id));
+      next.henchmanGroupIds = valid;
+      return next;
+    }
+    case 'randomize_villains': {
+      // Pick a random set sized to the player-count target. The mastermind's
+      // alwaysLeads group is always included so the seed villain still gets
+      // its scripted intro.
+      const target = villainGroupCountForPlayers(next.players.length);
+      const mm = MASTERMINDS.find(m => m.cardId === next.mastermindId);
+      const leads = mm && VILLAIN_GROUPS.find(g => g.team === mm.alwaysLeads);
+      const seed = leads ? [leads.groupId] : [];
+      const pool = shuffle(VILLAIN_GROUPS.filter(g => !seed.includes(g.groupId)));
+      const extras = pool.slice(0, Math.max(0, target - seed.length)).map(g => g.groupId);
+      next.villainGroupIds = [...seed, ...extras];
+      return next;
+    }
+    case 'randomize_henchmen': {
+      const target = henchmanGroupCountForPlayers(next.players.length);
+      const mm = MASTERMINDS.find(m => m.cardId === next.mastermindId);
+      const leads = mm && HENCHMAN_GROUPS.find(g => g.team === mm.alwaysLeads);
+      const seed = leads ? [leads.groupId] : [];
+      const pool = shuffle(HENCHMAN_GROUPS.filter(g => !seed.includes(g.groupId)));
+      const extras = pool.slice(0, Math.max(0, target - seed.length)).map(g => g.groupId);
+      next.henchmanGroupIds = [...seed, ...extras];
+      return next;
+    }
   }
+}
+
+/** Target villain-group count by player count — mirrors the auto-fill logic
+ *  in doStartGame so the lobby randomizer picks the right number up front. */
+function villainGroupCountForPlayers(n: number): number {
+  if (n >= 5) return 4;
+  if (n >= 3) return 3;
+  return 2; // 1-2 players
+}
+
+/** Target henchman-group count by player count. Solo gets 2 (one extra). */
+function henchmanGroupCountForPlayers(n: number): number {
+  if (n === 1) return 2;
+  if (n >= 5) return 2;
+  return 1; // 2-4 players
 }
 
 // =====================================================================
@@ -316,9 +368,28 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
     ? HENCHMAN_GROUPS.find(g => g.team === mastermind.alwaysLeads)
     : undefined;
 
-  // Seed with the alwaysLeads group; it counts toward the total for its type.
-  next.villainGroupIds  = leadsVillainGroup  ? [leadsVillainGroup.groupId]  : [];
-  next.henchmanGroupIds = leadsHenchmanGroup ? [leadsHenchmanGroup.groupId] : [];
+  // Respect host picks: if villain/henchman groups were chosen in the lobby
+  // (non-empty arrays), use them verbatim and skip the auto-fill below. The
+  // alwaysLeads group is folded in only if it wasn't already chosen.
+  const villainsPreset  = next.villainGroupIds.length  > 0;
+  const henchmenPreset  = next.henchmanGroupIds.length > 0;
+
+  if (villainsPreset) {
+    // Make sure alwaysLeads is present (the engine relies on it for setup logs / bystander capture).
+    if (leadsVillainGroup && !next.villainGroupIds.includes(leadsVillainGroup.groupId)) {
+      next.villainGroupIds.unshift(leadsVillainGroup.groupId);
+    }
+  } else {
+    // Seed with the alwaysLeads group; it counts toward the total for its type.
+    next.villainGroupIds  = leadsVillainGroup  ? [leadsVillainGroup.groupId]  : [];
+  }
+  if (henchmenPreset) {
+    if (leadsHenchmanGroup && !next.henchmanGroupIds.includes(leadsHenchmanGroup.groupId)) {
+      next.henchmanGroupIds.unshift(leadsHenchmanGroup.groupId);
+    }
+  } else {
+    next.henchmanGroupIds = leadsHenchmanGroup ? [leadsHenchmanGroup.groupId] : [];
+  }
 
   if (playerCount >= 2) {
     // Official table-driven counts (2–5 players).
@@ -326,15 +397,19 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
     const targetVillains = villainGroupsForPlayers(playerCount);
     const targetHenchmen = henchmanGroupsForPlayers(playerCount) + (scheme.extraHenchmanGroups ?? 0);
 
-    const availableVillains = shuffle(VILLAIN_GROUPS.filter(g => !next.villainGroupIds.includes(g.groupId)));
-    while (next.villainGroupIds.length < targetVillains && availableVillains.length > 0) {
-      next.villainGroupIds.push(availableVillains.shift()!.groupId);
+    if (!villainsPreset) {
+      const availableVillains = shuffle(VILLAIN_GROUPS.filter(g => !next.villainGroupIds.includes(g.groupId)));
+      while (next.villainGroupIds.length < targetVillains && availableVillains.length > 0) {
+        next.villainGroupIds.push(availableVillains.shift()!.groupId);
+      }
     }
-    const availableHenchmen = shuffle(HENCHMAN_GROUPS.filter(g => !next.henchmanGroupIds.includes(g.groupId)));
-    while (next.henchmanGroupIds.length < targetHenchmen && availableHenchmen.length > 0) {
-      next.henchmanGroupIds.push(availableHenchmen.shift()!.groupId);
+    if (!henchmenPreset) {
+      const availableHenchmen = shuffle(HENCHMAN_GROUPS.filter(g => !next.henchmanGroupIds.includes(g.groupId)));
+      while (next.henchmanGroupIds.length < targetHenchmen && availableHenchmen.length > 0) {
+        next.henchmanGroupIds.push(availableHenchmen.shift()!.groupId);
+      }
     }
-  } else {
+  } else if (!villainsPreset && !henchmenPreset) {
     // 1-player: official solo rules — ignore "Always Leads", pick groups at random.
     // This ensures variety and allows non-alwaysLeads groups to appear in solo.
     next.villainGroupIds  = [];
@@ -350,6 +425,9 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
       if (additional) next.henchmanGroupIds.push(additional.groupId);
     }
     // Starting henchmen: 2 will be set aside in the villain deck builder below.
+    next.soloStartingHenchmenPlaced = false;
+  } else {
+    // Solo with pre-selected groups: honor them; still need the soloStartingHenchmen flag.
     next.soloStartingHenchmenPlaced = false;
   }
 

@@ -195,6 +195,10 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onSetScheme={(schemeId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'set_scheme', schemeId }); })}
       onSetHeroClasses={(classNames) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'set_hero_classes', classNames }); })}
       onRandomizeHeroes={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'randomize_heroes' }); })}
+      onSetVillainGroups={(groupIds) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'set_villain_groups', groupIds }); })}
+      onSetHenchmanGroups={(groupIds) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'set_henchman_groups', groupIds }); })}
+      onRandomizeVillains={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'randomize_villains' }); })}
+      onRandomizeHenchmen={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'randomize_henchmen' }); })}
       onPlay={(instanceId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'play_card', instanceId }); })}
       onRecruit={(slot) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_hero', slot }); })}
       onRecruitSidekick={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'recruit_sidekick' }); })}
