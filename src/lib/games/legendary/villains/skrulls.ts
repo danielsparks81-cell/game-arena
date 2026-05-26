@@ -21,6 +21,7 @@ export const SKRULL_SHAPESHIFTERS: VillainCardDef = {
   // The fallback (0) only applies when the HQ was empty at Ambush time,
   // matching the "* with no Hero attached" interpretation.
   attack: 0,
+  variableStrike: true,
   vp: 2,
   team: 'skrulls',
   ambush: [{ kind: 'skrull_attach_hero_from_hq', mode: 'rightmost' }],
@@ -45,6 +46,7 @@ export const SKRULL_QUEEN_VERANKE: VillainCardDef = {
   name: 'Skrull Queen Veranke',
   // Variable strike — see Shapeshifters above. Fallback 0 when HQ is empty.
   attack: 0,
+  variableStrike: true,
   vp: 4,
   team: 'skrulls',
   ambush: [{ kind: 'skrull_attach_hero_from_hq', mode: 'highest_cost' }],

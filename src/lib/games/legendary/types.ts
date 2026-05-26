@@ -392,6 +392,10 @@ export type VillainCardDef = {
   /** Optional requirement that must be satisfied before a player can fight
    *  this villain. Checked in doFightCity before attack is spent. */
   fightCondition?: { requires: 'xmen_hero' | 'covert_hero' };
+  /** Set on villains whose printed strike is `*` (variable). The card art
+   *  renders the strike footer as "0*" when no Hero is attached, and the
+   *  attached-hero cost (with a strikethrough "*") when one is. */
+  variableStrike?: boolean;
   /** Dynamic VP bonus applied during scoring. The card is worth +`amount` VP
    *  for each OTHER villain of the given team in the player's Victory Pile.
    *  Handled by recomputeVp. Example: Supreme HYDRA +3 per other HYDRA villain. */

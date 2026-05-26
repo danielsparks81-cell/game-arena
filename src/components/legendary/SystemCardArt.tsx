@@ -163,6 +163,7 @@ export function VillainCardArt({
       {!def.text && <div className="flex-1" />}
       {/* Attack — absolute bottom-right. Shows the effective strike:
            - Skrull attach: hero's cost (in green, with * for "variable").
+           - variableStrike (no attach yet): "0*" so the * is visible.
            - Storm debuff: emerald reduced value with strikethrough printed. */}
       <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold">
         {hasAttachedHero ? (
@@ -170,6 +171,10 @@ export function VillainCardArt({
             <span className="mr-0.5 text-neutral-500 line-through text-[10px]">*</span>
             <span style={{ color: '#4ade80' }}>{displayedAttack}</span>
           </>
+        ) : def.variableStrike ? (
+          <span className="text-white">
+            {def.attack}<span className="text-amber-400">*</span>
+          </span>
         ) : locationDebuff > 0 ? (
           <>
             <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>

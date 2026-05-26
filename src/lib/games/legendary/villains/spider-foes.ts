@@ -11,7 +11,11 @@ export const VENOM: VillainCardDef = {
   vp: 3,
   team: 'spider-foes',
   fightCondition: { requires: 'covert_hero' },
-  text: 'You can\'t defeat Venom unless you have a [covert] Hero.',
+  // Escape outer loop already fires this once per player, so use the single-
+  // player `gain_wound` rather than `each_player_gains_wound` (which would
+  // re-loop and over-distribute).
+  escape: [{ kind: 'gain_wound' }],
+  text: 'You can\'t defeat Venom unless you have a [covert] Hero.\nEscape: Each player gains a Wound.',
 };
 
 export const DOCTOR_OCTOPUS: VillainCardDef = {
