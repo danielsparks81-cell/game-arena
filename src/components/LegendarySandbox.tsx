@@ -896,6 +896,10 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'skrull_attach_hero_from_hq':                     return { kind, mode: 'rightmost' };
     case 'skrull_gain_attached_hero':                      return { kind };
     case 'lizard_sewers_wound_others':                     return { kind };
+    case 'rescue_bystanders_if_at_locations':              return { kind, locations: ['streets', 'bridge'], amount: 1 };
+    case 'maestro_ko_per_strength':                        return { kind };
+    case 'each_player_reveal_strength_or_wound':           return { kind };
+    case 'reveal_strength_or_wound':                       return { kind };
     case 'reveal_xmen_or_gain_wounds':                     return { kind, amount: 2 };
   }
 }

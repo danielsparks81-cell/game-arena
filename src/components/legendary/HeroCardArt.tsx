@@ -153,6 +153,7 @@ export const TEAM_ICON_DATA: Record<string, TeamIconDatum> = {
   'enemies-of-asgard':  { abbr: 'E',  color: '#475569', textColor: '#fff' },   // slate-600
   'skrulls':            { abbr: 'K',  color: '#16a34a', textColor: '#000' },   // green — Skrulls' iconic skin color
   'spider-foes':        { abbr: 'F',  color: '#7c2d12', textColor: '#fef2f2' }, // dark red — Spider-Man's classic enemies
+  'radiation':          { abbr: 'R',  color: '#84cc16', textColor: '#000' },   // bright lime — gamma-radiation green
 };
 
 /** Team icon chip — shows the first team's icon, or reserves blank space

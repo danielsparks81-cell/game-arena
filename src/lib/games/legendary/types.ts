@@ -38,7 +38,7 @@ export type Team =
   | 'avengers' | 'x-men' | 'spider-friends' | 'fantastic-four'
   | 'shield' | 'shield-officer' | 'shield-agent' | 'shield-trooper'
   | 'hydra' | 'doombot-legion' | 'brotherhood' | 'masters-of-evil' | 'enemies-of-asgard'
-  | 'hand' | 'savage-land-mutates' | 'sentinels' | 'skrulls' | 'spider-foes'
+  | 'hand' | 'savage-land-mutates' | 'sentinels' | 'skrulls' | 'spider-foes' | 'radiation'
   | 'system'; // for wounds / bystanders / scheme twists / master strikes
 
 // ---------- Card definitions ----------
@@ -324,6 +324,17 @@ export type Effect =
   /** The Lizard Fight: if defeated in the Sewers, each OTHER player gains a
    *  Wound. Active player is unaffected. */
   | { kind: 'lizard_sewers_wound_others' }
+
+  // ── Radiation villain group ──────────────────────────────────────────────────
+  /** Abomination Fight: if defeated on Streets or Bridge, rescue N Bystanders. */
+  | { kind: 'rescue_bystanders_if_at_locations'; locations: string[]; amount: number }
+  /** Maestro Fight: count the player's [strength] Heroes (hand + played); they
+   *  must KO one Hero from hand/played per count via an interactive chain. */
+  | { kind: 'maestro_ko_per_strength' }
+  /** Zzzax Fight (active player only, iterates all players internally). */
+  | { kind: 'each_player_reveal_strength_or_wound' }
+  /** Zzzax Escape (per-player, escape handler iterates). */
+  | { kind: 'reveal_strength_or_wound' }
   /** Crushing Shockwave: reveals [x-men] Hero (no penalty) or gains `amount` Wounds. */
   | { kind: 'reveal_xmen_or_gain_wounds'; amount: number };
 

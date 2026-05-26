@@ -1621,6 +1621,129 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Abomination (Radiation) Fight: location-conditional rescue ────────
+    // If defeated on one of the named city slots, the active player rescues
+    // `amount` Bystanders from the bystander deck.
+    case 'rescue_bystanders_if_at_locations': {
+      const locationMap: Record<string, number> = {
+        sewers: 0, bank: 1, rooftops: 2, streets: 3, bridge: 4,
+      };
+      const locationNames: Record<number, string> = {
+        0: 'Sewers', 1: 'Bank', 2: 'Rooftops', 3: 'Streets', 4: 'Bridge',
+      };
+      const targetSlots = effect.locations
+        .map(l => locationMap[l.toLowerCase()])
+        .filter((s): s is number => s !== undefined);
+      const fightSlot = state.thisTurn.lastFightSlot;
+      if (fightSlot === undefined || !targetSlots.includes(fightSlot)) {
+        const locName = fightSlot !== undefined ? locationNames[fightSlot] : 'unknown';
+        const locList = effect.locations.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(' or ');
+        pushLog(state, { kind: 'system', text:
+          `Fought at the ${locName} — not ${locList}, no bonus rescue.` });
+        return;
+      }
+      const locName = locationNames[fightSlot];
+      let rescued = 0;
+      for (let i = 0; i < effect.amount; i++) {
+        const b = state.bystanderDeck.shift();
+        if (!b) break;
+        me.victoryPile.push(b);
+        rescued++;
+      }
+      if (rescued > 0) {
+        pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+        applyRescueBonuses(state, me, rescued);
+        recomputeVp(me);
+        pushLog(state, { kind: 'system', text:
+          `Fought at the ${locName} — rescued ${rescued} Bystander${rescued === 1 ? '' : 's'}.` });
+      } else {
+        pushLog(state, { kind: 'system', text: 'Bystander Deck is empty — no rescue.' });
+      }
+      return;
+    }
+
+    // ── Maestro (Radiation) Fight: KO one Hero per [strength] Hero you have ──
+    // "Your [strength] Heroes" = those currently in hand or played this turn.
+    // Triggers a chained ko_from_hand prompt (active player picks the heroes
+    // to KO) — count = number of strength heroes available across hand+played.
+    case 'maestro_ko_per_strength': {
+      const isStrengthHero = (c: CardInstance) => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && (d as HeroCardDef).classes.includes('strength');
+      };
+      const handCount   = me.hand.filter(isStrengthHero).length;
+      const playedCount = state.thisTurn.playedThisTurn.filter(isStrengthHero).length;
+      const strengthCount = handCount + playedCount;
+      if (strengthCount === 0) {
+        pushLog(state, { kind: 'system', text: `${me.username}: Maestro — no [strength] Heroes, no KOs.` });
+        return;
+      }
+      // Need at least one Hero available to KO across the player's zones.
+      const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
+      const eligible = me.hand.some(isHero) || state.thisTurn.playedThisTurn.some(isHero);
+      if (!eligible) {
+        pushLog(state, { kind: 'system', text: `${me.username}: Maestro — no Heroes available to KO.` });
+        return;
+      }
+      pushLog(state, { kind: 'system', text:
+        `${me.username}: Maestro — KO ${strengthCount} Hero${strengthCount === 1 ? '' : 'es'} (one per [strength] Hero you have).` });
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_from_hand',
+        bonus: [],
+        filter: 'heroes_only',
+        mandatory: true,
+        remaining: strengthCount - 1,
+      };
+      return;
+    }
+
+    // ── Zzzax (Radiation) Fight: each player reveals a [strength] Hero or
+    // ──   gains a Wound (active player iterates all players internally).
+    case 'each_player_reveal_strength_or_wound': {
+      for (const player of state.players) {
+        const strengthCard = player.hand.find(c => {
+          const d = getCard(c.cardId);
+          return d.kind === 'hero' && (d as HeroCardDef).classes.includes('strength');
+        });
+        if (strengthCard) {
+          const sDef = getCard(strengthCard.cardId) as HeroCardDef;
+          pushLog(state, { kind: 'system', text:
+            `${player.username} reveals ${sDef.cardName} (Strength) to satisfy Zzzax.` });
+        } else {
+          const wound = state.woundDeck.shift();
+          if (wound) {
+            player.discard.push(wound);
+            pushLog(state, { kind: 'system', text:
+              `${player.username} has no Strength Hero — gains a Wound from Zzzax.` });
+            recomputeVp(player);
+          }
+        }
+      }
+      return;
+    }
+
+    // ── Zzzax Escape: same effect, but fired per-player by the escape loop. ──
+    case 'reveal_strength_or_wound': {
+      const strengthCard = me.hand.find(c => {
+        const d = getCard(c.cardId);
+        return d.kind === 'hero' && (d as HeroCardDef).classes.includes('strength');
+      });
+      if (strengthCard) {
+        const sDef = getCard(strengthCard.cardId) as HeroCardDef;
+        pushLog(state, { kind: 'system', text:
+          `${me.username} reveals ${sDef.cardName} (Strength) to satisfy Zzzax.` });
+      } else {
+        const wound = state.woundDeck.shift();
+        if (wound) {
+          me.discard.push(wound);
+          pushLog(state, { kind: 'system', text:
+            `${me.username} has no Strength Hero — gains a Wound from Zzzax.` });
+          recomputeVp(me);
+        }
+      }
+      return;
+    }
+
     // ── The Lizard (Spider-Foes) Fight ─────────────────────────────────────
     // If defeated in the Sewers (city slot 0), each OTHER player gains a
     // Wound to their discard. lastFightSlot is set in doFightCity right
@@ -3801,6 +3924,17 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
         // under THIS specific villain (not per-player like other ambushes).
         if (eff.kind === 'skrull_attach_hero_from_hq') {
           attachHeroToVillain(state, card, eff.mode);
+          continue;
+        }
+        // The Leader (Radiation) ambush "Play the top card of the Villain
+        // Deck" fires GLOBALLY — not once per player like most ambushes.
+        // Same is true for any other villain_deck_reveal_top ambush.
+        if (eff.kind === 'villain_deck_reveal_top') {
+          for (let i = 0; i < eff.amount; i++) {
+            if (state.villainDeck.length === 0) break;
+            revealOneVillainCard(state);
+            if (state.result) break;
+          }
           continue;
         }
         for (const p of state.players) resolveEffect(state, p, eff);
