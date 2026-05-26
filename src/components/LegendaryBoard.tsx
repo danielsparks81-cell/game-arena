@@ -562,7 +562,10 @@ export default function LegendaryBoard({
   return (
     <div className="flex w-full flex-col gap-3">
       {state.phase === 'finished' && (
-        <div className="text-center text-sm text-neutral-300">{banner}</div>
+        <>
+          <div className="text-center text-sm text-neutral-300">{banner}</div>
+          <FinalScoreboard players={state.players} />
+        </>
       )}
 
       {/* ============================================================
@@ -1484,6 +1487,73 @@ const CITY_CHEVRON_COLORS: Record<number, string> = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/** End-of-game scoreboard. Sorted by VP desc; crowns the highest-VP player as
+ *  MVP. Handles ties (every player tied for highest gets the MVP badge).
+ *  Surfaces the final Victory Pile count alongside each VP total so it's easy
+ *  to see at a glance how the points were earned. */
+function FinalScoreboard({ players }: { players: PlayerState[] }) {
+  if (players.length === 0) return null;
+  // Stable sort: higher VP first; preserve seat order for ties.
+  const sorted = [...players].sort((a, b) => b.vp - a.vp || a.seat - b.seat);
+  const topVp = sorted[0].vp;
+  const mvpCount = sorted.filter(p => p.vp === topVp).length;
+  const mvpLine = mvpCount === 1
+    ? `🏆 ${sorted[0].username} is the MVP!`
+    : `🏆 ${mvpCount}-way tie for MVP at ${topVp} VP`;
+
+  return (
+    <div className="mx-auto w-full max-w-2xl rounded-xl border-2 border-amber-700/60 bg-gradient-to-br from-amber-950/40 to-neutral-950/60 p-5 shadow-xl">
+      <h2 className="mb-1 text-center text-[10px] font-semibold uppercase tracking-widest text-amber-300/70">
+        Final Scoreboard
+      </h2>
+      <h3 className="mb-4 text-center text-lg font-bold text-amber-200">{mvpLine}</h3>
+      <div className="space-y-1.5">
+        {sorted.map((p, i) => {
+          const isMvp = p.vp === topVp;
+          const rank = i + 1;
+          return (
+            <div
+              key={p.playerId}
+              className={`flex items-center justify-between rounded-lg border px-3 py-2 transition ${
+                isMvp
+                  ? 'border-amber-500/60 bg-amber-900/30'
+                  : 'border-neutral-800 bg-neutral-900/40'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className={`flex h-7 w-7 items-center justify-center rounded-full text-xs font-bold ${
+                    isMvp ? 'bg-amber-500 text-neutral-900' : 'bg-neutral-800 text-neutral-400'
+                  }`}
+                >
+                  {rank}
+                </span>
+                <div className="flex flex-col">
+                  <span className={`text-sm font-medium ${isMvp ? 'text-amber-100' : 'text-neutral-200'}`}>
+                    {p.username}
+                    {isMvp && <span className="ml-2 text-amber-400">👑 MVP</span>}
+                  </span>
+                  <span className="text-[10px] text-neutral-500">
+                    {p.victoryPile.length} card{p.victoryPile.length === 1 ? '' : 's'} in Victory Pile
+                  </span>
+                </div>
+              </div>
+              <span
+                className={`font-mono text-2xl font-bold tabular-nums ${
+                  isMvp ? 'text-amber-300' : 'text-neutral-300'
+                }`}
+              >
+                {p.vp}
+                <span className="ml-1 text-xs font-normal text-neutral-500">VP</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 /** Rewrites a pending-choice banner string so it reads correctly when an
  *  OFF-TURN viewer is watching another player resolve a choice. Swaps the
