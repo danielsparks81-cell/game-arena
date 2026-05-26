@@ -17,14 +17,9 @@ import { HeroCardArt, CLASS_COLORS, CLASS_LABELS, CLASS_CHIP_COLORS, CLASS_ICONS
 import { VillainCardArt, HenchmanCardArt, TacticCardArt } from '@/components/legendary/SystemCardArt';
 import type { Effect, HeroCardDef, HeroClass, Team, VillainCardDef, HenchmanCardDef, MastermindCardDef, TacticCardDef, SchemeCardDef } from '@/lib/games/legendary';
 import { ALL_HERO_CLASSES } from '@/lib/games/legendary/heroes/all-heroes';
-import { HYDRA_GROUP } from '@/lib/games/legendary/villains/hydra';
-import { BROTHERHOOD_GROUP } from '@/lib/games/legendary/villains/brotherhood';
-import { ENEMIES_OF_ASGARD_GROUP } from '@/lib/games/legendary/villains/enemies-of-asgard';
-import { MASTERS_OF_EVIL_GROUP } from '@/lib/games/legendary/villains/masters-of-evil';
-import { HAND_NINJA_GROUP } from '@/lib/games/legendary/villains/hand-ninjas';
-import { DOOMBOT_HENCHMAN_GROUP } from '@/lib/games/legendary/villains/doombot-legion';
-import { SAVAGE_LAND_MUTATES_GROUP } from '@/lib/games/legendary/villains/savage-land-mutates';
-import { SENTINEL_GROUP } from '@/lib/games/legendary/villains/sentinels';
+// Villain / Henchman groups now come from the canonical VILLAIN_GROUPS /
+// HENCHMAN_GROUPS in cards.ts (imported below as ALL_VILLAIN_GROUPS /
+// ALL_HENCHMAN_GROUPS) so the sandbox always reflects the engine's roster.
 import { RED_SKULL, RED_SKULL_TACTICS } from '@/lib/games/legendary/masterminds/red-skull';
 import { DR_DOOM, DR_DOOM_TACTICS } from '@/lib/games/legendary/masterminds/dr-doom';
 import { LOKI, LOKI_TACTICS } from '@/lib/games/legendary/masterminds/loki';
@@ -32,7 +27,7 @@ import { MAGNETO, MAGNETO_TACTICS } from '@/lib/games/legendary/masterminds/magn
 import { NEGATIVE_ZONE_PRISON_BREAKOUT } from '@/lib/games/legendary/schemes/prison-breakout';
 import { COSMIC_CUBE } from '@/lib/games/legendary/schemes/cosmic-cube';
 import { TROOPER, AGENT, OFFICER, SIDEKICK } from '@/lib/games/legendary/heroes/shield';
-import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK, teamDisplayName, SCHEMES as ALL_SCHEMES, groupBySource } from '@/lib/games/legendary';
+import { WOUND, BYSTANDER, MASTER_STRIKE, SCHEME_TWIST, MASTER_STRIKES_IN_DECK, teamDisplayName, SCHEMES as ALL_SCHEMES, VILLAIN_GROUPS as ALL_VILLAIN_GROUPS, HENCHMAN_GROUPS as ALL_HENCHMAN_GROUPS, groupBySource } from '@/lib/games/legendary';
 import type { WoundCardDef, BystanderCardDef, MasterStrikeCardDef, SchemeTwistCardDef } from '@/lib/games/legendary';
 import { KEYWORDS, type KeywordCategory } from '@/lib/games/legendary/keywords';
 
@@ -1661,7 +1656,9 @@ function GenericSchemeTwistPanel() {
 
 // ─── Villain section ──────────────────────────────────────────────────────────
 
-const VILLAIN_GROUPS = [HYDRA_GROUP, BROTHERHOOD_GROUP, ENEMIES_OF_ASGARD_GROUP, MASTERS_OF_EVIL_GROUP];
+// Canonical villain list lives in cards.ts; importing ensures the sandbox
+// automatically picks up new groups (e.g. Skrulls) as they're registered.
+const VILLAIN_GROUPS = ALL_VILLAIN_GROUPS;
 
 function VillainsSection() {
   const [selectedGroup, setSelectedGroup] = useState(0);
@@ -1720,7 +1717,8 @@ function VillainsSection() {
 
 // ─── Henchmen section ────────────────────────────────────────────────────────
 
-const HENCHMAN_GROUPS = [HAND_NINJA_GROUP, DOOMBOT_HENCHMAN_GROUP, SAVAGE_LAND_MUTATES_GROUP, SENTINEL_GROUP];
+// Canonical henchman list lives in cards.ts; same self-syncing pattern as villains.
+const HENCHMAN_GROUPS = ALL_HENCHMAN_GROUPS;
 
 function HenchmenSection() {
   const [selectedGroup, setSelectedGroup] = useState(0);
