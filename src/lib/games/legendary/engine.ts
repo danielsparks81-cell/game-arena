@@ -1820,21 +1820,29 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
-    // Destroyer Fight: auto-KO all S.H.I.E.L.D. Heroes from active player's hand.
+    // Destroyer Fight: KO all of the active player's S.H.I.E.L.D. Heroes —
+    // from BOTH their hand AND their played-this-turn area. Card text reads
+    // "KO all of your [shield] Heroes" with no zone restriction, so a player
+    // who already played their starters mid-turn (hand now empty) still loses
+    // them. Note: this targets only the active player, per the official rule.
     case 'ko_all_shield_from_hand': {
-      const shieldCards = me.hand.filter(c => {
+      const isShield = (c: CardInstance) => {
         const d = getCard(c.cardId);
-        return d.kind === 'hero' &&
-          (d as HeroCardDef).className === 'S.H.I.E.L.D.';
-      });
-      me.hand = me.hand.filter(c => {
-        const d = getCard(c.cardId);
-        return !(d.kind === 'hero' &&
-          (d as HeroCardDef).className === 'S.H.I.E.L.D.');
-      });
-      if (shieldCards.length > 0) {
-        state.ko.push(...shieldCards);
-        pushLog(state, { kind: 'system', text: `${me.username} KOs ${shieldCards.length} S.H.I.E.L.D. Hero${shieldCards.length !== 1 ? 'es' : ''} (Destroyer).` });
+        return d.kind === 'hero' && (d as HeroCardDef).className === 'S.H.I.E.L.D.';
+      };
+      const handShields   = me.hand.filter(isShield);
+      const playedShields = state.thisTurn.playedThisTurn.filter(isShield);
+      const total = handShields.length + playedShields.length;
+
+      if (total > 0) {
+        me.hand                       = me.hand.filter(c => !isShield(c));
+        state.thisTurn.playedThisTurn = state.thisTurn.playedThisTurn.filter(c => !isShield(c));
+        state.ko.push(...handShields, ...playedShields);
+        const zoneParts: string[] = [];
+        if (handShields.length   > 0) zoneParts.push(`${handShields.length} from hand`);
+        if (playedShields.length > 0) zoneParts.push(`${playedShields.length} from played area`);
+        pushLog(state, { kind: 'system', text:
+          `${me.username} KOs ${total} S.H.I.E.L.D. Hero${total !== 1 ? 'es' : ''} (Destroyer) — ${zoneParts.join(', ')}.` });
         recomputeVp(me);
       } else {
         pushLog(state, { kind: 'system', text: `${me.username} has no S.H.I.E.L.D. Heroes to KO (Destroyer).` });

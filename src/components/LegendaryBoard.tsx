@@ -829,13 +829,13 @@ export default function LegendaryBoard({
                   <span ref={myDiscardRef as React.Ref<HTMLSpanElement>}>
                     <PlayerBox label="Discard" value={me.discard.length} shade="emerald" backFace />
                   </span>
-                  <HoverCardList cards={me.discard} heading="Discard Pile" placement="below" previewSide="left" />
+                  <HoverCardList cards={me.discard} heading="Discard Pile" placement="below" />
                 </div>
                 <div className="group relative">
                   <span ref={myVpRef as React.Ref<HTMLSpanElement>}>
                     <PlayerBox label="VP" value={me.vp} shade="rose" />
                   </span>
-                  <HoverCardList cards={me.victoryPile} heading="Victory Pile" placement="below" previewSide="left" />
+                  <HoverCardList cards={me.victoryPile} heading="Victory Pile" placement="below" />
                 </div>
               </>
             )}
@@ -2507,14 +2507,10 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
  *  popup's scroll-clip / overflow without triggering scrollbars. The popup's
  *  inner list still scrolls when there are many cards, but the scrollbar is
  *  hidden visually for a cleaner look. */
-function HoverCardList({ cards, heading, placement = 'above', previewSide = 'right' }: {
+function HoverCardList({ cards, heading, placement = 'above' }: {
   cards: CardInstance[];
   heading: string;
   placement?: 'above' | 'below';
-  /** Side to display the per-row card preview on. Defaults to 'right'; use
-   *  'left' for piles on the right edge of the screen so the preview doesn't
-   *  clip the viewport. */
-  previewSide?: 'left' | 'right';
 }) {
   // Track which row is hovered and the row element's screen rect; the preview
   // is positioned in viewport coordinates via that rect so it can render
@@ -2528,13 +2524,24 @@ function HoverCardList({ cards, heading, placement = 'above', previewSide = 'rig
   const posClass = placement === 'below' ? 'top-full' : 'bottom-full';
 
   // Card art is ~234px wide (HeroCardArt default w-[230px] + 2px border).
+  // Preview is rendered as a position:fixed element keyed off the hovered
+  // row's viewport rect. Auto-pick the side that fits: prefer right, flip to
+  // left when right would overflow the viewport. Clamp Y so rows near the
+  // top of the viewport don't push the preview off-screen.
   const PREVIEW_W = 234;
+  const PREVIEW_H = 165;
+  const viewportW = typeof window !== 'undefined' ? window.innerWidth  : 1920;
+  const viewportH = typeof window !== 'undefined' ? window.innerHeight : 1080;
+  const useLeftSide = hovered
+    ? hovered.rect.right + PREVIEW_W + 8 > viewportW
+    : false;
   const previewX = hovered
-    ? (previewSide === 'left'
-        ? hovered.rect.left - PREVIEW_W - 8
+    ? (useLeftSide
+        ? Math.max(8, hovered.rect.left - PREVIEW_W - 8)
         : hovered.rect.right + 8)
     : 0;
-  const previewY = hovered ? hovered.rect.top - 8 : 0;
+  const previewYRaw = hovered ? hovered.rect.top - 8 : 0;
+  const previewY = Math.max(8, Math.min(viewportH - PREVIEW_H - 8, previewYRaw));
 
   return (
     <>
