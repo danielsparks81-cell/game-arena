@@ -446,7 +446,10 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
   next.currentPlayerIdx = 0;
   next.turn = 1;
   next.thisTurn = emptyTurnState();
-  drawUpTo(next.players[0], STARTING_HAND_SIZE);
+  // Deal a starting hand to EVERY player up-front so off-turn players can
+  // read their hand and plan their next turn. End-of-turn draws then keep
+  // each player's hand ready for the moment their turn comes around.
+  for (const p of next.players) drawUpTo(p, STARTING_HAND_SIZE);
 
   next.phase = 'playing';
   pushLog(next, { kind: 'system', text: `Game started: ${mastermind.name} vs the heroes.` });
@@ -3151,7 +3154,24 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
     });
   }
 
-  // 3. Reveal one card from the Villain Deck (villain/henchman → city;
+  // 3. Draw THIS player's next hand now (before villain reveal). The official
+  //    rule is that hands are drawn at end-of-turn so the player can plan
+  //    their next turn, AND so any master-strike effect fired by the upcoming
+  //    villain reveal lands on a real 6-card hand instead of an empty one.
+  //    Consumes any per-player draw bonuses (Treasures of Latveria) and
+  //    next-hand bonus card (Electromagnetic Bubble).
+  const meExtraDraw = me.endOfTurnExtraDraw ?? 0;
+  me.endOfTurnExtraDraw = undefined;
+  drawUpTo(me, STARTING_HAND_SIZE + meExtraDraw);
+  if (me.nextHandBonusCard) {
+    const meBonusDef = getCard(me.nextHandBonusCard.cardId);
+    const meBonusName = meBonusDef.kind === 'hero' ? meBonusDef.cardName : me.nextHandBonusCard.cardId;
+    me.hand.push(me.nextHandBonusCard);
+    me.nextHandBonusCard = undefined;
+    pushLog(state, { kind: 'system', text: `${me.username}: ${meBonusName} added to hand as 7th card (Electromagnetic Bubble).` });
+  }
+
+  // 4. Reveal one card from the Villain Deck (villain/henchman → city;
   //    master_strike / scheme_twist / bystander → resolve without city push).
   revealOneVillainCard(state);
 
@@ -3184,27 +3204,21 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   }
 
   // ── Extra turn (Secrets of Time Travel): skip advancing the player index. ──
+  // The same player keeps going. Their hand was just drawn above (step 3),
+  // so we don't draw again — they continue with the freshly drawn 6 cards.
   if (state.thisTurn.extraTurn && !state.result) {
     const samePlayer = state.players[state.currentPlayerIdx];
     state.turn++;
     state.thisTurn = emptyTurnState();
-    const extraDraw = samePlayer.endOfTurnExtraDraw ?? 0;
-    samePlayer.endOfTurnExtraDraw = undefined;
-    drawUpTo(samePlayer, STARTING_HAND_SIZE + extraDraw);
-    if (samePlayer.nextHandBonusCard) {
-      const bonusDef = getCard(samePlayer.nextHandBonusCard.cardId);
-      const bonusName = bonusDef.kind === 'hero' ? bonusDef.cardName : samePlayer.nextHandBonusCard.cardId;
-      samePlayer.hand.push(samePlayer.nextHandBonusCard);
-      samePlayer.nextHandBonusCard = undefined;
-      pushLog(state, { kind: 'system', text: `${samePlayer.username}: ${bonusName} added to hand as 7th card (Electromagnetic Bubble).` });
-    }
     resolvePendingStrikes(state, samePlayer);
     pushLog(state, { kind: 'system', text: `${samePlayer.username} takes an extra turn!` });
     pushLog(state, { kind: 'turn_started', seat: samePlayer.seat, username: samePlayer.username });
     return state;
   }
 
-  // 4. Advance to next player, reset turn state, deal 6 (+ any Latveria bonus).
+  // 5. Advance to next player, reset turn state. NO draw here — every player's
+  //    hand is dealt at end of their previous turn (or at game start for their
+  //    first turn), so the next player already has 6 cards waiting.
   // Solo twist tuck: the pendingChoice was set inside revealOneVillainCard, which
   // runs BEFORE this emptyTurnState() call. Preserve it so the solo player is
   // prompted at the start of their next turn rather than having it silently wiped.
@@ -3216,17 +3230,6 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   state.thisTurn = emptyTurnState();
   if (carryoverTwistTuck) state.thisTurn.pendingChoice = carryoverTwistTuck;
   const nextPlayer = state.players[state.currentPlayerIdx];
-  const extraDraw = nextPlayer.endOfTurnExtraDraw ?? 0;
-  nextPlayer.endOfTurnExtraDraw = undefined;
-  drawUpTo(nextPlayer, STARTING_HAND_SIZE + extraDraw);
-  if (nextPlayer.nextHandBonusCard) {
-    const bonusDef = getCard(nextPlayer.nextHandBonusCard.cardId);
-    const bonusName = bonusDef.kind === 'hero' ? bonusDef.cardName : nextPlayer.nextHandBonusCard.cardId;
-    nextPlayer.hand.push(nextPlayer.nextHandBonusCard);
-    nextPlayer.nextHandBonusCard = undefined;
-    pushLog(state, { kind: 'system', text: `${nextPlayer.username}: ${bonusName} added to hand as 7th card (Electromagnetic Bubble).` });
-  }
-
   resolvePendingStrikes(state, nextPlayer);
 
   pushLog(state, { kind: 'turn_started', seat: nextPlayer.seat, username: nextPlayer.username });
