@@ -152,7 +152,8 @@ export default function LegendaryBoard({
     pendingChoice?.kind === 'optional_gain_card' ||
     pendingChoice?.kind === 'reveal_top_discard_or_return' ||
     pendingChoice?.kind === 'choose_others_draw_or_discard' ||
-    pendingChoice?.kind === 'optional_return_sidekick_draw_two';
+    pendingChoice?.kind === 'optional_return_sidekick_draw_two' ||
+    pendingChoice?.kind === 'melter_decide_card';
   const isCopyHeroChoice              = pendingChoice?.kind === 'copy_played_hero';
   const isMoveVillainSelectVillain    = pendingChoice?.kind === 'move_villain_select_villain';
   const isMoveVillainSelectDest       = pendingChoice?.kind === 'move_villain_select_dest';
@@ -921,6 +922,8 @@ export default function LegendaryBoard({
             ? 'border-amber-500 bg-amber-950/50'
             : pendingChoice.kind === 'look_top_two_ko_one_return_one'
             ? 'border-rose-500 bg-rose-950/50'
+            : pendingChoice.kind === 'melter_decide_card'
+            ? 'border-orange-500 bg-orange-950/50'
             : isBinaryChoice
             ? 'border-purple-500 bg-purple-950/50'
             : 'border-amber-500 bg-amber-950/50'
@@ -954,6 +957,8 @@ export default function LegendaryBoard({
                   ? 'text-amber-300'
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
                   ? 'text-rose-300'
+                  : pendingChoice.kind === 'melter_decide_card'
+                  ? 'text-orange-300'
                   : isBinaryChoice
                   ? 'text-purple-300'
                   : 'text-amber-300'
@@ -999,6 +1004,17 @@ export default function LegendaryBoard({
                   ? '👤 Here, Hold This — click a Villain or Henchman in the city to capture the Bystander'
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
                   ? '🤖 Doombot Legion — click one of the revealed cards below to KO it (the other returns to your deck)'
+                  : pendingChoice.kind === 'melter_decide_card'
+                  ? (() => {
+                      const head = (pendingChoice as { queue: { ownerName: string; card: CardInstance }[] }).queue[0];
+                      if (!head) return '🔥 Melter';
+                      const def = CARDS[head.card.cardId];
+                      const cName = def?.kind === 'hero' ? def.cardName
+                        : (def && 'name' in def) ? (def as { name: string }).name : head.card.cardId;
+                      const left = (pendingChoice as { queue: unknown[] }).queue.length;
+                      const remainTag = left > 1 ? ` (${left} card${left === 1 ? '' : 's'} left)` : '';
+                      return `🔥 Melter — ${head.ownerName}'s revealed ${cName}: KO it or put it back?${remainTag}`;
+                    })()
                   : pendingChoice.kind === 'ko_from_hand'
                   ? (() => {
                       const rem = ('remaining' in pendingChoice ? pendingChoice.remaining ?? 0 : 0);
@@ -1059,6 +1075,8 @@ export default function LegendaryBoard({
                       ? 'Return & Draw 2'
                       : pendingChoice.kind === 'optional_gain_card'
                       ? 'Yes, Gain It'
+                      : pendingChoice.kind === 'melter_decide_card'
+                      ? 'KO It'
                       : 'Take Wound'}
                   </button>
                 )}
@@ -1084,6 +1102,8 @@ export default function LegendaryBoard({
                       ? 'Keep Sidekick'
                       : pendingChoice.kind === 'optional_gain_card'
                       ? 'No Thanks'
+                      : pendingChoice.kind === 'melter_decide_card'
+                      ? 'Put It Back'
                       : 'Skip'}
                   </button>
                 )}

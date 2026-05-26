@@ -660,7 +660,14 @@ export type PendingChoice =
   /** Maniacal Tyrant: KO up to `remaining` cards from your discard pile; click to KO, skip to stop. */
   | { kind: 'ko_up_to_from_discard'; remaining: number; cards: CardInstance[] }
   /** Electromagnetic Bubble: player clicks an [x-men] Hero from their played-this-turn area. */
-  | { kind: 'em_bubble_select_hero' };
+  | { kind: 'em_bubble_select_hero' }
+  /** Melter Fight: revealed top deck cards from every player, queued one-at-a-time
+   *  for the active player to decide. Accept = KO the current card; Skip = put it
+   *  back on top of its owner's deck. When the queue empties, the choice clears. */
+  | {
+      kind: 'melter_decide_card';
+      queue: { ownerSeat: number; ownerName: string; card: CardInstance }[];
+    };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already

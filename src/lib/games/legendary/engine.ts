@@ -1509,22 +1509,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         }
         return;
       }
-      const hasXmen = me.hand.some(c => {
-        const d = getCard(c.cardId);
-        return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
-      });
-      if (hasXmen) {
-        pushLog(state, { kind: 'system', text: `${me.username} reveals an X-Men Hero — no penalty from Magneto's Master Strike.` });
-      } else {
-        // Discard down to 4 cards (auto-discard from top of hand)
-        while (me.hand.length > 4) {
-          const discarded = me.hand.splice(0, 1)[0];
-          me.discard.push(discarded);
-          const dDef = getCard(discarded.cardId);
-          const dName = dDef.kind === 'hero' ? dDef.cardName : 'name' in dDef ? (dDef as { name: string }).name : discarded.cardId;
-          pushLog(state, { kind: 'system', text: `${me.username} discards ${dName} (Magneto Master Strike — down to 4).` });
-        }
-      }
+      resolveMagnetoStrike(state, me);
       return;
     }
 
@@ -1979,13 +1964,20 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     }
 
     case 'melter_reveal_top_each_player': {
-      // Melter Fight: reveal the top card of each player's deck. The active
-      // player may choose to KO it or return it. MVP: auto-KOs all revealed
-      // cards. TODO: add interactive PendingChoice for each revealed card.
+      // Melter Fight: reveal top card of each player's deck and queue them
+      // for the active player to decide — KO each one OR put it back on top
+      // of its owner's deck. Resolution is one card at a time via the
+      // melter_decide_card pending choice (Accept = KO, Skip = return).
       pushLog(state, { kind: 'system', text:
         `${me.username} triggers Melter — each player reveals their top deck card!` });
+      const queue: { ownerSeat: number; ownerName: string; card: CardInstance }[] = [];
       for (const player of state.players) {
-        const topCard = player.deck[0];
+        // Standard Marvel Legendary: reshuffle discard into deck if empty.
+        if (player.deck.length === 0 && player.discard.length > 0) {
+          player.deck = shuffle([...player.discard]);
+          player.discard = [];
+        }
+        const topCard = player.deck.shift();
         if (!topCard) {
           pushLog(state, { kind: 'system', text:
             `${player.username}'s deck is empty — no card to reveal.` });
@@ -1994,10 +1986,12 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         const topDef = getCard(topCard.cardId);
         const topName = topDef.kind === 'hero' ? topDef.cardName
           : 'name' in topDef ? (topDef as { name: string }).name : topCard.cardId;
-        player.deck.shift();
-        state.ko.push(topCard);
+        queue.push({ ownerSeat: player.seat, ownerName: player.username, card: topCard });
         pushLog(state, { kind: 'system', text:
-          `${player.username} reveals ${topName} — KO'd by Melter!` });
+          `${player.username} reveals ${topName}.` });
+      }
+      if (queue.length > 0) {
+        state.thisTurn.pendingChoice = { kind: 'melter_decide_card', queue };
       }
       return;
     }
@@ -2586,9 +2580,12 @@ function doResolveChoice(
   // Clear choice BEFORE resolving bonus (bonus could chain another choice).
   state.thisTurn.pendingChoice = undefined;
 
-  // Multi-KO chain: if `remaining > 0` (e.g. Whirlwind "KO 2 Heroes"), queue the
-  // next KO prompt — but only if there are still eligible cards left to pick from.
-  if (choice.kind === 'ko_from_hand' && (choice.remaining ?? 0) > 0) {
+  // Multi-pick chain: if `remaining > 0` (e.g. Whirlwind "KO 2 Heroes", or
+  // Magneto's "discard down to 4"), queue the next prompt — but only if
+  // there are still eligible cards left to pick from. Applies to both
+  // ko_from_hand and discard_from_hand.
+  if ((choice.kind === 'ko_from_hand' || choice.kind === 'discard_from_hand')
+      && (choice.remaining ?? 0) > 0) {
     const isHeroCard  = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
     const isShieldCard = (c: CardInstance) => {
       const d = getCard(c.cardId);
@@ -2602,14 +2599,18 @@ function doResolveChoice(
       choice.filter === 'shield_heroes' ? isShieldCard :
       choice.filter === 'wounds_only'   ? isWoundCard  :
       () => true;
-    const srcs = choice.sources ?? ['hand', 'played'];
+    // discard_from_hand only ever pulls from hand; ko_from_hand defaults to
+    // both hand and played-area.
+    const defaultSrcs: ('hand' | 'discard' | 'played')[] =
+      choice.kind === 'discard_from_hand' ? ['hand'] : ['hand', 'played'];
+    const srcs = choice.sources ?? defaultSrcs;
     const hasMore =
       (srcs.includes('hand')    && me.hand.some(matchFn)) ||
       (srcs.includes('played')  && state.thisTurn.playedThisTurn.some(matchFn)) ||
       (srcs.includes('discard') && me.discard.some(matchFn));
     if (hasMore) {
       state.thisTurn.pendingChoice = {
-        kind: 'ko_from_hand',
+        kind: choice.kind,
         bonus: [],
         filter: choice.filter,
         sources: choice.sources,
@@ -2748,7 +2749,46 @@ function doAcceptChoice(
     return state;
   }
 
+  // Melter Fight — Accept = KO the current revealed card.
+  if (choice.kind === 'melter_decide_card') {
+    advanceMelterQueue(state, choice, 'ko');
+    return state;
+  }
+
   return { error: 'Nothing to accept for this choice kind' };
+}
+
+/** Apply the active player's decision to the FIRST queued Melter card and
+ *  re-queue the choice if any cards remain. 'ko' sends the card to the KO
+ *  pile; 'return' puts it back on top of its owner's deck. */
+function advanceMelterQueue(
+  state: LegendaryState,
+  choice: Extract<PendingChoice, { kind: 'melter_decide_card' }>,
+  action: 'ko' | 'return',
+): void {
+  const [first, ...rest] = choice.queue;
+  if (!first) {
+    state.thisTurn.pendingChoice = undefined;
+    return;
+  }
+  const def = getCard(first.card.cardId);
+  const name = def.kind === 'hero' ? def.cardName
+    : 'name' in def ? (def as { name: string }).name : first.card.cardId;
+  if (action === 'ko') {
+    state.ko.push(first.card);
+    pushLog(state, { kind: 'system', text: `Melter: ${first.ownerName}'s ${name} is KO'd.` });
+  } else {
+    const owner = state.players.find(p => p.seat === first.ownerSeat);
+    if (owner) {
+      owner.deck.unshift(first.card); // top of deck
+      pushLog(state, { kind: 'system', text: `Melter: ${first.ownerName}'s ${name} returns to the top of their deck.` });
+    }
+  }
+  if (rest.length > 0) {
+    state.thisTurn.pendingChoice = { kind: 'melter_decide_card', queue: rest };
+  } else {
+    state.thisTurn.pendingChoice = undefined;
+  }
 }
 
 function doSkipChoice(state: LegendaryState): LegendaryState | { error: string } {
@@ -2838,6 +2878,12 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
   if (choice.kind === 'em_bubble_select_hero') {
     const me = state.players[state.currentPlayerIdx];
     pushLog(state, { kind: 'system', text: `${me.username} skips Electromagnetic Bubble.` });
+    return state;
+  }
+  // Melter Fight — Skip = put the current revealed card back on top of its
+  // owner's deck. advanceMelterQueue re-queues the choice if more cards remain.
+  if (choice.kind === 'melter_decide_card') {
+    advanceMelterQueue(state, choice, 'return');
     return state;
   }
   // Covering Fire (Skip): each other player discards a card from their hand.
@@ -3080,6 +3126,56 @@ function doRevealFirstVillain(state: LegendaryState): LegendaryState | { error: 
 // ---------------- End turn ----------------
 
 /**
+ * Resolve Magneto's master-strike against a single player's hand.
+ *
+ * If the player has any X-Men hero in hand they reveal it for no penalty.
+ * Otherwise they must discard down to 4 cards. When the target IS the
+ * currently-active player, queue a chained `discard_from_hand` pending
+ * choice so the player picks which cards to drop. Non-active players don't
+ * get a UI prompt — auto-discard from the top of hand instead (Marvel
+ * Legendary's parallel "each player simultaneously…" wording isn't
+ * something our turn-by-turn engine can offer per-player UI for).
+ */
+function resolveMagnetoStrike(state: LegendaryState, player: PlayerState): void {
+  if (player.hand.length === 0) return;
+  const hasXmen = player.hand.some(c => {
+    const d = getCard(c.cardId);
+    return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
+  });
+  if (hasXmen) {
+    pushLog(state, { kind: 'system', text: `${player.username} reveals an X-Men Hero — no penalty from Magneto's Master Strike.` });
+    return;
+  }
+  if (player.hand.length <= 4) {
+    pushLog(state, { kind: 'system', text: `${player.username} already has ${player.hand.length} cards — no discard needed (Magneto).` });
+    return;
+  }
+  const toDiscard = player.hand.length - 4;
+  const isActive = state.players[state.currentPlayerIdx]?.playerId === player.playerId;
+  if (isActive) {
+    // Interactive prompt: chain `toDiscard` discard_from_hand choices.
+    state.thisTurn.pendingChoice = {
+      kind: 'discard_from_hand',
+      bonus: [],
+      mandatory: true,
+      sources: ['hand'],
+      remaining: toDiscard - 1,
+    };
+    pushLog(state, { kind: 'system', text: `${player.username}: Magneto's Master Strike — choose ${toDiscard} card${toDiscard === 1 ? '' : 's'} to discard from your hand.` });
+  } else {
+    // Non-active player: auto-discard from the top of hand.
+    for (let i = 0; i < toDiscard; i++) {
+      const discarded = player.hand.splice(0, 1)[0];
+      if (!discarded) break;
+      player.discard.push(discarded);
+      const dDef = getCard(discarded.cardId);
+      const dName = dDef.kind === 'hero' ? dDef.cardName : 'name' in dDef ? (dDef as { name: string }).name : discarded.cardId;
+      pushLog(state, { kind: 'system', text: `${player.username} discards ${dName} (Magneto Master Strike — down to 4).` });
+    }
+  }
+}
+
+/**
  * Resolve any master-strike effects that were deferred because the player's
  * hand was empty when the strike fired (active player at end-of-turn villain
  * reveal). Called after a fresh hand is drawn, so the deferred effect lands
@@ -3106,29 +3202,11 @@ function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void
   }
 
   // Magneto: reveal an X-Men Hero, or discard the hand down to 4 cards.
+  // resolveMagnetoStrike handles both the X-Men reveal short-circuit and
+  // the interactive vs auto-discard branch (active player gets a prompt).
   if (player.pendingMagnetoStrike) {
     player.pendingMagnetoStrike = undefined;
-    const hasXmen = player.hand.some(c => {
-      const d = getCard(c.cardId);
-      return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
-    });
-    if (hasXmen) {
-      pushLog(state, {
-        kind: 'system',
-        text: `${player.username}: revealed an X-Men Hero — no penalty from Magneto's Master Strike.`,
-      });
-    } else {
-      while (player.hand.length > 4) {
-        const discarded = player.hand.splice(0, 1)[0];
-        player.discard.push(discarded);
-        const dDef = getCard(discarded.cardId);
-        const dName = dDef.kind === 'hero' ? dDef.cardName : 'name' in dDef ? (dDef as { name: string }).name : discarded.cardId;
-        pushLog(state, {
-          kind: 'system',
-          text: `${player.username} discards ${dName} (Magneto Master Strike — down to 4).`,
-        });
-      }
-    }
+    resolveMagnetoStrike(state, player);
   }
 
   // Loki: reveal a Strength Hero, or gain a Wound.
