@@ -10,6 +10,7 @@ import { ALL_HERO_CLASSES } from './heroes/all-heroes';
 import { HYDRA_GROUP } from './villains/hydra';
 import { MASTERS_OF_EVIL_GROUP } from './villains/masters-of-evil';
 import { BROTHERHOOD_GROUP } from './villains/brotherhood';
+import { SKRULLS_GROUP } from './villains/skrulls';
 import { DOOMBOT_HENCHMAN_GROUP } from './villains/doombot-legion';
 import { ENEMIES_OF_ASGARD_GROUP } from './villains/enemies-of-asgard';
 import { HAND_NINJA_GROUP } from './villains/hand-ninjas';
@@ -33,7 +34,7 @@ import { LEGACY_VIRUS } from './schemes/legacy-virus';
 // stats work when cards are played from the hand.
 export const HERO_CLASSES = ALL_HERO_CLASSES;
 
-export const VILLAIN_GROUPS = [HYDRA_GROUP, BROTHERHOOD_GROUP, ENEMIES_OF_ASGARD_GROUP, MASTERS_OF_EVIL_GROUP] as const;
+export const VILLAIN_GROUPS = [HYDRA_GROUP, BROTHERHOOD_GROUP, ENEMIES_OF_ASGARD_GROUP, MASTERS_OF_EVIL_GROUP, SKRULLS_GROUP] as const;
 export const HENCHMAN_GROUPS = [
   HAND_NINJA_GROUP,
   DOOMBOT_HENCHMAN_GROUP,
@@ -141,6 +142,7 @@ export const TEAM_DISPLAY_NAMES: Record<string, string> = {
   'hand_ninjas':         'Hand Ninjas',
   'sentinels':           'Sentinels',
   'savage_land_mutates': 'Savage Land Mutates',
+  'skrulls':             'Skrulls',
 };
 
 /** Resolve a team ID to its display name, falling back to the raw id. */

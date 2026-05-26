@@ -897,6 +897,7 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'free_recruit_xmen_from_hq_effect':               return { kind };
     case 'em_bubble':                                      return { kind };
     case 'ko_all_heroes_in_hq':                            return { kind };
+    case 'each_player_pending_ko_hero':                    return { kind };
     case 'reveal_xmen_or_gain_wounds':                     return { kind, amount: 2 };
   }
 }

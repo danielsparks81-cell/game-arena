@@ -151,6 +151,7 @@ export const TEAM_ICON_DATA: Record<string, TeamIconDatum> = {
   'brotherhood':        { abbr: 'B',  color: '#8b5cf6', textColor: '#fff' },   // violet
   'masters-of-evil':    { abbr: 'M',  color: '#dc2626', textColor: '#fff' },   // red
   'enemies-of-asgard':  { abbr: 'E',  color: '#475569', textColor: '#fff' },   // slate-600
+  'skrulls':            { abbr: 'K',  color: '#16a34a', textColor: '#000' },   // green — Skrulls' iconic skin color
 };
 
 /** Team icon chip — shows the first team's icon, or reserves blank space

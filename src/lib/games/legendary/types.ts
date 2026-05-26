@@ -38,7 +38,7 @@ export type Team =
   | 'avengers' | 'x-men' | 'spider-friends' | 'fantastic-four'
   | 'shield' | 'shield-officer' | 'shield-agent' | 'shield-trooper'
   | 'hydra' | 'doombot-legion' | 'brotherhood' | 'masters-of-evil' | 'enemies-of-asgard'
-  | 'hand' | 'savage-land-mutates' | 'sentinels'
+  | 'hand' | 'savage-land-mutates' | 'sentinels' | 'skrulls'
   | 'system'; // for wounds / bystanders / scheme twists / master strikes
 
 // ---------- Card definitions ----------
@@ -306,6 +306,12 @@ export type Effect =
   // ── Scheme-triggered effects ─────────────────────────────────────────────────
   /** Super Hero Civil War twist: KO every Hero currently in the HQ (then refill). */
   | { kind: 'ko_all_heroes_in_hq' }
+
+  // ── Skrull villain group ─────────────────────────────────────────────────────
+  /** Super-Skrull Fight: every player must KO a Hero from their hand. Fires the
+   *  same deferred pending-KO flag Red Skull's master strike uses, so the KO
+   *  prompt fires on each player's freshly drawn hand at start of their next turn. */
+  | { kind: 'each_player_pending_ko_hero' }
   /** Crushing Shockwave: reveals [x-men] Hero (no penalty) or gains `amount` Wounds. */
   | { kind: 'reveal_xmen_or_gain_wounds'; amount: number };
 

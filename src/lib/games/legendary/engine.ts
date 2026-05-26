@@ -1620,6 +1620,24 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Super-Skrull Fight: each player KOs a Hero from their hand ─────────
+    // Fires on the active player's Fight resolution; loops over EVERY player
+    // and sets the same deferred KO flag Red Skull's master strike uses, so
+    // the prompt fires on each player's freshly drawn hand at the start of
+    // their next turn (matches the official "Each player KOs one of their
+    // Heroes" effect).
+    case 'each_player_pending_ko_hero': {
+      for (const p of state.players) {
+        if (p.pendingMasterStrikeKO) continue;
+        p.pendingMasterStrikeKO = true;
+        pushLog(state, {
+          kind: 'system',
+          text: `${p.username} must KO a Hero from their hand at the start of their next turn (Super-Skrull).`,
+        });
+      }
+      return;
+    }
+
     // ── Super Hero Civil War twist: KO every Hero in HQ, then refill ──────────
     case 'ko_all_heroes_in_hq': {
       let koCount = 0;
