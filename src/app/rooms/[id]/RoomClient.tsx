@@ -53,6 +53,15 @@ export default function RoomClient({
   const [messages, setMessages] = useState<ChatMsg[]>(initialMessages);
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState('');
+  // Sidebar collapse state — persisted across reloads so the player's
+  // preference sticks. Default expanded so newcomers see chat + members.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  useEffect(() => {
+    try { setSidebarCollapsed(localStorage.getItem('roomSidebarCollapsed') === '1'); } catch {}
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem('roomSidebarCollapsed', sidebarCollapsed ? '1' : '0'); } catch {}
+  }, [sidebarCollapsed]);
 
   const imSeated = room.room_players.some(p => p.player_id === currentUserId);
 
@@ -182,7 +191,18 @@ export default function RoomClient({
           />
         ) : undefined}
       />
-    <main className="mx-auto grid w-full max-w-[1800px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 lg:grid-cols-[1fr_320px]">
+    <main className={`mx-auto grid w-full max-w-[1800px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 ${sidebarCollapsed ? '' : 'lg:grid-cols-[1fr_320px]'}`}>
+      {/* Sidebar collapse toggle — always visible at top-right of the viewport
+          on desktop. Hidden on mobile (where the sidebar already stacks below). */}
+      <button
+        type="button"
+        onClick={() => setSidebarCollapsed(v => !v)}
+        className="fixed top-20 right-3 z-40 hidden h-9 w-9 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/90 text-neutral-300 shadow-lg backdrop-blur-sm transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white lg:flex"
+        title={sidebarCollapsed ? 'Show members + chat panel' : 'Hide members + chat panel for more board space'}
+        aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+      >
+        {sidebarCollapsed ? '◀' : '▶'}
+      </button>
       <section>
         {/* Shared frame — every game board renders inside this so the template
             size is consistent across PC / tablet / phone. Cap matches Long
@@ -225,7 +245,7 @@ export default function RoomClient({
         </div>
       </section>
 
-      <div className="space-y-4">
+      <div className={`space-y-4 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
         {/* Game header — moved here from the left section so the board gets full width.
             The bug-report button now lives in the TopBar (site-wide). */}
         <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
