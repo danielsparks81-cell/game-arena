@@ -2395,7 +2395,12 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
  *  The parent must have `position: relative` and `group` Tailwind class.
  *  `placement="below"` drops the list downward (use when the pile is near the top of the viewport).
  *  Each row is itself hoverable to show the full card art (PlayedCardPreview)
- *  alongside, so players can read individual cards without leaving the popup. */
+ *  alongside, so players can read individual cards without leaving the popup.
+ *
+ *  The preview tooltip is rendered with `position: fixed` so it can escape the
+ *  popup's scroll-clip / overflow without triggering scrollbars. The popup's
+ *  inner list still scrolls when there are many cards, but the scrollbar is
+ *  hidden visually for a cleaner look. */
 function HoverCardList({ cards, heading, placement = 'above', previewSide = 'right' }: {
   cards: CardInstance[];
   heading: string;
@@ -2405,53 +2410,82 @@ function HoverCardList({ cards, heading, placement = 'above', previewSide = 'rig
    *  clip the viewport. */
   previewSide?: 'left' | 'right';
 }) {
+  // Track which row is hovered and the row element's screen rect; the preview
+  // is positioned in viewport coordinates via that rect so it can render
+  // OUTSIDE the popup's scroll container without triggering horizontal overflow.
+  const [hovered, setHovered] = useState<{ idx: number; rect: DOMRect } | null>(null);
+
   if (cards.length === 0) return null;
   // No gap between pile and popup so the cursor can move from the pile into
   // the popup without dropping out of group-hover. pointer-events-auto lets
   // hovering inside the popup keep the parent group hovered.
   const posClass = placement === 'below' ? 'top-full' : 'bottom-full';
-  const previewPosClass = previewSide === 'left'
-    ? 'right-full mr-2'
-    : 'left-full ml-2';
+
+  // Card art is ~234px wide (HeroCardArt default w-[230px] + 2px border).
+  const PREVIEW_W = 234;
+  const previewX = hovered
+    ? (previewSide === 'left'
+        ? hovered.rect.left - PREVIEW_W - 8
+        : hovered.rect.right + 8)
+    : 0;
+  const previewY = hovered ? hovered.rect.top - 8 : 0;
+
   return (
-    <div className={`pointer-events-auto absolute left-0 z-[300] hidden w-52 rounded-lg border border-neutral-700 bg-neutral-900/95 p-2 shadow-xl backdrop-blur-sm group-hover:block ${posClass}`}>
-      <div className="mb-1.5 text-[9px] uppercase tracking-wider text-neutral-500">
-        {heading} — {cards.length}
-      </div>
-      <div className="max-h-56 space-y-0.5 overflow-y-auto">
-        {cards.map((c, i) => {
-          const def = CARDS[c.cardId];
-          // Resolve a display name from any card type.
-          const name =
-            def?.kind === 'hero'         ? def.cardName
-            : def?.kind === 'wound'      ? 'Wound'
-            : def?.kind === 'bystander'  ? 'Bystander'
-            : def && 'name' in def       ? (def as { name: string }).name
-            : c.cardId === 'master_strike' ? 'Master Strike'
-            : c.cardId;
-          // VP value if the card has one.
-          const vp = def && 'vp' in def ? (def as { vp: number }).vp : null;
-          const color =
-            def?.kind === 'villain'  || def?.kind === 'henchman' ? 'text-rose-400'
-            : def?.kind === 'hero'   ? 'text-emerald-400'
-            : def?.kind === 'bystander' ? 'text-amber-400'
-            : c.cardId === 'master_strike' ? 'text-orange-400'
-            : 'text-neutral-400';
-          return (
-            <div key={i} className={`group/row relative flex cursor-default items-center justify-between gap-2 rounded px-1 text-[10px] hover:bg-neutral-800/60 ${color}`}>
-              <span className="truncate">{name}</span>
-              {vp !== null && (
-                <span className="shrink-0 text-[9px] text-neutral-500">{vp}VP</span>
-              )}
-              {/* Full card art preview — shown beside the row on hover */}
-              <div className={`pointer-events-none absolute top-1/2 z-[400] -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 ${previewPosClass}`}>
-                <PlayedCardPreview card={c} />
+    <>
+      <div className={`pointer-events-auto absolute left-0 z-[300] hidden w-52 rounded-lg border border-neutral-700 bg-neutral-900/95 p-2 shadow-xl backdrop-blur-sm group-hover:block ${posClass}`}>
+        <div className="mb-1.5 text-[9px] uppercase tracking-wider text-neutral-500">
+          {heading} — {cards.length}
+        </div>
+        {/* Inner scroll container — scrollbar hidden visually but content still
+            scrolls via wheel / drag when there are more cards than fit. */}
+        <div
+          className="scrollbar-none max-h-56 space-y-0.5 overflow-y-auto"
+          onMouseLeave={() => setHovered(null)}
+        >
+          {cards.map((c, i) => {
+            const def = CARDS[c.cardId];
+            // Resolve a display name from any card type.
+            const name =
+              def?.kind === 'hero'         ? def.cardName
+              : def?.kind === 'wound'      ? 'Wound'
+              : def?.kind === 'bystander'  ? 'Bystander'
+              : def && 'name' in def       ? (def as { name: string }).name
+              : c.cardId === 'master_strike' ? 'Master Strike'
+              : c.cardId;
+            // VP value if the card has one.
+            const vp = def && 'vp' in def ? (def as { vp: number }).vp : null;
+            const color =
+              def?.kind === 'villain'  || def?.kind === 'henchman' ? 'text-rose-400'
+              : def?.kind === 'hero'   ? 'text-emerald-400'
+              : def?.kind === 'bystander' ? 'text-amber-400'
+              : c.cardId === 'master_strike' ? 'text-orange-400'
+              : 'text-neutral-400';
+            return (
+              <div
+                key={i}
+                onMouseEnter={e => setHovered({ idx: i, rect: e.currentTarget.getBoundingClientRect() })}
+                className={`flex cursor-default items-center justify-between gap-2 rounded px-1 text-[10px] hover:bg-neutral-800/60 ${color}`}
+              >
+                <span className="truncate">{name}</span>
+                {vp !== null && (
+                  <span className="shrink-0 text-[9px] text-neutral-500">{vp}VP</span>
+                )}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
-    </div>
+      {/* Preview portal — fixed positioning escapes the popup's clip rect so
+          we don't trigger horizontal scrollbars on the list container. */}
+      {hovered && cards[hovered.idx] && (
+        <div
+          className="pointer-events-none fixed z-[1000]"
+          style={{ left: previewX, top: previewY }}
+        >
+          <PlayedCardPreview card={cards[hovered.idx]} />
+        </div>
+      )}
+    </>
   );
 }
 
