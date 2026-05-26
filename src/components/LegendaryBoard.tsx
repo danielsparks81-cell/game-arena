@@ -955,7 +955,8 @@ export default function LegendaryBoard({
                   ? 'text-purple-300'
                   : 'text-amber-300'
               }`}>
-                {pendingChoice.kind === 'reveal_to_prevent_wound'
+                {adaptPromptForViewer(
+                  pendingChoice.kind === 'reveal_to_prevent_wound'
                   ? '🛡️ Reveal your shield — click your Diving Block to draw a card instead of taking a wound'
                   : pendingChoice.kind === 'put_card_on_deck'
                   ? '📚 Choose a card from your hand to put on top of your deck'
@@ -1009,7 +1010,10 @@ export default function LegendaryBoard({
                     })()
                   : 'mandatory' in pendingChoice && pendingChoice.mandatory
                   ? '↩️ You must discard a card from your hand'
-                  : '↩️ Discard a card from your hand'}
+                  : '↩️ Discard a card from your hand',
+                  isMyTurn,
+                  currentPlayer?.username,
+                )}
               </span>
               {'filter' in pendingChoice && pendingChoice.filter === 'wounds_only' && (
                 <span className="ml-2 text-xs text-amber-400">(Wound cards only)</span>
@@ -1480,6 +1484,38 @@ const CITY_CHEVRON_COLORS: Record<number, string> = {
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
+
+/** Rewrites a pending-choice banner string so it reads correctly when an
+ *  OFF-TURN viewer is watching another player resolve a choice. Swaps the
+ *  second-person pronouns ("You" / "your") to the active player's name plus
+ *  third-person ("they" / "their"), and prefixes a "[Name]:" tag so it's
+ *  immediately obvious the prompt isn't for the viewer to act on. Leaves
+ *  the leading emoji (if any) untouched so the visual tone is consistent.
+ *
+ *  No-op when `isMyTurn` is true — the active player still sees the original
+ *  "You must..." copy. */
+function adaptPromptForViewer(
+  text: string,
+  isMyTurn: boolean,
+  activeName: string | undefined,
+): string {
+  if (isMyTurn) return text;
+  const name = activeName ?? 'The active player';
+  // Capture leading emoji + whitespace so we can keep it at the front when we
+  // prepend the active player's name.
+  const prefixMatch = text.match(/^([^A-Za-z]+)/);
+  const prefix = prefixMatch ? prefixMatch[0] : '';
+  const body = text.slice(prefix.length)
+    // Order matters: bigrams first so single-word patterns don't eat them.
+    .replace(/\bYou must\b/g, `${name} must`)
+    .replace(/\bYou may\b/g, `${name} may`)
+    .replace(/\bYou'll\b/g, `${name} will`)
+    .replace(/\bYour\b/g,    `${name}'s`)
+    .replace(/\byour\b/g,    'their')
+    .replace(/\bYou\b/g,     name)
+    .replace(/\byou\b/g,     'they');
+  return `${prefix}${name}: ${body}`;
+}
 
 function ZoneLabel({ children }: { children: React.ReactNode }) {
   return <div className="mt-2 text-[10px] uppercase tracking-wider text-neutral-500">{children}</div>;
