@@ -599,6 +599,18 @@ function doPlayCard(
     return { error: 'You can only play hero cards (wounds/bystanders are passive)' };
   }
 
+  // Play-cost prerequisite: cards like Optic Blast / Determination read
+  // "To play this card, you must discard a card from your hand." Reject the
+  // play up-front if the cost can't be paid (no other card in hand to
+  // discard). Without this check the mandatory discard silently no-ops and
+  // the player gets the on-play benefit for free.
+  const mandatoryDiscard = (def.onPlay ?? []).some(e =>
+    e.kind === 'discard_from_hand' && e.mandatory === true
+  );
+  if (mandatoryDiscard && me.hand.length < 2) {
+    return { error: `${def.cardName} requires you to discard another card — your hand has no other cards.` };
+  }
+
   // Move to playedThisTurn FIRST so on-play triggers can see this card in
   // the played-counts when they fire.
   me.hand.splice(idx, 1);
