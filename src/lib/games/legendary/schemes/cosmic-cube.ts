@@ -14,7 +14,7 @@ export const COSMIC_CUBE: SchemeCardDef = {
   name: 'Unleash the Power of the Cosmic Cube',
   text: 'Setup: 8 Twists.\nTwist: Put the Twist next to this Scheme.\nTwist 5-6: Each player gains a Wound.\nTwist 7: Each player gains 3 Wounds.\nTwist 8: Evil Wins!',
   twists: 8,
-  bystanders: 2,
+  // No explicit bystander count — use the default per-player table (2/8/16).
   evilWinsAfterTwists: 8,
   onTwist: [
     // Twists 5–6: one Wound per player.

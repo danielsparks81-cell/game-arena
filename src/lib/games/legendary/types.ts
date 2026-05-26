@@ -476,10 +476,20 @@ export type SchemeCardDef = {
   /** Optional expansion source — defaults to 'base' via getSource() when omitted. */
   source?: SourceId;
   name: string;
-  /** Total Scheme Twists shuffled into the Villain Deck for this scheme. */
+  /** Total Scheme Twists for this scheme (the progress-bar denominator and
+   *  the maximum value of state.schemeTwistsRevealed). The number of twist
+   *  cards actually SHUFFLED into the Villain Deck is `twists - startingTwistsRevealed`. */
   twists: number;
-  /** Number of bystanders mixed into the Villain Deck at setup. */
-  bystanders: number;
+  /** Twists that start already placed next to the Scheme — counted toward
+   *  state.schemeTwistsRevealed at setup, so the progress bar shows N/total
+   *  from turn 1 instead of 0/total. Used by schemes whose Setup line reads
+   *  "X additional Twists next to this Scheme" (e.g. Killbots: 3). */
+  startingTwistsRevealed?: number;
+  /** Number of bystanders mixed into the Villain Deck at setup. When defined,
+   *  OVERRIDES the standard per-player-count table (2 / 8 / 16). When omitted,
+   *  the default table is used. Schemes that explicitly call out a bystander
+   *  count (e.g. Killbots: 18) should set this. */
+  bystanders?: number;
   /** Number of additional villain/henchman groups to add (scheme-specific). */
   extraVillainGroups?: number;
   extraHenchmanGroups?: number;

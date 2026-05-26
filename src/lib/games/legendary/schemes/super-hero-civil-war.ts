@@ -20,7 +20,7 @@ export const SUPER_HERO_CIVIL_WAR: SchemeCardDef = {
   name: 'Super Hero Civil War',
   text: 'Setup: For 1-3 players, use 8 Twists. For 4-5 players, use 5 Twists. If only 2 players, use only 4 Heroes in the Hero Deck.\nTwist: KO all the Heroes in the HQ.\nEvil Wins: If the Hero Deck runs out.',
   twists: 8,
-  bystanders: 2,
+  // No explicit bystander count — use the default per-player table.
   evilWinsAfterTwists: 8,
   onTwist: [
     { kind: 'ko_all_heroes_in_hq' },

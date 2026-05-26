@@ -398,13 +398,27 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
     }
   }
   for (let i = 0; i < MASTER_STRIKES_IN_DECK; i++) villainDeck.push(mkInstance('master_strike'));
-  for (let i = 0; i < scheme.twists; i++)           villainDeck.push(mkInstance('scheme_twist'));
-  // Bystanders in villain deck: official table for 2+ players; exactly 1 for solo.
-  const villainDeckBystanders = playerCount >= 2
+  // Twist cards in deck = scheme total minus any that start placed next to
+  // the Scheme (Killbots: 5 in deck because 3 start "next to" the scheme).
+  const startingTwists = scheme.startingTwistsRevealed ?? 0;
+  const twistsInDeck = Math.max(0, scheme.twists - startingTwists);
+  for (let i = 0; i < twistsInDeck; i++)            villainDeck.push(mkInstance('scheme_twist'));
+  // Bystanders in villain deck: respect a scheme-level override (e.g. Killbots
+  // requires 18 regardless of player count). Otherwise use the official table
+  // (2 / 8 / 16) for 2+ players, exactly 1 for solo.
+  const villainDeckBystanders = scheme.bystanders ?? (playerCount >= 2
     ? bystandersInVillainDeckForPlayers(playerCount)
-    : 1;
+    : 1);
   for (let i = 0; i < villainDeckBystanders; i++)  villainDeck.push(mkInstance('bystander'));
   next.villainDeck = shuffle(villainDeck);
+
+  // Seed the twist counter so schemes that start with N twists already placed
+  // next to them (e.g. Killbots: 3) show "3/8" on the progress bar at game
+  // start, and downstream onTwist effects keyed to "twists N+" count those.
+  next.schemeTwistsRevealed = startingTwists;
+  if (startingTwists > 0) {
+    pushLog(next, { kind: 'system', text: `${scheme.name}: ${startingTwists} Twist${startingTwists === 1 ? '' : 's'} start next to the Scheme.` });
+  }
 
   // ----- Bystander stack (30 bystanders, separate from villain-deck bystanders) -----
   // Per the rules: the Bystander Deck is a finite 30-card pile. When it runs out,

@@ -20,7 +20,7 @@ export const LEGACY_VIRUS: SchemeCardDef = {
   name: 'The Legacy Virus',
   text: 'Setup: 8 Twists. Wound stack holds 6 Wounds per player.\nTwist: Each player reveals a [tech] hero or gains a Wound.\nEvil Wins: If the Wound stack runs out.',
   twists: 8,
-  bystanders: 2,
+  // No explicit bystander count — use the default per-player table.
   evilWinsAfterTwists: 8,
   onTwist: [
     { kind: 'each_player_reveal_tech_hero_or_wound' },
