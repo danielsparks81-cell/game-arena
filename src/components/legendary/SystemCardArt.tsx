@@ -173,8 +173,15 @@ export function VillainCardArt({
           </>
         ) : def.variableStrike ? (
           // Printed "*" — variable strike with no Hero attached yet. Render
-          // an oversized white asterisk so it reads as "the strike is variable".
-          <span className="text-white text-[36px] leading-none">*</span>
+          // an oversized white asterisk. Line-height clamped to 14px so the
+          // asterisk's line-box matches the StrikeIcon's height for clean
+          // baseline / vertical-center alignment via the parent's flex items-center.
+          <span
+            className="text-white inline-block"
+            style={{ fontSize: '36px', lineHeight: '14px' }}
+          >
+            *
+          </span>
         ) : locationDebuff > 0 ? (
           <>
             <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>
