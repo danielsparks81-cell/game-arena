@@ -38,7 +38,7 @@ export type Team =
   | 'avengers' | 'x-men' | 'spider-friends' | 'fantastic-four'
   | 'shield' | 'shield-officer' | 'shield-agent' | 'shield-trooper'
   | 'hydra' | 'doombot-legion' | 'brotherhood' | 'masters-of-evil' | 'enemies-of-asgard'
-  | 'hand' | 'savage-land-mutates' | 'sentinels' | 'skrulls'
+  | 'hand' | 'savage-land-mutates' | 'sentinels' | 'skrulls' | 'spider-foes'
   | 'system'; // for wounds / bystanders / scheme twists / master strikes
 
 // ---------- Card definitions ----------
@@ -319,6 +319,11 @@ export type Effect =
   /** Skrull Fight: the active player gains the Hero attached to this Villain
    *  (moves to their discard). Cleans up the attachment record. */
   | { kind: 'skrull_gain_attached_hero' }
+
+  // ── Spider-Foes villain group ────────────────────────────────────────────────
+  /** The Lizard Fight: if defeated in the Sewers, each OTHER player gains a
+   *  Wound. Active player is unaffected. */
+  | { kind: 'lizard_sewers_wound_others' }
   /** Crushing Shockwave: reveals [x-men] Hero (no penalty) or gains `amount` Wounds. */
   | { kind: 'reveal_xmen_or_gain_wounds'; amount: number };
 
@@ -386,7 +391,7 @@ export type VillainCardDef = {
   escape?: Effect[];
   /** Optional requirement that must be satisfied before a player can fight
    *  this villain. Checked in doFightCity before attack is spent. */
-  fightCondition?: { requires: 'xmen_hero' };
+  fightCondition?: { requires: 'xmen_hero' | 'covert_hero' };
   /** Dynamic VP bonus applied during scoring. The card is worth +`amount` VP
    *  for each OTHER villain of the given team in the player's Victory Pile.
    *  Handled by recomputeVp. Example: Supreme HYDRA +3 per other HYDRA villain. */

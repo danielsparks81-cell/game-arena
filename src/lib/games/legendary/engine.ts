@@ -1436,10 +1436,10 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
-    // ── Dr. Doom Tactic 3: Treasures of Latveria ──────────────────────────────
+    // ── Extra draw bonus (Treasures of Latveria, Doctor Octopus Fight, etc.) ──
     case 'extra_hand_cards': {
       me.endOfTurnExtraDraw = (me.endOfTurnExtraDraw ?? 0) + effect.amount;
-      pushLog(state, { kind: 'system', text: `${me.username} will draw ${effect.amount} extra cards next hand (Treasures of Latveria)!` });
+      pushLog(state, { kind: 'system', text: `${me.username} will draw ${effect.amount} extra card${effect.amount === 1 ? '' : 's'} on their next hand draw.` });
       return;
     }
 
@@ -1618,6 +1618,28 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         return;
       }
       state.thisTurn.pendingChoice = { kind: 'em_bubble_select_hero' };
+      return;
+    }
+
+    // ── The Lizard (Spider-Foes) Fight ─────────────────────────────────────
+    // If defeated in the Sewers (city slot 0), each OTHER player gains a
+    // Wound to their discard. lastFightSlot is set in doFightCity right
+    // before fight effects fire, so we read it here.
+    case 'lizard_sewers_wound_others': {
+      if (state.thisTurn.lastFightSlot !== 0) {
+        pushLog(state, { kind: 'system', text: 'The Lizard wasn\'t fought in the Sewers — no wounds.' });
+        return;
+      }
+      for (const p of state.players) {
+        if (p.playerId === me.playerId) continue;
+        const w = state.woundDeck.shift();
+        if (!w) {
+          pushLog(state, { kind: 'system', text: 'The Wound Deck is empty — no wound dealt.' });
+          break;
+        }
+        p.discard.push(w);
+        pushLog(state, { kind: 'wound_taken', seat: p.seat, username: p.username });
+      }
       return;
     }
 
@@ -2306,6 +2328,16 @@ function doFightCity(
       return d.kind === 'hero' && 'teams' in d && (d as HeroCardDef).teams.includes('x-men');
     });
     if (!hasXmen) return { error: `You cannot defeat ${def.name} without an X-Men Hero in your hand or played this turn.` };
+  }
+  // Venom (Spider-Foes) — requires a Covert (red [covert] icon) Hero in
+  // hand or played this turn. We match on the `covert` class — every Hero
+  // with the red icon has it as a primary class.
+  if (def.kind === 'villain' && def.fightCondition?.requires === 'covert_hero') {
+    const hasCovert = [...me.hand, ...state.thisTurn.playedThisTurn].some(c => {
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' && (d as HeroCardDef).classes.includes('covert');
+    });
+    if (!hasCovert) return { error: `You cannot defeat ${def.name} without a [covert] Hero in your hand or played this turn.` };
   }
 
   if (!freeFight && availableAttack < requiredAttack) {

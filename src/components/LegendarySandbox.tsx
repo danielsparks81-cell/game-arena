@@ -895,6 +895,7 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'each_player_pending_ko_hero':                    return { kind };
     case 'skrull_attach_hero_from_hq':                     return { kind, mode: 'rightmost' };
     case 'skrull_gain_attached_hero':                      return { kind };
+    case 'lizard_sewers_wound_others':                     return { kind };
     case 'reveal_xmen_or_gain_wounds':                     return { kind, amount: 2 };
   }
 }
