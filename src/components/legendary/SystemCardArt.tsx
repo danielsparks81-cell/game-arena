@@ -172,13 +172,25 @@ export function VillainCardArt({
             <span style={{ color: '#4ade80' }}>{displayedAttack}</span>
           </>
         ) : def.variableStrike ? (
-          // Printed "*" — variable strike with no Hero attached yet. Render
-          // an oversized white asterisk. Line-height clamped to 14px so the
-          // asterisk's line-box matches the StrikeIcon's height for clean
-          // baseline / vertical-center alignment via the parent's flex items-center.
+          // Printed "*" — variable strike with no Hero attached yet.
+          // Wrap the oversized asterisk in a 14×14 inline-flex box (same
+          // dimensions as the StrikeIcon next to it) and center the glyph
+          // inside. The wrapper participates in the parent's items-center
+          // flex layout cleanly; the glyph itself is free to overflow that
+          // box vertically so it stays visually large.
           <span
-            className="text-white inline-block"
-            style={{ fontSize: '36px', lineHeight: '14px' }}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 14,
+              height: 14,
+              overflow: 'visible',
+              color: '#ffffff',
+              fontSize: 36,
+              lineHeight: 1,
+              fontWeight: 700,
+            }}
           >
             *
           </span>
