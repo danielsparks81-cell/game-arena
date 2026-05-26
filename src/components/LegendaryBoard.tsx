@@ -718,6 +718,27 @@ export default function LegendaryBoard({
                         killbotStrike={visibleCard?.cardId === 'killbot'
                           ? state.schemeTwistsRevealed
                           : undefined}
+                        fightConditionMet={(() => {
+                          if (!visibleCard || !me) return true;
+                          const d = CARDS[visibleCard.cardId];
+                          if (d?.kind !== 'villain' || !d.fightCondition) return true;
+                          // Mirrors doFightCity's fightCondition check — hand
+                          // OR played-this-turn must contain a matching Hero.
+                          const heroes = [...me.hand, ...state.thisTurn.playedThisTurn];
+                          if (d.fightCondition.requires === 'xmen_hero') {
+                            return heroes.some(c => {
+                              const hd = CARDS[c.cardId];
+                              return hd?.kind === 'hero' && hd.teams.includes('x-men');
+                            });
+                          }
+                          if (d.fightCondition.requires === 'covert_hero') {
+                            return heroes.some(c => {
+                              const hd = CARDS[c.cardId];
+                              return hd?.kind === 'hero' && hd.classes.includes('covert');
+                            });
+                          }
+                          return true;
+                        })()}
                         freeBystanderFightAvailable={state.thisTurn.freeBystanderFightAvailable}
                         fightCityFreeAvailable={!!state.thisTurn.fightCityFreeAvailable}
                         // Storm move-villain support
@@ -1658,7 +1679,7 @@ function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
-  attachedHeroName, attachedHeroCost, killbotStrike,
+  attachedHeroName, attachedHeroCost, killbotStrike, fightConditionMet = true,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1685,6 +1706,10 @@ function CitySlot({
    *  equals the current twist count. Used by the canFight gate so the player
    *  sees the live required attack. */
   killbotStrike?: number;
+  /** Whether the villain's fightCondition (e.g. Blob requires an X-Men hero,
+   *  Venom requires a Covert hero) is currently satisfied. When false, the
+   *  fight button stays disabled even if the player has enough attack. */
+  fightConditionMet?: boolean;
 }) {
   // Storm – Spinning Cyclone step 2: every slot is a clickable destination.
   if (onMoveDest) {
@@ -1776,7 +1801,7 @@ function CitySlot({
   const effectiveRequired = Math.max(0, baseAttack - locationDebuff);
   // Free bystander fight (Hawkeye): can fight for free if villain has attached bystanders.
   // Free city fight (Loki Cruel Ruler): can fight any one villain for free.
-  const canFight = !disabled && (
+  const canFight = !disabled && fightConditionMet && (
     attack >= effectiveRequired ||
     (freeBystanderFightAvailable && attachedBystanders > 0) ||
     fightCityFreeAvailable
