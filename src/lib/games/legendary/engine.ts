@@ -1575,10 +1575,16 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Magneto Master Strike ─────────────────────────────────────────────────
     case 'magneto_master_strike': {
-      // If hand is empty (= active player at end-of-turn villain reveal, just
-      // discarded), defer to start of their next turn so the strike actually
-      // hits their freshly drawn hand. Non-empty hands resolve immediately.
-      if (me.hand.length === 0) {
+      // Defer for the active player — pendingChoice that resolveMagnetoStrike
+      // would set on state.thisTurn gets wiped by emptyTurnState() during the
+      // turn advance that follows this end-of-turn villain reveal. By flagging
+      // the player here, resolvePendingStrikes will run resolveMagnetoStrike
+      // AFTER the new turn's emptyTurnState, so the pendingChoice sticks and
+      // the player gets prompted at the start of their next turn.
+      // Also defer when the hand happens to be empty (skip; nothing to do
+      // right now anyway — gets re-checked once the new hand is drawn).
+      const isActive = state.players[state.currentPlayerIdx]?.playerId === me.playerId;
+      if (isActive || me.hand.length === 0) {
         if (!me.pendingMagnetoStrike) {
           me.pendingMagnetoStrike = true;
           pushLog(state, {
@@ -1588,6 +1594,9 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         }
         return;
       }
+      // Non-active player with a non-empty hand → resolve immediately
+      // (auto-discard from top of hand; we can't run interactive prompts
+      // for non-active players from this engine).
       resolveMagnetoStrike(state, me);
       return;
     }
