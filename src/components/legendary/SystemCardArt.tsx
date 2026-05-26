@@ -173,8 +173,8 @@ export function VillainCardArt({
           </>
         ) : def.variableStrike ? (
           // Printed "*" — variable strike with no Hero attached yet. Render
-          // a large white asterisk so it reads as "the strike is variable".
-          <span className="text-white text-[18px] leading-none">*</span>
+          // an oversized white asterisk so it reads as "the strike is variable".
+          <span className="text-white text-[36px] leading-none">*</span>
         ) : locationDebuff > 0 ? (
           <>
             <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>
