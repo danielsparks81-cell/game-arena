@@ -68,28 +68,67 @@ function teamLabel(team: string): string {
  */
 export function VillainCardArt({
   def, wide = false, attachedBystanders = 0, locationDebuff = 0,
+  attachedHeroName, attachedHeroCost,
 }: {
   def: VillainCardDef;
   wide?: boolean;
   attachedBystanders?: number;
   /** Storm/Lightning Bolt location debuff — reduces effective attack shown on the card. */
   locationDebuff?: number;
+  /** Skrull attach-hero mechanic: when a Hero is tucked under this villain,
+   *  show the Hero's name above the card and override the displayed strike
+   *  with the Hero's cost. */
+  attachedHeroName?: string;
+  attachedHeroCost?: number;
 }) {
   const borderColor = '#ef4444'; // covert red — villains have no team color
   const widthClass  = wide ? 'w-full'  : 'w-[220px]';
   const heightClass = wide ? 'h-36'    : 'h-40';
+  const hasAttachedHero = attachedHeroName !== undefined && attachedHeroCost !== undefined;
+  // Display strike: if a Skrull hero is attached, replace the printed value
+  // with the Hero's cost; otherwise use printed (with Storm debuff applied).
+  const displayedAttack = hasAttachedHero ? attachedHeroCost! : def.attack;
 
   return (
     <div
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
       className={`relative flex ${heightClass} ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2 text-left`}
     >
+      {/* Attached Hero tab — Skrull mechanic. Renders ABOVE the bystander tab
+          slot so both can coexist (use a slight horizontal offset when both). */}
+      {hasAttachedHero && (
+        <div
+          className="absolute -translate-x-1/2 flex items-center gap-1 pointer-events-none"
+          style={{
+            top: -15,
+            left: attachedBystanders > 0 ? 'calc(50% - 32px)' : '50%',
+            backgroundColor: '#16a34a',
+            border: '2px solid #4ade80',
+            borderBottom: 'none',
+            borderRadius: '4px 4px 0 0',
+            padding: '2px 8px 3px',
+            fontSize: '9px',
+            fontWeight: 700,
+            color: '#04240e',
+            whiteSpace: 'nowrap',
+            zIndex: 21,
+            boxShadow: '0 -2px 6px rgba(22,163,74,0.6)',
+            maxWidth: 140,
+          }}
+          title={`Hero attached (Skrull): ${attachedHeroName} — cost ${attachedHeroCost}`}
+        >
+          <span>🦠</span>
+          <span className="truncate">{attachedHeroName}</span>
+          <span className="rounded bg-emerald-900 px-1">{attachedHeroCost}</span>
+        </div>
+      )}
       {/* Bystander tab — sticks up above the card top */}
       {attachedBystanders > 0 && (
         <div
-          className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1 pointer-events-none"
+          className="absolute -translate-x-1/2 flex items-center gap-1 pointer-events-none"
           style={{
             top: -15,
+            left: hasAttachedHero ? 'calc(50% + 32px)' : '50%',
             backgroundColor: '#c4a800',
             border: '2px solid #f0c000',
             borderBottom: 'none',
@@ -122,9 +161,16 @@ export function VillainCardArt({
         </div>
       )}
       {!def.text && <div className="flex-1" />}
-      {/* Attack — absolute bottom-right; shows debuffed effective value in emerald when reduced */}
+      {/* Attack — absolute bottom-right. Shows the effective strike:
+           - Skrull attach: hero's cost (in green, with * for "variable").
+           - Storm debuff: emerald reduced value with strikethrough printed. */}
       <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold">
-        {locationDebuff > 0 ? (
+        {hasAttachedHero ? (
+          <>
+            <span className="mr-0.5 text-neutral-500 line-through text-[10px]">*</span>
+            <span style={{ color: '#4ade80' }}>{displayedAttack}</span>
+          </>
+        ) : locationDebuff > 0 ? (
           <>
             <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>
             <span style={{ color: '#34d399' }}>{Math.max(0, def.attack - locationDebuff)}</span>

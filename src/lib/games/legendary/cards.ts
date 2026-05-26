@@ -139,10 +139,14 @@ export const TEAM_DISPLAY_NAMES: Record<string, string> = {
   'enemies-of-asgard':   'Enemies of Asgard',
   'brotherhood':         'Brotherhood',
   'masters-of-evil':     'Masters of Evil',
-  'hand_ninjas':         'Hand Ninjas',
   'sentinels':           'Sentinels',
-  'savage_land_mutates': 'Savage Land Mutates',
   'skrulls':             'Skrulls',
+  // Hand Ninjas — Team is 'hand', groupId is 'hand_ninjas' (both map to same label).
+  'hand':                'Hand Ninjas',
+  'hand_ninjas':         'Hand Ninjas',
+  // Savage Land Mutates — Team is kebab-case, groupId is snake_case (both same label).
+  'savage-land-mutates': 'Savage Land Mutates',
+  'savage_land_mutates': 'Savage Land Mutates',
 };
 
 /** Resolve a team ID to its display name, falling back to the raw id. */

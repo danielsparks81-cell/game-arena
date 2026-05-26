@@ -312,6 +312,13 @@ export type Effect =
    *  same deferred pending-KO flag Red Skull's master strike uses, so the KO
    *  prompt fires on each player's freshly drawn hand at start of their next turn. */
   | { kind: 'each_player_pending_ko_hero' }
+  /** Skrull Ambush: pull a Hero from the HQ and tuck it under this Villain.
+   *  The Villain's effective strike then equals that Hero's [cost], and
+   *  defeating the Villain gains the attached Hero. Mode picks WHICH Hero. */
+  | { kind: 'skrull_attach_hero_from_hq'; mode: 'rightmost' | 'highest_cost' }
+  /** Skrull Fight: the active player gains the Hero attached to this Villain
+   *  (moves to their discard). Cleans up the attachment record. */
+  | { kind: 'skrull_gain_attached_hero' }
   /** Crushing Shockwave: reveals [x-men] Hero (no penalty) or gains `amount` Wounds. */
   | { kind: 'reveal_xmen_or_gain_wounds'; amount: number };
 
@@ -798,6 +805,11 @@ export type LegendaryState = {
   /** Bystanders currently attached to a villain (keyed by villain instanceId).
    *  Defeating the villain awards these as VP for the defeating player. */
   cityBystanders: Record<CardInstanceId, CardInstance[]>;
+  /** Hero cards tucked UNDER a Skrull villain via the Skrull Ambush effect
+   *  (keyed by villain instanceId). The villain's effective strike equals the
+   *  attached Hero's cost; on defeat the active player gains the Hero into
+   *  their discard. On escape the attached Hero is KO'd along with the villain. */
+  cityAttachedHeroes?: Record<CardInstanceId, CardInstance>;
   escapedPile: CardInstance[]; // villains + their bystanders that escaped
   ko: CardInstance[]; // permanent KO pile (cards removed from the game)
   woundDeck: CardInstance[];

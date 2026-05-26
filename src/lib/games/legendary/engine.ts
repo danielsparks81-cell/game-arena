@@ -109,6 +109,7 @@ export function initialState(): LegendaryState {
     city: Array(CITY_SIZE).fill(null),
     pendingBystanders: [],
     cityBystanders: {},
+    cityAttachedHeroes: {},
     escapedPile: [],
     ko: [],
     woundDeck: [],
@@ -1620,6 +1621,31 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Skrull Shapeshifters / Veranke Fight: gain the attached Hero ───────
+    // The attached Hero (set during Ambush) goes to the active player's discard.
+    // The attachment record is cleared so the villain leaves the city cleanly.
+    case 'skrull_gain_attached_hero': {
+      // `me` is the active player resolving the fight. `state.thisTurn.lastFightSlot`
+      // was recorded in doFightCity right before fight effects fire, but at this
+      // point the villain has already been moved to the victory pile; we look
+      // for the attached hero by scanning the cityAttachedHeroes record for
+      // any villain instance that's no longer in city. The cleanest path: the
+      // top of me.victoryPile is the villain we just defeated.
+      const justDefeated = me.victoryPile[me.victoryPile.length - 1];
+      if (!justDefeated) return;
+      const attached = state.cityAttachedHeroes?.[justDefeated.instanceId];
+      if (!attached) {
+        pushLog(state, { kind: 'system', text: `${me.username}: Skrull had no Hero attached — nothing to gain.` });
+        return;
+      }
+      me.discard.push(attached);
+      delete state.cityAttachedHeroes![justDefeated.instanceId];
+      const aDef = getCard(attached.cardId);
+      const aName = aDef.kind === 'hero' ? (aDef as HeroCardDef).cardName : attached.cardId;
+      pushLog(state, { kind: 'system', text: `${me.username} gains ${aName} from under the defeated Skrull!` });
+      return;
+    }
+
     // ── Super-Skrull Fight: each player KOs a Hero from their hand ─────────
     // Fires on the active player's Fight resolution; loops over EVERY player
     // and sets the same deferred KO flag Red Skull's master strike uses, so
@@ -2121,6 +2147,13 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    case 'skrull_attach_hero_from_hq': {
+      // No-op when reached through resolveEffect — this kind is special-cased
+      // by enterCity's ambush loop (it needs the entering villain's instance
+      // ID). Listed here purely to satisfy the exhaustiveness guard.
+      return;
+    }
+
     default: {
       // Exhaustiveness guard — TypeScript will flag this if a new Effect kind
       // is added to types.ts without a corresponding case here.
@@ -2252,7 +2285,14 @@ function doFightCity(
 
   // Storm – location debuff (Lightning Bolt / Tidal Wave).
   const locationDebuff = state.thisTurn.locationVillainDebuffs[slot] ?? 0;
-  const requiredAttack = Math.max(0, def.attack - locationDebuff);
+  // Skrull attach-hero: if a Hero is tucked under this villain, the villain's
+  // effective strike equals that Hero's cost (replaces the printed value).
+  const attachedHero = state.cityAttachedHeroes?.[card.instanceId];
+  const attachedHeroDef = attachedHero ? getCard(attachedHero.cardId) : undefined;
+  const baseAttack = (attachedHeroDef && attachedHeroDef.kind === 'hero')
+    ? (attachedHeroDef as HeroCardDef).cost
+    : def.attack;
+  const requiredAttack = Math.max(0, baseAttack - locationDebuff);
 
   // Thor – God of Thunder: attack and recruit are interchangeable.
   const availableAttack = state.thisTurn.recruitAsAttackEnabled
@@ -3660,6 +3700,19 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
           delete state.cityBystanders[escaped.instanceId];
         }
 
+        // Skrull attached Hero: if this escaping villain had a Hero tucked
+        // under it, the Hero is KO'd along with the escape (it's lost). Card
+        // text on Skrull villains says nothing about returning it, so KO is
+        // the safe interpretation that punishes letting the Skrull get away.
+        const attachedOnEscape = state.cityAttachedHeroes?.[escaped.instanceId];
+        if (attachedOnEscape) {
+          state.ko.push(attachedOnEscape);
+          delete state.cityAttachedHeroes![escaped.instanceId];
+          const aDef = getCard(attachedOnEscape.cardId);
+          const aName = aDef.kind === 'hero' ? (aDef as HeroCardDef).cardName : attachedOnEscape.cardId;
+          pushLog(state, { kind: 'system', text: `${aName} was KO'd along with the escaping Skrull.` });
+        }
+
         // ── Step 3: Villain's own Escape effect ───────────────────────────
         if (eDef.kind === 'villain' && eDef.escape) {
           for (const eff of eDef.escape) {
@@ -3711,10 +3764,64 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
     pushLog(state, { kind: 'villain_revealed', cardId: def.cardId, cardName: def.name });
     if (def.kind === 'villain' && def.ambush) {
       for (const eff of def.ambush) {
+        // Skrull attach is special-cased: the ambush handler needs the
+        // entering villain's instance ID so it can tuck the chosen Hero
+        // under THIS specific villain (not per-player like other ambushes).
+        if (eff.kind === 'skrull_attach_hero_from_hq') {
+          attachHeroToVillain(state, card, eff.mode);
+          continue;
+        }
         for (const p of state.players) resolveEffect(state, p, eff);
       }
     }
   }
+}
+
+/** Skrull Ambush helper: pulls a Hero out of the HQ (either the rightmost
+ *  occupied slot or the highest-cost Hero) and tucks it under the given
+ *  villain instance. The villain's effective strike then equals that Hero's
+ *  [cost]; defeating it awards the Hero to the active player. */
+function attachHeroToVillain(
+  state: LegendaryState,
+  villain: CardInstance,
+  mode: 'rightmost' | 'highest_cost',
+): void {
+  let slotIdx: number | null = null;
+  if (mode === 'rightmost') {
+    for (let i = state.hq.length - 1; i >= 0; i--) {
+      const c = state.hq[i];
+      if (!c) continue;
+      const d = getCard(c.cardId);
+      if (d.kind === 'hero') { slotIdx = i; break; }
+    }
+  } else {
+    let bestCost = -1;
+    for (let i = 0; i < state.hq.length; i++) {
+      const c = state.hq[i];
+      if (!c) continue;
+      const d = getCard(c.cardId);
+      if (d.kind !== 'hero') continue;
+      const cost = (d as HeroCardDef).cost;
+      if (cost > bestCost) { bestCost = cost; slotIdx = i; }
+    }
+  }
+  if (slotIdx === null) {
+    pushLog(state, { kind: 'system', text: 'Skrull Ambush: no Hero in the HQ to attach.' });
+    return;
+  }
+  const hero = state.hq[slotIdx]!;
+  const heroDef = getCard(hero.cardId);
+  if (heroDef.kind !== 'hero') return;
+  state.hq[slotIdx] = null;
+  if (!state.cityAttachedHeroes) state.cityAttachedHeroes = {};
+  state.cityAttachedHeroes[villain.instanceId] = hero;
+  const villainDef = getCard(villain.cardId);
+  const villainName = villainDef.kind === 'villain' ? villainDef.name : villain.cardId;
+  pushLog(state, {
+    kind: 'system',
+    text: `${villainName} tucks ${heroDef.cardName} (cost ${heroDef.cost}) under itself — its strike is now ${heroDef.cost}.`,
+  });
+  refillHQ(state, true);
 }
 
 // =====================================================================

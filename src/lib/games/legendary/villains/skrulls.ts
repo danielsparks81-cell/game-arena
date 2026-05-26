@@ -16,12 +16,15 @@ export const SKRULL_SHAPESHIFTERS: VillainCardDef = {
   kind: 'villain',
   cardId: 'skrull_shapeshifters',
   name: 'Skrull Shapeshifters',
-  // Placeholder: official rule is [strike] equal to attached Hero's [cost].
-  // Without the attach-hero mechanic, fall back to a fixed midrange value.
-  attack: 3,
+  // Printed strike is variable. When a Hero is attached during Ambush,
+  // doFightCity uses that Hero's [cost] instead of this fallback value.
+  // The fallback (0) only applies when the HQ was empty at Ambush time,
+  // matching the "* with no Hero attached" interpretation.
+  attack: 0,
   vp: 2,
   team: 'skrulls',
-  // ambush / fight: TODO — attach rightmost HQ Hero; gain it on defeat.
+  ambush: [{ kind: 'skrull_attach_hero_from_hq', mode: 'rightmost' }],
+  fight:  [{ kind: 'skrull_gain_attached_hero' }],
   text: 'Ambush: Put the rightmost Hero from the HQ under this Villain. The Villain\'s [strike] is equal to that Hero\'s [cost].\nFight: Gain that Hero.',
 };
 
@@ -40,11 +43,12 @@ export const SKRULL_QUEEN_VERANKE: VillainCardDef = {
   kind: 'villain',
   cardId: 'skrull_queen_veranke',
   name: 'Skrull Queen Veranke',
-  // Placeholder: official rule is [strike] equal to highest-cost Hero's [cost].
-  attack: 5,
+  // Variable strike — see Shapeshifters above. Fallback 0 when HQ is empty.
+  attack: 0,
   vp: 4,
   team: 'skrulls',
-  // ambush / fight: TODO — attach highest-cost HQ Hero; gain it on defeat.
+  ambush: [{ kind: 'skrull_attach_hero_from_hq', mode: 'highest_cost' }],
+  fight:  [{ kind: 'skrull_gain_attached_hero' }],
   text: 'Ambush: Put the highest-cost Hero from the HQ under this Villain. This Villain\'s [strike] is equal to that Hero\'s [cost].\nFight: Gain that Hero.',
 };
 

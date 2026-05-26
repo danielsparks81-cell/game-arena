@@ -699,6 +699,20 @@ export default function LegendaryBoard({
                         disabled={!isMyTurn || disabled || actionsLockedByHeal || state.phase === 'finished'}
                         onFight={() => onFightCity(slot)}
                         attachedBystanders={visibleCard ? state.cityBystanders[visibleCard.instanceId]?.length ?? 0 : 0}
+                        attachedHeroName={(() => {
+                          if (!visibleCard) return undefined;
+                          const h = state.cityAttachedHeroes?.[visibleCard.instanceId];
+                          if (!h) return undefined;
+                          const hd = CARDS[h.cardId];
+                          return hd?.kind === 'hero' ? hd.cardName : undefined;
+                        })()}
+                        attachedHeroCost={(() => {
+                          if (!visibleCard) return undefined;
+                          const h = state.cityAttachedHeroes?.[visibleCard.instanceId];
+                          if (!h) return undefined;
+                          const hd = CARDS[h.cardId];
+                          return hd?.kind === 'hero' ? hd.cost : undefined;
+                        })()}
                         freeBystanderFightAvailable={state.thisTurn.freeBystanderFightAvailable}
                         fightCityFreeAvailable={!!state.thisTurn.fightCityFreeAvailable}
                         // Storm move-villain support
@@ -1628,6 +1642,7 @@ function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
+  attachedHeroName, attachedHeroCost,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1647,6 +1662,9 @@ function CitySlot({
   onMoveDest?: () => void;
   /** Deadpool "Here, Hold This": click this villain to assign the bystander. */
   onBystanderSelect?: () => void;
+  /** Skrull attach mechanic — name and cost of the Hero tucked under this villain. */
+  attachedHeroName?: string;
+  attachedHeroCost?: number;
 }) {
   // Storm – Spinning Cyclone step 2: every slot is a clickable destination.
   if (onMoveDest) {
@@ -1659,7 +1677,7 @@ function CitySlot({
       const d = getCard(card.cardId);
       if (d.kind === 'villain' || d.kind === 'henchman') {
         inner = d.kind === 'villain'
-          ? <VillainCardArt  def={d} wide attachedBystanders={attachedBystanders} />
+          ? <VillainCardArt  def={d} wide attachedBystanders={attachedBystanders} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} />
           : <HenchmanCardArt def={d} wide attachedBystanders={attachedBystanders} />;
       }
     }
@@ -1729,7 +1747,10 @@ function CitySlot({
     );
   }
 
-  const effectiveRequired = Math.max(0, def.attack - locationDebuff);
+  // Skrull attach mechanic: attached Hero's cost replaces the printed attack
+  // when present, mirroring the engine's effectiveVillainAttack logic.
+  const baseAttack = attachedHeroCost !== undefined ? attachedHeroCost : def.attack;
+  const effectiveRequired = Math.max(0, baseAttack - locationDebuff);
   // Free bystander fight (Hawkeye): can fight for free if villain has attached bystanders.
   // Free city fight (Loki Cruel Ruler): can fight any one villain for free.
   const canFight = !disabled && (
@@ -1753,7 +1774,7 @@ function CitySlot({
       }`}
     >
       {def.kind === 'villain'
-        ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} />
+        ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} />
         : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} />
       }
       <span className="sr-only">Slot {slot}</span>
