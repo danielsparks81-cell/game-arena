@@ -423,6 +423,17 @@ function makeQuest1(): QuestDef {
   // Room F (SE) — Verag (gargoyle), the quest target.
   placeIn(QUEST1_ROOMS[5], 'gargoyle', roomF, { displayName: 'Verag', cell: { x: 21, y: 13 } });
 
+  // Four starting cells so all 4 heroes have a distinct square at the entry.
+  // Stairway is at (0,8); the immediately adjacent corridor cells form a tidy
+  // cross of starting positions. If any of these get bumped by future map
+  // tweaks, the engine falls back to whichever start cells ARE valid floor.
+  const startCells: { x: number; y: number }[] = [
+    { x: 0, y: 8 },  // on the stairway
+    { x: 1, y: 8 },  // immediately east of stairway
+    { x: 1, y: 7 },  // NE
+    { x: 1, y: 9 },  // SE
+  ];
+
   return {
     id: 'the_trial',
     name: 'The Trial',
@@ -437,7 +448,7 @@ function makeQuest1(): QuestDef {
     furniture,
     traps: [],
     monsters,
-    startCells: [stairsAt],
+    startCells,
     wanderingMonster: 'orc',
     winCondition: { kind: 'kill_and_exit', monsterDisplayName: 'Verag' },
   };

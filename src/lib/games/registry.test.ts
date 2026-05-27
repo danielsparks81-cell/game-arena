@@ -71,13 +71,16 @@ describe('every registered game', () => {
         expect(me?.accent_color).toBe('#ff00ff');
       });
 
-      it('addPlayer + removePlayer round-trips back to no-player state', () => {
+      it('addPlayer + removePlayer leaves no one claiming the removed playerId', () => {
         if (!def.addPlayer || !def.removePlayer) return;
         const start = def.initialState();
         const added = def.addPlayer(start, 'user-1', 'alice', 0, '#ff00ff');
         const removed = def.removePlayer(added, 'user-1') as { players?: { playerId: string }[]; heroes?: { playerId: string }[] };
         const roster = removed.players ?? removed.heroes ?? [];
-        expect(roster).toHaveLength(0);
+        // The roster array MAY persist (HeroQuest always has 4 hero slots),
+        // but no entry in it should still belong to the removed player.
+        const stillThere = roster.some(p => p.playerId === 'user-1');
+        expect(stillThere).toBe(false);
       });
 
       it('initialState is referentially fresh each call (not a shared singleton)', () => {

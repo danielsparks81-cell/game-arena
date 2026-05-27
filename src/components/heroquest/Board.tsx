@@ -36,11 +36,13 @@ export default function HeroQuestBoardCanvas({
   const W = state.quest.width;
   const H = state.quest.height;
 
-  // Active hero (turn-holder); my hero may or may not be the active one in
-  // multiplayer. For movement we only highlight the active player's.
+  // Active hero (turn-holder). With players controlling multiple heroes,
+  // "my hero" for the purpose of movement / attack highlights is whichever
+  // of my heroes is currently UP. (If it's another player's turn, we draw
+  // no movement highlights at all.)
   const activeHero = state.heroes[state.turnIndex];
-  const myHero = state.heroes.find(h => h.playerId === currentUserId && h.body > 0);
   const isMyTurn = activeHero?.playerId === currentUserId;
+  const myHero = isMyTurn && activeHero?.body > 0 ? activeHero : undefined;
 
   // ---- Indexes ----
   const doorByCell = useMemo(() => {
@@ -120,17 +122,18 @@ export default function HeroQuestBoardCanvas({
     return d.a.y !== d.b.y;
   }
 
-  // ---- Torchlight: which cells are *currently* lit (within LOS of an active
-  // hero) vs revealed-but-dim vs unrevealed. v1: anything within Chebyshev 5
-  // of the current player's hero counts as "lit" if revealed. ----
+  // ---- Torchlight: which cells are *currently* lit (within Chebyshev 5 of
+  // ANY living hero) vs revealed-but-dim vs unrevealed. Using "any hero" so
+  // the whole party emits light — important for multi-hero parties where
+  // someone's always close to the action. ----
   function lightLevel(x: number, y: number): 'lit' | 'dim' | 'fog' {
     const tile = state.tiles[y][x];
     if (!tile.revealed) return 'fog';
-    if (!myHero) return 'dim';
-    const dx = Math.abs(x - myHero.at.x);
-    const dy = Math.abs(y - myHero.at.y);
-    const cheb = Math.max(dx, dy);
-    if (cheb <= 5) return 'lit';
+    for (const h of state.heroes) {
+      if (h.body <= 0) continue;
+      const cheb = Math.max(Math.abs(x - h.at.x), Math.abs(y - h.at.y));
+      if (cheb <= 5) return 'lit';
+    }
     return 'dim';
   }
 
@@ -358,13 +361,15 @@ export default function HeroQuestBoardCanvas({
           );
         })}
 
-        {/* Torch halo overlay on the active hero */}
-        {myHero && (
+        {/* Torch halo overlay on every living hero (mixes naturally where
+            two heroes are near each other). */}
+        {state.heroes.filter(h => h.body > 0).map(h => (
           <div
+            key={`torch-${h.seat}`}
             className="pointer-events-none absolute"
             style={{
-              left: myHero.at.x * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
-              top:  myHero.at.y * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
+              left: h.at.x * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
+              top:  h.at.y * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
               width: TILE_PX * 10,
               height: TILE_PX * 10,
               borderRadius: '50%',
@@ -373,7 +378,7 @@ export default function HeroQuestBoardCanvas({
               zIndex: 4,
             }}
           />
-        )}
+        ))}
       </div>
 
       {/* Inline keyframes — kept here so the board chunk owns its CSS. */}

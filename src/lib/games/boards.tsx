@@ -222,6 +222,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       currentUserId={currentUserId}
       isHost={isHost}
       disabled={pending}
+      onClaimHero={(seat: number) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'claim_hero', seat }); })}
       onSetClass={(klass: HQHeroClass) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'set_class', classKlass: klass }); })}
       onRandomClasses={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'random_classes' }); })}
       onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'start_game' }); })}

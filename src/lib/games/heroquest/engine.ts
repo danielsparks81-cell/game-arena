@@ -50,7 +50,14 @@ import {
 
 export function initialState(): HQState {
   const quest = QUESTS.the_trial;
-  return {
+  // Always 4 hero slots, one per class. playerId starts empty — players
+  // claim slots in the lobby; start_game auto-fills any leftover slots by
+  // cycling through claimed players.
+  const fourClasses: HeroClass[] = ['barbarian', 'dwarf', 'elf', 'wizard'];
+  const heroes: Hero[] = fourClasses.map((klass, seat) =>
+    makeHero('', '', seat, klass, quest.startCells[seat] ?? quest.startCells[0]),
+  );
+  const s: HQState = {
     version: STATE_VERSION,
     phase: 'lobby',
     questId: quest.id,
@@ -60,7 +67,7 @@ export function initialState(): HQState {
     furniture: quest.furniture.map(f => ({ ...f, searched: false })),
     traps: quest.traps.map(t => ({ ...t, triggered: false, revealed: false })),
     monsters: [],   // monsters appear when rooms reveal
-    heroes: [],
+    heroes,
     turnIndex: 0,
     treasureDeck: shuffle(buildTreasureDeck()),
     treasureDiscard: [],
@@ -70,6 +77,9 @@ export function initialState(): HQState {
     pendingPrompt: null,
     winner: null,
   };
+  // Seed wizard/elf spells immediately (heroes exist on day 1 now).
+  assignSpellsToCasters(s);
+  return s;
 }
 
 function stampTiles(quest: QuestDef): Tile[][] {
@@ -101,25 +111,72 @@ export function addPlayer(
   accent_color?: string,
 ): HQState {
   if (state.phase !== 'lobby') return state;
+  if (state.heroes.some(h => h.playerId === playerId)) return state;  // idempotent
   const s = clone(state);
-  // Default class: cycle barbarian/dwarf/elf/wizard by seat so 4 quick joiners
-  // get distinct heroes. The lobby UI lets players reassign before start.
-  const classes: HeroClass[] = ['barbarian', 'dwarf', 'elf', 'wizard'];
-  const klass = classes[seat % 4];
-  const start = state.quest.startCells[seat % state.quest.startCells.length];
-  s.heroes.push({
-    ...makeHero(playerId, username, seat, klass, start, accent_color),
-  });
-  // Seed spells for casters.
-  assignSpellsToCasters(s);
+  // Claim the first unowned hero slot in seat order. (Note: the seat arg
+  // passed in from the room is the joiner's room-seat, but HeroQuest's hero
+  // slots are 0..3 and decoupled from room seats — we always fill 0→3.)
+  void seat;
+  const free = s.heroes.find(h => !h.playerId);
+  if (free) {
+    free.playerId = playerId;
+    free.username = username;
+    free.accent_color = accent_color;
+  }
   return s;
 }
 
 export function removePlayer(state: HQState, playerId: string): HQState {
   if (state.phase !== 'lobby') return state;
   const s = clone(state);
-  s.heroes = s.heroes.filter(h => h.playerId !== playerId);
+  // Clear the slot but keep the hero so the party stays at 4. The empty
+  // slot will be auto-filled at start_game by cycling through claimed
+  // players (or another joiner before then).
+  for (const h of s.heroes) {
+    if (h.playerId === playerId) {
+      h.playerId = '';
+      h.username = '';
+      h.accent_color = undefined;
+    }
+  }
   return s;
+}
+
+/** A player claims a specific hero slot (by seat 0..3). If they already
+    control another slot it becomes unclaimed (one primary hero per player
+    in the lobby; auto-fill at start_game may give them more). */
+function doClaimHero(state: HQState, playerId: string, seat: number): ApplyResult {
+  if (state.phase !== 'lobby') return err('Cannot change heroes after the quest starts.');
+  const target = state.heroes.find(h => h.seat === seat);
+  if (!target) return err('No such hero slot.');
+  // Find the joining player's existing slot (if any) to preserve their identity.
+  const existing = state.heroes.find(h => h.playerId === playerId);
+  if (!existing) return err('You are not seated in this room.');
+  if (target.seat === existing.seat) return ok(state);  // already there
+  const s = clone(state);
+  const newTarget = s.heroes.find(h => h.seat === seat)!;
+  const newExisting = s.heroes.find(h => h.seat === existing.seat)!;
+  // Swap identities — if the target slot was held by another player, that
+  // player becomes a "co-owner" via auto-fill at start; we DON'T evict them.
+  if (newTarget.playerId && newTarget.playerId !== playerId) {
+    // Swap the two players: each takes the other's slot.
+    const tmp = { id: newTarget.playerId, name: newTarget.username, color: newTarget.accent_color };
+    newTarget.playerId = newExisting.playerId;
+    newTarget.username = newExisting.username;
+    newTarget.accent_color = newExisting.accent_color;
+    newExisting.playerId = tmp.id;
+    newExisting.username = tmp.name;
+    newExisting.accent_color = tmp.color;
+  } else {
+    // Empty target → just move me over and release my old slot.
+    newTarget.playerId = newExisting.playerId;
+    newTarget.username = newExisting.username;
+    newTarget.accent_color = newExisting.accent_color;
+    newExisting.playerId = '';
+    newExisting.username = '';
+    newExisting.accent_color = undefined;
+  }
+  return ok(s);
 }
 
 /** Assign 9 spells (3 groups of 3) to the wizard and 3 (1 group) to the elf
@@ -150,19 +207,29 @@ function assignSpellsToCasters(s: HQState): void {
 export function getActivePlayerId(state: HQState): string | null {
   if (state.phase !== 'heroes') return null;
   const h = state.heroes[state.turnIndex];
-  return h?.playerId ?? null;
+  return h?.playerId || null;   // '' (unclaimed) collapses to null
 }
 
 export function getOrderedPlayerIds(state: HQState): string[] {
-  return state.heroes.map(h => h.playerId);
+  // Distinct claimed player IDs in seat order. With fewer than 4 players,
+  // some heroes share a controller — the roster only lists each human once.
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const h of state.heroes) {
+    if (h.playerId && !seen.has(h.playerId)) {
+      seen.add(h.playerId);
+      out.push(h.playerId);
+    }
+  }
+  return out;
 }
 
 export function computeHistory(state: HQState): { winnerId: string | null; playerIds: string[] } | null {
   if (state.phase !== 'finished') return null;
-  // "Winner" semantics for HeroQuest: heroes win → first hero's playerId is
+  // "Winner" semantics for HeroQuest: heroes win → first claimed player is
   // recorded as the winnerId (representative; the whole party "won"). Zargon
   // win → null (no human "won").
-  const playerIds = state.heroes.map(h => h.playerId);
+  const playerIds = getOrderedPlayerIds(state);
   if (state.winner === 'heroes') {
     return { winnerId: playerIds[0] ?? null, playerIds };
   }
@@ -186,41 +253,70 @@ export function applyAction(
   action: HQAction,
 ): ApplyResult {
   // Lobby actions
+  if (action.kind === 'claim_hero') {
+    return doClaimHero(state, playerId, action.seat);
+  }
   if (action.kind === 'set_class') {
-    if (state.phase !== 'lobby') return err('Cannot change class after the quest starts.');
-    const s = clone(state);
-    const hero = s.heroes.find(h => h.playerId === playerId);
-    if (!hero) return err('You are not seated in this quest.');
-    // Disallow duplicate classes.
-    if (s.heroes.some(h => h.playerId !== playerId && h.klass === action.classKlass)) {
-      return err('Another hero has already chosen that class.');
-    }
-    rebuildHeroAsClass(hero, action.classKlass, s.quest.startCells[hero.seat % s.quest.startCells.length]);
-    assignSpellsToCasters(s);
-    return ok(s);
+    // Back-compat shim: translate "I want Wizard" to "I want seat 3".
+    if (state.phase !== 'lobby') return err('Cannot change heroes after the quest starts.');
+    const target = state.heroes.find(h => h.klass === action.classKlass);
+    if (!target) return err('No such hero class.');
+    return doClaimHero(state, playerId, target.seat);
   }
   if (action.kind === 'random_classes') {
-    if (state.phase !== 'lobby') return err('Cannot reroll classes after the quest starts.');
+    if (state.phase !== 'lobby') return err('Cannot reshuffle heroes after the quest starts.');
+    // Shuffle PLAYER assignments across the 4 fixed hero slots — the classes
+    // themselves stay locked to the seats (barbarian@0 / dwarf@1 / elf@2 /
+    // wizard@3) so the engine's caster detection stays stable.
+    const claimed = state.heroes
+      .filter(h => h.playerId)
+      .map(h => ({ playerId: h.playerId, username: h.username, accent_color: h.accent_color }));
+    if (claimed.length === 0) return ok(state);
     const s = clone(state);
-    const pool: HeroClass[] = ['barbarian', 'dwarf', 'elf', 'wizard'];
-    shuffleInPlace(pool);
-    s.heroes.forEach((h, i) => {
-      rebuildHeroAsClass(h, pool[i % 4], s.quest.startCells[h.seat % s.quest.startCells.length]);
+    // Clear all claims, then reassign claimed players to random seats.
+    for (const h of s.heroes) {
+      h.playerId = '';
+      h.username = '';
+      h.accent_color = undefined;
+    }
+    const seats = [0, 1, 2, 3];
+    shuffleInPlace(seats);
+    claimed.forEach((p, i) => {
+      const slot = s.heroes.find(h => h.seat === seats[i]);
+      if (slot) {
+        slot.playerId = p.playerId;
+        slot.username = p.username;
+        slot.accent_color = p.accent_color;
+      }
     });
-    assignSpellsToCasters(s);
     return ok(s);
   }
   if (action.kind === 'start_game') {
     if (state.phase !== 'lobby') return err('Quest already underway.');
-    if (state.heroes.length < 1) return err('Need at least one hero to start.');
+    const claimed = state.heroes.filter(h => h.playerId);
+    if (claimed.length < 1) return err('Need at least one player to start the quest.');
     const s = clone(state);
+    // Auto-fill any unclaimed hero slots by cycling through claimed players.
+    // With 1 player → that player owns all 4. With 2 players → round-robin
+    // gives 2 heroes each. With 3 → 2/1/1. With 4 → 1/1/1/1 (no change).
+    const claimers = s.heroes.filter(h => h.playerId);
+    let cursor = 0;
+    for (const slot of s.heroes) {
+      if (!slot.playerId) {
+        const giver = claimers[cursor % claimers.length];
+        slot.playerId = giver.playerId;
+        slot.username = giver.username;
+        slot.accent_color = giver.accent_color;
+        cursor += 1;
+      }
+    }
     s.phase = 'heroes';
     s.turnIndex = 0;
-    // Reveal the stairway tile + the corridor row the heroes can immediately see.
-    revealLineOfSightForHero(s, s.heroes[0]);
+    // Reveal LOS from each hero's starting cell so the entry corridor lights up.
+    for (const h of s.heroes) revealLineOfSightForHero(s, h);
     pushLog(s, 'system', `Quest "${s.quest.name}" begins.`);
     pushLog(s, 'system', s.quest.briefing);
-    pushLog(s, 'system', `It is ${s.heroes[0].username}'s turn.`);
+    pushLog(s, 'system', `It is ${s.heroes[0].username}'s turn (${HERO_DEFAULTS[s.heroes[0].klass].name}).`);
     return ok(s);
   }
 

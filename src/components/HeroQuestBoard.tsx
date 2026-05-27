@@ -25,6 +25,9 @@ export type HeroQuestBoardProps = {
   currentUserId: string;
   isHost: boolean;
   disabled: boolean;
+  onClaimHero: (seat: number) => void;
+  /** Legacy: kept for back-compat — older lobby builds passed a class instead
+      of a seat. The engine routes both to the same claim handler. */
   onSetClass: (klass: HeroClass) => void;
   onRandomClasses: () => void;
   onStart: () => void;
@@ -60,7 +63,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
       currentUserId={props.currentUserId}
       isHost={props.isHost}
       disabled={props.disabled}
-      onSetClass={props.onSetClass}
+      onClaimHero={props.onClaimHero}
       onRandomClasses={props.onRandomClasses}
       onStart={props.onStart}
     />;
@@ -90,9 +93,13 @@ function PlayingView({
   onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onCastSpell, onEndTurn,
   onShowBriefing,
 }: HeroQuestBoardProps & { onShowBriefing: () => void }) {
-  const myHero = state.heroes.find(h => h.playerId === currentUserId);
+  // The sheet always shows the ACTIVE hero (whoever's up). Since players
+  // can control multiple heroes, this matches whatever's happening on the
+  // board — when it's your hero's turn you see your stats, when it's
+  // another hero's turn (yours or someone else's) you see theirs.
   const active = state.heroes[state.turnIndex];
   const isMyTurn = active?.playerId === currentUserId;
+  const focusHero = active;
 
   return (
     <div className="space-y-3">
@@ -113,7 +120,7 @@ function PlayingView({
           <ActionRibbon
             state={state}
             isMyTurn={isMyTurn}
-            myHero={myHero}
+            myHero={focusHero}
             disabled={disabled}
             onRollMove={onRollMove}
             onSearchTreasure={onSearchTreasure}
@@ -129,12 +136,12 @@ function PlayingView({
         </div>
 
         <div className="space-y-3">
-          {myHero && (
+          {focusHero && (
             <CharacterSheet
-              hero={myHero}
-              isActive={active?.playerId === myHero.playerId}
+              hero={focusHero}
+              isActive
               isMyTurn={isMyTurn}
-              isMine
+              isMine={focusHero.playerId === currentUserId}
               onCastSpell={onCastSpell}
             />
           )}

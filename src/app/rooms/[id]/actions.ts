@@ -673,6 +673,7 @@ export type GameAction =
   | { game: 'yahtzee'; kind: 'commitScore'; category: YCategory }
 
   // HeroQuest — coop dungeon crawler with automated Zargon
+  | { game: 'heroquest'; kind: 'claim_hero'; seat: number }
   | { game: 'heroquest'; kind: 'set_class'; classKlass: HQHeroClass }
   | { game: 'heroquest'; kind: 'random_classes' }
   | { game: 'heroquest'; kind: 'start_game' }
@@ -1036,7 +1037,11 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
 
   if (action.kind === 'start_game') {
     if (room.host_id !== user.id) throw new Error('Only the host can start the quest');
-  } else if (action.kind !== 'set_class' && action.kind !== 'random_classes') {
+  } else if (
+    action.kind !== 'set_class' &&
+    action.kind !== 'random_classes' &&
+    action.kind !== 'claim_hero'
+  ) {
     if (room.status !== 'playing') throw new Error('Quest not in progress');
   }
 

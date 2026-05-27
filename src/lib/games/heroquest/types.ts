@@ -108,9 +108,13 @@ export type Item = {
 };
 
 export type Hero = {
-  /** Player UUID who controls this hero. */
+  /** Player UUID who controls this hero — empty string for an unclaimed slot
+      (every quest always has 4 hero slots, one per class; with <4 human
+      players the engine auto-fills unclaimed slots at start_game by cycling
+      through claimed players). */
   playerId: string;
   username: string;
+  /** Stable seat index 0..3 — drives turn order and starting position. */
   seat: number;
   accent_color?: string;
   klass: HeroClass;
@@ -313,6 +317,12 @@ export type PendingPrompt =
 
 export type HQAction =
   // Lobby
+  /** Claim a specific hero slot by seat index. If the player already controls
+      another slot, that other slot becomes unclaimed (one primary slot per
+      player). */
+  | { kind: 'claim_hero'; seat: number }
+  /** Legacy "I want this class" — kept for back-compat with older clients;
+      same as claim_hero with the matching seat. */
   | { kind: 'set_class'; classKlass: HeroClass }
   | { kind: 'random_classes' }
   | { kind: 'start_game' }
