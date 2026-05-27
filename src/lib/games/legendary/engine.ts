@@ -1822,13 +1822,38 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     }
 
     // ── Super-Skrull Fight: each player KOs a Hero from their hand ─────────
-    // Fires on the active player's Fight resolution; loops over EVERY player
-    // and sets the same deferred KO flag Red Skull's master strike uses, so
-    // the prompt fires on each player's freshly drawn hand at the start of
-    // their next turn (matches the official "Each player KOs one of their
-    // Heroes" effect).
+    // Official: "Each player KOs one of their Heroes." Fires on the active
+    // player's Fight resolution.
+    //   • Active player → resolve IMMEDIATELY via an interactive
+    //     ko_from_hand prompt over their CURRENT hand + played area. They
+    //     just played cards to fight Super-Skrull, so anything in either
+    //     zone is fair game — earlier behaviour deferred this to "next
+    //     turn" which was wrong for the player who actually killed it.
+    //   • Other players → defer to the start of their next turn (same
+    //     pattern as Red Skull's master strike), since we can't prompt them
+    //     interactively right now without owning their turn.
     case 'each_player_pending_ko_hero': {
+      const isHeroCard = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
+      const activeHasHero =
+        me.hand.some(isHeroCard) || state.thisTurn.playedThisTurn.some(isHeroCard);
+      if (activeHasHero) {
+        state.thisTurn.pendingChoice = {
+          kind: 'ko_from_hand',
+          bonus: [],
+          filter: 'heroes_only',
+          sources: ['hand', 'played'],
+          mandatory: true,
+        };
+        pushLog(state, { kind: 'system', text:
+          `${me.username} must KO a Hero from their hand or played area (Super-Skrull).` });
+      } else {
+        pushLog(state, { kind: 'system', text:
+          `${me.username} has no Hero to KO (Super-Skrull).` });
+      }
+      // Other players → defer to their next turn (multiplayer only; in solo
+      // this loop body never runs since `me` is the only player).
       for (const p of state.players) {
+        if (p.playerId === me.playerId) continue;
         if (p.pendingMasterStrikeKO) continue;
         p.pendingMasterStrikeKO = true;
         pushLog(state, {
