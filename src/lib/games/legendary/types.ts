@@ -128,7 +128,7 @@ export type Effect =
    *  player draws a card (Accept) or each other player discards a card (Skip). */
   | { kind: 'choose_others_draw_or_discard' }
   // ── Hulk-specific effects ──────────────────────────────────────────────────
-  /** Hulk – Grazed Rampage: every player (including the active player) takes a
+  /** Hulk – Crazed Rampage: every player (including the active player) takes a
    *  Wound into their discard pile. Applied in seat order; silently skips
    *  players if the wound deck runs out (same behavior as `gain_wound`). */
   | { kind: 'each_player_gains_wound' }

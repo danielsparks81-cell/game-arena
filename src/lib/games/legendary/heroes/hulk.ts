@@ -39,11 +39,13 @@ export const HULK_UNSTOPPABLE: HeroCardDef = {
   ],
 };
 
-export const HULK_GRAZED_RAMPAGE: HeroCardDef = {
+export const HULK_CRAZED_RAMPAGE: HeroCardDef = {
   kind: 'hero',
+  // cardId kept as the legacy 'hulk_grazed_rampage' so any in-flight game
+  // states (saved to JSONB) keep resolving — only the display name was wrong.
   cardId: 'hulk_grazed_rampage',
   className: 'Hulk',
-  cardName: 'Grazed Rampage',
+  cardName: 'Crazed Rampage',
   cost: 5,
   baseAttack: 4,
   classes: ['strength'],
@@ -78,7 +80,7 @@ export const HULK_CLASS = {
   cards: [
     { def: HULK_GROWING_ANGER,   copies: 5 },
     { def: HULK_UNSTOPPABLE,     copies: 5 },
-    { def: HULK_GRAZED_RAMPAGE,  copies: 3 },
+    { def: HULK_CRAZED_RAMPAGE,  copies: 3 },
     { def: HULK_SMASH,           copies: 1 },
   ],
 };

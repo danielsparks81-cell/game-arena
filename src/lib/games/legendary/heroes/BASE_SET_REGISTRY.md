@@ -124,7 +124,7 @@ Status: ✅ Verified
 |------|--------|------|-------|---------|--------|--------------|
 | Growing Anger | 5 | 3 | Strength | — | 2+ | [strength]: You get +1⚔. |
 | Unstoppable Hulk | 5 | 4 | Instinct | — | 2+ | You may KO a Wound from your hand or discard pile. If you do, you get +2⚔. |
-| Grazed Rampage | 3 | 5 | Strength | — | 4 | Each player gains a Wound. |
+| Crazed Rampage | 3 | 5 | Strength | — | 4 | Each player gains a Wound. |
 | Hulk Smash! | 1 | 8 | Strength | — | 5+ | [strength]: You get +5⚔. |
 
 Status: ✅ Verified
