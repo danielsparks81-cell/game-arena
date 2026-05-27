@@ -1163,8 +1163,12 @@ export default function LegendaryBoard({
                       : 'Take Wound'}
                   </button>
                 )}
-                {/* Skip / decline button — hidden for mandatory costs */}
-                {!('mandatory' in pendingChoice && pendingChoice.mandatory) && (
+                {/* Skip / decline button — hidden for mandatory costs and a
+                    few specific kinds that are required to resolve but don't
+                    have a `mandatory` flag on the choice itself. */}
+                {!('mandatory' in pendingChoice && pendingChoice.mandatory)
+                  && pendingChoice.kind !== 'order_top_of_deck'
+                  && pendingChoice.kind !== 'escape_ko_hq_hero' && (
                   <button
                     type="button"
                     disabled={disabled}

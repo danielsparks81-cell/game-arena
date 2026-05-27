@@ -3196,6 +3196,14 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
       ? 'You must choose a card to put on top of your deck — this cannot be skipped.'
       : 'You must discard a card — this cost cannot be skipped.' };
   }
+  // A few choice kinds don't carry a `mandatory` flag but still can't be
+  // skipped — skipping them would silently lose state (cards disappear).
+  if (choice.kind === 'order_top_of_deck') {
+    return { error: 'You must order the revealed cards before continuing.' };
+  }
+  if (choice.kind === 'escape_ko_hq_hero') {
+    return { error: 'You must KO a Hero from the HQ — the escape penalty cannot be skipped.' };
+  }
   state.thisTurn.pendingChoice = undefined;
   // Gambit – Hypnotic Charm: skip = put the revealed card back on top of deck.
   if (choice.kind === 'reveal_top_discard_or_return') {
