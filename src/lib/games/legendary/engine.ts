@@ -1316,8 +1316,12 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
     case 'reveal_top_three_draw_cost_le_2': {
-      if (me.deck.length === 0 && me.discard.length > 0) {
-        me.deck = shuffle(me.discard); me.discard = [];
+      // Need 3 cards to reveal; if deck is short, reshuffle discard into deck
+      // first so the full reveal can happen (matches the Marvel Legendary
+      // "shuffle discard into deck whenever you need to draw and can't" rule).
+      if (me.deck.length < 3 && me.discard.length > 0) {
+        me.deck.push(...shuffle(me.discard));
+        me.discard = [];
       }
       const take = Math.min(3, me.deck.length);
       if (take === 0) return;
@@ -1337,10 +1341,17 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
           kept.push(c);
         }
       }
-      // Put non-qualifying cards back on top in their original order.
-      me.deck.unshift(...kept);
+      // 0 kept: nothing to put back. 1 kept: only one valid placement, push
+      // directly. 2+ kept: card text says "put the rest back in any order" —
+      // prompt the player via an order_top_of_deck pending choice. Click order
+      // becomes draw order (first click = top of deck = drawn next).
+      if (kept.length > 1) {
+        state.thisTurn.pendingChoice = { kind: 'order_top_of_deck', queue: kept, placed: [] };
+      } else if (kept.length === 1) {
+        me.deck.unshift(kept[0]);
+      }
       pushLog(state, { kind: 'system', text:
-        `${me.username} reveals 3 cards — draws ${drawn.length > 0 ? drawn.join(', ') : 'none'}; returns ${kept.length}.` });
+        `${me.username} reveals ${take} card${take === 1 ? '' : 's'} — draws ${drawn.length > 0 ? drawn.join(', ') : 'none'}; returns ${kept.length}${kept.length > 1 ? ' (choose the order)' : ''}.` });
       return;
     }
 
@@ -2687,6 +2698,40 @@ function doResolveChoice(
       cost: 0,
       slot: slotIdx,
     });
+    return state;
+  }
+
+  // ── Order Top of Deck: player picks the next card to be placed on top ──
+  // Click order becomes draw order — first click ends up on top of the deck
+  // (drawn next), subsequent clicks below it. When the queue empties, all
+  // placed cards are pushed to the deck in their click order.
+  if (choice.kind === 'order_top_of_deck') {
+    const qIdx = choice.queue.findIndex(c => c.instanceId === instanceId);
+    if (qIdx < 0) return { error: 'That card is not in the cards to order' };
+    const picked = choice.queue[qIdx];
+    const remainingQueue = [...choice.queue.slice(0, qIdx), ...choice.queue.slice(qIdx + 1)];
+    const newPlaced = [...choice.placed, picked];
+    if (remainingQueue.length === 0) {
+      // All ordered — push to deck. placed[0] should be drawn first (on top),
+      // so unshift in reverse so the last-unshifted is on top.
+      for (let i = newPlaced.length - 1; i >= 0; i--) {
+        me.deck.unshift(newPlaced[i]);
+      }
+      state.thisTurn.pendingChoice = undefined;
+      const pickedDef = getCard(picked.cardId);
+      const pickedName = pickedDef.kind === 'hero' ? pickedDef.cardName
+        : 'name' in pickedDef ? (pickedDef as { name: string }).name : picked.cardId;
+      pushLog(state, { kind: 'system', text:
+        `${me.username} placed ${pickedName} on top of their deck (order complete).` });
+    } else {
+      // More to order — re-queue with picked card added to placed.
+      state.thisTurn.pendingChoice = { kind: 'order_top_of_deck', queue: remainingQueue, placed: newPlaced };
+      const pickedDef = getCard(picked.cardId);
+      const pickedName = pickedDef.kind === 'hero' ? pickedDef.cardName
+        : 'name' in pickedDef ? (pickedDef as { name: string }).name : picked.cardId;
+      pushLog(state, { kind: 'system', text:
+        `${me.username} placed ${pickedName} (position ${newPlaced.length}) — ${remainingQueue.length} more to order.` });
+    }
     return state;
   }
 

@@ -152,6 +152,7 @@ export default function LegendaryBoard({
     pendingChoice.kind !== 'em_bubble_select_hero' &&
     pendingChoice.kind !== 'solo_twist_tuck_hero' &&
     pendingChoice.kind !== 'escape_ko_hq_hero' &&
+    pendingChoice.kind !== 'order_top_of_deck' &&
     pendingChoice.kind !== 'choose_city_villain_for_bystander' &&
     pendingChoice.kind !== 'look_top_two_ko_one_return_one';
   // Binary choices don't require card selection — the player just clicks
@@ -175,6 +176,7 @@ export default function LegendaryBoard({
   const isEscapeKoHqHero              = isMyTurn && pendingChoice?.kind === 'escape_ko_hq_hero';
   const isChooseCityBystanderTarget   = isMyTurn && pendingChoice?.kind === 'choose_city_villain_for_bystander';
   const isLookTopTwoChoice            = isMyTurn && pendingChoice?.kind === 'look_top_two_ko_one_return_one';
+  const isOrderTopOfDeck              = isMyTurn && pendingChoice?.kind === 'order_top_of_deck';
   // Wound healing: clicking a Wound KOs all wounds from hand, but only if the
   // player has not yet fought or recruited this turn (and no choice is pending).
   const woundHealingAvailable = isMyTurn && !state.thisTurn.foughtThisTurn && !state.thisTurn.recruitedThisTurn && !pendingChoice && state.phase !== 'finished';
@@ -989,6 +991,8 @@ export default function LegendaryBoard({
             ? 'border-emerald-500 bg-emerald-950/50'
             : pendingChoice.kind === 'escape_ko_hq_hero'
             ? 'border-rose-500 bg-rose-950/50'
+            : pendingChoice.kind === 'order_top_of_deck'
+            ? 'border-emerald-500 bg-emerald-950/50'
             : pendingChoice.kind === 'choose_city_villain_for_bystander'
             ? 'border-amber-500 bg-amber-950/50'
             : pendingChoice.kind === 'look_top_two_ko_one_return_one'
@@ -1026,6 +1030,8 @@ export default function LegendaryBoard({
                   ? 'text-emerald-300'
                   : pendingChoice.kind === 'escape_ko_hq_hero'
                   ? 'text-rose-300'
+                  : pendingChoice.kind === 'order_top_of_deck'
+                  ? 'text-emerald-300'
                   : pendingChoice.kind === 'choose_city_villain_for_bystander'
                   ? 'text-amber-300'
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
@@ -1075,6 +1081,8 @@ export default function LegendaryBoard({
                   ? '📥 Solo Twist Bonus — click a Hero in the HQ (cost 6 or less) to put it on the bottom of the Hero Deck'
                   : pendingChoice.kind === 'escape_ko_hq_hero'
                   ? `💀 ${(pendingChoice as { escapedVillainName: string }).escapedVillainName} escaped — click any Hero in the HQ to KO it`
+                  : pendingChoice.kind === 'order_top_of_deck'
+                  ? `📚 Order ${(pendingChoice as { queue: CardInstance[] }).queue.length} card${(pendingChoice as { queue: CardInstance[] }).queue.length === 1 ? '' : 's'} for the top of your deck — click in the order you want them drawn`
                   : pendingChoice.kind === 'choose_city_villain_for_bystander'
                   ? '👤 Here, Hold This — click a Villain or Henchman in the city to capture the Bystander'
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
@@ -1414,6 +1422,43 @@ export default function LegendaryBoard({
 
       {/* Doombot Legion peeked-cards zone — shown when the fight effect reveals 2
           top-deck cards and asks the player to pick one to KO. */}
+      {isOrderTopOfDeck && pendingChoice?.kind === 'order_top_of_deck' && (
+        <>
+          <ZoneLabel>
+            Choose the order — first click goes on TOP of your deck (drawn next)
+            {pendingChoice.placed.length > 0 && (
+              <span className="ml-2 text-emerald-400">
+                · {pendingChoice.placed.length} placed
+              </span>
+            )}
+          </ZoneLabel>
+          {(() => {
+            const cards = (pendingChoice as Extract<typeof pendingChoice, { kind: 'order_top_of_deck' }>).queue;
+            const n = cards.length;
+            const gs: React.CSSProperties = {
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(0, 1fr))`,
+              gap: '6px',
+              maxWidth: `${Math.max(1, n) * 236 - 6}px`,
+            };
+            return (
+              <div className="mx-auto w-full min-h-[100px]" style={gs}>
+                {cards.map((card) => (
+                  <HandCard
+                    key={card.instanceId}
+                    card={card}
+                    wide
+                    disabled={disabled}
+                    choiceMode="ko_from_hand"
+                    onClick={() => onResolveChoice(card.instanceId)}
+                  />
+                ))}
+              </div>
+            );
+          })()}
+        </>
+      )}
+
       {isLookTopTwoChoice && pendingChoice?.kind === 'look_top_two_ko_one_return_one' && (
         <>
           <ZoneLabel>Choose a card to KO — the other returns to the top of your deck</ZoneLabel>

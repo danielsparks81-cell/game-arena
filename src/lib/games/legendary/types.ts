@@ -712,7 +712,13 @@ export type PendingChoice =
    *  the active player must KO one Hero from the HQ. They click an HQ slot to
    *  resolve. Mandatory — no skip. `escapedVillainName` is included purely for
    *  the banner text so the player knows WHY they're being prompted. */
-  | { kind: 'escape_ko_hq_hero'; escapedVillainName: string };
+  | { kind: 'escape_ko_hq_hero'; escapedVillainName: string }
+  /** Player must order N revealed cards before they go back on top of their
+   *  deck. Click cards in click order = draw order (first click → top of deck,
+   *  drawn next). When the queue empties, all `placed` cards are pushed to the
+   *  deck top in that order. Used by Amazing Spider-Man's "put the rest back
+   *  in any order". */
+  | { kind: 'order_top_of_deck'; queue: CardInstance[]; placed: CardInstance[] };
 
 /** Shared bookkeeping for the "current turn" — resets every end-of-turn.
  *  Mid-turn state like the per-turn Attack/Recruit pool, what we've already
