@@ -41,9 +41,7 @@ export const HULK_UNSTOPPABLE: HeroCardDef = {
 
 export const HULK_CRAZED_RAMPAGE: HeroCardDef = {
   kind: 'hero',
-  // cardId kept as the legacy 'hulk_grazed_rampage' so any in-flight game
-  // states (saved to JSONB) keep resolving — only the display name was wrong.
-  cardId: 'hulk_grazed_rampage',
+  cardId: 'hulk_crazed_rampage',
   className: 'Hulk',
   cardName: 'Crazed Rampage',
   cost: 5,

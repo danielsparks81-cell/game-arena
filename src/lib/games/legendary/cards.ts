@@ -123,9 +123,20 @@ export const CARD_COPIES: Record<CardId, number> = Object.fromEntries(
   HERO_CLASSES.flatMap(hc => hc.cards.map(({ def, copies }) => [def.cardId, copies]))
 );
 
+/** Back-compat aliases for cardIds that were renamed. Saved JSONB game
+ *  states from before the rename reference the OLD id; getCard transparently
+ *  redirects them so an in-flight game keeps resolving without a DB migration.
+ *  Keep entries in this map until you're confident no live room references
+ *  the old id (typically a week or two after deploying the rename).
+ */
+const CARD_ID_ALIASES: Record<string, CardId> = {
+  hulk_grazed_rampage: 'hulk_crazed_rampage',
+};
+
 /** Convenience: look up a card by id, throw if unknown (engine bugs). */
 export function getCard(id: CardId): CardDef {
-  const c = CARDS[id];
+  const resolved = CARD_ID_ALIASES[id] ?? id;
+  const c = CARDS[resolved];
   if (!c) throw new Error(`Unknown cardId: ${id}`);
   return c;
 }
