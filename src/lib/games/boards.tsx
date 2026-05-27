@@ -37,6 +37,7 @@ const LongShotPlaceholder  = dynamic(() => import('@/components/LongShotPlacehol
 const RpsBoard             = dynamic(() => import('@/components/RpsBoard'),             { loading: BoardLoading, ssr: false });
 const SpellduelBoard       = dynamic(() => import('@/components/SpellduelBoard'),       { loading: BoardLoading, ssr: false });
 const LegendaryBoard       = dynamic(() => import('@/components/LegendaryBoard'),       { loading: BoardLoading, ssr: false });
+const HeroQuestBoard       = dynamic(() => import('@/components/HeroQuestBoard'),       { loading: BoardLoading, ssr: false });
 
 import type { TTTState } from './tictactoe';
 import type { C4State } from './connect4';
@@ -49,6 +50,7 @@ import type { LSState, ActionPayload } from './longshot';
 import type { RPSState, RPSChoice } from './rps';
 import type { SDState, ResolvedTarget as SDResolvedTarget } from './spellduel';
 import type { LegendaryState } from './legendary';
+import type { HQState, HeroClass as HQHeroClass, Coord as HQCoord } from './heroquest';
 
 import { gameMove } from '@/app/rooms/[id]/actions';
 
@@ -211,6 +213,28 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'end_turn' }); })}
       onRevealFirstVillain={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'reveal_first_villain' }); })}
       onWoundHeal={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'legendary', kind: 'play_wound_healing' }); })}
+    />
+  ),
+
+  heroquest: ({ roomId, currentUserId, isHost, state, pending, startTransition }) => (
+    <HeroQuestBoard
+      state={state as HQState}
+      currentUserId={currentUserId}
+      isHost={isHost}
+      disabled={pending}
+      onSetClass={(klass: HQHeroClass) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'set_class', classKlass: klass }); })}
+      onRandomClasses={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'random_classes' }); })}
+      onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'start_game' }); })}
+      onRollMove={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'roll_move' }); })}
+      onMoveTo={(at: HQCoord) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'move_to', at }); })}
+      onOpenDoor={(doorId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'open_door', doorId }); })}
+      onAttack={(monsterId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'attack', monsterId }); })}
+      onSearchTreasure={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'search_treasure' }); })}
+      onSearchTraps={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'search_traps' }); })}
+      onSearchSecrets={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'search_secrets' }); })}
+      onClimbPit={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'climb_pit' }); })}
+      onCastSpell={(spellId, opts) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'cast_spell', spellId, targetMonsterId: opts?.targetMonsterId, targetHeroIdx: opts?.targetHeroIdx }); })}
+      onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'end_turn' }); })}
     />
   ),
 

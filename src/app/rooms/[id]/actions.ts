@@ -72,6 +72,13 @@ import {
   type LegendaryLobbyAction,
   type LegendaryState,
 } from '@/lib/games/legendary';
+import {
+  applyAction as applyActionHQ,
+  type HQAction,
+  type HQState,
+  type HeroClass as HQHeroClass,
+  type Coord as HQCoord,
+} from '@/lib/games/heroquest';
 
 /**
  * Push a "room changed" event over Supabase Realtime broadcast so every connected client
@@ -663,7 +670,23 @@ export type GameAction =
   // Yahtzee
   | { game: 'yahtzee'; kind: 'roll' }
   | { game: 'yahtzee'; kind: 'toggleHold';  idx: number }
-  | { game: 'yahtzee'; kind: 'commitScore'; category: YCategory };
+  | { game: 'yahtzee'; kind: 'commitScore'; category: YCategory }
+
+  // HeroQuest — coop dungeon crawler with automated Zargon
+  | { game: 'heroquest'; kind: 'set_class'; classKlass: HQHeroClass }
+  | { game: 'heroquest'; kind: 'random_classes' }
+  | { game: 'heroquest'; kind: 'start_game' }
+  | { game: 'heroquest'; kind: 'roll_move' }
+  | { game: 'heroquest'; kind: 'move_to'; at: HQCoord }
+  | { game: 'heroquest'; kind: 'open_door'; doorId: string }
+  | { game: 'heroquest'; kind: 'attack'; monsterId: string }
+  | { game: 'heroquest'; kind: 'search_treasure' }
+  | { game: 'heroquest'; kind: 'search_traps' }
+  | { game: 'heroquest'; kind: 'search_secrets' }
+  | { game: 'heroquest'; kind: 'disarm_trap'; trapId: string }
+  | { game: 'heroquest'; kind: 'climb_pit' }
+  | { game: 'heroquest'; kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
+  | { game: 'heroquest'; kind: 'end_turn' };
 
 /**
  * Single entry point for every in-game action. Boards call this through the
@@ -741,6 +764,12 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'toggleHold')  return toggleHoldYZ(roomId, action.idx);
       if (action.kind === 'commitScore') return commitScoreYZ(roomId, action.category);
       break;
+    case 'heroquest': {
+      // The HeroQuest engine speaks a single HQAction union; we just forward
+      // every wire action to it after stripping the `game` discriminator.
+      const { game: _g, ...rest } = action;
+      return makeMoveHQ(roomId, rest as HQAction);
+    }
   }
   throw new Error(`gameMove: unhandled action ${JSON.stringify(action)}`);
 }
@@ -979,6 +1008,57 @@ export async function makeMoveLG(roomId: string, action: LegendaryAction) {
 
   if (result.phase === 'finished') {
     await recordHistoryIfFinished(supabase, roomId, 'legendary', result);
+  }
+  await notifyRoom(roomId);
+}
+
+/**
+ * Apply a HeroQuest game action. Server-authoritative — the engine validates
+ * turn ownership, action types, line-of-sight, etc. We mirror Legendary's
+ * shape so finish detection + history recording stay uniform.
+ *
+ * Special-case: HeroQuest has no separate "start game" server action; the
+ * engine's `start_game` action is dispatched by any player in the room
+ * (host-only check happens here for the start path).
+ */
+export async function makeMoveHQ(roomId: string, action: HQAction) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type, host_id')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'heroquest') throw new Error('Wrong game type');
+
+  if (action.kind === 'start_game') {
+    if (room.host_id !== user.id) throw new Error('Only the host can start the quest');
+  } else if (action.kind !== 'set_class' && action.kind !== 'random_classes') {
+    if (room.status !== 'playing') throw new Error('Quest not in progress');
+  }
+
+  const result = applyActionHQ((room.state || {}) as HQState, user.id, action);
+  if (!result.ok) throw new Error(result.error);
+  const next = result.state;
+
+  const updates: { state: HQState; status?: string; rematch_votes?: string[]; abandon_votes?: string[] } = {
+    state: next,
+    abandon_votes: [],
+  };
+  if (action.kind === 'start_game') {
+    updates.status = 'playing';
+  }
+  if (next.phase === 'finished') {
+    updates.status = 'finished';
+    updates.rematch_votes = [];
+  }
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+
+  if (next.phase === 'finished') {
+    await recordHistoryIfFinished(supabase, roomId, 'heroquest', next);
   }
   await notifyRoom(roomId);
 }

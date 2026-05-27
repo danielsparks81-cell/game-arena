@@ -1,0 +1,1016 @@
+// HeroQuest engine — pure functions over HQState.
+//
+// Phases:
+//   • lobby   → players pick hero classes, host starts the quest
+//   • heroes  → one hero takes their turn (roll move, move, one action, end turn)
+//   • zargon  → engine runs ALL monsters' turns automatically, then advances
+//   • finished → win/lose
+//
+// The engine is dispatched through applyAction({state, playerId, action}).
+// Returns {ok:true, state} on success or {ok:false, error} for invalid moves.
+//
+// Convention: every public mutation runs through `clone(state)` so callers
+// can rely on referential equality to detect changes.
+
+import {
+  type HQState,
+  type HQAction,
+  type ApplyResult,
+  type Coord,
+  type DieFace,
+  type DiceRoll,
+  type Door,
+  type Hero,
+  type HeroClass,
+  type LogEntry,
+  type Monster,
+  type Phase,
+  type PendingPrompt,
+  type QuestDef,
+  type Tile,
+  type TreasureCard,
+  type Trap,
+  type Furniture,
+  type Winner,
+  STATE_VERSION,
+  DIE_FACES,
+} from './types';
+import {
+  HERO_DEFAULTS,
+  QUESTS,
+  buildTreasureDeck,
+  instantiateMonster,
+  makeHero,
+  spellsByElement,
+} from './content';
+
+// ============================================================================
+// State factory / lifecycle
+// ============================================================================
+
+export function initialState(): HQState {
+  const quest = QUESTS.the_trial;
+  return {
+    version: STATE_VERSION,
+    phase: 'lobby',
+    questId: quest.id,
+    quest,
+    tiles: stampTiles(quest),
+    doors: quest.doors.map(d => ({ ...d, open: false, found: !d.secret })),
+    furniture: quest.furniture.map(f => ({ ...f, searched: false })),
+    traps: quest.traps.map(t => ({ ...t, triggered: false, revealed: false })),
+    monsters: [],   // monsters appear when rooms reveal
+    heroes: [],
+    turnIndex: 0,
+    treasureDeck: shuffle(buildTreasureDeck()),
+    treasureDiscard: [],
+    log: [],
+    logSeq: 0,
+    lastRoll: null,
+    pendingPrompt: null,
+    winner: null,
+  };
+}
+
+function stampTiles(quest: QuestDef): Tile[][] {
+  return quest.tiles.map((row, y) =>
+    row.map((kind, x) => ({
+      kind,
+      region: quest.regions[y][x] ?? '',
+      revealed: false,
+    })),
+  );
+}
+
+/** Adapter for the registry's "createInitialStateForHost". The host is seated
+    as the first hero (class unset until they pick or use random_classes). */
+export function createInitialStateForHost(host: {
+  userId: string;
+  username: string;
+  accent_color?: string;
+}): HQState {
+  const state = initialState();
+  return addPlayer(state, host.userId, host.username, 0, host.accent_color);
+}
+
+export function addPlayer(
+  state: HQState,
+  playerId: string,
+  username: string,
+  seat: number,
+  accent_color?: string,
+): HQState {
+  if (state.phase !== 'lobby') return state;
+  const s = clone(state);
+  // Default class: cycle barbarian/dwarf/elf/wizard by seat so 4 quick joiners
+  // get distinct heroes. The lobby UI lets players reassign before start.
+  const classes: HeroClass[] = ['barbarian', 'dwarf', 'elf', 'wizard'];
+  const klass = classes[seat % 4];
+  const start = state.quest.startCells[seat % state.quest.startCells.length];
+  s.heroes.push({
+    ...makeHero(playerId, username, seat, klass, start, accent_color),
+  });
+  // Seed spells for casters.
+  assignSpellsToCasters(s);
+  return s;
+}
+
+export function removePlayer(state: HQState, playerId: string): HQState {
+  if (state.phase !== 'lobby') return state;
+  const s = clone(state);
+  s.heroes = s.heroes.filter(h => h.playerId !== playerId);
+  return s;
+}
+
+/** Assign 9 spells (3 groups of 3) to the wizard and 3 (1 group) to the elf
+    so all 12 cards are dealt and no group is duplicated. */
+function assignSpellsToCasters(s: HQState): void {
+  const elf = s.heroes.find(h => h.klass === 'elf');
+  const wiz = s.heroes.find(h => h.klass === 'wizard');
+  if (!elf && !wiz) return;
+  const groups = spellsByElement();
+  const order: Array<keyof typeof groups> = ['air', 'water', 'fire', 'earth'];
+  // Elf gets one group (default: air); wizard gets the other three.
+  const elfGroup = order[0];
+  const wizardGroups = order.slice(1);
+  if (elf) {
+    elf.spells = groups[elfGroup].map(sp => ({ ...sp }));
+    elf.spellsCast = [];
+  }
+  if (wiz) {
+    wiz.spells = wizardGroups.flatMap(g => groups[g].map(sp => ({ ...sp })));
+    wiz.spellsCast = [];
+  }
+}
+
+// ============================================================================
+// Registry adapters
+// ============================================================================
+
+export function getActivePlayerId(state: HQState): string | null {
+  if (state.phase !== 'heroes') return null;
+  const h = state.heroes[state.turnIndex];
+  return h?.playerId ?? null;
+}
+
+export function getOrderedPlayerIds(state: HQState): string[] {
+  return state.heroes.map(h => h.playerId);
+}
+
+export function computeHistory(state: HQState): { winnerId: string | null; playerIds: string[] } | null {
+  if (state.phase !== 'finished') return null;
+  // "Winner" semantics for HeroQuest: heroes win → first hero's playerId is
+  // recorded as the winnerId (representative; the whole party "won"). Zargon
+  // win → null (no human "won").
+  const playerIds = state.heroes.map(h => h.playerId);
+  if (state.winner === 'heroes') {
+    return { winnerId: playerIds[0] ?? null, playerIds };
+  }
+  return { winnerId: null, playerIds };
+}
+
+// Per-viewer projection: nothing private to hide in HeroQuest v1 (no hidden
+// hands). Reveal mechanic is server-enforced (monsters/furniture/traps only
+// appear in state once the room is revealed), so projecting is a passthrough.
+export function projectStateForViewer(state: HQState, _viewerId: string | null): HQState {
+  return state;
+}
+
+// ============================================================================
+// Apply action
+// ============================================================================
+
+export function applyAction(
+  state: HQState,
+  playerId: string,
+  action: HQAction,
+): ApplyResult {
+  // Lobby actions
+  if (action.kind === 'set_class') {
+    if (state.phase !== 'lobby') return err('Cannot change class after the quest starts.');
+    const s = clone(state);
+    const hero = s.heroes.find(h => h.playerId === playerId);
+    if (!hero) return err('You are not seated in this quest.');
+    // Disallow duplicate classes.
+    if (s.heroes.some(h => h.playerId !== playerId && h.klass === action.classKlass)) {
+      return err('Another hero has already chosen that class.');
+    }
+    rebuildHeroAsClass(hero, action.classKlass, s.quest.startCells[hero.seat % s.quest.startCells.length]);
+    assignSpellsToCasters(s);
+    return ok(s);
+  }
+  if (action.kind === 'random_classes') {
+    if (state.phase !== 'lobby') return err('Cannot reroll classes after the quest starts.');
+    const s = clone(state);
+    const pool: HeroClass[] = ['barbarian', 'dwarf', 'elf', 'wizard'];
+    shuffleInPlace(pool);
+    s.heroes.forEach((h, i) => {
+      rebuildHeroAsClass(h, pool[i % 4], s.quest.startCells[h.seat % s.quest.startCells.length]);
+    });
+    assignSpellsToCasters(s);
+    return ok(s);
+  }
+  if (action.kind === 'start_game') {
+    if (state.phase !== 'lobby') return err('Quest already underway.');
+    if (state.heroes.length < 1) return err('Need at least one hero to start.');
+    const s = clone(state);
+    s.phase = 'heroes';
+    s.turnIndex = 0;
+    // Reveal the stairway tile + the corridor row the heroes can immediately see.
+    revealLineOfSightForHero(s, s.heroes[0]);
+    pushLog(s, 'system', `Quest "${s.quest.name}" begins.`);
+    pushLog(s, 'system', s.quest.briefing);
+    pushLog(s, 'system', `It is ${s.heroes[0].username}'s turn.`);
+    return ok(s);
+  }
+
+  // Mid-game gating: only the active player can act.
+  if (state.phase !== 'heroes') return err('Wait for the engine to finish.');
+  const hero = state.heroes[state.turnIndex];
+  if (!hero) return err('No active hero.');
+  if (hero.playerId !== playerId) return err('It is not your turn.');
+  if (hero.body <= 0) return err('You are dead.');
+
+  if (action.kind === 'roll_move') return doRollMove(state, hero);
+  if (action.kind === 'move_to')   return doMoveTo(state, hero, action.at);
+  if (action.kind === 'open_door') return doOpenDoor(state, hero, action.doorId);
+  if (action.kind === 'attack')    return doAttack(state, hero, action.monsterId);
+  if (action.kind === 'search_treasure') return doSearchTreasure(state, hero);
+  if (action.kind === 'search_traps')    return doSearchTraps(state, hero);
+  if (action.kind === 'search_secrets')  return doSearchSecrets(state, hero);
+  if (action.kind === 'disarm_trap')     return doDisarmTrap(state, hero, action.trapId);
+  if (action.kind === 'climb_pit')       return doClimbPit(state, hero);
+  if (action.kind === 'cast_spell')      return doCastSpell(state, hero, action);
+  if (action.kind === 'end_turn')        return doEndTurn(state, hero);
+
+  return err('Unknown action.');
+}
+
+function rebuildHeroAsClass(hero: Hero, klass: HeroClass, start: Coord): void {
+  const d = HERO_DEFAULTS[klass];
+  hero.klass = klass;
+  hero.bodyMax = d.bodyMax;
+  hero.mindMax = d.mindMax;
+  hero.body = d.bodyMax;
+  hero.mind = d.mindMax;
+  hero.items = d.startingItems.map(i => ({ ...i }));
+  let attack = d.baseAttack;
+  let defense = d.baseDefense;
+  for (const it of hero.items) {
+    if (it.attack && it.attack > attack) attack = it.attack;
+    if (it.defense) defense += it.defense;
+  }
+  hero.attack = attack;
+  hero.defense = defense;
+  hero.at = { ...start };
+  hero.spells = [];
+  hero.spellsCast = [];
+}
+
+// ============================================================================
+// Hero actions
+// ============================================================================
+
+function doRollMove(state: HQState, hero: Hero): ApplyResult {
+  if (hero.hasRolled) return err('You already rolled movement this turn.');
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  const d1 = 1 + Math.floor(Math.random() * 6);
+  const d2 = 1 + Math.floor(Math.random() * 6);
+  h.moveRolled = d1 + d2;
+  h.moveLeft = d1 + d2;
+  h.hasRolled = true;
+  pushLog(s, 'move', `${h.username} rolls ${d1}+${d2} = ${d1 + d2} squares of movement.`);
+  return ok(s);
+}
+
+function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
+  if (!hero.hasRolled) return err('Roll movement first.');
+  if (hero.moveLeft <= 0) return err('No movement left.');
+  if (hero.inPit) return err('You are in a pit — climb out first.');
+  // Allow moving onto an immediately adjacent revealed floor or open-door tile.
+  // For simplicity, step-by-step movement: the UI sends one cell per move_to.
+  const dx = Math.abs(dest.x - hero.at.x);
+  const dy = Math.abs(dest.y - hero.at.y);
+  if (dx + dy !== 1) return err('Must move one orthogonal square at a time.');
+  if (!inBounds(state, dest)) return err('Off the board.');
+  const tile = state.tiles[dest.y][dest.x];
+  if (!isPassable(state, dest, /*forHero*/ true)) return err('That square is blocked.');
+  if (tile.kind === 'door') {
+    const door = state.doors.find(d => sameCell(d, dest));
+    if (door && !door.open) return err('That door is closed — open it first.');
+  }
+  // Occupied check.
+  if (cellOccupied(state, dest, /*ignoreHeroPassthrough*/ false)) return err('That square is occupied.');
+
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  h.at = { ...dest };
+  h.moveLeft -= 1;
+  // Reveal LOS as the hero moves.
+  revealLineOfSightForHero(s, h);
+  // If the hero stepped onto a known pit, they fall in (in v1, automatic).
+  const trap = s.traps.find(t => sameCell({ a: t.at, b: t.at }, dest));
+  if (trap && trap.kind === 'pit' && !trap.triggered) {
+    trap.triggered = true;
+    trap.revealed = true;
+    h.inPit = true;
+    h.body = Math.max(0, h.body - 1);
+    pushLog(s, 'trap', `${h.username} falls into a pit trap! (-1 BP)`);
+    checkHeroDeath(s, h);
+  }
+  // If at stairway after Verag is dead → heroes win.
+  if (state.tiles[dest.y][dest.x].kind === 'stairs') {
+    maybeFinishOnExit(s);
+  }
+  return ok(s);
+}
+
+function doOpenDoor(state: HQState, hero: Hero, doorId: string): ApplyResult {
+  const door = state.doors.find(d => d.id === doorId);
+  if (!door) return err('Door not found.');
+  if (door.open) return err('Already open.');
+  if (door.secret && !door.found) return err('There is no visible door there.');
+  // Must be adjacent to the door tile.
+  const doorTile = findDoorTile(state, door);
+  if (!doorTile) return err('Door has no tile (bug).');
+  if (Math.abs(hero.at.x - doorTile.x) + Math.abs(hero.at.y - doorTile.y) !== 1) {
+    return err('You must be adjacent to the door to open it.');
+  }
+  const s = clone(state);
+  const d = s.doors.find(dx => dx.id === doorId)!;
+  d.open = true;
+  // Reveal the entire room on the far side.
+  const targetRegion = s.tiles[d.a.y][d.a.x].region === s.tiles[hero.at.y][hero.at.x].region
+    ? s.tiles[d.b.y][d.b.x].region
+    : s.tiles[d.a.y][d.a.x].region;
+  revealRegion(s, targetRegion);
+  // Instantiate any monsters belonging to that room (lazy spawn).
+  spawnRoomMonsters(s, targetRegion);
+  pushLog(s, 'reveal', `${hero.username} opens a door — the chamber beyond is revealed!`);
+  return ok(s);
+}
+
+function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
+  if (hero.hasActed) return err('You have already taken your action this turn.');
+  const mon = state.monsters.find(m => m.id === monsterId);
+  if (!mon) return err('Target not found.');
+  // Adjacency / range check (v1: simple adjacency; diagonal allowed if any
+  // equipped weapon has diagonal=true).
+  const allowDiag = hero.items.some(i => i.diagonal);
+  const allowRanged = hero.items.some(i => i.ranged);
+  const dx = Math.abs(mon.at.x - hero.at.x);
+  const dy = Math.abs(mon.at.y - hero.at.y);
+  const adj = dx + dy === 1 || (allowDiag && dx === 1 && dy === 1);
+  const ranged = allowRanged && hasLineOfSight(state, hero.at, mon.at);
+  if (!adj && !ranged) return err('Target is out of reach.');
+
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  const m = s.monsters.find(mm => mm.id === monsterId)!;
+  // Attack roll.
+  const atk = rollDice(h.attack, 'hero');
+  s.lastRoll = atk;
+  // Defense roll.
+  const def = rollDice(m.defense, 'monster');
+  const damage = Math.max(0, atk.skulls - def.blocks);
+  m.body -= damage;
+  pushLog(s, 'combat',
+    `${h.username} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks. ` +
+    (damage > 0 ? `${monsterDisplay(m)} takes ${damage} BP.` : 'No damage.'),
+  );
+  if (m.body <= 0) {
+    pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+    if (m.gold) {
+      h.gold += m.gold;
+      pushLog(s, 'system', `${h.username} loots ${m.gold} gold from the fallen ${monsterDisplay(m)}.`);
+    }
+    s.monsters = s.monsters.filter(mm => mm.id !== m.id);
+  }
+  h.hasActed = true;
+  // Check win condition (kill the named monster).
+  maybeFinishOnKill(s, m);
+  return ok(s);
+}
+
+function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
+  if (hero.hasActed) return err('You have already taken your action this turn.');
+  const room = state.tiles[hero.at.y][hero.at.x].region;
+  if (!room.startsWith('room_')) return err('You can only search for treasure while inside a room.');
+  if (hero.searchedRooms.includes(room)) return err('You have already searched this room for treasure.');
+  if (monstersVisibleToHero(state, hero).length > 0) return err('You cannot search while monsters are in sight.');
+
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  h.searchedRooms.push(room);
+  h.hasActed = true;
+  // Quest-defined fixed content overrides the deck for the FIRST hero to search.
+  const fixedFurn = s.furniture.find(f =>
+    !f.searched
+    && f.fixedContent
+    && f.cells.some(c => s.tiles[c.y]?.[c.x]?.region === room),
+  );
+  if (fixedFurn) {
+    fixedFurn.searched = true;
+    if (fixedFurn.fixedContent!.kind === 'gold') {
+      h.gold += fixedFurn.fixedContent!.amount;
+      pushLog(s, 'search', `${h.username} searches the ${fixedFurn.kind} and finds ${fixedFurn.fixedContent!.amount} gold!`);
+    } else if (fixedFurn.fixedContent!.kind === 'nothing') {
+      pushLog(s, 'search', `${h.username} searches the ${fixedFurn.kind}: ${fixedFurn.fixedContent!.flavor}`);
+    } else if (fixedFurn.fixedContent!.kind === 'item') {
+      pushLog(s, 'search', `${h.username} finds an item: ${fixedFurn.fixedContent!.itemId}.`);
+    }
+    return ok(s);
+  }
+  // Otherwise draw a treasure card.
+  const card = drawTreasureCard(s);
+  if (!card) {
+    pushLog(s, 'search', `${h.username} finds nothing of value (deck exhausted).`);
+    return ok(s);
+  }
+  resolveTreasureCard(s, h, card);
+  return ok(s);
+}
+
+function doSearchTraps(state: HQState, hero: Hero): ApplyResult {
+  if (hero.hasActed) return err('You have already taken your action this turn.');
+  const region = state.tiles[hero.at.y][hero.at.x].region;
+  if (!region) return err('Invalid location.');
+  if (hero.searchedTraps.includes(region)) return err('You have already searched this area for traps.');
+  if (monstersVisibleToHero(state, hero).length > 0) return err('You cannot search while monsters are in sight.');
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  h.searchedTraps.push(region);
+  h.hasActed = true;
+  let found = 0;
+  for (const t of s.traps) {
+    if (t.revealed || t.triggered) continue;
+    const tRegion = s.tiles[t.at.y]?.[t.at.x]?.region;
+    if (tRegion === region) { t.revealed = true; found += 1; }
+  }
+  pushLog(s, 'search', found > 0
+    ? `${h.username} searches for traps and uncovers ${found}!`
+    : `${h.username} searches for traps but finds none.`,
+  );
+  return ok(s);
+}
+
+function doSearchSecrets(state: HQState, hero: Hero): ApplyResult {
+  if (hero.hasActed) return err('You have already taken your action this turn.');
+  const region = state.tiles[hero.at.y][hero.at.x].region;
+  if (!region) return err('Invalid location.');
+  if (hero.searchedSecrets.includes(region)) return err('You have already searched this area for secret doors.');
+  if (monstersVisibleToHero(state, hero).length > 0) return err('You cannot search while monsters are in sight.');
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  h.searchedSecrets.push(region);
+  h.hasActed = true;
+  let found = 0;
+  for (const d of s.doors) {
+    if (!d.secret || d.found) continue;
+    const tile = findDoorTile(s, d);
+    if (!tile) continue;
+    if (s.tiles[tile.y][tile.x].region === region) { d.found = true; found += 1; }
+  }
+  pushLog(s, 'search', found > 0
+    ? `${h.username} discovers ${found} secret door${found > 1 ? 's' : ''}!`
+    : `${h.username} searches for secret doors but finds none.`,
+  );
+  return ok(s);
+}
+
+function doDisarmTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
+  if (hero.hasActed) return err('You have already taken your action this turn.');
+  const trap = state.traps.find(t => t.id === trapId);
+  if (!trap) return err('Trap not found.');
+  if (!trap.revealed) return err('You don\'t know that trap is there.');
+  if (trap.triggered) return err('That trap has already been triggered.');
+  const dx = Math.abs(hero.at.x - trap.at.x);
+  const dy = Math.abs(hero.at.y - trap.at.y);
+  if (dx + dy !== 1) return err('You must be adjacent to the trap.');
+  const hasToolKit = hero.items.some(i => i.id === 'tool_kit');
+  if (!hasToolKit && hero.klass !== 'dwarf') return err('You need a Dwarf or a Tool Kit to disarm.');
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  h.hasActed = true;
+  // Roll one die — fail on a skull.
+  const roll = rollDice(1, hero.klass === 'dwarf' ? 'hero' : 'monster');
+  s.lastRoll = roll;
+  if (roll.faces[0] === 'skull') {
+    // Trap triggers on the disarmer.
+    const t = s.traps.find(tt => tt.id === trapId)!;
+    t.triggered = true;
+    h.body = Math.max(0, h.body - 1);
+    pushLog(s, 'trap', `${h.username} fumbles the disarm! The ${t.kind} trap triggers (-1 BP).`);
+    checkHeroDeath(s, h);
+  } else {
+    const t = s.traps.find(tt => tt.id === trapId)!;
+    t.triggered = true;
+    pushLog(s, 'trap', `${h.username} successfully disarms the ${t.kind} trap.`);
+  }
+  return ok(s);
+}
+
+function doClimbPit(state: HQState, hero: Hero): ApplyResult {
+  if (!hero.inPit) return err('You are not in a pit.');
+  if (hero.moveLeft < 2) return err('Need at least 2 movement squares to climb out.');
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  h.inPit = false;
+  h.moveLeft -= 2;
+  pushLog(s, 'move', `${h.username} climbs out of the pit.`);
+  return ok(s);
+}
+
+function doCastSpell(
+  state: HQState,
+  hero: Hero,
+  action: Extract<HQAction, { kind: 'cast_spell' }>,
+): ApplyResult {
+  if (hero.hasActed) return err('You have already taken your action this turn.');
+  const spell = hero.spells.find(sp => sp.id === action.spellId);
+  if (!spell) return err('You do not know that spell.');
+  if (hero.spellsCast.includes(spell.id)) return err('You have already cast that spell.');
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  h.hasActed = true;
+  h.spellsCast.push(spell.id);
+  pushLog(s, 'spell', `${h.username} casts ${spell.name}!`);
+  // v1 effect resolution (minimal — covers the most useful subset).
+  switch (spell.id) {
+    case 'heal_body_w':
+    case 'heal_body_e': {
+      const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
+      if (target) {
+        const heal = 4;
+        const restored = Math.min(target.bodyMax - target.body, heal);
+        target.body += restored;
+        pushLog(s, 'spell', `${target.username} regains ${restored} BP.`);
+      }
+      return ok(s);
+    }
+    case 'water_heal': {
+      const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
+      if (target) {
+        const restored = Math.min(target.bodyMax - target.body, 2);
+        target.body += restored;
+        pushLog(s, 'spell', `${target.username} regains ${restored} BP.`);
+      }
+      return ok(s);
+    }
+    case 'fire_of_wrath': {
+      const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
+      if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
+      m.body -= 1;
+      pushLog(s, 'spell', `${monsterDisplay(m)} burns for 1 BP.`);
+      if (m.body <= 0) {
+        pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+        s.monsters = s.monsters.filter(mm => mm.id !== m.id);
+        maybeFinishOnKill(s, m);
+      }
+      return ok(s);
+    }
+    case 'ball_of_flame': {
+      const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
+      if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
+      if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. Spell wasted.`); return ok(s); }
+      const roll = rollDice(2, 'hero');
+      s.lastRoll = roll;
+      const def = rollDice(m.defense, 'monster');
+      const damage = Math.max(0, roll.skulls - def.blocks);
+      m.body -= damage;
+      pushLog(s, 'spell', `${monsterDisplay(m)} takes ${damage} BP from the flames!`);
+      if (m.body <= 0) {
+        pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+        s.monsters = s.monsters.filter(mm => mm.id !== m.id);
+        maybeFinishOnKill(s, m);
+      }
+      return ok(s);
+    }
+    default:
+      // v1 stub: spell logged but no engine effect yet.
+      pushLog(s, 'spell', `(${spell.name} has no implemented effect yet in v1.)`);
+      return ok(s);
+  }
+}
+
+function doEndTurn(state: HQState, hero: Hero): ApplyResult {
+  const s = clone(state);
+  endHeroTurn(s);
+  // After every hero has taken a turn → Zargon turn.
+  // Simple model: each hero turn ends individually; once turnIndex would
+  // wrap, Zargon plays.
+  if (s.turnIndex === 0) {
+    runZargonTurn(s);
+    // After Zargon, the heroes go again (turnIndex stays at 0, fresh hero turn).
+  }
+  if (s.phase !== 'finished') {
+    pushLog(s, 'system', `It is ${s.heroes[s.turnIndex].username}'s turn.`);
+  }
+  return ok(s);
+}
+
+function endHeroTurn(s: HQState): void {
+  const h = s.heroes[s.turnIndex];
+  h.moveLeft = 0;
+  h.moveRolled = 0;
+  h.hasRolled = false;
+  h.hasActed = false;
+  // Advance to next hero, skipping dead heroes.
+  let next = s.turnIndex;
+  for (let i = 0; i < s.heroes.length; i++) {
+    next = (next + 1) % s.heroes.length;
+    if (s.heroes[next].body > 0) break;
+  }
+  s.turnIndex = next;
+}
+
+// ============================================================================
+// Zargon (engine) turn
+// ============================================================================
+
+function runZargonTurn(s: HQState): void {
+  if (s.phase !== 'heroes') return;
+  s.phase = 'zargon';
+  pushLog(s, 'zargon', '— Zargon\'s turn —');
+
+  // Snapshot: monsters take turns in placement order.
+  const order = s.monsters.map(m => m.id);
+  for (const monId of order) {
+    const m = s.monsters.find(mm => mm.id === monId);
+    if (!m) continue;
+    runMonster(s, m);
+    // runMonster can flip the phase to 'finished' (TPK during a monster
+    // attack). Cast through TS's narrowing to allow the early-out.
+    if ((s.phase as Phase) === 'finished') break;
+  }
+
+  if ((s.phase as Phase) !== 'finished') s.phase = 'heroes';
+}
+
+function runMonster(s: HQState, m: Monster): void {
+  // Find the nearest LIVING hero by Chebyshev distance (not strict pathfinding
+  // — v1 keeps it simple). Then walk toward them up to `m.move` steps,
+  // attacking if adjacent at the end.
+  const livingHeroes = s.heroes.filter(h => h.body > 0);
+  if (livingHeroes.length === 0) return;
+  livingHeroes.sort((a, b) =>
+    chebyshev(a.at, m.at) - chebyshev(b.at, m.at)
+    || a.body - b.body,
+  );
+  const target = livingHeroes[0];
+  // Walk toward target.
+  let steps = m.move;
+  while (steps > 0) {
+    // Prefer the axis with greatest distance.
+    const dx = Math.sign(target.at.x - m.at.x);
+    const dy = Math.sign(target.at.y - m.at.y);
+    // Try x first, then y.
+    let moved = false;
+    for (const [sx, sy] of [[dx, 0], [0, dy], [0, dx], [dy, 0]]) {
+      if (sx === 0 && sy === 0) continue;
+      const nx = m.at.x + sx, ny = m.at.y + sy;
+      if (!inBounds(s, { x: nx, y: ny })) continue;
+      if (!isPassable(s, { x: nx, y: ny }, /*forHero*/ false)) continue;
+      if (cellOccupied(s, { x: nx, y: ny }, /*ignoreHeroPassthrough*/ false)) continue;
+      m.at = { x: nx, y: ny };
+      moved = true;
+      steps -= 1;
+      break;
+    }
+    if (!moved) break;
+    // If adjacent to target now, stop and attack.
+    if (chebyshev(m.at, target.at) === 1) break;
+  }
+  // Attack if adjacent.
+  if (chebyshev(m.at, target.at) === 1) {
+    const atk = rollDice(m.attack, 'monster');
+    s.lastRoll = atk;
+    const def = rollDice(target.defense, 'hero');
+    const damage = Math.max(0, atk.skulls - def.blocks);
+    target.body = Math.max(0, target.body - damage);
+    pushLog(s, 'combat',
+      `${monsterDisplay(m)} attacks ${target.username} — ${atk.skulls} skulls vs ${def.blocks} blocks. ` +
+      (damage > 0 ? `${target.username} loses ${damage} BP.` : 'No damage.'),
+    );
+    checkHeroDeath(s, target);
+  }
+}
+
+function checkHeroDeath(s: HQState, h: Hero): void {
+  if (h.body > 0) return;
+  pushLog(s, 'death', `${h.username} has fallen!`);
+  // All heroes dead → Zargon wins.
+  if (s.heroes.every(x => x.body <= 0)) {
+    s.phase = 'finished';
+    s.winner = 'zargon';
+    pushLog(s, 'system', 'All heroes have perished. The quest is lost.');
+  }
+}
+
+// ============================================================================
+// Win conditions
+// ============================================================================
+
+function maybeFinishOnKill(s: HQState, killed: Monster): void {
+  const wc = s.quest.winCondition;
+  if (wc.kind === 'kill_and_exit' && killed.displayName === wc.monsterDisplayName) {
+    pushLog(s, 'system', `${wc.monsterDisplayName} has been slain! Return to the stairway to escape.`);
+  }
+  if (wc.kind === 'kill_all' && s.monsters.length === 0) {
+    s.phase = 'finished';
+    s.winner = 'heroes';
+    pushLog(s, 'system', 'All monsters defeated. Heroes win!');
+  }
+}
+
+function maybeFinishOnExit(s: HQState): void {
+  const wc = s.quest.winCondition;
+  if (wc.kind !== 'kill_and_exit') return;
+  // Verag must be dead.
+  if (s.monsters.some(m => m.displayName === wc.monsterDisplayName)) return;
+  s.phase = 'finished';
+  s.winner = 'heroes';
+  pushLog(s, 'system', `Heroes escape the dungeon — quest complete!`);
+}
+
+// ============================================================================
+// Treasure
+// ============================================================================
+
+function drawTreasureCard(s: HQState): TreasureCard | null {
+  if (s.treasureDeck.length === 0) {
+    if (s.treasureDiscard.length === 0) return null;
+    s.treasureDeck = shuffle(s.treasureDiscard);
+    s.treasureDiscard = [];
+  }
+  return s.treasureDeck.shift() ?? null;
+}
+
+function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
+  switch (card.kind) {
+    case 'gold':
+      h.gold += card.amount;
+      pushLog(s, 'search', `${h.username} finds ${card.amount} gold!`);
+      return;
+    case 'gem':
+      h.gold += card.value;  // v1 simplification: gem auto-converts to gold value
+      pushLog(s, 'search', `${h.username} finds a gem worth ${card.value} gold!`);
+      return;
+    case 'potion':
+      // v1: auto-applied on draw (heal).
+      const restored = Math.min(h.bodyMax - h.body, card.amount);
+      h.body += restored;
+      pushLog(s, 'search', `${h.username} finds a ${card.name} and drinks it (+${restored} BP).`);
+      s.treasureDiscard.push(card);
+      return;
+    case 'hazard':
+      h.body = Math.max(0, h.body - card.bpLoss);
+      pushLog(s, 'search', `${h.username}: ${card.flavor} (-${card.bpLoss} BP)`);
+      s.treasureDiscard.push(card);
+      checkHeroDeath(s, h);
+      return;
+    case 'wandering': {
+      const kind = s.quest.wanderingMonster;
+      if (!kind) {
+        pushLog(s, 'search', `${h.username} hears danger… but no monster appears.`);
+        s.treasureDiscard.push(card);
+        return;
+      }
+      // Spawn adjacent to the hero on first free cell.
+      const adj = adjacentCells(h.at).filter(c =>
+        inBounds(s, c) && isPassable(s, c, /*forHero*/ false) && !cellOccupied(s, c, false),
+      );
+      const at = adj[0] ?? h.at;
+      const stats = monsterStats(kind);
+      const id = `wand_${s.logSeq + 1}_${Math.floor(Math.random() * 1e6)}`;
+      const m: Monster = {
+        id,
+        kind,
+        at,
+        body: stats.bodyMax,
+        bodyMax: stats.bodyMax,
+        attack: stats.attack,
+        defense: stats.defense,
+        move: stats.move,
+        gold: stats.gold,
+        roomId: s.tiles[h.at.y][h.at.x].region,
+      };
+      s.monsters.push(m);
+      pushLog(s, 'spawn', `A wandering ${stats.displayName} appears next to ${h.username}!`);
+      s.treasureDiscard.push(card);
+      return;
+    }
+  }
+}
+
+// Local import-style accessor to MONSTER_STATS to avoid a circular import.
+import { MONSTER_STATS } from './content';
+function monsterStats(kind: Monster['kind']) {
+  return MONSTER_STATS[kind];
+}
+
+// ============================================================================
+// Helpers — geometry, LOS, dice, log
+// ============================================================================
+
+function clone<T>(x: T): T {
+  return JSON.parse(JSON.stringify(x));
+}
+
+function ok(state: HQState): { ok: true; state: HQState } { return { ok: true, state }; }
+function err(error: string): { ok: false; error: string } { return { ok: false, error }; }
+
+function pushLog(s: HQState, tag: LogEntry['tag'], text: string): void {
+  s.logSeq += 1;
+  s.log.push({ seq: s.logSeq, ts: Date.now(), text, tag });
+  if (s.log.length > 200) s.log = s.log.slice(-200);
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = arr.slice();
+  shuffleInPlace(a);
+  return a;
+}
+function shuffleInPlace<T>(a: T[]): void {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+}
+
+function inBounds(s: HQState, c: Coord): boolean {
+  return c.x >= 0 && c.y >= 0 && c.x < s.quest.width && c.y < s.quest.height;
+}
+
+function isPassable(s: HQState, c: Coord, forHero: boolean): boolean {
+  const t = s.tiles[c.y][c.x];
+  if (t.kind === 'wall' || t.kind === 'blocked') return false;
+  if (t.kind === 'door') {
+    const d = s.doors.find(dx => sameCell(dx, c));
+    if (!d) return false;
+    if (!d.open) return false;
+    return true;
+  }
+  // Furniture that blocks movement (e.g. tomb).
+  const furn = s.furniture.find(f => f.blocksMove && f.cells.some(x => x.x === c.x && x.y === c.y));
+  if (furn) return false;
+  // For monsters: stairway is passable but doesn't matter (they don't seek it).
+  void forHero;
+  return true;
+}
+
+function cellOccupied(s: HQState, c: Coord, _ignoreHeroPassthrough: boolean): boolean {
+  if (s.heroes.some(h => h.body > 0 && h.at.x === c.x && h.at.y === c.y)) return true;
+  if (s.monsters.some(m => m.at.x === c.x && m.at.y === c.y)) return true;
+  return false;
+}
+
+function sameCell(d: { a: Coord; b: Coord }, c: Coord): boolean {
+  // Used to find the door TILE — but doors don't store the tile coord
+  // directly; the tile we placed is whichever cell sits between a and b.
+  // For our buildQuest1, we put doors AT the wall cell between a and b, and
+  // the door tile is exactly that wall cell. We stored that as
+  // `findDoorTile`. This helper covers the common "is the door at this
+  // cell" check by checking adjacency-of-cell to either side.
+  return (
+    (d.a.x === c.x && d.a.y === c.y) ||
+    (d.b.x === c.x && d.b.y === c.y) ||
+    // Or the tile between a and b (door's actual cell).
+    isBetween(d.a, d.b, c)
+  );
+}
+
+function isBetween(a: Coord, b: Coord, c: Coord): boolean {
+  // True if c is the cell strictly between adjacent neighbors a and b
+  // (i.e. our door tile setup where a/b are the two adjacent regions).
+  if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 2) return false;
+  const mx = Math.round((a.x + b.x) / 2);
+  const my = Math.round((a.y + b.y) / 2);
+  return mx === c.x && my === c.y;
+}
+
+function findDoorTile(s: HQState, d: Door): Coord | null {
+  // The door's tile is whichever 'door' kind cell sits between a and b.
+  const mx = Math.round((d.a.x + d.b.x) / 2);
+  const my = Math.round((d.a.y + d.b.y) / 2);
+  if (s.tiles[my]?.[mx]?.kind === 'door') return { x: mx, y: my };
+  // Fallback: scan all door tiles and pick the closest to a.
+  for (let y = 0; y < s.tiles.length; y++) {
+    for (let x = 0; x < s.tiles[0].length; x++) {
+      if (s.tiles[y][x].kind === 'door' && Math.abs(x - d.a.x) + Math.abs(y - d.a.y) === 1) {
+        return { x, y };
+      }
+    }
+  }
+  return null;
+}
+
+function chebyshev(a: Coord, b: Coord): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+function adjacentCells(c: Coord): Coord[] {
+  return [
+    { x: c.x + 1, y: c.y }, { x: c.x - 1, y: c.y },
+    { x: c.x, y: c.y + 1 }, { x: c.x, y: c.y - 1 },
+  ];
+}
+
+// Bresenham line; returns true if every cell on the line (excluding endpoints)
+// is "see-through" (floor / open door / stairs).
+function hasLineOfSight(s: HQState, a: Coord, b: Coord): boolean {
+  const cells = bresenham(a, b);
+  for (let i = 1; i < cells.length - 1; i++) {
+    const c = cells[i];
+    if (!inBounds(s, c)) return false;
+    const t = s.tiles[c.y][c.x];
+    if (t.kind === 'wall' || t.kind === 'blocked') return false;
+    if (t.kind === 'door') {
+      const d = s.doors.find(dx => sameCell(dx, c));
+      if (!d || !d.open) return false;
+    }
+    // Furniture that blocks LOS.
+    if (s.furniture.some(f => f.blocksLos && f.cells.some(x => x.x === c.x && x.y === c.y))) return false;
+    // Other figures block LOS.
+    if (cellOccupied(s, c, false)) return false;
+  }
+  return true;
+}
+
+function bresenham(a: Coord, b: Coord): Coord[] {
+  const out: Coord[] = [];
+  let x0 = a.x, y0 = a.y;
+  const x1 = b.x, y1 = b.y;
+  const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let err = dx - dy;
+  while (true) {
+    out.push({ x: x0, y: y0 });
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 > -dy) { err -= dy; x0 += sx; }
+    if (e2 < dx)  { err += dx; y0 += sy; }
+  }
+  return out;
+}
+
+function rollDice(n: number, who: 'hero' | 'monster'): DiceRoll {
+  const faces: DieFace[] = [];
+  for (let i = 0; i < n; i++) faces.push(DIE_FACES[Math.floor(Math.random() * 6)]);
+  const skulls = faces.filter(f => f === 'skull').length;
+  const blocks = faces.filter(f => f === (who === 'hero' ? 'white_shield' : 'black_shield')).length;
+  return { rolledBy: who, faces, skulls, blocks };
+}
+
+function monsterDisplay(m: Monster): string {
+  return m.displayName ?? capitalize(m.kind.replace('_', ' '));
+}
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function monstersVisibleToHero(s: HQState, h: Hero): Monster[] {
+  return s.monsters.filter(m => hasLineOfSight(s, h.at, m.at));
+}
+
+// ============================================================================
+// Reveal mechanic
+// ============================================================================
+
+function revealRegion(s: HQState, region: string): void {
+  if (!region) return;
+  for (let y = 0; y < s.tiles.length; y++) {
+    for (let x = 0; x < s.tiles[0].length; x++) {
+      if (s.tiles[y][x].region === region) s.tiles[y][x].revealed = true;
+    }
+  }
+}
+
+/** Lazily instantiate monsters that belong to the just-revealed room. */
+function spawnRoomMonsters(s: HQState, region: string): void {
+  if (!region) return;
+  for (const monDef of s.quest.monsters) {
+    if (monDef.roomId !== region) continue;
+    if (s.monsters.some(m => m.id === monDef.id)) continue;  // already alive
+    s.monsters.push(instantiateMonster(monDef));
+  }
+}
+
+/** Reveal LOS-visible cells from this hero (used at start of game + after
+    moves). v1: cheap implementation — reveal everything in the hero's
+    region plus any directly connected corridor cells within LOS. */
+function revealLineOfSightForHero(s: HQState, h: Hero): void {
+  const region = s.tiles[h.at.y]?.[h.at.x]?.region ?? '';
+  revealRegion(s, region);
+  // Also reveal corridor cells within 6 squares of LOS as a cheap heuristic.
+  for (let y = 0; y < s.tiles.length; y++) {
+    for (let x = 0; x < s.tiles[0].length; x++) {
+      const t = s.tiles[y][x];
+      if (t.revealed) continue;
+      if (t.kind === 'wall') continue;
+      if (chebyshev(h.at, { x, y }) > 6) continue;
+      if (hasLineOfSight(s, h.at, { x, y })) t.revealed = true;
+    }
+  }
+}

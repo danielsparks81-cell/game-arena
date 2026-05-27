@@ -22,6 +22,7 @@ import * as yz  from './yahtzee';
 import * as rps from './rps';
 import * as sd  from './spellduel';
 import * as lg  from './legendary';
+import * as hq  from './heroquest';
 
 /** Discoverability tags on each game. A game can carry multiple — they don't
     have to be mutually exclusive. Lobby renders these as filter chips so
@@ -468,6 +469,33 @@ export const GAMES: Record<string, GameDef> = {
     getActivePlayerId: (s) => lg.getActivePlayerId(s as lg.LegendaryState),
     getOrderedPlayerIds: (s) => lg.getOrderedPlayerIds(s as lg.LegendaryState),
     computeHistory: (s) => lg.computeHistory(s as lg.LegendaryState),
+  },
+  heroquest: {
+    id: 'heroquest',
+    name: 'HeroQuest',
+    description: 'Cooperative dungeon crawl. 1–4 heroes vs an automated Zargon. Slay Verag in Quest 1.',
+    minPlayers: 1,
+    maxPlayers: 4,
+    addedOn: '2026-05-26',
+    beta: true,
+    categories: ['strategy', 'party', 'solo'],
+    initialState: hq.initialState,
+    createInitialStateForHost: (h) =>
+      hq.createInitialStateForHost({
+        userId: h.userId,
+        username: h.username,
+        accent_color: h.accentColor,
+      }),
+    addPlayer: ((state, playerId, username, seat, accent_color) =>
+      hq.addPlayer(state as hq.HQState, playerId, username, seat, accent_color)
+    ) as GameDef['addPlayer'],
+    removePlayer: ((s, playerId) => hq.removePlayer(s as hq.HQState, playerId)) as GameDef['removePlayer'],
+    projectStateForViewer: ((state, viewerId) =>
+      hq.projectStateForViewer(state as hq.HQState, viewerId)
+    ) as GameDef['projectStateForViewer'],
+    getActivePlayerId: (s) => hq.getActivePlayerId(s as hq.HQState),
+    getOrderedPlayerIds: (s) => hq.getOrderedPlayerIds(s as hq.HQState),
+    computeHistory: (s) => hq.computeHistory(s as hq.HQState),
   },
   yahtzee: {
     id: 'yahtzee',

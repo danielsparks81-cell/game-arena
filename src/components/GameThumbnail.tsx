@@ -12,7 +12,40 @@ export function GameThumbnail({ gameId, className }: { gameId: string; className
   if (gameId === 'rps')        return <RpsThumb className={className} />;
   if (gameId === 'spellduel')  return <SpellduelThumb className={className} />;
   if (gameId === 'legendary')  return <LegendaryThumb className={className} />;
+  if (gameId === 'heroquest')  return <HeroQuestThumb className={className} />;
   return <PlaceholderThumb className={className} />;
+}
+
+function HeroQuestThumb({ className }: { className?: string }) {
+  // Top-down dungeon: a few rooms connected by corridors with a hero (🧙) and
+  // a monster (👹) in opposite rooms.
+  return (
+    <svg viewBox="0 0 140 100" className={className} role="img" aria-label="HeroQuest">
+      <rect width="140" height="100" fill="#1c1410" />
+      {/* Rooms */}
+      <rect x="10" y="12" width="35" height="28" fill="#3b3a36" stroke="#5b4318" strokeWidth="2" />
+      <rect x="95" y="12" width="35" height="28" fill="#3b3a36" stroke="#5b4318" strokeWidth="2" />
+      <rect x="10" y="60" width="35" height="28" fill="#3b3a36" stroke="#5b4318" strokeWidth="2" />
+      <rect x="95" y="60" width="35" height="28" fill="#3b3a36" stroke="#5b4318" strokeWidth="2" />
+      {/* Corridors */}
+      <rect x="45" y="22" width="50" height="8" fill="#2a2a26" stroke="#1c1410" strokeWidth="1" />
+      <rect x="45" y="70" width="50" height="8" fill="#2a2a26" stroke="#1c1410" strokeWidth="1" />
+      <rect x="66" y="30" width="8" height="40" fill="#2a2a26" stroke="#1c1410" strokeWidth="1" />
+      {/* Doors */}
+      <rect x="42" y="22" width="4" height="8" fill="#7a5a2e" />
+      <rect x="94" y="22" width="4" height="8" fill="#7a5a2e" />
+      <rect x="42" y="70" width="4" height="8" fill="#7a5a2e" />
+      <rect x="94" y="70" width="4" height="8" fill="#7a5a2e" />
+      {/* Hero token */}
+      <text x="27" y="32" textAnchor="middle" fontSize="14">🧙</text>
+      {/* Monster (Verag) */}
+      <text x="113" y="80" textAnchor="middle" fontSize="14">🦇</text>
+      {/* Title */}
+      <text x="70" y="98" textAnchor="middle" fill="#fbbf24" fontSize="9" fontWeight="bold" fontFamily="serif">
+        HEROQUEST
+      </text>
+    </svg>
+  );
 }
 
 function LegendaryThumb({ className }: { className?: string }) {

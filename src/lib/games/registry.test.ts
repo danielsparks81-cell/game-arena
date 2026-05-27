@@ -54,14 +54,19 @@ describe('every registered game', () => {
       // Multi-player games register addPlayer; verify it stores accent_color
       // alongside username + seat. Catches "engine dropped accent on join"
       // regressions like the one we hit earlier.
-      it('addPlayer (if registered) preserves accent_color into state.players', () => {
+      //
+      // We don't insist on a specific field name — most engines use
+      // `state.players[]`, but some (HeroQuest) use a domain-specific name
+      // like `heroes[]`. We probe both well-known field names.
+      it('addPlayer (if registered) preserves accent_color into the player roster', () => {
         if (!def.addPlayer) return;
         const s = def.addPlayer(
           def.initialState(),
           'user-1', 'alice', 0, '#ff00ff',
-        ) as { players?: { playerId: string; accent_color?: string }[] };
-        expect(Array.isArray(s.players)).toBe(true);
-        const me = s.players?.find(p => p.playerId === 'user-1');
+        ) as { players?: { playerId: string; accent_color?: string }[]; heroes?: { playerId: string; accent_color?: string }[] };
+        const roster = s.players ?? s.heroes ?? [];
+        expect(Array.isArray(roster)).toBe(true);
+        const me = roster.find(p => p.playerId === 'user-1');
         expect(me).toBeDefined();
         expect(me?.accent_color).toBe('#ff00ff');
       });
@@ -70,8 +75,9 @@ describe('every registered game', () => {
         if (!def.addPlayer || !def.removePlayer) return;
         const start = def.initialState();
         const added = def.addPlayer(start, 'user-1', 'alice', 0, '#ff00ff');
-        const removed = def.removePlayer(added, 'user-1') as { players?: { playerId: string }[] };
-        expect(removed.players ?? []).toHaveLength(0);
+        const removed = def.removePlayer(added, 'user-1') as { players?: { playerId: string }[]; heroes?: { playerId: string }[] };
+        const roster = removed.players ?? removed.heroes ?? [];
+        expect(roster).toHaveLength(0);
       });
 
       it('initialState is referentially fresh each call (not a shared singleton)', () => {
