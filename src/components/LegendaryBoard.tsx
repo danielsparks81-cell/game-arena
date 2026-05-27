@@ -2451,9 +2451,20 @@ function MastermindZone({
       >
         {mmDef.vp}
       </div>
-      {/* Attack stat — pinned right, floating just above the tactic bars */}
-      <span className="absolute right-1 bottom-[20px] flex items-center gap-0.5 text-[13px] font-semibold text-white">
-        {mmDef.attack}<StrikeIcon size={13} />
+      {/* Attack stat — pinned right, floating just above the tactic bars.
+          When a debuff (e.g. Storm's Tidal Wave) is active, render the
+          original strikethrough + the reduced value in green to mirror the
+          city-villain strike display. */}
+      <span className="absolute right-1 bottom-[20px] flex items-center gap-0.5 text-[13px] font-semibold">
+        {mastermindAttackDebuff > 0 ? (
+          <>
+            <span className="mr-0.5 text-neutral-500 line-through">{mmDef.attack}</span>
+            <span style={{ color: '#34d399' }}>{effectiveRequired}</span>
+          </>
+        ) : (
+          <span className="text-white">{mmDef.attack}</span>
+        )}
+        <StrikeIcon size={13} />
       </span>
       {/* Bystander tab — same gold style as villain card tabs */}
       {bystanderCount > 0 && (
