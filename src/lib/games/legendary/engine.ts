@@ -2108,14 +2108,18 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     // who already played their starters mid-turn (hand now empty) still loses
     // them. Note: this targets only the active player, per the official rule.
     case 'ko_all_shield_from_hand': {
-      // "KO all of your [shield] Heroes" — the bracketed icon is the S.H.I.E.L.D.
-      // team symbol on the physical cards, which is `teams: ['shield']` in our
-      // data. Earlier this matched by className === 'S.H.I.E.L.D.' which never
-      // hit, since Troopers/Agents have className 'Hero' and Officer is 'Maria
-      // Hill'. Fix: match by team membership.
+      // "KO all of your [shield] Heroes" — the bracketed icon is the
+      // S.H.I.E.L.D. team symbol. In our data the symbol can appear as any
+      // of four team strings; we match the same canonical set used by other
+      // [shield]-counting effects elsewhere in the engine (Nick Fury's
+      // Legendary Commander, Pure Fury, etc.). This includes Nick Fury cards
+      // alongside the starter S.H.I.E.L.D. Troopers / Agents / Officers.
+      const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
       const isShield = (c: CardInstance) => {
         const d = getCard(c.cardId);
-        return d.kind === 'hero' && ((d as HeroCardDef).teams ?? []).includes('shield');
+        if (d.kind !== 'hero') return false;
+        const teams = (d as HeroCardDef).teams ?? [];
+        return teams.some(t => shieldTeams.has(t));
       };
       const handShields   = me.hand.filter(isShield);
       const playedShields = state.thisTurn.playedThisTurn.filter(isShield);
