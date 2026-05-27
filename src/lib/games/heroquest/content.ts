@@ -164,56 +164,59 @@ export function buildTreasureDeck(): TreasureCard[] {
 }
 
 // ============================================================================
-// Quest 1 — "The Trial" (built programmatically, not from ASCII)
+// Quest 1 — "The Trial" (built programmatically; faithful to the rulebook map)
 //
-// Layout (21 wide × 13 tall):
+// Layout (25 wide × 17 tall):
 //
-//   - Entry stairway 'S' on left edge.
-//   - Horizontal corridor down the middle of the board (rows 5-7).
-//   - 4 rooms branching off the corridor:
-//        room A (top-left) — 1 orc + 1 goblin
-//        room B (top-right) — mummy guardian + tomb furniture
-//        room C (bottom-left) — Verag's lair (the gargoyle)
-//        room D (bottom-right) — empty chest (84 gold) + weapons rack (broken)
-//   - One additional small room E (mid-right) with 2 goblins + 120-gold chest.
+//   - Entry stairway 'S' on the west edge, mid-height (row 8).
+//   - Wide central corridor (rows 7–9) running east-west.
+//   - 6 rooms branching off the corridor (3 north, 3 south), each accessible
+//     by a single door, matching the rulebook's room cluster.
+//
+//   Room placements (with rulebook letters in parens):
+//     room_a (NW)  goblin pack  — 3 goblins
+//     room_b (N)   orc + goblin
+//     room_c (NE)  mummy guardian + tomb (Quest 1 'C')
+//     room_d (SW)  fimir + goblin
+//     room_e (S)   weapons rack 'A' (broken) + chest 'D' (84 gold)
+//     room_f (SE)  Verag's lair (gargoyle) + chest 'E' (120 gold) + tomb
+//
+//   Per the Zargon notes, Quest 1 has NO traps and NO secret doors.
+//   Wandering monster: Orc.
 //
 // Programmatic construction guarantees consistent row widths and lets us
 // place doors precisely on the boundary between corridor and room cells.
 // ============================================================================
 
-const QUEST1_W = 21;
-const QUEST1_H = 13;
+const QUEST1_W = 25;
+const QUEST1_H = 17;
 
 type Rect = { x: number; y: number; w: number; h: number; id: string };
 
 const QUEST1_ROOMS: Rect[] = [
-  { id: 'room_a', x: 2,  y: 1,  w: 5, h: 3 },   // top-left
-  { id: 'room_b', x: 14, y: 1,  w: 5, h: 3 },   // top-right
-  { id: 'room_c', x: 2,  y: 9,  w: 5, h: 3 },   // bottom-left (Verag)
-  { id: 'room_d', x: 14, y: 9,  w: 5, h: 3 },   // bottom-right (treasure)
-  { id: 'room_e', x: 14, y: 5,  w: 5, h: 3 },   // mid-right (goblins)
+  { id: 'room_a', x: 1,  y: 1,  w: 6, h: 5 },   // NW — goblin pack
+  { id: 'room_b', x: 10, y: 1,  w: 5, h: 5 },   // N  — orc + goblin
+  { id: 'room_c', x: 18, y: 1,  w: 6, h: 5 },   // NE — mummy guardian (Quest 1 'C')
+  { id: 'room_d', x: 1,  y: 11, w: 6, h: 5 },   // SW — fimir + goblin
+  { id: 'room_e', x: 10, y: 11, w: 5, h: 5 },   // S  — treasure (chest D + rack A)
+  { id: 'room_f', x: 18, y: 11, w: 6, h: 5 },   // SE — Verag (Gargoyle) + chest E
 ];
 
-/** Doors: cell coords for the door tile itself + the two regions it joins. */
+/** Doors: cell coords for the door tile itself. Each sits on the wall between
+    its room and the central corridor (rows 6 or 10). */
 const QUEST1_DOORS: Array<{ at: { x: number; y: number } }> = [
-  { at: { x: 4,  y: 4 } },   // room_a → corridor (south)
-  { at: { x: 16, y: 4 } },   // room_b → corridor
-  { at: { x: 4,  y: 8 } },   // room_c → corridor (north)
-  { at: { x: 16, y: 8 } },   // room_d → corridor
-  { at: { x: 13, y: 6 } },   // room_e → corridor (west wall, mid)
+  { at: { x: 3,  y: 6  } },   // room_a → corridor (south wall of A)
+  { at: { x: 12, y: 6  } },   // room_b → corridor (south wall of B)
+  { at: { x: 20, y: 6  } },   // room_c → corridor (south wall of C)
+  { at: { x: 3,  y: 10 } },   // room_d → corridor (north wall of D)
+  { at: { x: 12, y: 10 } },   // room_e → corridor (north wall of E)
+  { at: { x: 20, y: 10 } },   // room_f → corridor (north wall of F)
 ];
 
-/** Corridor cells — a + shape connecting stairway to all 5 doors. */
+/** Corridor cells — wide central horizontal hallway. */
 function isCorridorCell(x: number, y: number): boolean {
-  // Horizontal main corridor (rows 5-7, columns 1-19, excluding room interiors)
-  if (y >= 5 && y <= 7 && x >= 1 && x <= 19) {
-    // Carve out room_e (mid-right) interior.
-    if (y >= 5 && y <= 7 && x >= 14 && x <= 18) return false;
-    return true;
-  }
-  // Vertical link from main corridor up into rooms a/b/c/d (between rows
-  // 4 and 8) — only the door column.
-  return false;
+  // Main corridor rows 7-9, columns 1-23.
+  return y >= 7 && y <= 9 && x >= 1 && x <= 23;
 }
 
 function buildQuest1Map(): { tiles: TileKind[][]; regions: string[][]; doorAts: Array<{ x: number; y: number }>; stairsAt: { x: number; y: number } } {
@@ -257,8 +260,8 @@ function buildQuest1Map(): { tiles: TileKind[][]; regions: string[][]; doorAts: 
     }
     regions[d.at.y][d.at.x] = region;
   }
-  // Stairway on the west edge, row 6 (corridor's middle row).
-  const stairsAt = { x: 0, y: 6 };
+  // Stairway on the west edge, row 8 (corridor's middle row).
+  const stairsAt = { x: 0, y: 8 };
   tiles[stairsAt.y][stairsAt.x] = 'stairs';
   regions[stairsAt.y][stairsAt.x] = 'stairway';
 
@@ -294,48 +297,86 @@ function makeQuest1(): QuestDef {
 
   // Room id lookups by representative coordinate (top-left of each rect).
   const findRoomAt = (x: number, y: number) => regions[y]?.[x] ?? '';
-  const roomA = findRoomAt(QUEST1_ROOMS[0].x, QUEST1_ROOMS[0].y);   // top-left
-  const roomB = findRoomAt(QUEST1_ROOMS[1].x, QUEST1_ROOMS[1].y);   // top-right (mummy)
-  const roomC = findRoomAt(QUEST1_ROOMS[2].x, QUEST1_ROOMS[2].y);   // bottom-left (Verag)
-  const roomD = findRoomAt(QUEST1_ROOMS[3].x, QUEST1_ROOMS[3].y);   // bottom-right (treasure)
-  const roomE = findRoomAt(QUEST1_ROOMS[4].x, QUEST1_ROOMS[4].y);   // mid-right (goblins)
+  const roomA = findRoomAt(QUEST1_ROOMS[0].x, QUEST1_ROOMS[0].y);   // NW — goblin pack
+  const roomB = findRoomAt(QUEST1_ROOMS[1].x, QUEST1_ROOMS[1].y);   // N  — orc + goblin
+  const roomC = findRoomAt(QUEST1_ROOMS[2].x, QUEST1_ROOMS[2].y);   // NE — mummy
+  const roomD = findRoomAt(QUEST1_ROOMS[3].x, QUEST1_ROOMS[3].y);   // SW — fimir + goblin
+  const roomE = findRoomAt(QUEST1_ROOMS[4].x, QUEST1_ROOMS[4].y);   // S  — treasure
+  const roomF = findRoomAt(QUEST1_ROOMS[5].x, QUEST1_ROOMS[5].y);   // SE — Verag
 
   // ---- Furniture ----
   const furniture: QuestDef['furniture'] = [];
   let furnN = 0;
-  const innerCell = (r: Rect, dx = 1, dy = 1) => ({ x: r.x + dx, y: r.y + dy });
-  // Chest in room D — 84 gold (Quest 1 'D' location).
-  furniture.push({
-    id: `furn_${++furnN}`,
-    kind: 'chest',
-    cells: [innerCell(QUEST1_ROOMS[3], 1, 1)],
-    blocksMove: false,
-    blocksLos: false,
-    fixedContent: { kind: 'gold', amount: 84 },
-  });
-  // Chest in room E — 120 gold (Quest 1 'E' location).
-  furniture.push({
-    id: `furn_${++furnN}`,
-    kind: 'chest',
-    cells: [innerCell(QUEST1_ROOMS[4], 1, 1)],
-    blocksMove: false,
-    blocksLos: false,
-    fixedContent: { kind: 'gold', amount: 120 },
-  });
-  // Weapons rack in room A — broken (Quest 1 'A' location).
+  const cellAt = (r: Rect, dx: number, dy: number) => ({ x: r.x + dx, y: r.y + dy });
+
+  // Room E (S) — Quest 1 location 'A' (broken weapons rack) and 'D' (84g chest).
   furniture.push({
     id: `furn_${++furnN}`,
     kind: 'rack',
-    cells: [innerCell(QUEST1_ROOMS[0], 3, 0)],
+    cells: [cellAt(QUEST1_ROOMS[4], 0, 0)],
     blocksMove: false,
     blocksLos: true,
     fixedContent: { kind: 'nothing', flavor: 'The rack holds only chipped, rusted weapons.' },
   });
-  // Tomb in room B — the mummy guardian rises from it.
+  furniture.push({
+    id: `furn_${++furnN}`,
+    kind: 'chest',
+    cells: [cellAt(QUEST1_ROOMS[4], 4, 4)],
+    blocksMove: false,
+    blocksLos: false,
+    fixedContent: { kind: 'gold', amount: 84 },
+  });
+
+  // Room F (SE) — Quest 1 location 'E' (120g chest) + tomb scenery near Verag.
+  furniture.push({
+    id: `furn_${++furnN}`,
+    kind: 'chest',
+    cells: [cellAt(QUEST1_ROOMS[5], 1, 4)],
+    blocksMove: false,
+    blocksLos: false,
+    fixedContent: { kind: 'gold', amount: 120 },
+  });
   furniture.push({
     id: `furn_${++furnN}`,
     kind: 'tomb',
-    cells: [innerCell(QUEST1_ROOMS[1], 3, 0)],
+    cells: [cellAt(QUEST1_ROOMS[5], 4, 0)],
+    blocksMove: true,
+    blocksLos: true,
+  });
+
+  // Room C (NE) — Mummy guardian rises from a tomb. (Quest 1 location 'C'.)
+  furniture.push({
+    id: `furn_${++furnN}`,
+    kind: 'tomb',
+    cells: [cellAt(QUEST1_ROOMS[2], 4, 0)],
+    blocksMove: true,
+    blocksLos: true,
+  });
+
+  // Room A (NW) — empty cupboard for flavor (drawable nothing).
+  furniture.push({
+    id: `furn_${++furnN}`,
+    kind: 'cupboard',
+    cells: [cellAt(QUEST1_ROOMS[0], 5, 0)],
+    blocksMove: false,
+    blocksLos: true,
+    fixedContent: { kind: 'nothing', flavor: 'The cupboard is empty save for moth-eaten rags.' },
+  });
+
+  // Room B (N) — a table for atmosphere (blocks neither move nor LOS in v1).
+  furniture.push({
+    id: `furn_${++furnN}`,
+    kind: 'table',
+    cells: [cellAt(QUEST1_ROOMS[1], 2, 2)],
+    blocksMove: false,
+    blocksLos: false,
+  });
+
+  // Room D (SW) — fireplace.
+  furniture.push({
+    id: `furn_${++furnN}`,
+    kind: 'fireplace',
+    cells: [cellAt(QUEST1_ROOMS[3], 0, 0)],
     blocksMove: true,
     blocksLos: true,
   });
@@ -349,7 +390,7 @@ function makeQuest1(): QuestDef {
     rid: string,
     opts?: { displayName?: string; bodyMax?: number; attack?: number; cell?: { x: number; y: number } },
   ) => {
-    const cell = opts?.cell ?? { x: r.x + 2, y: r.y + 1 };  // mid-ish cell
+    const cell = opts?.cell ?? { x: r.x + Math.floor(r.w / 2), y: r.y + Math.floor(r.h / 2) };
     const stats = MONSTER_STATS[kind];
     monsters.push({
       id: `mon_${++monN}`,
@@ -365,19 +406,22 @@ function makeQuest1(): QuestDef {
     });
   };
 
-  // Room A — top-left: 1 orc + 1 goblin
-  placeIn(QUEST1_ROOMS[0], 'orc',    roomA, { cell: { x: 3, y: 2 } });
-  placeIn(QUEST1_ROOMS[0], 'goblin', roomA, { cell: { x: 5, y: 2 } });
-  // Room B — top-right: mummy guardian (+1 attack die, so 4)
-  placeIn(QUEST1_ROOMS[1], 'mummy', roomB, { attack: 4, cell: { x: 16, y: 2 } });
-  // Room C — bottom-left: Verag (gargoyle)
-  placeIn(QUEST1_ROOMS[2], 'gargoyle', roomC, { displayName: 'Verag', cell: { x: 4, y: 10 } });
-  // Room D — bottom-right: 1 orc + 1 fimir
-  placeIn(QUEST1_ROOMS[3], 'orc',   roomD, { cell: { x: 15, y: 10 } });
-  placeIn(QUEST1_ROOMS[3], 'fimir', roomD, { cell: { x: 17, y: 10 } });
-  // Room E — mid-right: 2 goblins
-  placeIn(QUEST1_ROOMS[4], 'goblin', roomE, { cell: { x: 15, y: 6 } });
-  placeIn(QUEST1_ROOMS[4], 'goblin', roomE, { cell: { x: 17, y: 6 } });
+  // Room A (NW) — 3 goblins (pack).
+  placeIn(QUEST1_ROOMS[0], 'goblin', roomA, { cell: { x: 2, y: 2 } });
+  placeIn(QUEST1_ROOMS[0], 'goblin', roomA, { cell: { x: 4, y: 2 } });
+  placeIn(QUEST1_ROOMS[0], 'goblin', roomA, { cell: { x: 3, y: 4 } });
+  // Room B (N) — orc + goblin.
+  placeIn(QUEST1_ROOMS[1], 'orc',    roomB, { cell: { x: 11, y: 2 } });
+  placeIn(QUEST1_ROOMS[1], 'goblin', roomB, { cell: { x: 13, y: 4 } });
+  // Room C (NE) — mummy guardian (+1 attack die per Quest 1 'C').
+  placeIn(QUEST1_ROOMS[2], 'mummy', roomC, { attack: 4, cell: { x: 20, y: 3 } });
+  // Room D (SW) — fimir + goblin.
+  placeIn(QUEST1_ROOMS[3], 'fimir',  roomD, { cell: { x: 3, y: 13 } });
+  placeIn(QUEST1_ROOMS[3], 'goblin', roomD, { cell: { x: 5, y: 13 } });
+  // Room E (S) — orc patrol guarding the chest.
+  placeIn(QUEST1_ROOMS[4], 'orc',    roomE, { cell: { x: 12, y: 13 } });
+  // Room F (SE) — Verag (gargoyle), the quest target.
+  placeIn(QUEST1_ROOMS[5], 'gargoyle', roomF, { displayName: 'Verag', cell: { x: 21, y: 13 } });
 
   return {
     id: 'the_trial',
