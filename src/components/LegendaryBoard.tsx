@@ -71,7 +71,7 @@ type Floater = { key: number; seat: number; sign: '+' | '-'; amount: number; ton
 type RevealAnim = {
   key: number;
   cardId: string;
-  kind: 'villain' | 'henchman' | 'master_strike' | 'scheme_twist' | 'bystander' | 'hero' | 'tactic' | 'hero_recruited';
+  kind: 'villain' | 'henchman' | 'master_strike' | 'scheme_twist' | 'bystander' | 'hero' | 'tactic' | 'hero_recruited' | 'wound';
   phase: 'entering' | 'showing' | 'exiting';
   /** Pixel offset from viewport center to destination (computed from DOM rects at trigger time). */
   exitX: number;
@@ -239,6 +239,7 @@ export default function LegendaryBoard({
   const schemeRef     = useRef<HTMLDivElement>(null); // scheme zone box
   const strikesRef    = useRef<HTMLDivElement>(null); // strikes pile
   const sewersRef     = useRef<HTMLDivElement>(null); // sewers city slot (slot 0)
+  const woundsRef     = useRef<HTMLDivElement>(null); // wounds pile box
   const mastermindRef = useRef<HTMLDivElement>(null); // mastermind zone (bystander fallback)
   const villainDeckRef = useRef<HTMLDivElement>(null); // villain deck pile (animation source)
   const heroDeckRef    = useRef<HTMLDivElement>(null); // hero deck pile (animation source)
@@ -376,6 +377,15 @@ export default function LegendaryBoard({
         cardId = ev.tacticCardId; kind = 'tactic';
         strikeText = ev.tacticText;
         typeLabel  = ev.tacticName;
+      } else if (ev.kind === 'wound_taken') {
+        // Wound revealed and flown to the receiving player's discard pile.
+        // Only animate when it's the local player — non-local players' discard
+        // isn't visible on this board, so skip those (the event still logs).
+        if (ev.seat !== mySeat) continue;
+        const woundsCenter = centerOf(woundsRef.current);
+        startX = woundsCenter ? woundsCenter.x - cx : 0;
+        startY = woundsCenter ? woundsCenter.y - cy : -150;
+        cardId = 'wound'; kind = 'wound';
       }
 
       if (!kind) continue;
@@ -388,6 +398,7 @@ export default function LegendaryBoard({
       else if (kind === 'hero' && hqSlot >= 0)       destEl = hqSlotRefs.current[hqSlot];
       else if (kind === 'hero_recruited')             destEl = myDiscardRef.current;
       else if (kind === 'tactic')                     destEl = myVpRef.current;
+      else if (kind === 'wound')                      destEl = myDiscardRef.current;
 
       const dest = centerOf(destEl);
       const exitX = dest ? dest.x - cx : (kind === 'villain' || kind === 'henchman' ? 340 : kind === 'master_strike' ? -380 : -200);
@@ -643,8 +654,10 @@ export default function LegendaryBoard({
           </div>
           {/* Wounds + Bystanders — right of Mastermind, aligned with Villain/Hero Deck column */}
           <div className="col-span-1 flex h-36 flex-col gap-1">
-            <PileDisplay label="Wounds"     count={state.woundDeck.length}      tone="neutral" fill
-              pileStyle={{ borderColor: '#7a3030', background: 'linear-gradient(135deg,rgba(107,37,37,.45),rgba(90,30,30,.45))' }} />
+            <div ref={woundsRef}>
+              <PileDisplay label="Wounds"     count={state.woundDeck.length}      tone="neutral" fill
+                pileStyle={{ borderColor: '#7a3030', background: 'linear-gradient(135deg,rgba(107,37,37,.45),rgba(90,30,30,.45))' }} />
+            </div>
             <PileDisplay label="Bystanders" count={totalBystanders} tone="amber" fill infinite
               pileStyle={{ borderColor: '#c4a800', background: 'linear-gradient(135deg,rgba(196,168,0,.3),rgba(160,134,0,.3))' }} />
           </div>
@@ -2488,6 +2501,16 @@ function RevealCardContent({ anim }: { anim: RevealAnim }) {
       />
     );
   }
+  if (anim.kind === 'wound') {
+    return (
+      <SystemCardArt
+        name="Wound"
+        borderColor="#7a3030"
+        bg="linear-gradient(135deg, #6b2525, #5a1e1e)"
+        text="Healing: If you don't recruit or fight anything on your turn, you may KO all the Wounds from your hand."
+      />
+    );
+  }
   if (anim.kind === 'tactic') {
     const tacticDef = getCard(anim.cardId);
     if (tacticDef?.kind === 'tactic') {
@@ -2559,6 +2582,7 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
       case 'hero':           return 'Hero Added to HQ!';
       case 'hero_recruited': return 'Hero Recruited!';
       case 'tactic':         return 'Tactic Earned!';
+      case 'wound':          return 'Wound Taken!';
     }
   })();
 
@@ -2572,6 +2596,8 @@ function CardRevealOverlay({ anim }: { anim: RevealAnim }) {
     ? '#34d399'
     : anim.kind === 'tactic'
     ? '#DC143C'
+    : anim.kind === 'wound'
+    ? '#f87171'
     : '#f87171';
 
   return (
