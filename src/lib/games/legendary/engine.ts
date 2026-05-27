@@ -1302,7 +1302,10 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       const top = me.deck[0];
       if (!top) return;
       const topDef = getCard(top.cardId);
-      const topCost = 'cost' in topDef ? (topDef as { cost: number }).cost : 999;
+      // Cards without a printed cost (Wounds, Bystanders, Master Strikes,
+      // Scheme Twists) count as cost 0 — so Spider-Man's "draw if cost ≤ 2"
+      // happily scoops them up.
+      const topCost = 'cost' in topDef ? (topDef as { cost: number }).cost : 0;
       const topName = topDef.kind === 'hero' ? topDef.cardName
         : 'name' in topDef ? (topDef as { name: string }).name : top.cardId;
       if (topCost <= 2) {
@@ -1331,7 +1334,9 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       const kept: CardInstance[] = [];
       for (const c of revealed) {
         const d = getCard(c.cardId);
-        const cost = 'cost' in d ? (d as { cost: number }).cost : 999;
+        // Cards without a printed cost (Wounds, Bystanders, Master Strikes,
+        // Scheme Twists) count as cost 0 — so Spider-Man draws them.
+        const cost = 'cost' in d ? (d as { cost: number }).cost : 0;
         if (cost <= 2) {
           me.hand.push(c);
           state.thisTurn.extraCardsDrawnThisTurn++;
