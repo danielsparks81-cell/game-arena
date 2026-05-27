@@ -2108,9 +2108,14 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     // who already played their starters mid-turn (hand now empty) still loses
     // them. Note: this targets only the active player, per the official rule.
     case 'ko_all_shield_from_hand': {
+      // "KO all of your [shield] Heroes" — the bracketed icon is the S.H.I.E.L.D.
+      // team symbol on the physical cards, which is `teams: ['shield']` in our
+      // data. Earlier this matched by className === 'S.H.I.E.L.D.' which never
+      // hit, since Troopers/Agents have className 'Hero' and Officer is 'Maria
+      // Hill'. Fix: match by team membership.
       const isShield = (c: CardInstance) => {
         const d = getCard(c.cardId);
-        return d.kind === 'hero' && (d as HeroCardDef).className === 'S.H.I.E.L.D.';
+        return d.kind === 'hero' && ((d as HeroCardDef).teams ?? []).includes('shield');
       };
       const handShields   = me.hand.filter(isShield);
       const playedShields = state.thisTurn.playedThisTurn.filter(isShield);
