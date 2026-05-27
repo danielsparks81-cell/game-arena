@@ -7,12 +7,10 @@ import type { SchemeCardDef } from '../types';
 //   Twist:      Each player reveals a [tech] Hero or gains a Wound.
 //   Evil Wins:  If the Wound stack runs out.
 //
-// MVP implementation note: the "wound stack holds 6 per player" sizing and
-// the "wound stack empty = loss" condition both need new engine work (wound
-// supply is currently effectively unlimited). The twist effect itself works
-// today via the pre-existing `each_player_reveal_tech_hero_or_wound` effect.
-// Loss falls back to `evilWinsAfterTwists: 8`. Card text preserves the
-// official wording.
+// Now fully wired: the engine respects woundsPerPlayer at setup (6 × player
+// count) and checks evilWinsIfWoundDeckEmpty after every wound-stealing
+// operation. The twist effect uses the pre-existing
+// each_player_reveal_tech_hero_or_wound effect.
 
 export const LEGACY_VIRUS: SchemeCardDef = {
   kind: 'scheme',
@@ -21,7 +19,8 @@ export const LEGACY_VIRUS: SchemeCardDef = {
   text: 'Setup: 8 Twists. Wound stack holds 6 Wounds per player.\nTwist: Each player reveals a [tech] hero or gains a Wound.\nEvil Wins: If the Wound stack runs out.',
   twists: 8,
   // No explicit bystander count — use the default per-player table.
-  evilWinsAfterTwists: 8,
+  woundsPerPlayer: 6,
+  evilWinsIfWoundDeckEmpty: true,
   onTwist: [
     { kind: 'each_player_reveal_tech_hero_or_wound' },
   ],

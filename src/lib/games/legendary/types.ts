@@ -535,6 +535,13 @@ export type SchemeCardDef = {
   /** Evil wins when this many villains/henchmen have escaped the city.
    *  When set, this is checked immediately on each escape (before twist count). */
   evilWinsAfterEscapes?: number;
+  /** Overrides the default 30-card Wound stack with N wounds PER PLAYER
+   *  (so 2 players × 6 = 12 wounds total). Used by schemes like The Legacy
+   *  Virus that scale the wound supply with player count. */
+  woundsPerPlayer?: number;
+  /** Evil wins immediately when the Wound stack runs out. Paired with the
+   *  reduced-size Wound stack from `woundsPerPlayer`. */
+  evilWinsIfWoundDeckEmpty?: boolean;
   /** Effect that fires when a Scheme Twist is revealed (in addition to
    *  bumping the twist counter). */
   onTwist?: Effect[];

@@ -504,8 +504,13 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
   // rescue effects simply don't produce any cards — the game continues as normal.
   next.bystanderDeck = Array(30).fill(0).map(() => mkInstance('bystander'));
 
-  // ----- Wound deck — a generic stack of wound cards. Real Legendary uses 30. -----
-  next.woundDeck = Array(30).fill(0).map(() => mkInstance('wound'));
+  // ----- Wound deck — a generic stack of wound cards. Real Legendary uses 30.
+  //       Schemes can override with `woundsPerPlayer` (e.g. The Legacy Virus's
+  //       "Wound stack holds 6 Wounds per player"). Size scales with playerCount. -----
+  const woundDeckSize = scheme.woundsPerPlayer !== undefined
+    ? scheme.woundsPerPlayer * playerCount
+    : 30;
+  next.woundDeck = Array(woundDeckSize).fill(0).map(() => mkInstance('wound'));
 
   // ----- Mastermind + Tactics -----
   // Shuffle the 4 Tactic cards face-down beneath the Mastermind. One is drawn
@@ -2580,10 +2585,27 @@ function doResolveChoice(
     if (cardDef.kind !== 'hero') return { error: 'You must copy a Hero card' };
     if (card.cardId === 'rogue_copy_powers') return { error: 'You cannot copy another Copy Powers' };
     state.thisTurn.pendingChoice = undefined;
-    // "This card is both Covert and the color you copy" — bump the copied class counts.
+    // Card text: "Play this card as a copy of another Hero you played this turn.
+    // This card is both [covert] and the color you copy." So apply every effect
+    // the copied card would normally provide on play:
+    //   - vanilla stat stick (baseAttack / baseRecruit)
+    //   - class counts (the "and the color you copy" bit)
+    //   - team counts (e.g. copying an X-Men card lets Copy Powers count as X-Men
+    //     for X-Men synergy effects)
+    //   - hero-class-name count (so "another <ClassName> this turn" triggers work)
+    //   - onPlay effects (the copied card's actual ability)
+    // The Copy Powers card's own contributions were already applied when it was
+    // first played; we add the copied card's on top.
+    if (cardDef.baseAttack)  state.thisTurn.attack  += cardDef.baseAttack;
+    if (cardDef.baseRecruit) state.thisTurn.recruit += cardDef.baseRecruit;
     for (const cls of cardDef.classes) {
       state.thisTurn.classPlayedCounts[cls] = (state.thisTurn.classPlayedCounts[cls] ?? 0) + 1;
     }
+    for (const team of cardDef.teams) {
+      state.thisTurn.teamPlayedCounts[team] = (state.thisTurn.teamPlayedCounts[team] ?? 0) + 1;
+    }
+    state.thisTurn.heroNameCounts[cardDef.className] =
+      (state.thisTurn.heroNameCounts[cardDef.className] ?? 0) + 1;
     pushLog(state, { kind: 'system', text: `${me.username} copies ${cardDef.cardName}.` });
     if (cardDef.onPlay) {
       for (const eff of cardDef.onPlay) resolveEffect(state, me, eff);
@@ -3623,6 +3645,14 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
       && state.schemeTwistsRevealed >= scheme.evilWinsAfterTwists) {
     state.result       = 'loss';
     state.resultReason = `${scheme.name} succeeded — the heroes have lost.`;
+    state.phase        = 'finished';
+    pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+    return state;
+  }
+  // Legacy Virus-style loss: wound stack depleted.
+  if (scheme && scheme.evilWinsIfWoundDeckEmpty && state.woundDeck.length === 0) {
+    state.result       = 'loss';
+    state.resultReason = `${scheme.name} succeeded — the Wound stack ran out.`;
     state.phase        = 'finished';
     pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
     return state;
