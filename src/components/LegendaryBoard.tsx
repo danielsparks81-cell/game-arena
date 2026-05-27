@@ -2795,6 +2795,26 @@ function PlayedCardPreview({ card }: { card: CardInstance }) {
       />
     );
   }
+  // Villains and henchmen end up in the VP pile after being defeated; render
+  // their full card art on hover so players can review what they've collected.
+  if (def.kind === 'villain')  return <VillainCardArt  def={def} />;
+  if (def.kind === 'henchman') return <HenchmanCardArt def={def} />;
+  // Mastermind Tactics earned from hits also live in the VP pile — show the
+  // tactic card with its parent mastermind name.
+  if (def.kind === 'tactic') {
+    const mm = MASTERMINDS.find(m => m.cardId === def.mastermindId);
+    return <TacticCardArt def={def} mastermindName={mm?.name} attack={mm?.attack} />;
+  }
+  // Master Strike cards can show up too (rare — typically KO'd, but defensive).
+  if (def.kind === 'master_strike') {
+    return (
+      <SystemCardArt
+        name="Master Strike"
+        borderColor="#c45000"
+        bg="linear-gradient(135deg, #8a3800, #6a2c00)"
+      />
+    );
+  }
   return null;
 }
 
