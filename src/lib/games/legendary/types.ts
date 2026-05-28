@@ -555,6 +555,21 @@ export type SchemeCardDef = {
    *  Applied to the fight requirement in the engine AND surfaced on the card
    *  art so the boosted strike is visible. */
   villainStrikePerBystander?: number;
+  /** Evil wins when this many Bystanders have been carried away by escaping
+   *  Villains (Midtown Bank Robbery = 8). Tracked via state.escapedBystanders. */
+  evilWinsAfterEscapedBystanders?: number;
+  /** Evil wins immediately if the Hero Deck runs out (Super Hero Civil War).
+   *  Replaces the usual "hero deck empty → final turn → tie" with a loss. */
+  evilWinsIfHeroDeckEmpty?: boolean;
+  /** Override the total Scheme Twists by player count (Super Hero Civil War:
+   *  1–3 players = 8, 4–5 = 5). When omitted, the flat `twists` value is used.
+   *  Note: SchemeCardDef lives in code (only the id is serialized), so a
+   *  function field is safe here. */
+  twistsForPlayers?: (playerCount: number) => number;
+  /** Override the number of Hero classes in the Hero Deck by player count
+   *  (Super Hero Civil War: "if only 2 players, use only 4 Heroes"). Return
+   *  undefined to fall back to the standard per-player table. */
+  heroClassCountForPlayers?: (playerCount: number) => number | undefined;
   /** Effect that fires when a Scheme Twist is revealed (in addition to
    *  bumping the twist counter). */
   onTwist?: Effect[];
@@ -869,6 +884,9 @@ export type LegendaryState = {
    *  their discard. On escape the attached Hero is KO'd along with the villain. */
   cityAttachedHeroes?: Record<CardInstanceId, CardInstance>;
   escapedPile: CardInstance[]; // villains + their bystanders that escaped
+  /** Running count of Bystanders carried away by escaping Villains. Drives
+   *  Midtown Bank Robbery's loss condition (evilWinsAfterEscapedBystanders). */
+  escapedBystanders?: number;
   ko: CardInstance[]; // permanent KO pile (cards removed from the game)
   woundDeck: CardInstance[];
   bystanderDeck: CardInstance[];
@@ -899,6 +917,10 @@ export type LegendaryState = {
 
   // ----- Scheme bookkeeping -----
   schemeTwistsRevealed: number;
+  /** Effective total Scheme Twists for THIS game (after any player-count
+   *  override, e.g. Super Hero Civil War 4–5p = 5). The progress-bar
+   *  denominator. Falls back to the scheme's flat `twists` when unset. */
+  schemeTwistsTotal?: number;
 
   // ----- Solo mode -----
   /** Solo: the 2 Henchman cards set aside at setup to enter the city before the

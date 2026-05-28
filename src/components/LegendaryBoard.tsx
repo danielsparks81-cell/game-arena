@@ -641,7 +641,7 @@ export default function LegendaryBoard({
             </div>
             {/* Scheme — spans 2 city-slot widths. ref used for animation targeting. */}
             <div className="col-span-2 h-36" ref={schemeRef}>
-              <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} />
+              <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} twistsTotal={state.schemeTwistsTotal ?? undefined} />
             </div>
             {/* Mastermind — spans 2 city-slot widths */}
             <div className="col-span-2 h-36" ref={mastermindRef}>
@@ -678,7 +678,7 @@ export default function LegendaryBoard({
             <PileDisplay
               label="Twists"
               count={state.schemeTwistsRevealed}
-              total={schemeIsScheme ? schemeDef.twists : undefined}
+              total={schemeIsScheme ? (state.schemeTwistsTotal ?? schemeDef.twists) : undefined}
               tone="amber"
               fill
               pileStyle={{ borderColor: '#4a2880', background: 'linear-gradient(135deg,rgba(58,32,104,.45),rgba(45,24,85,.45))' }}
@@ -2360,10 +2360,12 @@ function PileDisplay({
 /** Scheme card — the playmat's "scheme" zone. Shows the scheme name + a
  *  small threat meter that fills as twists get revealed. */
 function SchemeZone({
-  schemeDef, twistsRevealed,
+  schemeDef, twistsRevealed, twistsTotal,
 }: {
   schemeDef: ReturnType<typeof getCard>;
   twistsRevealed: number;
+  /** Effective total twists for this game (player-count override aware). */
+  twistsTotal?: number;
 }) {
   // Hooks must run unconditionally — call before any early return.
   const textRef = useAutoFitFontSize(
@@ -2401,7 +2403,7 @@ function SchemeZone({
         </div>
       )}
       <div className="mt-auto flex gap-0.5">
-        {Array.from({ length: schemeDef.twists }).map((_, i) => (
+        {Array.from({ length: twistsTotal ?? schemeDef.twists }).map((_, i) => (
           <div
             key={i}
             className={`h-1.5 flex-1 rounded ${i < twistsRevealed ? 'bg-violet-500' : 'bg-neutral-700'}`}

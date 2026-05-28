@@ -347,7 +347,10 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
   if (!mastermind || !scheme) return { error: 'Invalid mastermind/scheme selection' };
 
   const playerCount = next.players.length;
-  const neededHeroClasses = heroClassCountForPlayers(playerCount);
+  // Scheme may override the hero-class count by player count (Super Hero
+  // Civil War: "if only 2 players, use only 4 Heroes").
+  const neededHeroClasses =
+    scheme.heroClassCountForPlayers?.(playerCount) ?? heroClassCountForPlayers(playerCount);
 
   // Auto-fill hero classes if the host never picked any (or not enough).
   if (next.heroClassIds.length < neededHeroClasses) {
@@ -478,10 +481,15 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
     }
   }
   for (let i = 0; i < MASTER_STRIKES_IN_DECK; i++) villainDeck.push(mkInstance('master_strike'));
+  // Effective twist total — scheme may scale it by player count (Super Hero
+  // Civil War: 1–3p = 8, 4–5p = 5). Stored on state as the progress-bar
+  // denominator.
+  const effectiveTwistTotal = scheme.twistsForPlayers?.(playerCount) ?? scheme.twists;
+  next.schemeTwistsTotal = effectiveTwistTotal;
   // Twist cards in deck = scheme total minus any that start placed next to
   // the Scheme (Killbots: 5 in deck because 3 start "next to" the scheme).
   const startingTwists = scheme.startingTwistsRevealed ?? 0;
-  const twistsInDeck = Math.max(0, scheme.twists - startingTwists);
+  const twistsInDeck = Math.max(0, effectiveTwistTotal - startingTwists);
   for (let i = 0; i < twistsInDeck; i++)            villainDeck.push(mkInstance('scheme_twist'));
   // Bystanders in villain deck: respect a scheme-level override (e.g. Killbots
   // requires 18 regardless of player count). Otherwise use the official table
@@ -2061,7 +2069,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       pushLog(state, {
         kind: 'scheme_twist',
         twistsRevealed: state.schemeTwistsRevealed,
-        twistsTotal: scheme?.twists ?? state.schemeTwistsRevealed,
+        twistsTotal: state.schemeTwistsTotal ?? scheme?.twists ?? state.schemeTwistsRevealed,
       });
       pushLog(state, { kind: 'system', text: `Mystique triggers a Scheme Twist! (${state.schemeTwistsRevealed} total)` });
       if (scheme?.onTwist) {
@@ -3801,14 +3809,24 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
 
   // 2. Refresh HQ.
   refillHQ(state, true);
-  // Hero Deck tie trigger: if the shared HQ supply is exhausted this turn,
-  // note it — will be resolved after the villain reveal below.
-  if (state.heroDeck.length === 0 && !state.lastTurnTie) {
-    state.lastTurnTie = true;
-    pushLog(state, {
-      kind: 'system',
-      text: 'The Hero Deck has run out — this is the heroes\' final turn!',
-    });
+  // Hero Deck empty: most schemes treat this as the heroes' final turn (→
+  // tie). Super Hero Civil War instead makes it an immediate LOSS.
+  if (state.heroDeck.length === 0) {
+    const sch = SCHEMES.find(s => s.cardId === state.schemeId);
+    if (sch?.evilWinsIfHeroDeckEmpty && !state.result) {
+      state.result = 'loss';
+      state.resultReason = `${sch.name} — the Hero Deck ran out. Evil wins.`;
+      state.phase = 'finished';
+      pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+      return state;
+    }
+    if (!state.lastTurnTie) {
+      state.lastTurnTie = true;
+      pushLog(state, {
+        kind: 'system',
+        text: 'The Hero Deck has run out — this is the heroes\' final turn!',
+      });
+    }
   }
 
   // 3. Draw THIS player's next hand now (before villain reveal). The official
@@ -3971,7 +3989,7 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
       pushLog(state, {
         kind: 'scheme_twist',
         twistsRevealed: state.schemeTwistsRevealed,
-        twistsTotal: scheme?.twists ?? state.schemeTwistsRevealed,
+        twistsTotal: state.schemeTwistsTotal ?? scheme?.twists ?? state.schemeTwistsRevealed,
       });
       // Fire the scheme's per-twist effect (if any).
       if (scheme?.onTwist) {
@@ -4129,6 +4147,10 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
         if (bys.length > 0) {
           const byCount = bys.length;
           delete state.cityBystanders[escaped.instanceId];
+          // Count them as "carried away" (Bank Robbery loss timer) and move
+          // them to the escape pile.
+          state.escapedBystanders = (state.escapedBystanders ?? 0) + byCount;
+          state.escapedPile.push(...bys);
           for (const p of state.players) {
             if (p.hand.length > 0) {
               const discarded = p.hand.splice(0, 1)[0];
@@ -4138,6 +4160,16 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
                 text: `${p.username} discarded a card — ${eDef.name} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
               });
             }
+          }
+          // Midtown Bank Robbery: evil wins when 8 Bystanders are carried away.
+          const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
+          if (scheme?.evilWinsAfterEscapedBystanders !== undefined
+              && (state.escapedBystanders ?? 0) >= scheme.evilWinsAfterEscapedBystanders
+              && !state.result) {
+            state.result = 'loss';
+            state.resultReason = `${scheme.name} — ${state.escapedBystanders} Bystanders were carried away. Evil wins.`;
+            state.phase = 'finished';
+            pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
           }
         } else {
           delete state.cityBystanders[escaped.instanceId];
