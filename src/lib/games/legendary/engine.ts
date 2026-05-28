@@ -1055,11 +1055,16 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
     case 'rescue_bystander_per_xmen_played': {
-      // "For each OTHER [x-men] Hero you played this turn."
-      // Card IS x-men (counted), so others = total - 1.
-      const raw = state.thisTurn.teamPlayedCounts['x-men'] ?? 0;
-      const count = Math.max(0, raw - 1);
-      if (count === 0) return;
+      // Xavier's Nemesis (Magneto Tactic): "For each of your [x-men] Heroes,
+      // rescue a Bystander." This is a Mastermind TACTIC, not a played Hero —
+      // it never enters teamPlayedCounts — so we count EVERY [x-men] Hero
+      // played this turn (no self-subtraction; that -1 only applies to X-Men
+      // hero CARDS that count themselves, like Rogue).
+      const count = state.thisTurn.teamPlayedCounts['x-men'] ?? 0;
+      if (count === 0) {
+        pushLog(state, { kind: 'system', text: `${me.username}: no [x-men] Heroes played this turn — Xavier's Nemesis rescues nothing.` });
+        return;
+      }
       let rescued = 0;
       for (let i = 0; i < count; i++) {
         const b = state.bystanderDeck.shift();
@@ -1944,8 +1949,10 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         pushLog(state, { kind: 'system', text:
           'Dark Portal opens above the Mastermind — it gains +1 strike (permanently).' });
       } else if (n >= 2 && n <= 6) {
-        // Leftmost city slot (Sewers=0 → Bridge=4) that doesn't yet have one.
-        const slot = [0, 1, 2, 3, 4].find(s => !state.darkPortals!.slots.includes(s));
+        // "Leftmost city space" = the Bridge end as displayed on the board.
+        // The board renders slots left→right as [4,3,2,1,0] (Bridge=4 … Sewers=0),
+        // so fill 4 → 0: Bridge, then Streets, Rooftops, Bank, Sewers.
+        const slot = [4, 3, 2, 1, 0].find(s => !state.darkPortals!.slots.includes(s));
         if (slot !== undefined) {
           state.darkPortals.slots.push(slot);
           pushLog(state, { kind: 'system', text:

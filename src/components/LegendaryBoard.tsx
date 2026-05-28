@@ -721,6 +721,7 @@ export default function LegendaryBoard({
                         locationDebuff={locationDebuff}
                         strikePerBystander={schemeStrikePerBystander}
                         portalBonus={state.darkPortals?.slots.includes(slot) ? 1 : 0}
+                        hasPortal={state.darkPortals?.slots.includes(slot) ?? false}
                         skrullHeroStrike={(() => {
                           if (!visibleCard || !state.skrullHeroes?.includes(visibleCard.instanceId)) return undefined;
                           const d = getCard(visibleCard.cardId);
@@ -1759,9 +1760,23 @@ function ZoneLabel({ children }: { children: React.ReactNode }) {
   return <div className="mt-2 text-[10px] uppercase tracking-wider text-neutral-500">{children}</div>;
 }
 
+/** Dark Portals scheme: a small persistent swirl badge on a city space that
+ *  holds a Dark Portal (+1 strike to villains there). */
+function DarkPortalMarker() {
+  return (
+    <div
+      className="pointer-events-none absolute left-1 top-1 flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+      style={{ background: 'rgba(88,28,135,0.85)', color: '#e9d5ff', border: '1px solid #a855f7', zIndex: 15 }}
+      title="Dark Portal — Villains here get +1 strike"
+    >
+      🌀 Portal
+    </div>
+  );
+}
+
 function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
-  strikePerBystander = 0, portalBonus = 0, skrullHeroStrike,
+  strikePerBystander = 0, portalBonus = 0, skrullHeroStrike, hasPortal = false,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
   attachedHeroName, attachedHeroCost, killbotStrike, fightConditionMet = true,
@@ -1781,6 +1796,9 @@ function CitySlot({
   /** Skrull Invasion: when this city card is a Hero acting as a Skrull
    *  Villain, its effective strike ([cost]+2). Enables the fight + skrull art. */
   skrullHeroStrike?: number;
+  /** Dark Portals: this slot has a Dark Portal (show a persistent marker even
+   *  when the slot is empty). */
+  hasPortal?: boolean;
   /** When true, the player may fight a villain with bystanders at zero attack cost. */
   freeBystanderFightAvailable?: boolean;
   /** When true (Loki Cruel Ruler), the player may fight any one villain for free. */
@@ -1833,12 +1851,14 @@ function CitySlot({
     const emptyStyle = CITY_EMPTY_STYLES[slot] ?? { bg: '#111', border: '#333' };
     return (
       <div
-        className="flex h-36 flex-col items-end justify-end rounded-lg p-2"
+        className="relative flex h-36 flex-col items-end justify-end rounded-lg p-2"
         style={{
           background: `${CITY_TEXTURE}, ${emptyStyle.bg}`,
-          border: `1px solid ${emptyStyle.border}`,
+          border: hasPortal ? '1px solid #a855f7' : `1px solid ${emptyStyle.border}`,
+          boxShadow: hasPortal ? 'inset 0 0 24px rgba(168,85,247,0.35)' : undefined,
         }}
       >
+        {hasPortal && <DarkPortalMarker />}
         <span className="text-[9px] uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.12)' }}>
           vacant
         </span>
@@ -1950,7 +1970,7 @@ function CitySlot({
       type="button"
       disabled={!canFight}
       onClick={onFight}
-      className={`block w-full rounded-lg transition-all duration-150 ${freeFightRing} ${
+      className={`relative block w-full rounded-lg transition-all duration-150 ${freeFightRing} ${
         canFight
           ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl'
           : ''
@@ -1960,6 +1980,7 @@ function CitySlot({
         ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} bystanderStrikeBonus={bystanderStrikeBonus} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} killbotStrike={killbotStrike} />
         : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} bystanderStrikeBonus={bystanderStrikeBonus} />
       }
+      {hasPortal && <DarkPortalMarker />}
       <span className="sr-only">Slot {slot}</span>
     </button>
   );
