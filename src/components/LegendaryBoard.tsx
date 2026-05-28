@@ -1763,10 +1763,18 @@ function ZoneLabel({ children }: { children: React.ReactNode }) {
 /** Dark Portals scheme: a small persistent swirl badge on a city space that
  *  holds a Dark Portal (+1 strike to villains there). */
 function DarkPortalMarker() {
+  // Sits ABOVE the city space (like a tab) so it never covers the card's
+  // name / text. Anchored left so it won't collide with the centered
+  // bystander tab.
   return (
     <div
-      className="pointer-events-none absolute left-1 top-1 flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-      style={{ background: 'rgba(88,28,135,0.85)', color: '#e9d5ff', border: '1px solid #a855f7', zIndex: 15 }}
+      className="pointer-events-none absolute flex items-center gap-0.5 rounded-t px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+      style={{
+        top: -14, left: 6,
+        background: 'rgba(88,28,135,0.95)', color: '#e9d5ff',
+        border: '1px solid #a855f7', borderBottom: 'none',
+        zIndex: 15,
+      }}
       title="Dark Portal — Villains here get +1 strike"
     >
       🌀 Portal
