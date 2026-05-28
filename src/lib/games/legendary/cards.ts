@@ -159,8 +159,6 @@ export const STARTING_HAND_SIZE = 6;
 export const MASTER_STRIKES_IN_DECK = 5;
 /** Default per-game hero-class count (~5 fills the HQ and gives variety). */
 export const HERO_CLASSES_PER_GAME = 5;
-export const TROOPERS_AVAILABLE_TOTAL = 30;
-export const AGENTS_AVAILABLE_TOTAL = 16;
 
 /** Human-readable display names for every villain/henchman team ID. Used when
  *  rendering the mastermind's "Always Leads" label in both the board and sandbox. */

@@ -56,7 +56,7 @@ export const BW_DANGEROUS_RESCUE: HeroCardDef = {
     { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 2,
       effects: [
         // sources: ['hand', 'discard'] — player may pick from either zone.
-        { kind: 'ko_from_hand', up_to: 1,
+        { kind: 'ko_from_hand',
           sources: ['hand', 'discard'],
           bonus: [{ kind: 'rescue_bystander', amount: 1 }] },
       ] },

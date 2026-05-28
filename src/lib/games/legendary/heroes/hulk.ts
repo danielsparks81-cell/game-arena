@@ -33,7 +33,7 @@ export const HULK_UNSTOPPABLE: HeroCardDef = {
   teams: ['avengers'],
   text: 'You may KO a Wound from your hand or discard pile. If you do, you get +2[strike].',
   onPlay: [
-    { kind: 'ko_from_hand', up_to: 1, filter: 'wounds_only',
+    { kind: 'ko_from_hand', filter: 'wounds_only',
       sources: ['hand', 'discard'],
       bonus: [{ kind: 'gain_attack', amount: 2 }] },
   ],

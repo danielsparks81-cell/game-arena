@@ -144,7 +144,7 @@ describe('legendary: city + escape', () => {
 });
 
 describe('legendary: defeat mastermind → win', () => {
-  it('reaching the mastermind hit threshold sets phase=finished and result=win', () => {
+  it('landing the final hit arms the win; End Turn commits it', () => {
     let s = freshSinglePlayerGame();
     const mmDef = getCard(s.mastermindId);
     if (mmDef.kind !== 'mastermind') throw new Error('Bad mastermind id');
@@ -157,6 +157,16 @@ describe('legendary: defeat mastermind → win', () => {
       if ('error' in next) throw new Error(String(next.error));
       s = next as LegendaryState;
     }
+    // Per the official rules the player FINISHES their turn after the killing
+    // blow (collecting any last VP). So the win is only ARMED here — the
+    // engine sets pendingResult='win' but keeps phase='playing'.
+    expect(s.pendingResult).toBe('win');
+    expect(s.phase).toBe('playing');
+
+    // Pressing End Turn commits the win.
+    const after = applyAction(s, 'alice', { kind: 'end_turn' });
+    if ('error' in after) throw new Error(String(after.error));
+    s = after as LegendaryState;
     expect(s.phase).toBe('finished');
     expect(s.result).toBe('win');
   });

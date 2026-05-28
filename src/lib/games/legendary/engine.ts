@@ -107,7 +107,6 @@ export function initialState(): LegendaryState {
     hq: Array(HQ_SIZE).fill(null),
     villainDeck: [],
     city: Array(CITY_SIZE).fill(null),
-    pendingBystanders: [],
     cityBystanders: {},
     cityAttachedHeroes: {},
     escapedPile: [],
@@ -3877,7 +3876,8 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
  *   • villain/henchman → enters City, pushes existing villains forward
  *   • master_strike    → mastermind attacks every player (resolves strike)
  *   • scheme_twist     → bumps scheme counter + runs scheme's onTwist
- *   • bystander        → joins pendingBystanders (next villain scoops them)
+ *   • bystander        → captured immediately by the villain closest to the
+ *                        deck-entry edge (or the Mastermind if the city is empty)
  *
  * Returns the revealed card instance for the caller to log if desired.
  */
@@ -4026,13 +4026,11 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
 /** Push villains forward in the City and slot a new arrival into position 0.
  *  If a villain is pushed off the right edge, it escapes. Per the rules:
  *
- *  1. KO the highest-cost (≤ 6) hero from the HQ; refill immediately.
+ *  1. The active player CHOOSES a Hero in the HQ to KO (interactive — set
+ *     via the escape_ko_hq_hero pending choice); refill afterward.
  *  2. If the escaping villain had captured bystanders, each player discards
  *     one card from their hand. Bystanders stay in the Escape Pile (lost).
- *  3. Fire any "Escape" effect printed on the villain card.
- *
- *  We auto-pick the KO target (highest cost ≤ 6) since player-choice prompts
- *  are a future pass. */
+ *  3. Fire any "Escape" effect printed on the villain card. */
 function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): void {
   // Domino-push rule: a new villain entering at the Sewers (slot 0) only
   // pushes the contiguous leading block of villains toward the Bridge.

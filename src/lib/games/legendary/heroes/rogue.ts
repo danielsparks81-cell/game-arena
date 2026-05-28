@@ -35,7 +35,7 @@ export const ROGUE_ENERGY_DRAIN: HeroCardDef = {
   onPlay: [
     // Card IS Covert → need total ≥2 (at least 1 other Covert card played).
     { kind: 'if_played_class_this_turn', cls: 'covert', minOthers: 2,
-      effects: [{ kind: 'ko_from_hand', up_to: 1, sources: ['hand', 'discard'],
+      effects: [{ kind: 'ko_from_hand', sources: ['hand', 'discard'],
         bonus: [{ kind: 'gain_recruit', amount: 1 }] }] },
   ],
 };

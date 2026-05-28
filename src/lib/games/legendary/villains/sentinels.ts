@@ -10,7 +10,7 @@ export const SENTINEL: HenchmanCardDef = {
   attack: 3,
   vp: 1,
   team: 'sentinels',
-  fight: [{ kind: 'ko_from_hand', up_to: 1, filter: 'heroes_only', mandatory: true }],
+  fight: [{ kind: 'ko_from_hand', filter: 'heroes_only', mandatory: true }],
   text: 'Fight: KO one of your Heroes.',
 };
 

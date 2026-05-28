@@ -31,7 +31,7 @@ export const WOLVERINE_HEALING_FACTOR: HeroCardDef = {
   teams: ['x-men'],
   text: 'You may KO a Wound from your hand or discard pile. If you do, draw a card.',
   onPlay: [
-    { kind: 'ko_from_hand', up_to: 1, filter: 'wounds_only',
+    { kind: 'ko_from_hand', filter: 'wounds_only',
       sources: ['hand', 'discard'],
       bonus: [{ kind: 'draw', amount: 1 }] },
   ],

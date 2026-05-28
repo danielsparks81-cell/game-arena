@@ -56,7 +56,10 @@ export type Effect =
    *  `filter: 'wounds_only'` restricts the choice to Wound cards only.
    *  `sources` defaults to `['hand']`; set to `['hand','discard']` for cards
    *  like Dangerous Rescue that let you pick from either zone. */
-  | { kind: 'ko_from_hand'; up_to: number; bonus?: Effect[]; filter?: 'wounds_only' | 'shield_heroes' | 'heroes_only'; mandatory?: boolean; sources?: ('hand' | 'discard')[] }
+  /** KO a Hero/Wound from hand (and optionally discard/played). KOs exactly
+   *  one card per effect; chain multiple via the PendingChoice `remaining`
+   *  counter (see Whirlwind) rather than a count on the effect. */
+  | { kind: 'ko_from_hand'; bonus?: Effect[]; filter?: 'wounds_only' | 'shield_heroes' | 'heroes_only'; mandatory?: boolean; sources?: ('hand' | 'discard')[] }
   /** Nick Fury – Field Promotion bonus: place a new instance of `cardId` directly
    *  into the player's hand (bypassing cost and the discard pile). */
   | { kind: 'gain_card_to_hand'; cardId: CardId; may?: true }
@@ -279,8 +282,8 @@ export type Effect =
    *  gains a Wound. */
   | { kind: 'each_player_reveal_tech_hero_or_wound' }
   /** Melter Fight: each player reveals their top deck card. For each revealed
-   *  card, the active player chooses to KO it or return it to the top.
-   *  MVP: auto-KOs all revealed cards (TODO: add interactive choice UI). */
+   *  card, the active player chooses to KO it or return it to the top
+   *  (interactive — resolved via the melter_decide_card pending choice). */
   | { kind: 'melter_reveal_top_each_player' }
   // ── Loki effects ──────────────────────────────────────────────────────────────
   /** Loki Master Strike: reveals [strength] Hero (no penalty) or gains a Wound. Skip if hand empty. */
@@ -847,10 +850,6 @@ export type LegendaryState = {
   /** City row. Index 0 = newest (just revealed), increases toward the right.
    *  At end-of-turn we shift right; rightmost falls off → escape. Length 5. */
   city: (CardInstance | null)[];
-  /** Bystanders that revealed off the Villain Deck before any villain to
-   *  attach to. Sit in this "limbo" until the next villain is revealed and
-   *  scoops them up. */
-  pendingBystanders: CardInstance[];
   /** Bystanders currently attached to a villain (keyed by villain instanceId).
    *  Defeating the villain awards these as VP for the defeating player. */
   cityBystanders: Record<CardInstanceId, CardInstance[]>;

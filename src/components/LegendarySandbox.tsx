@@ -594,14 +594,7 @@ function EffectParams({ effect, onChange }: { effect: Effect; onChange: (next: E
     case 'ko_from_hand':
       return (
         <>
-          <Field label="Up to" inline>
-            <input
-              type="number" min={1} max={10}
-              value={effect.up_to}
-              onChange={e => onChange({ ...effect, up_to: clampInt(e.target.value, 1, 10) })}
-              className={inputSm()}
-            />
-          </Field>
+          {/* KOs exactly one card; chain via PendingChoice `remaining`. */}
           <Field label="Filter" inline>
             <select
               value={effect.filter ?? ''}
@@ -804,7 +797,7 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'draw':                       return { kind, amount: 1 };
     case 'rescue_bystander':           return { kind, amount: 1 };
     case 'gain_wound':                 return { kind };
-    case 'ko_from_hand':               return { kind, up_to: 1 };
+    case 'ko_from_hand':               return { kind };
     case 'discard_from_hand':          return { kind, up_to: 1 };
     case 'gain_attack_per_class':      return { kind, cls: 'strength', bonus: 1, includeSelf: false };
     case 'gain_recruit_per_class':     return { kind, cls: 'strength', bonus: 1, includeSelf: false };
