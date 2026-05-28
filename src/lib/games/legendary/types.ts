@@ -621,6 +621,10 @@ export type PlayerState = {
   /** Set by Loki's Master Strike when fired on an empty hand. Resolved at the
    *  start of this player's next turn: reveal a Strength Hero or gain a Wound. */
   pendingLokiStrike?: boolean;
+  /** Set by Dr. Doom's Master Strike when fired on an empty hand. Resolved at
+   *  the start of this player's next turn: reveal a [tech] Hero or put 2 cards
+   *  on top of their deck (interactive). */
+  pendingDoomStrike?: boolean;
   /** Set by Treasures of Latveria (Dr. Doom Tactic 3). This many extra cards
    *  are added to the player's next hand draw. Consumed and cleared on draw. */
   endOfTurnExtraDraw?: number;
@@ -653,9 +657,11 @@ export type PendingChoice =
        *  Skipping applies the wound normally. */
       kind: 'reveal_to_prevent_wound';
     }
-  /** Gambit – Stack the Deck: "put a card on top of your deck" — player selects
-   *  a card from hand via resolve_choice; mandatory (no skip allowed). */
-  | { kind: 'put_card_on_deck'; mandatory: true }
+  /** Gambit – Stack the Deck / Dr. Doom Master Strike: "put a card on top of
+   *  your deck" — player selects a card from hand via resolve_choice;
+   *  mandatory (no skip allowed). `remaining` = additional cards still to be
+   *  placed AFTER this one (Doom puts 2, so remaining starts at 1). */
+  | { kind: 'put_card_on_deck'; mandatory: true; remaining?: number }
   /** Gambit – Hypnotic Charm: the revealed card is stored here while the player
    *  decides whether to discard it or return it to the top of their deck.
    *  Accept = discard; Skip = put back. */
