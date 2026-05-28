@@ -559,6 +559,10 @@ export function HeroCardArt({
   const isShield = isShieldStarter(def.className);
   // Rare (1 copy) cards get sharp corners as a visual rarity signal.
   const corners = copies === 1 ? 'rounded-none' : 'rounded-lg';
+  // Auto-shrink the body text so long cards (e.g. Gambit's Hypnotic Charm)
+  // don't get clipped by the fixed card height. Steps 12px → 8px until the
+  // text stops overflowing its container.
+  const textFitRef = useAutoFitFontSize(12, 8, [def.text, height, wide]);
 
   return (
     <div
@@ -581,9 +585,14 @@ export function HeroCardArt({
         </div>
       )}
 
-      {/* Card text — parsed for inline icons via CardText */}
+      {/* Card text — parsed for inline icons via CardText. Font-size is set on
+           the container (not the children) so the auto-fit hook can scale it. */}
       {def.text && (
-        <div className="mb-1 flex-1 overflow-hidden pl-3 pr-2 pt-3 text-[12px] leading-snug">
+        <div
+          ref={textFitRef}
+          className="mb-1 flex-1 overflow-hidden pl-3 pr-2 pt-3 leading-snug"
+          style={{ fontSize: 12 }}
+        >
           <CardText text={def.text} lightBg={lightBg} />
         </div>
       )}
