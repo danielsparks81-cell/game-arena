@@ -550,6 +550,9 @@ export default function LegendaryBoard({
 
   const mmDef = getCard(state.mastermindId);
   const schemeDef = getCard(state.schemeId);
+  // Midtown Bank Robbery: each Bystander a city villain holds adds +N strike.
+  const schemeStrikePerBystander =
+    schemeDef.kind === 'scheme' ? (schemeDef.villainStrikePerBystander ?? 0) : 0;
   const banner = state.phase === 'finished'
     ? state.result === 'win'  ? `🏆 ${state.resultReason ?? 'Heroes Win!'}`
     : state.result === 'tie'  ? `🤝 ${state.resultReason ?? 'Tie — heroes survived!'}`
@@ -713,6 +716,7 @@ export default function LegendaryBoard({
                         isLast={slot === CITY_SIZE - 1}
                         attack={effectiveAttack}
                         locationDebuff={locationDebuff}
+                        strikePerBystander={schemeStrikePerBystander}
                         disabled={!isMyTurn || disabled || actionsLockedByHeal || state.phase === 'finished'}
                         onFight={() => onFightCity(slot)}
                         attachedBystanders={visibleCard ? state.cityBystanders[visibleCard.instanceId]?.length ?? 0 : 0}
@@ -1739,6 +1743,7 @@ function ZoneLabel({ children }: { children: React.ReactNode }) {
 
 function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
+  strikePerBystander = 0,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
   attachedHeroName, attachedHeroCost, killbotStrike, fightConditionMet = true,
@@ -1751,6 +1756,8 @@ function CitySlot({
   disabled: boolean;
   onFight: () => void;
   attachedBystanders: number;
+  /** Midtown Bank Robbery scheme: +N strike per held Bystander. */
+  strikePerBystander?: number;
   /** When true, the player may fight a villain with bystanders at zero attack cost. */
   freeBystanderFightAvailable?: boolean;
   /** When true (Loki Cruel Ruler), the player may fight any one villain for free. */
@@ -1857,9 +1864,16 @@ function CitySlot({
   // Skrull attach mechanic: attached Hero's cost replaces the printed attack
   // when present. Killbots scheme: Killbot villains scale with twist count.
   // Mirrors engine's effective-attack logic in doFightCity.
-  const baseAttack = attachedHeroCost !== undefined
+  // Bank Robbery: each held bystander adds to strike. Skip when an attached
+  // Hero / Killbot override is in play (those replace the printed strike).
+  const bystanderStrikeBonus =
+    attachedHeroCost === undefined && card?.cardId !== 'killbot'
+      ? strikePerBystander * attachedBystanders
+      : 0;
+  const baseAttack = (attachedHeroCost !== undefined
     ? attachedHeroCost
-    : (card?.cardId === 'killbot' ? (killbotStrike ?? 0) : def.attack);
+    : (card?.cardId === 'killbot' ? (killbotStrike ?? 0) : def.attack))
+    + bystanderStrikeBonus;
   const effectiveRequired = Math.max(0, baseAttack - locationDebuff);
   // Free bystander fight (Hawkeye): can fight for free if villain has attached bystanders.
   // Free city fight (Loki Cruel Ruler): can fight any one villain for free.
@@ -1884,8 +1898,8 @@ function CitySlot({
       }`}
     >
       {def.kind === 'villain'
-        ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} killbotStrike={killbotStrike} />
-        : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} />
+        ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} bystanderStrikeBonus={bystanderStrikeBonus} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} killbotStrike={killbotStrike} />
+        : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} bystanderStrikeBonus={bystanderStrikeBonus} />
       }
       <span className="sr-only">Slot {slot}</span>
     </button>

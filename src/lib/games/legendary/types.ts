@@ -542,6 +542,11 @@ export type SchemeCardDef = {
   /** Evil wins immediately when the Wound stack runs out. Paired with the
    *  reduced-size Wound stack from `woundsPerPlayer`. */
   evilWinsIfWoundDeckEmpty?: boolean;
+  /** Scheme special rule: each Villain/Henchman in the city gets +N [strike]
+   *  for every Bystander it is currently holding (Midtown Bank Robbery = 1).
+   *  Applied to the fight requirement in the engine AND surfaced on the card
+   *  art so the boosted strike is visible. */
+  villainStrikePerBystander?: number;
   /** Effect that fires when a Scheme Twist is revealed (in addition to
    *  bumping the twist counter). */
   onTwist?: Effect[];

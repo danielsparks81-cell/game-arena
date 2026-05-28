@@ -2508,6 +2508,11 @@ function doFightCity(
   } else {
     baseAttack = def.attack;
   }
+  // Midtown Bank Robbery: each captured Bystander adds +N to this villain's
+  // strike (the fight requirement). attached = bystanders held by this card.
+  const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
+  const perBystander = scheme?.villainStrikePerBystander ?? 0;
+  baseAttack += perBystander * attached.length;
   const requiredAttack = Math.max(0, baseAttack - locationDebuff);
 
   // Thor – God of Thunder: attack and recruit are interchangeable.

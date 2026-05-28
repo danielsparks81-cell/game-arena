@@ -67,7 +67,7 @@ function teamLabel(team: string): string {
  * `canFight` / `fightable` are purely visual — the caller wraps in a <button>.
  */
 export function VillainCardArt({
-  def, wide = false, attachedBystanders = 0, locationDebuff = 0,
+  def, wide = false, attachedBystanders = 0, locationDebuff = 0, bystanderStrikeBonus = 0,
   attachedHeroName, attachedHeroCost, killbotStrike,
 }: {
   def: VillainCardDef;
@@ -75,6 +75,9 @@ export function VillainCardArt({
   attachedBystanders?: number;
   /** Storm/Lightning Bolt location debuff — reduces effective attack shown on the card. */
   locationDebuff?: number;
+  /** Midtown Bank Robbery: total [strike] added by held Bystanders (already
+   *  multiplied by count). Boosts the displayed strike (amber). */
+  bystanderStrikeBonus?: number;
   /** Skrull attach-hero mechanic: when a Hero is tucked under this villain,
    *  show the Hero's name above the card and override the displayed strike
    *  with the Hero's cost. */
@@ -205,11 +208,19 @@ export function VillainCardArt({
           >
             *
           </span>
-        ) : locationDebuff > 0 ? (
-          <>
-            <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>
-            <span style={{ color: '#34d399' }}>{Math.max(0, def.attack - locationDebuff)}</span>
-          </>
+        ) : (locationDebuff > 0 || bystanderStrikeBonus > 0) ? (
+          // Net effective strike = printed − debuff + bystander bonus.
+          // Color: emerald when net is a reduction, amber when net is a buff.
+          (() => {
+            const net = Math.max(0, def.attack - locationDebuff + bystanderStrikeBonus);
+            const color = net < def.attack ? '#34d399' : '#fbbf24';
+            return (
+              <>
+                <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>
+                <span style={{ color }}>{net}</span>
+              </>
+            );
+          })()
         ) : (
           <span className="text-white">{def.attack}</span>
         )}
@@ -222,11 +233,15 @@ export function VillainCardArt({
 
 // ─── Henchman card ────────────────────────────────────────────────────────────
 export function HenchmanCardArt({
-  def, wide = false, attachedBystanders = 0,
+  def, wide = false, attachedBystanders = 0, bystanderStrikeBonus = 0,
 }: {
   def: HenchmanCardDef;
   wide?: boolean;
   attachedBystanders?: number;
+  /** Midtown Bank Robbery: total [strike] added by held Bystanders (already
+   *  multiplied by count). When > 0, the printed attack is shown struck
+   *  through with the boosted value in amber. */
+  bystanderStrikeBonus?: number;
 }) {
   const widthClass  = wide ? 'w-full'  : 'w-[230px]';
   const heightClass = wide ? 'h-36'    : 'h-[165px]';
@@ -280,9 +295,18 @@ export function HenchmanCardArt({
       )}
       {!def.text && <div className="flex-1" />}
 
-      {/* Attack — absolute bottom-right, same position as the cost badge on hero cards */}
-      <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold text-white">
-        {def.attack}<StrikeIcon size={16} />
+      {/* Attack — absolute bottom-right, same position as the cost badge on hero cards.
+           Bank Robbery: bystander bonus boosts the strike (amber, printed struck through). */}
+      <span className="absolute bottom-2 right-2 flex items-center gap-0.5 text-[12px] font-semibold">
+        {bystanderStrikeBonus > 0 ? (
+          <>
+            <span className="mr-0.5 text-neutral-500 line-through">{def.attack}</span>
+            <span style={{ color: '#fbbf24' }}>{def.attack + bystanderStrikeBonus}</span>
+          </>
+        ) : (
+          <span className="text-white">{def.attack}</span>
+        )}
+        <StrikeIcon size={16} />
       </span>
 
       <VpBadge vp={def.vp} />
