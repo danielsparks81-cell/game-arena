@@ -111,6 +111,7 @@ export function initialState(): LegendaryState {
     hq: Array(HQ_SIZE).fill(null),
     villainDeck: [],
     city: Array(CITY_SIZE).fill(null),
+    skrullHeroes: [],
     cityBystanders: {},
     cityAttachedHeroes: {},
     escapedPile: [],
@@ -437,6 +438,16 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
     next.soloStartingHenchmenPlaced = false;
   }
 
+  // ----- Scheme-required Villain Group (Skrull Invasion requires Skrulls) ----
+  // If the scheme demands a specific group and it isn't already in the lineup,
+  // swap it in for the last auto-picked group so the count stays correct.
+  if (scheme.requiresVillainGroup
+      && !next.villainGroupIds.includes(scheme.requiresVillainGroup)
+      && VILLAIN_GROUPS.some(g => g.groupId === scheme.requiresVillainGroup)) {
+    if (next.villainGroupIds.length > 0) next.villainGroupIds[next.villainGroupIds.length - 1] = scheme.requiresVillainGroup;
+    else next.villainGroupIds.push(scheme.requiresVillainGroup);
+  }
+
   // ----- Build hero deck from selected classes + the always-available
   //       Trooper + Agent pools (which are NOT in the HQ rotation in real
   //       Legendary; for MVP we'll keep them OUT of the hero deck and only
@@ -499,6 +510,20 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
     ? bystandersInVillainDeckForPlayers(playerCount)
     : 1);
   for (let i = 0; i < villainDeckBystanders; i++)  villainDeck.push(mkInstance('bystander'));
+
+  // ----- Skrull Invasion: shuffle N random Heroes out of the Hero Deck and
+  //       into the Villain Deck, where they act as Skrull Villains. Their
+  //       instanceIds are tagged in state.skrullHeroes so the reveal / fight /
+  //       defeat / escape logic treats them specially. -----
+  if (scheme.shuffleHeroesIntoVillainDeck && next.heroDeck.length > 0) {
+    const n = Math.min(scheme.shuffleHeroesIntoVillainDeck, next.heroDeck.length);
+    const pulled = next.heroDeck.splice(0, n); // heroDeck already shuffled
+    next.skrullHeroes = pulled.map(c => c.instanceId);
+    for (const c of pulled) villainDeck.push(c);
+    pushLog(next, { kind: 'system', text:
+      `${scheme.name}: ${n} Heroes are shuffled into the Villain Deck as Skrull Villains.` });
+  }
+
   next.villainDeck = shuffle(villainDeck);
 
   // Seed the twist counter so schemes that start with N twists already placed
@@ -1931,6 +1956,34 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Skrull Invasion twist: highest-cost HQ Hero → Sewers as a Skrull ──────
+    case 'skrull_invasion_twist': {
+      // Find the highest-cost Hero currently in the HQ.
+      let bestSlot = -1;
+      let bestCost = -1;
+      for (let i = 0; i < state.hq.length; i++) {
+        const c = state.hq[i];
+        if (!c) continue;
+        const d = getCard(c.cardId);
+        if (d.kind !== 'hero') continue;
+        const cost = (d as HeroCardDef).cost;
+        if (cost > bestCost) { bestCost = cost; bestSlot = i; }
+      }
+      if (bestSlot < 0) {
+        pushLog(state, { kind: 'system', text: 'Skrull Invasion twist: no Heroes in the HQ to convert.' });
+        return;
+      }
+      const heroCard = state.hq[bestSlot]!;
+      const hDef = getCard(heroCard.cardId);
+      state.hq[bestSlot] = null;
+      (state.skrullHeroes ??= []).push(heroCard.instanceId);
+      pushLog(state, { kind: 'system', text:
+        `Skrull Invasion: ${hDef.kind === 'hero' ? (hDef as HeroCardDef).cardName : heroCard.cardId} in the HQ was a Skrull — it slips into the Sewers as a Villain!` });
+      enterCity(state, heroCard, hDef);
+      refillHQ(state, true);
+      return;
+    }
+
     // ── Magneto Tactic 4: Crushing Shockwave ─────────────────────────────────
     case 'reveal_xmen_or_gain_wounds': {
       if (me.hand.length === 0) return;
@@ -2528,7 +2581,9 @@ function doFightCity(
   const card = state.city[slot];
   if (!card) return { error: 'City slot is empty' };
   const def = getCard(card.cardId);
-  if (def.kind !== 'villain' && def.kind !== 'henchman') {
+  // Skrull Invasion: a Hero in the city is a Skrull Villain and IS fightable.
+  const isSkrullHero = def.kind === 'hero' && !!state.skrullHeroes?.includes(card.instanceId);
+  if (def.kind !== 'villain' && def.kind !== 'henchman' && !isSkrullHero) {
     return { error: 'Card in City is not fightable' };
   }
 
@@ -2548,9 +2603,14 @@ function doFightCity(
   const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
   // Shared strike calc — same helper the board uses, so the fight gate can
   // never disagree with the displayed strike.
+  // Skrull Invasion: a Hero-Skrull's strike = its [cost] + 2.
+  const skrullHeroStrike = isSkrullHero && def.kind === 'hero'
+    ? (def as HeroCardDef).cost + 2
+    : undefined;
   const { required: requiredAttack } = effectiveCityStrike({
-    printedAttack: def.attack,
+    printedAttack: (def.kind === 'villain' || def.kind === 'henchman') ? def.attack : 0,
     attachedHeroCost: attachedHeroDef?.kind === 'hero' ? (attachedHeroDef as HeroCardDef).cost : undefined,
+    skrullHeroStrike,
     isKillbot: card.cardId === 'killbot',
     killbotStrike: state.schemeTwistsRevealed,
     bystanderCount: attached.length,
@@ -2602,7 +2662,18 @@ function doFightCity(
     state.thisTurn.attack -= requiredAttack;
   }
   state.city[slot] = null;
-  me.victoryPile.push(card);
+  if (isSkrullHero) {
+    // Skrull Invasion: "If you defeat that Hero, you gain it." It goes to the
+    // defeating player's discard (a real recruit), NOT the victory pile, and
+    // awards no VP. Clear its Skrull tag.
+    me.discard.push(card);
+    state.skrullHeroes = (state.skrullHeroes ?? []).filter(id => id !== card.instanceId);
+    const hName = def.kind === 'hero' ? (def as HeroCardDef).cardName : card.cardId;
+    pushLog(state, { kind: 'system', text:
+      `${me.username} unmasks and gains the Skrull-impersonated Hero ${hName}!` });
+  } else {
+    me.victoryPile.push(card);
+  }
 
   // Rescue any bystanders attached to this villain (attached is computed above).
   if (attached.length > 0) {
@@ -2636,10 +2707,14 @@ function doFightCity(
     }
   }
 
-  pushLog(state, {
-    kind: 'villain_defeated', seat: me.seat, username: me.username,
-    cardId: def.cardId, cardName: def.name, vp: def.vp,
-  });
+  // Skrull-heroes log their own "unmasked & gained" message above and award
+  // no VP, so skip the villain_defeated event for them.
+  if (!isSkrullHero && (def.kind === 'villain' || def.kind === 'henchman')) {
+    pushLog(state, {
+      kind: 'villain_defeated', seat: me.seat, username: me.username,
+      cardId: def.cardId, cardName: def.name, vp: def.vp,
+    });
+  }
   recomputeVp(me);
   return state;
 }
@@ -4107,9 +4182,21 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
       enterCity(state, card, def);
       return card;
     }
+    case 'hero': {
+      // Skrull Invasion: a Hero shuffled into the Villain Deck enters the
+      // city as a Skrull Villain (its id is already in state.skrullHeroes).
+      // If somehow a non-Skrull hero reaches here, treat it as one anyway.
+      if (!state.skrullHeroes?.includes(card.instanceId)) {
+        (state.skrullHeroes ??= []).push(card.instanceId);
+      }
+      pushLog(state, { kind: 'system', text:
+        `A Skrull Shapeshifter reveals itself as ${(def as HeroCardDef).cardName} — it enters the city as a Villain!` });
+      enterCity(state, card, def);
+      return card;
+    }
     default:
-      // wound/hero/mastermind/scheme defs should never live in the villain
-      // deck — defensive fallthrough.
+      // wound/mastermind/scheme defs should never live in the villain deck —
+      // defensive fallthrough.
       state.ko.push(card);
       return card;
   }
@@ -4143,8 +4230,28 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
     const escaped = state.city[lastIdx];
     if (escaped) {
       const eDef = getCard(escaped.cardId);
-      if (eDef.kind === 'villain' || eDef.kind === 'henchman') {
-        pushLog(state, { kind: 'villain_escaped', cardId: eDef.cardId, cardName: eDef.name });
+      const isSkrullHeroEscape = eDef.kind === 'hero' && !!state.skrullHeroes?.includes(escaped.instanceId);
+      if (eDef.kind === 'villain' || eDef.kind === 'henchman' || isSkrullHeroEscape) {
+        const escapedName = eDef.kind === 'hero' ? (eDef as HeroCardDef).cardName : eDef.name;
+        pushLog(state, { kind: 'villain_escaped', cardId: eDef.cardId, cardName: escapedName });
+
+        // Skrull Invasion: a Hero-Skrull escaping counts toward the
+        // "6 Heroes escape = evil wins" loss timer.
+        if (isSkrullHeroEscape) {
+          state.escapedHeroes = (state.escapedHeroes ?? 0) + 1;
+          state.skrullHeroes = (state.skrullHeroes ?? []).filter(id => id !== escaped.instanceId);
+          const ssch = SCHEMES.find(s => s.cardId === state.schemeId);
+          if (ssch?.evilWinsAfterEscapedHeroes !== undefined) {
+            pushLog(state, { kind: 'system', text:
+              `A Hero-Skrull escaped (${state.escapedHeroes}/${ssch.evilWinsAfterEscapedHeroes}).` });
+            if ((state.escapedHeroes ?? 0) >= ssch.evilWinsAfterEscapedHeroes && !state.result) {
+              state.result = 'loss';
+              state.resultReason = `${ssch.name} — ${state.escapedHeroes} Heroes escaped into the Skrull ranks. Evil wins.`;
+              state.phase = 'finished';
+              pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+            }
+          }
+        }
 
         // Killbots scheme: a Killbot Villain escaping counts toward the
         // "5 Killbots escape = evil wins" loss timer.
@@ -4174,13 +4281,13 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
         if (hasHqHero) {
           state.thisTurn.pendingChoice = {
             kind: 'escape_ko_hq_hero',
-            escapedVillainName: eDef.name,
+            escapedVillainName: escapedName,
           };
           pushLog(state, { kind: 'system', text:
-            `Escape: ${eDef.name} escaped — choose a Hero in the HQ to KO.` });
+            `Escape: ${escapedName} escaped — choose a Hero in the HQ to KO.` });
         } else {
           pushLog(state, { kind: 'system', text:
-            `Escape: ${eDef.name} escaped — no Heroes in the HQ to KO.` });
+            `Escape: ${escapedName} escaped — no Heroes in the HQ to KO.` });
         }
 
         // ── Step 2: Bystander penalty ──────────────────────────────────────
@@ -4200,7 +4307,7 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
               p.discard.push(discarded);
               pushLog(state, {
                 kind: 'system',
-                text: `${p.username} discarded a card — ${eDef.name} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
+                text: `${p.username} discarded a card — ${escapedName} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
               });
             }
           }

@@ -182,6 +182,9 @@ export function effectiveCityStrike(opts: {
   printedAttack: number;
   /** Skrull attach-hero: the tucked Hero's cost replaces the printed strike. */
   attachedHeroCost?: number;
+  /** Skrull Invasion: this city card is a Hero acting as a Skrull Villain →
+   *  strike = its [cost]+2 (passed pre-computed). Overrides the printed value. */
+  skrullHeroStrike?: number;
   /** Killbots scheme: this card is a Killbot → strike = current twist count. */
   isKillbot?: boolean;
   killbotStrike?: number;
@@ -198,12 +201,14 @@ export function effectiveCityStrike(opts: {
   const locationDebuff = opts.locationDebuff ?? 0;
   const portalBonus = opts.portalBonus ?? 0;
   // Bystander/portal bonuses apply on top of the printed strike. They do NOT
-  // apply when an attach-hero / killbot override replaces the printed strike
-  // wholesale (those define the strike themselves).
-  const overridden = opts.attachedHeroCost !== undefined || !!opts.isKillbot;
+  // apply when an attach-hero / killbot / skrull-hero override replaces the
+  // printed strike wholesale (those define the strike themselves).
+  const overridden =
+    opts.attachedHeroCost !== undefined || !!opts.isKillbot || opts.skrullHeroStrike !== undefined;
   const extraBonus = overridden ? 0 : (strikePerBystander * bystanderCount) + portalBonus;
   const printed =
     opts.attachedHeroCost !== undefined ? opts.attachedHeroCost
+    : opts.skrullHeroStrike !== undefined ? opts.skrullHeroStrike
     : opts.isKillbot ? (opts.killbotStrike ?? 0)
     : opts.printedAttack;
   const base = printed + extraBonus;

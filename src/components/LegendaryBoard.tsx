@@ -721,6 +721,11 @@ export default function LegendaryBoard({
                         locationDebuff={locationDebuff}
                         strikePerBystander={schemeStrikePerBystander}
                         portalBonus={state.darkPortals?.slots.includes(slot) ? 1 : 0}
+                        skrullHeroStrike={(() => {
+                          if (!visibleCard || !state.skrullHeroes?.includes(visibleCard.instanceId)) return undefined;
+                          const d = getCard(visibleCard.cardId);
+                          return d.kind === 'hero' ? d.cost + 2 : undefined;
+                        })()}
                         disabled={!isMyTurn || disabled || actionsLockedByHeal || state.phase === 'finished'}
                         onFight={() => onFightCity(slot)}
                         attachedBystanders={visibleCard ? state.cityBystanders[visibleCard.instanceId]?.length ?? 0 : 0}
@@ -1756,7 +1761,7 @@ function ZoneLabel({ children }: { children: React.ReactNode }) {
 
 function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
-  strikePerBystander = 0, portalBonus = 0,
+  strikePerBystander = 0, portalBonus = 0, skrullHeroStrike,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
   attachedHeroName, attachedHeroCost, killbotStrike, fightConditionMet = true,
@@ -1773,6 +1778,9 @@ function CitySlot({
   strikePerBystander?: number;
   /** Dark Portals scheme: +N persistent strike if this slot has a portal. */
   portalBonus?: number;
+  /** Skrull Invasion: when this city card is a Hero acting as a Skrull
+   *  Villain, its effective strike ([cost]+2). Enables the fight + skrull art. */
+  skrullHeroStrike?: number;
   /** When true, the player may fight a villain with bystanders at zero attack cost. */
   freeBystanderFightAvailable?: boolean;
   /** When true (Loki Cruel Ruler), the player may fight any one villain for free. */
@@ -1838,6 +1846,44 @@ function CitySlot({
     );
   }
   const def = getCard(card.cardId);
+
+  // ── Skrull Invasion: a Hero in the city is a Skrull Villain ───────────────
+  // Render the Hero card with a crimson "SKRULL" ribbon + its [cost]+2 strike,
+  // and make it fightable like a villain.
+  if (skrullHeroStrike !== undefined && def.kind === 'hero') {
+    const { required } = effectiveCityStrike({
+      printedAttack: 0,
+      skrullHeroStrike,
+      portalBonus,
+      locationDebuff,
+    });
+    const canFight = !disabled && attack >= required;
+    return (
+      <button
+        type="button"
+        disabled={!canFight}
+        onClick={onFight}
+        className={`relative block w-full rounded-lg transition-all duration-150 ${
+          canFight ? '-translate-y-3 shadow-lg ring-2 ring-rose-500 hover:-translate-y-4 hover:shadow-xl' : 'ring-2 ring-rose-900/60'
+        }`}
+      >
+        <HeroCardArt def={def} wide height="h-36" />
+        {/* SKRULL ribbon */}
+        <div
+          className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest"
+          style={{ top: -10, background: '#16a34a', color: '#04240e', border: '2px solid #4ade80', borderBottom: 'none' }}
+        >
+          🦠 Skrull
+        </div>
+        {/* Strike badge (cost+2) bottom-right, over the hero's cost badge area */}
+        <span className="absolute bottom-1 right-1 flex items-center gap-0.5 rounded bg-black/70 px-1 text-[12px] font-bold text-rose-300">
+          {required}<StrikeIcon size={13} />
+        </span>
+        <span className="sr-only">Fight the Skrull {def.cardName} (strike {required})</span>
+      </button>
+    );
+  }
+
   if (def.kind !== 'villain' && def.kind !== 'henchman') {
     return <div className="h-36 rounded-lg bg-neutral-900" />;
   }

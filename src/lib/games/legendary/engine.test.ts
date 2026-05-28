@@ -215,4 +215,54 @@ describe('legendary: HQ slot count + Player VP', () => {
   });
 });
 
+describe('legendary: Skrull Invasion scheme', () => {
+  function skrullGame(): LegendaryState {
+    const host = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    host.schemeId = 'scheme_skrull_invasion';
+    const started = startGame(host);
+    if ('error' in started) throw new Error(started.error);
+    return started;
+  }
+
+  it('seeds 12 Hero-Skrulls into the Villain Deck and forces the Skrulls group', () => {
+    const s = skrullGame();
+    expect(s.skrullHeroes?.length).toBe(12);
+    expect(s.villainGroupIds).toContain('skrulls');
+    const tagged = new Set(s.skrullHeroes);
+    const heroesInVD = s.villainDeck.filter(c => tagged.has(c.instanceId));
+    expect(heroesInVD).toHaveLength(12);
+    expect(heroesInVD.every(c => getCard(c.cardId).kind === 'hero')).toBe(true);
+  });
+
+  it('a Hero-Skrull is fightable at [cost]+2 and is GAINED (to discard) on defeat', () => {
+    const s = skrullGame();
+    // Move a tagged Hero out of the deck into city slot 0.
+    const tagged = new Set(s.skrullHeroes);
+    const idx = s.villainDeck.findIndex(c => tagged.has(c.instanceId));
+    const heroCard = s.villainDeck.splice(idx, 1)[0];
+    s.city[0] = heroCard;
+    const def = getCard(heroCard.cardId);
+    const cost = def.kind === 'hero' ? def.cost : 0;
+
+    // Not enough attack (cost+1) → fight rejected.
+    s.thisTurn.attack = cost + 1;
+    const tooWeak = applyAction(s, 'alice', { kind: 'fight_city', slot: 0 });
+    expect('error' in tooWeak).toBe(true);
+
+    // Exactly cost+2 → defeat. Hero goes to discard (gained), not VP, and is
+    // no longer a Skrull; no VP awarded.
+    s.thisTurn.attack = cost + 2;
+    const beforeDiscard = s.players[0].discard.length;
+    const beforeVp = s.players[0].victoryPile.length;
+    const next = applyAction(s, 'alice', { kind: 'fight_city', slot: 0 });
+    if ('error' in next) throw new Error(String(next.error));
+    const ns = next as LegendaryState;
+    expect(ns.players[0].discard.some(c => c.instanceId === heroCard.instanceId)).toBe(true);
+    expect(ns.players[0].discard.length).toBe(beforeDiscard + 1);
+    expect(ns.players[0].victoryPile.length).toBe(beforeVp);
+    expect(ns.skrullHeroes?.includes(heroCard.instanceId)).toBe(false);
+    expect(ns.city[0]).toBeNull();
+  });
+});
+
 void CITY_SIZE;

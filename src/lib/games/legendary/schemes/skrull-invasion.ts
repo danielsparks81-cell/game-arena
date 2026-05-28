@@ -13,12 +13,16 @@ import type { SchemeCardDef } from '../types';
 //                 a Skrull Villain (as above).
 //   Evil Wins:    If 6 Heroes get into the Escaped Villains pile.
 //
-// MVP implementation note: the "Heroes act as Villains in the Villain Deck"
-// rule requires major engine surgery (hero-to-villain promotion, custom
-// attack-cost mapping, hero-as-reward on defeat). For MVP we use
-// `evilWinsAfterEscapes: 6` as a placeholder for the 6-Hero-escape timer,
-// counting any villain escape against it. Skrull Villain Group not yet
-// implemented. Card text preserves the official wording.
+// Fully wired:
+//   • requiresVillainGroup 'skrulls' forces the Skrull group into the lineup.
+//   • heroClassCountForPlayers → 6 Hero classes.
+//   • shuffleHeroesIntoVillainDeck: 12 — 12 Heroes get tagged as Skrull
+//     Villains (state.skrullHeroes) and mixed into the Villain Deck. On
+//     reveal they enter the city; their [strike] = [cost]+2; defeating one
+//     puts it in your discard (you gain it), not the victory pile.
+//   • Twist (skrull_invasion_twist): the highest-cost HQ Hero slips into the
+//     Sewers as a Skrull, then the HQ refills.
+//   • Loss = 6 Heroes escape (evilWinsAfterEscapedHeroes / state.escapedHeroes).
 
 export const SKRULL_INVASION: SchemeCardDef = {
   kind: 'scheme',
@@ -26,6 +30,9 @@ export const SKRULL_INVASION: SchemeCardDef = {
   name: 'Secret Invasion of the Skrull Shapeshifters',
   text: 'Setup: 8 Twists. 6 Heroes. Skrull Villain Group required. Shuffle 12 random Heroes from the Hero Deck into the Villain Deck.\nSpecial Rules: Heroes in the Villain Deck count as Skrull Villains with [strike] equal to the Heroes [cost]+2. If you defeat that Hero, you gain it.\nTwist: The highest-cost Hero from the HQ moves into the Sewers as a Skrull Villain.\nEvil Wins: If 6 Heroes get into the Escaped Villains pile.',
   twists: 8,
-  // No explicit bystander count — use the default per-player table.
-  evilWinsAfterEscapes: 6,
+  requiresVillainGroup: 'skrulls',
+  heroClassCountForPlayers: () => 6,
+  shuffleHeroesIntoVillainDeck: 12,
+  evilWinsAfterEscapedHeroes: 6,
+  onTwist: [{ kind: 'skrull_invasion_twist' }],
 };

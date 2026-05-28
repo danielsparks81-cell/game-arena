@@ -315,6 +315,10 @@ export type Effect =
    *  (+1 strike to villains there). The buff is persistent (state.darkPortals).
    *  Reads state.schemeTwistsRevealed to know which twist this is. */
   | { kind: 'place_dark_portal' }
+  /** Skrull Invasion twist: the highest-cost Hero in the HQ moves into the
+   *  Sewers as a Skrull Villain (tagged in state.skrullHeroes), then the HQ
+   *  slot refills. */
+  | { kind: 'skrull_invasion_twist' }
 
   // ── Skrull villain group ─────────────────────────────────────────────────────
   /** Super-Skrull Fight: every player must KO a Hero from their hand. Fires the
@@ -567,6 +571,15 @@ export type SchemeCardDef = {
   /** Evil wins when this many Killbot Villains escape (Killbots = 5).
    *  Tracked via state.escapedKillbots. */
   evilWinsAfterEscapedKillbots?: number;
+  /** Evil wins when this many Hero-Skrulls escape (Skrull Invasion = 6).
+   *  Tracked via state.escapedHeroes. */
+  evilWinsAfterEscapedHeroes?: number;
+  /** Setup: force this Villain Group into the lineup (by groupId) even if the
+   *  Mastermind doesn't lead it (Skrull Invasion requires the Skrulls group). */
+  requiresVillainGroup?: string;
+  /** Setup: shuffle this many random Heroes out of the Hero Deck and into the
+   *  Villain Deck, where they act as Skrull Villains (Skrull Invasion = 12). */
+  shuffleHeroesIntoVillainDeck?: number;
   /** Evil wins immediately if the Hero Deck runs out (Super Hero Civil War).
    *  Replaces the usual "hero deck empty → final turn → tie" with a loss. */
   evilWinsIfHeroDeckEmpty?: boolean;
@@ -905,6 +918,15 @@ export type LegendaryState = {
    *  = city slot indices that each have a portal (+1 strike to villains
    *  there). */
   darkPortals?: { mastermind: boolean; slots: number[] };
+  /** Skrull Invasion scheme: instanceIds of Hero cards currently acting as
+   *  Skrull Villains (shuffled into the Villain Deck at setup, or moved from
+   *  the HQ by the twist). A card whose id is in this set is treated as a
+   *  city villain with [strike] = its [cost]+2; defeating it gains the Hero
+   *  (to the player's discard) instead of awarding VP. */
+  skrullHeroes?: string[];
+  /** Running count of Hero-Skrulls that have escaped (Skrull Invasion loss
+   *  timer: evilWinsAfterEscapedHeroes). */
+  escapedHeroes?: number;
   ko: CardInstance[]; // permanent KO pile (cards removed from the game)
   woundDeck: CardInstance[];
   bystanderDeck: CardInstance[];
