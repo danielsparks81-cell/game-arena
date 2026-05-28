@@ -205,12 +205,12 @@ function heroClassCountForPlayers(playerCount: number): number {
   return 5;
 }
 
-/** Official setup table — Villain Groups by player count (2-5 players). */
+/** Official setup table — Villain Groups by player count.
+ *  Solo (1 player) uses exactly 1 Villain Group. */
 function villainGroupsForPlayers(n: number): number {
+  if (n <= 1) return 1; // solo
   if (n >= 5) return 5;
-  if (n === 4) return 4;
-  if (n === 3) return 3;
-  return 2; // 2 players
+  return n; // 2→2, 3→3, 4→4
 }
 
 /** Official setup table — Henchman Groups by player count (2-5 players). */
@@ -310,12 +310,11 @@ export function applyLobbyConfig(
   }
 }
 
-/** Target villain-group count by player count — mirrors the auto-fill logic
- *  in doStartGame so the lobby randomizer picks the right number up front. */
+/** Target villain-group count by player count — same source of truth as the
+ *  game setup so the lobby randomizer picks the exact number the game uses
+ *  (solo = 1). */
 function villainGroupCountForPlayers(n: number): number {
-  if (n >= 5) return 4;
-  if (n >= 3) return 3;
-  return 2; // 1-2 players
+  return villainGroupsForPlayers(n);
 }
 
 /** Target henchman-group count by player count. Solo gets 2 (one extra). */
@@ -3784,7 +3783,21 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
 
   // 4. Reveal one card from the Villain Deck (villain/henchman → city;
   //    master_strike / scheme_twist / bystander → resolve without city push).
-  revealOneVillainCard(state);
+  //
+  //    WARMUP ROUNDS (4-5 player games only): on each player's very first
+  //    turn, NO Villain Deck card is revealed — this gives large groups time
+  //    to get their decks going before the Villains start invading. `state.turn`
+  //    starts at 1 and increments once per player-turn, so the first
+  //    `playerCount` turns are each player's first turn.
+  const isWarmupTurn = state.players.length >= 4 && state.turn <= state.players.length;
+  if (isWarmupTurn) {
+    pushLog(state, {
+      kind: 'system',
+      text: `Warmup Round — no Villain Deck card is revealed this turn (4–5 player rule).`,
+    });
+  } else {
+    revealOneVillainCard(state);
+  }
 
   // ── Evil wins: check immediately after reveal. ────────────────────────────
   // Per the rules: "If the evil Scheme is completed, evil wins immediately.
