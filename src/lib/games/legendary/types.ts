@@ -558,6 +558,9 @@ export type SchemeCardDef = {
   /** Evil wins when this many Bystanders have been carried away by escaping
    *  Villains (Midtown Bank Robbery = 8). Tracked via state.escapedBystanders. */
   evilWinsAfterEscapedBystanders?: number;
+  /** Evil wins when this many Killbot Villains escape (Killbots = 5).
+   *  Tracked via state.escapedKillbots. */
+  evilWinsAfterEscapedKillbots?: number;
   /** Evil wins immediately if the Hero Deck runs out (Super Hero Civil War).
    *  Replaces the usual "hero deck empty → final turn → tie" with a loss. */
   evilWinsIfHeroDeckEmpty?: boolean;
@@ -887,6 +890,9 @@ export type LegendaryState = {
   /** Running count of Bystanders carried away by escaping Villains. Drives
    *  Midtown Bank Robbery's loss condition (evilWinsAfterEscapedBystanders). */
   escapedBystanders?: number;
+  /** Running count of Killbot Villains that have escaped. Drives the Killbots
+   *  scheme loss (evilWinsAfterEscapedKillbots). */
+  escapedKillbots?: number;
   ko: CardInstance[]; // permanent KO pile (cards removed from the game)
   woundDeck: CardInstance[];
   bystanderDeck: CardInstance[];

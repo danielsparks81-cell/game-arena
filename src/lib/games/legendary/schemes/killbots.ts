@@ -11,11 +11,14 @@ import type { SchemeCardDef } from '../types';
 //   Twist:        Put the Twist next to this Scheme.
 //   Evil Wins:    If 5 "Killbots" escape.
 //
-// MVP implementation note: 18 bystanders are seeded into the Villain Deck.
-// The "bystanders as Villains with escalating attack" rule needs new engine
-// work (Effect for "promote bystander to villain", strike scaling, etc.).
-// Loss uses `evilWinsAfterTwists: 5` as a placeholder for the 5-Killbot-escape
-// timer. Card text preserves the official wording.
+// Fully wired:
+//   • 18 Bystanders seeded into the Villain Deck; each is promoted to a
+//     Killbot Villain on reveal (enterCity), with [strike] = current twist
+//     count (effectiveCityStrike killbot branch).
+//   • 3 Twists start next to the Scheme (+3 initial Killbot strike); 5 more
+//     are shuffled into the deck. Each twist raises every Killbot's strike.
+//   • Loss = 5 Killbots escape (evilWinsAfterEscapedKillbots), tracked via
+//     state.escapedKillbots when a Killbot is pushed off the Bridge.
 
 export const KILLBOTS: SchemeCardDef = {
   kind: 'scheme',
@@ -27,8 +30,5 @@ export const KILLBOTS: SchemeCardDef = {
   twists: 8,
   startingTwistsRevealed: 3,
   bystanders: 18,
-  // Loss timer placeholder: real rule is "5 Killbot bystanders escape" which
-  // needs bystander-escape tracking. evilWinsAfterTwists fires when all 8
-  // twists are out — roughly approximates "the game is collapsing".
-  evilWinsAfterTwists: 8,
+  evilWinsAfterEscapedKillbots: 5,
 };

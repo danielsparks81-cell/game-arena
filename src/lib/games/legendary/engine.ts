@@ -4120,6 +4120,23 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
       if (eDef.kind === 'villain' || eDef.kind === 'henchman') {
         pushLog(state, { kind: 'villain_escaped', cardId: eDef.cardId, cardName: eDef.name });
 
+        // Killbots scheme: a Killbot Villain escaping counts toward the
+        // "5 Killbots escape = evil wins" loss timer.
+        if (escaped.cardId === 'killbot') {
+          state.escapedKillbots = (state.escapedKillbots ?? 0) + 1;
+          const ksch = SCHEMES.find(s => s.cardId === state.schemeId);
+          if (ksch?.evilWinsAfterEscapedKillbots !== undefined) {
+            pushLog(state, { kind: 'system', text:
+              `A Killbot escaped (${state.escapedKillbots}/${ksch.evilWinsAfterEscapedKillbots}).` });
+            if ((state.escapedKillbots ?? 0) >= ksch.evilWinsAfterEscapedKillbots && !state.result) {
+              state.result = 'loss';
+              state.resultReason = `${ksch.name} — ${state.escapedKillbots} Killbots escaped. Evil wins.`;
+              state.phase = 'finished';
+              pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
+            }
+          }
+        }
+
         // ── Step 1: prompt the active player to KO a Hero from the HQ ───
         // Was: engine auto-picked the highest-cost (≤6) Hero. Now we set a
         // mandatory pending choice so the active player clicks which Hero
