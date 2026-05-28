@@ -2314,8 +2314,9 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     }
 
     case 'each_player_reveal_tech_hero_or_wound': {
-      // Ultron Escape: each player reveals a [tech] Hero from their hand
-      // or gains a Wound.
+      // Shared by Ultron's Escape and the Legacy Virus twist. `source` labels
+      // which one fired (so the log doesn't always say "Ultron Escape").
+      const src = effect.source ? ` (${effect.source})` : '';
       for (const player of state.players) {
         const hasTech = player.hand.some(c => {
           const d = getCard(c.cardId);
@@ -2328,11 +2329,11 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
             recomputeVp(player);
             pushLog(state, { kind: 'wound_taken', seat: player.seat, username: player.username });
             pushLog(state, { kind: 'system', text:
-              `${player.username} has no [tech] Hero in hand — gains a Wound (Ultron Escape).` });
+              `${player.username} has no [tech] Hero in hand — gains a Wound${src}.` });
           }
         } else {
           pushLog(state, { kind: 'system', text:
-            `${player.username} reveals a [tech] Hero — safe from Ultron.` });
+            `${player.username} reveals a [tech] Hero — no Wound${src}.` });
         }
       }
       return;

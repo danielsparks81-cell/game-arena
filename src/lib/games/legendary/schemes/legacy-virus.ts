@@ -22,6 +22,6 @@ export const LEGACY_VIRUS: SchemeCardDef = {
   woundsPerPlayer: 6,
   evilWinsIfWoundDeckEmpty: true,
   onTwist: [
-    { kind: 'each_player_reveal_tech_hero_or_wound' },
+    { kind: 'each_player_reveal_tech_hero_or_wound', source: 'Legacy Virus' },
   ],
 };

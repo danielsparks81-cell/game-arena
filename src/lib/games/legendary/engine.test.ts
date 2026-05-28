@@ -98,8 +98,12 @@ describe('legendary: recruit + fight', () => {
     const next = applyAction(s, 'alice', { kind: 'end_turn' }) as LegendaryState;
     // Hand reset to 6 (or fewer if deck is small — but starter has 12 so 6 is fine)
     expect(next.players[0].hand).toHaveLength(STARTING_HAND_SIZE);
-    // Villain deck shrunk by 1
-    expect(next.villainDeck.length).toBe(beforeVD - 1);
+    // At least one Villain-deck card was revealed. We assert "shrank" rather
+    // than "exactly −1" because freshSinglePlayerGame() picks a RANDOM scheme,
+    // and some schemes' twists reveal extra Villain-deck cards (e.g. Bank
+    // Robbery's onTwist does villain_deck_reveal_top) — so a single end_turn
+    // can legitimately drop the deck by more than 1.
+    expect(next.villainDeck.length).toBeLessThan(beforeVD);
     // Turn counter advanced
     expect(next.turn).toBe(2);
     void before;
@@ -130,12 +134,34 @@ describe('legendary: hand privacy projection', () => {
 describe('legendary: city + escape', () => {
   it('a revealed villain enters slot 0 of the City', () => {
     let s = freshSinglePlayerGame();
-    // End enough turns to surface a villain (some reveals might be twists/strikes/etc.)
-    for (let i = 0; i < 6; i++) {
-      const next = applyAction(s, 'alice', { kind: 'end_turn' }) as LegendaryState;
-      if ('error' in next) break;
-      s = next;
+    // Keep ending turns until a Villain/Henchman surfaces into the city, or
+    // the Villain Deck is exhausted. A fixed iteration cap was flaky: with a
+    // random scheme the deck can be front-loaded with non-city reveals
+    // (twists/bystanders — Killbots alone seeds 18 bystanders), so 6 turns
+    // weren't always enough. The deck always CONTAINS villain/henchman cards,
+    // so looping to exhaustion is deterministic. Hard cap guards infinite
+    // loops if the game ends first.
+    for (let i = 0; i < 120; i++) {
       if (s.city.some(c => c !== null)) break;
+      if (s.villainDeck.length === 0 || s.phase === 'finished' || s.result) break;
+      // Solo play sets interactive prompts (solo-twist tuck, master-strike KO,
+      // escape KO) that block end_turn. Clear any pending choice first so we
+      // can keep ending turns until a city card surfaces.
+      if (s.thisTurn.pendingChoice) {
+        const skipped = applyAction(s, 'alice', { kind: 'skip_choice' });
+        if (!('error' in skipped)) { s = skipped as LegendaryState; continue; }
+        // Mandatory (unskippable) choice — resolve it by picking the first
+        // legal card in hand, else bail.
+        const firstCard = s.players[0].hand[0];
+        if (firstCard) {
+          const resolved = applyAction(s, 'alice', { kind: 'resolve_choice', instanceId: firstCard.instanceId });
+          if (!('error' in resolved)) { s = resolved as LegendaryState; continue; }
+        }
+        break;
+      }
+      const next = applyAction(s, 'alice', { kind: 'end_turn' });
+      if ('error' in next) break;
+      s = next as LegendaryState;
     }
     const anyInCity = s.city.some(c => c !== null);
     // Even with bad luck, by turn 6+ we should have something villain-shaped in the city.

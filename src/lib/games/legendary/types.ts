@@ -278,9 +278,10 @@ export type Effect =
   /** Whirlwind Fight: if the active player fights Whirlwind from a specific
    *  city location, they must KO `amount` Heroes from their hand. */
   | { kind: 'ko_heroes_from_hand_if_at_location'; locations: string[]; amount: number }
-  /** Ultron Escape: each player reveals a [tech] Hero from their hand or
-   *  gains a Wound. */
-  | { kind: 'each_player_reveal_tech_hero_or_wound' }
+  /** Each player reveals a [tech] Hero from their hand or gains a Wound.
+   *  Shared by Ultron's Escape AND the Legacy Virus scheme twist — `source`
+   *  labels which one fired it in the log (defaults to no attribution). */
+  | { kind: 'each_player_reveal_tech_hero_or_wound'; source?: string }
   /** Melter Fight: each player reveals their top deck card. For each revealed
    *  card, the active player chooses to KO it or return it to the top
    *  (interactive — resolved via the melter_decide_card pending choice). */

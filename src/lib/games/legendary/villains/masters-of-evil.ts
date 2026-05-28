@@ -37,7 +37,7 @@ export const MASTERS_ULTRON: VillainCardDef = {
   vp: 2,
   team: 'masters-of-evil',
   vpScaleClass: { cls: 'tech', among: 'all_cards', amount: 1 },
-  escape: [{ kind: 'each_player_reveal_tech_hero_or_wound' }],
+  escape: [{ kind: 'each_player_reveal_tech_hero_or_wound', source: 'Ultron Escape' }],
   text: 'Ultron is worth +1[vp] for each [tech] Hero you have among all your cards at the end of the game.\nEscape: Each player reveals a [tech] Hero or gains a Wound.',
 };
 
