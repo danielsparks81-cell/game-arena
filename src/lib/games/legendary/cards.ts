@@ -188,22 +188,27 @@ export function effectiveCityStrike(opts: {
   /** Bystanders held by this card (Bank Robbery: +N strike each). */
   bystanderCount?: number;
   strikePerBystander?: number;
+  /** Dark Portals: +N persistent strike if this slot has a portal. */
+  portalBonus?: number;
   /** Storm location debuff (Lightning Bolt / Tidal Wave). */
   locationDebuff?: number;
 }): { required: number; bystanderBonus: number; base: number } {
   const bystanderCount = opts.bystanderCount ?? 0;
   const strikePerBystander = opts.strikePerBystander ?? 0;
   const locationDebuff = opts.locationDebuff ?? 0;
-  // Bystander bonus only applies when no attach-hero / killbot override is in
-  // play (those replace the printed strike wholesale).
+  const portalBonus = opts.portalBonus ?? 0;
+  // Bystander/portal bonuses apply on top of the printed strike. They do NOT
+  // apply when an attach-hero / killbot override replaces the printed strike
+  // wholesale (those define the strike themselves).
   const overridden = opts.attachedHeroCost !== undefined || !!opts.isKillbot;
-  const bystanderBonus = overridden ? 0 : strikePerBystander * bystanderCount;
+  const extraBonus = overridden ? 0 : (strikePerBystander * bystanderCount) + portalBonus;
   const printed =
     opts.attachedHeroCost !== undefined ? opts.attachedHeroCost
     : opts.isKillbot ? (opts.killbotStrike ?? 0)
     : opts.printedAttack;
-  const base = printed + bystanderBonus;
-  return { required: Math.max(0, base - locationDebuff), bystanderBonus, base };
+  const base = printed + extraBonus;
+  // `bystanderBonus` is the total additive buff shown on the card art (amber).
+  return { required: Math.max(0, base - locationDebuff), bystanderBonus: extraBonus, base };
 }
 
 // Pure constants — tunable per scheme/player-count in real Legendary, but

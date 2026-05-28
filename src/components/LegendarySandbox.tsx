@@ -889,6 +889,7 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'skrull_attach_hero_from_hq':                     return { kind, mode: 'rightmost' };
     case 'skrull_gain_attached_hero':                      return { kind };
     case 'each_player_gains_hq_hero':                      return { kind };
+    case 'place_dark_portal':                              return { kind };
     case 'lizard_sewers_wound_others':                     return { kind };
     case 'rescue_bystanders_if_at_locations':              return { kind, locations: ['streets', 'bridge'], amount: 1 };
     case 'maestro_ko_per_strength':                        return { kind };

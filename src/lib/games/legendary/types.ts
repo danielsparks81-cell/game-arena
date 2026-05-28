@@ -309,6 +309,11 @@ export type Effect =
   // ── Scheme-triggered effects ─────────────────────────────────────────────────
   /** Super Hero Civil War twist: KO every Hero currently in the HQ (then refill). */
   | { kind: 'ko_all_heroes_in_hq' }
+  /** Dark Portals twist: place the next Dark Portal. Twist 1 → above the
+   *  Mastermind (+1 strike); twists 2-6 → leftmost city slot without a portal
+   *  (+1 strike to villains there). The buff is persistent (state.darkPortals).
+   *  Reads state.schemeTwistsRevealed to know which twist this is. */
+  | { kind: 'place_dark_portal' }
 
   // ── Skrull villain group ─────────────────────────────────────────────────────
   /** Super-Skrull Fight: every player must KO a Hero from their hand. Fires the
@@ -893,6 +898,12 @@ export type LegendaryState = {
   /** Running count of Killbot Villains that have escaped. Drives the Killbots
    *  scheme loss (evilWinsAfterEscapedKillbots). */
   escapedKillbots?: number;
+  /** Dark Portals scheme: PERSISTENT strike buffs that accumulate as Dark
+   *  Portal twists are revealed (unlike per-turn debuffs, these last all
+   *  game). `mastermind` = the Mastermind has a portal (+1 strike). `slots`
+   *  = city slot indices that each have a portal (+1 strike to villains
+   *  there). */
+  darkPortals?: { mastermind: boolean; slots: number[] };
   ko: CardInstance[]; // permanent KO pile (cards removed from the game)
   woundDeck: CardInstance[];
   bystanderDeck: CardInstance[];

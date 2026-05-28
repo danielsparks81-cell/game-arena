@@ -652,6 +652,7 @@ export default function LegendaryBoard({
                   ? state.thisTurn.attack + state.thisTurn.recruit
                   : state.thisTurn.attack}
                 mastermindAttackDebuff={state.thisTurn.mastermindAttackDebuff}
+                portalBonus={state.darkPortals?.mastermind ? 1 : 0}
                 isMyTurn={isMyTurn}
                 disabled={disabled || actionsLockedByHeal || state.phase === 'finished'}
                 onFight={onFightMastermind}
@@ -719,6 +720,7 @@ export default function LegendaryBoard({
                         attack={effectiveAttack}
                         locationDebuff={locationDebuff}
                         strikePerBystander={schemeStrikePerBystander}
+                        portalBonus={state.darkPortals?.slots.includes(slot) ? 1 : 0}
                         disabled={!isMyTurn || disabled || actionsLockedByHeal || state.phase === 'finished'}
                         onFight={() => onFightCity(slot)}
                         attachedBystanders={visibleCard ? state.cityBystanders[visibleCard.instanceId]?.length ?? 0 : 0}
@@ -1754,7 +1756,7 @@ function ZoneLabel({ children }: { children: React.ReactNode }) {
 
 function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
-  strikePerBystander = 0,
+  strikePerBystander = 0, portalBonus = 0,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
   attachedHeroName, attachedHeroCost, killbotStrike, fightConditionMet = true,
@@ -1769,6 +1771,8 @@ function CitySlot({
   attachedBystanders: number;
   /** Midtown Bank Robbery scheme: +N strike per held Bystander. */
   strikePerBystander?: number;
+  /** Dark Portals scheme: +N persistent strike if this slot has a portal. */
+  portalBonus?: number;
   /** When true, the player may fight a villain with bystanders at zero attack cost. */
   freeBystanderFightAvailable?: boolean;
   /** When true (Loki Cruel Ruler), the player may fight any one villain for free. */
@@ -1881,6 +1885,7 @@ function CitySlot({
     killbotStrike,
     bystanderCount: attachedBystanders,
     strikePerBystander,
+    portalBonus,
     locationDebuff,
   });
   // Free bystander fight (Hawkeye): can fight for free if villain has attached bystanders.
@@ -2418,7 +2423,7 @@ function SchemeZone({
  *  the sandbox MastermindCardArt: crimson border, name/label/alwaysLeads/strike
  *  text. Tactic progress bar stays at the bottom. */
 function MastermindZone({
-  mmDef, tacticsLeft, attack, mastermindAttackDebuff = 0, isMyTurn, disabled, onFight, bystanderCount = 0,
+  mmDef, tacticsLeft, attack, mastermindAttackDebuff = 0, portalBonus = 0, isMyTurn, disabled, onFight, bystanderCount = 0,
 }: {
   mmDef: ReturnType<typeof getCard>;
   /** How many Tactic cards are still face-down (= hits left to win). */
@@ -2427,6 +2432,8 @@ function MastermindZone({
   attack: number;
   /** Storm's Tidal Wave: reduces the mastermind's effective attack requirement. */
   mastermindAttackDebuff?: number;
+  /** Dark Portals: +N persistent strike if a portal sits above the Mastermind. */
+  portalBonus?: number;
   isMyTurn: boolean;
   disabled: boolean;
   onFight: () => void;
@@ -2437,7 +2444,7 @@ function MastermindZone({
     return <div className="h-full rounded-lg border border-dashed border-neutral-800" />;
   }
   const totalTactics = mmDef.hits;
-  const effectiveRequired = Math.max(0, mmDef.attack - mastermindAttackDebuff);
+  const effectiveRequired = Math.max(0, mmDef.attack + portalBonus - mastermindAttackDebuff);
   const canHit = isMyTurn && !disabled && attack >= effectiveRequired && tacticsLeft > 0;
   // Border is always bright crimson (matches scheme panel's always-bright violet).
   const borderColor = '#DC143C';
@@ -2501,10 +2508,11 @@ function MastermindZone({
           original strikethrough + the reduced value in green to mirror the
           city-villain strike display. */}
       <span className="absolute right-1 bottom-[20px] flex items-center gap-0.5 text-[13px] font-semibold">
-        {mastermindAttackDebuff > 0 ? (
+        {(mastermindAttackDebuff > 0 || portalBonus > 0) ? (
           <>
             <span className="mr-0.5 text-neutral-500 line-through">{mmDef.attack}</span>
-            <span style={{ color: '#34d399' }}>{effectiveRequired}</span>
+            {/* Net < printed → reduced (emerald); net > printed → buffed (amber). */}
+            <span style={{ color: effectiveRequired < mmDef.attack ? '#34d399' : '#fbbf24' }}>{effectiveRequired}</span>
           </>
         ) : (
           <span className="text-white">{mmDef.attack}</span>

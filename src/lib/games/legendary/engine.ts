@@ -37,6 +37,7 @@ import {
   getCard,
   SHIELD_TEAMS,
   CITY_LOCATION_INDEX,
+  CITY_LOCATIONS,
   effectiveCityStrike,
 } from './cards';
 import type {
@@ -1909,6 +1910,27 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Dark Portals twist: place the next Dark Portal ────────────────────────
+    case 'place_dark_portal': {
+      if (!state.darkPortals) state.darkPortals = { mastermind: false, slots: [] };
+      const n = state.schemeTwistsRevealed; // 1-based: this twist's number
+      if (n === 1) {
+        state.darkPortals.mastermind = true;
+        pushLog(state, { kind: 'system', text:
+          'Dark Portal opens above the Mastermind — it gains +1 strike (permanently).' });
+      } else if (n >= 2 && n <= 6) {
+        // Leftmost city slot (Sewers=0 → Bridge=4) that doesn't yet have one.
+        const slot = [0, 1, 2, 3, 4].find(s => !state.darkPortals!.slots.includes(s));
+        if (slot !== undefined) {
+          state.darkPortals.slots.push(slot);
+          pushLog(state, { kind: 'system', text:
+            `Dark Portal opens at the ${CITY_LOCATIONS[slot]} — Villains there gain +1 strike (permanently).` });
+        }
+      }
+      // Twist 7 (evil wins) is handled by evilWinsAfterTwists in doEndTurn.
+      return;
+    }
+
     // ── Magneto Tactic 4: Crushing Shockwave ─────────────────────────────────
     case 'reveal_xmen_or_gain_wounds': {
       if (me.hand.length === 0) return;
@@ -2532,6 +2554,7 @@ function doFightCity(
     killbotStrike: state.schemeTwistsRevealed,
     bystanderCount: attached.length,
     strikePerBystander: scheme?.villainStrikePerBystander ?? 0,
+    portalBonus: state.darkPortals?.slots.includes(slot) ? 1 : 0,
     locationDebuff,
   });
 
@@ -3428,8 +3451,10 @@ function doFightMastermind(
   const mmFreeFight = state.thisTurn.freeBystanderFightAvailable &&
                       state.mastermind.bystanders.length > 0;
 
-  // Storm – Tidal Wave: mastermind attack debuff.
-  const mmRequired = Math.max(0, mmDef.attack - state.thisTurn.mastermindAttackDebuff);
+  // Storm – Tidal Wave: mastermind attack debuff (per-turn, lowers requirement).
+  // Dark Portals: persistent +1 if a portal sits above the Mastermind.
+  const mmPortalBonus = state.darkPortals?.mastermind ? 1 : 0;
+  const mmRequired = Math.max(0, mmDef.attack + mmPortalBonus - state.thisTurn.mastermindAttackDebuff);
 
   // Thor – God of Thunder: attack and recruit are interchangeable.
   const mmAvailable = state.thisTurn.recruitAsAttackEnabled
