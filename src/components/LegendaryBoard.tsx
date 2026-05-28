@@ -41,7 +41,7 @@ import {
   type HenchmanCardDef,
 } from '@/lib/games/legendary';
 import { SIDEKICK, OFFICER } from '@/lib/games/legendary/heroes/shield';
-import { WOUND, teamDisplayName } from '@/lib/games/legendary/cards';
+import { WOUND, teamDisplayName, SHIELD_TEAMS, effectiveCityStrike } from '@/lib/games/legendary/cards';
 // Card render primitives. Extracted so the sandbox preview at
 // /legendary-sandbox renders cards identically — no drift between author-time
 // and play-time visuals.
@@ -1861,20 +1861,17 @@ function CitySlot({
     );
   }
 
-  // Skrull attach mechanic: attached Hero's cost replaces the printed attack
-  // when present. Killbots scheme: Killbot villains scale with twist count.
-  // Mirrors engine's effective-attack logic in doFightCity.
-  // Bank Robbery: each held bystander adds to strike. Skip when an attached
-  // Hero / Killbot override is in play (those replace the printed strike).
-  const bystanderStrikeBonus =
-    attachedHeroCost === undefined && card?.cardId !== 'killbot'
-      ? strikePerBystander * attachedBystanders
-      : 0;
-  const baseAttack = (attachedHeroCost !== undefined
-    ? attachedHeroCost
-    : (card?.cardId === 'killbot' ? (killbotStrike ?? 0) : def.attack))
-    + bystanderStrikeBonus;
-  const effectiveRequired = Math.max(0, baseAttack - locationDebuff);
+  // Strike calc via the SHARED helper so the fight gate + displayed strike
+  // can never disagree with the engine's doFightCity requirement.
+  const { required: effectiveRequired, bystanderBonus: bystanderStrikeBonus } = effectiveCityStrike({
+    printedAttack: def.attack,
+    attachedHeroCost,
+    isKillbot: card?.cardId === 'killbot',
+    killbotStrike,
+    bystanderCount: attachedBystanders,
+    strikePerBystander,
+    locationDebuff,
+  });
   // Free bystander fight (Hawkeye): can fight for free if villain has attached bystanders.
   // Free city fight (Loki Cruel Ruler): can fight any one villain for free.
   const canFight = !disabled && fightConditionMet && (
@@ -2918,8 +2915,7 @@ function isChoiceTarget(cardId: CardId, choice: PendingChoice): boolean {
   if ('filter' in choice && choice.filter === 'shield_heroes') {
     const def = CARDS[cardId];
     if (def?.kind !== 'hero') return false;
-    const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
-    return (def as HeroCardDef).teams.some(t => shieldTeams.has(t));
+    return (def as HeroCardDef).teams.some(t => SHIELD_TEAMS.has(t));
   }
   if ('filter' in choice && choice.filter === 'heroes_only') {
     return CARDS[cardId]?.kind === 'hero';

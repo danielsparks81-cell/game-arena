@@ -35,6 +35,9 @@ import {
   MASTERMINDS,
   SCHEMES,
   getCard,
+  SHIELD_TEAMS,
+  CITY_LOCATION_INDEX,
+  effectiveCityStrike,
 } from './cards';
 import type {
   CardDef,
@@ -1128,7 +1131,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
     case 'defeat_villain_under_shield_ko_count': {
-      const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
+      const shieldTeams = SHIELD_TEAMS;
       const shieldKoCount = state.ko.filter(c => {
         const d = getCard(c.cardId);
         return d.kind === 'hero' && (d as HeroCardDef).teams.some(t => shieldTeams.has(t));
@@ -1250,7 +1253,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       const isShieldHero = (c: CardInstance) => {
         const d = getCard(c.cardId);
         if (d.kind !== 'hero') return false;
-        const st = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
+        const st = SHIELD_TEAMS;
         return (d as HeroCardDef).teams.some(t => st.has(t));
       };
       const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
@@ -1361,9 +1364,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     // ── Storm-specific effects ────────────────────────────────────────────────
     case 'villain_debuff_at_location': {
       // CITY_LOCATIONS = ['Sewers','Bank','Rooftops','Streets','Bridge'] (indices 0–4).
-      const locationMap: Record<string, number> = {
-        sewers: 0, bank: 1, rooftops: 2, streets: 3, bridge: 4,
-      };
+      const locationMap = CITY_LOCATION_INDEX;
       const idx = locationMap[effect.location.toLowerCase()];
       if (idx !== undefined) {
         state.thisTurn.locationVillainDebuffs[idx] =
@@ -1648,9 +1649,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     // If defeated on one of the named city slots, the active player rescues
     // `amount` Bystanders from the bystander deck.
     case 'rescue_bystanders_if_at_locations': {
-      const locationMap: Record<string, number> = {
-        sewers: 0, bank: 1, rooftops: 2, streets: 3, bridge: 4,
-      };
+      const locationMap = CITY_LOCATION_INDEX;
       const locationNames: Record<number, string> = {
         0: 'Sewers', 1: 'Bank', 2: 'Rooftops', 3: 'Streets', 4: 'Bridge',
       };
@@ -2132,7 +2131,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       // [shield]-counting effects elsewhere in the engine (Nick Fury's
       // Legendary Commander, Pure Fury, etc.). This includes Nick Fury cards
       // alongside the starter S.H.I.E.L.D. Troopers / Agents / Officers.
-      const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
+      const shieldTeams = SHIELD_TEAMS;
       const isShield = (c: CardInstance) => {
         const d = getCard(c.cardId);
         if (d.kind !== 'hero') return false;
@@ -2221,9 +2220,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     case 'ko_heroes_from_hand_if_at_location': {
       // Whirlwind Fight: if the villain was fought at a named city location,
       // the active player must KO `amount` Heroes — chosen from hand OR played area.
-      const locationMap: Record<string, number> = {
-        sewers: 0, bank: 1, rooftops: 2, streets: 3, bridge: 4,
-      };
+      const locationMap = CITY_LOCATION_INDEX;
       const locationNames: Record<number, string> = {
         0: 'Sewers', 1: 'Bank', 2: 'Rooftops', 3: 'Streets', 4: 'Bridge',
       };
@@ -2493,20 +2490,18 @@ function doFightCity(
   //   3. Otherwise: the villain's printed attack.
   const attachedHero = state.cityAttachedHeroes?.[card.instanceId];
   const attachedHeroDef = attachedHero ? getCard(attachedHero.cardId) : undefined;
-  let baseAttack: number;
-  if (attachedHeroDef && attachedHeroDef.kind === 'hero') {
-    baseAttack = (attachedHeroDef as HeroCardDef).cost;
-  } else if (card.cardId === 'killbot') {
-    baseAttack = state.schemeTwistsRevealed;
-  } else {
-    baseAttack = def.attack;
-  }
-  // Midtown Bank Robbery: each captured Bystander adds +N to this villain's
-  // strike (the fight requirement). attached = bystanders held by this card.
   const scheme = SCHEMES.find(s => s.cardId === state.schemeId);
-  const perBystander = scheme?.villainStrikePerBystander ?? 0;
-  baseAttack += perBystander * attached.length;
-  const requiredAttack = Math.max(0, baseAttack - locationDebuff);
+  // Shared strike calc — same helper the board uses, so the fight gate can
+  // never disagree with the displayed strike.
+  const { required: requiredAttack } = effectiveCityStrike({
+    printedAttack: def.attack,
+    attachedHeroCost: attachedHeroDef?.kind === 'hero' ? (attachedHeroDef as HeroCardDef).cost : undefined,
+    isKillbot: card.cardId === 'killbot',
+    killbotStrike: state.schemeTwistsRevealed,
+    bystanderCount: attached.length,
+    strikePerBystander: scheme?.villainStrikePerBystander ?? 0,
+    locationDebuff,
+  });
 
   // Thor – God of Thunder: attack and recruit are interchangeable.
   const availableAttack = state.thisTurn.recruitAsAttackEnabled
@@ -2970,7 +2965,7 @@ function doResolveChoice(
   }
   if ('filter' in choice && choice.filter === 'shield_heroes') {
     const d = getCard(card.cardId);
-    const shieldTeams = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
+    const shieldTeams = SHIELD_TEAMS;
     if (d.kind !== 'hero' || !(d as HeroCardDef).teams.some(t => shieldTeams.has(t))) {
       return { error: 'You must choose a S.H.I.E.L.D. Hero card for this effect' };
     }
@@ -3025,7 +3020,7 @@ function doResolveChoice(
     const isShieldCard = (c: CardInstance) => {
       const d = getCard(c.cardId);
       if (d.kind !== 'hero') return false;
-      const st = new Set(['shield', 'shield-officer', 'shield-agent', 'shield-trooper']);
+      const st = SHIELD_TEAMS;
       return (d as HeroCardDef).teams.some(t => st.has(t));
     };
     const isWoundCard = (c: CardInstance) => c.cardId === 'wound';

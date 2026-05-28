@@ -148,6 +148,64 @@ export function isHero(id: CardId): boolean {
   return getCard(id).kind === 'hero';
 }
 
+/** Every team string that displays the S.H.I.E.L.D. [shield] icon. Used by
+ *  any "[shield] Hero" effect (Destroyer KO, Nick Fury, Pure Fury, …). Single
+ *  source of truth — previously re-inlined in 6 places. */
+export const SHIELD_TEAMS: ReadonlySet<string> = new Set([
+  'shield', 'shield-officer', 'shield-agent', 'shield-trooper',
+]);
+
+/** True if a card carries the [shield] team icon (Trooper/Agent/Officer +
+ *  Nick Fury). Non-heroes are never [shield]. */
+export function isShieldHero(def: CardDef): boolean {
+  if (def.kind !== 'hero') return false;
+  return (def.teams ?? []).some(t => SHIELD_TEAMS.has(t));
+}
+
+/** City locations, deck-entry edge (Sewers, slot 0) → far edge (Bridge, slot 4). */
+export const CITY_LOCATIONS = ['Sewers', 'Bank', 'Rooftops', 'Streets', 'Bridge'] as const;
+/** Lower-cased location name → city slot index. Single source of truth for
+ *  Storm's location debuffs and any other location-keyed effect. */
+export const CITY_LOCATION_INDEX: Record<string, number> = {
+  sewers: 0, bank: 1, rooftops: 2, streets: 3, bridge: 4,
+};
+
+/**
+ * Effective fight requirement (strike) for a city villain/henchman. The ONE
+ * place both the engine (doFightCity) and the board (CitySlot) must agree on,
+ * so the "can I fight?" highlight never disagrees with what the engine
+ * actually charges. Returns the net required attack AND the bystander bonus
+ * (for the card-art display).
+ */
+export function effectiveCityStrike(opts: {
+  /** Printed attack of the villain/henchman. */
+  printedAttack: number;
+  /** Skrull attach-hero: the tucked Hero's cost replaces the printed strike. */
+  attachedHeroCost?: number;
+  /** Killbots scheme: this card is a Killbot → strike = current twist count. */
+  isKillbot?: boolean;
+  killbotStrike?: number;
+  /** Bystanders held by this card (Bank Robbery: +N strike each). */
+  bystanderCount?: number;
+  strikePerBystander?: number;
+  /** Storm location debuff (Lightning Bolt / Tidal Wave). */
+  locationDebuff?: number;
+}): { required: number; bystanderBonus: number; base: number } {
+  const bystanderCount = opts.bystanderCount ?? 0;
+  const strikePerBystander = opts.strikePerBystander ?? 0;
+  const locationDebuff = opts.locationDebuff ?? 0;
+  // Bystander bonus only applies when no attach-hero / killbot override is in
+  // play (those replace the printed strike wholesale).
+  const overridden = opts.attachedHeroCost !== undefined || !!opts.isKillbot;
+  const bystanderBonus = overridden ? 0 : strikePerBystander * bystanderCount;
+  const printed =
+    opts.attachedHeroCost !== undefined ? opts.attachedHeroCost
+    : opts.isKillbot ? (opts.killbotStrike ?? 0)
+    : opts.printedAttack;
+  const base = printed + bystanderBonus;
+  return { required: Math.max(0, base - locationDebuff), bystanderBonus, base };
+}
+
 // Pure constants — tunable per scheme/player-count in real Legendary, but
 // MVP-static for now. We'll parameterize when we add the second scheme.
 export const HQ_SIZE = 5;
