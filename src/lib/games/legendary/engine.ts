@@ -1813,6 +1813,30 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
+    // ── Paibok the Power Skrull Fight: choose an HQ Hero for each player ────
+    // "Choose a Hero in the HQ for each player. Each player gains that Hero."
+    // The active player picks one HQ Hero per player (interactive, chained);
+    // each pick goes to that player's discard and the HQ refills between
+    // picks. Recipients are served in seat order starting with the active
+    // player. No Heroes in the HQ → nothing happens.
+    case 'each_player_gains_hq_hero': {
+      const hasHero = state.hq.some(c => c && getCard(c.cardId).kind === 'hero');
+      if (!hasHero) {
+        pushLog(state, { kind: 'system', text: `${me.username}: no Heroes in the HQ — Paibok's Fight does nothing.` });
+        return;
+      }
+      // Recipient order: active player first, then the rest by seat.
+      const seats = [...state.players]
+        .sort((a, b) => a.seat - b.seat)
+        .map(p => p.seat);
+      const ordered = [me.seat, ...seats.filter(s => s !== me.seat)];
+      state.thisTurn.pendingChoice = { kind: 'paibok_gain_hq_hero', recipientSeats: ordered };
+      const firstName = state.players.find(p => p.seat === ordered[0])?.username ?? 'player';
+      pushLog(state, { kind: 'system', text:
+        `${me.username}: Paibok — choose a Hero in the HQ for ${firstName}.` });
+      return;
+    }
+
     // ── Super-Skrull Fight: each player KOs a Hero from their hand ─────────
     // Official: "Each player KOs one of their Heroes." Fires on the active
     // player's Fight resolution.
@@ -2733,6 +2757,32 @@ function doResolveChoice(
     return state;
   }
 
+  // ── Paibok: assign a chosen HQ Hero to the head-of-queue player ──────────
+  if (choice.kind === 'paibok_gain_hq_hero') {
+    const slotIdx = state.hq.findIndex(c => c?.instanceId === instanceId);
+    if (slotIdx < 0) return { error: 'That card is not in the HQ' };
+    const card = state.hq[slotIdx]!;
+    const def = getCard(card.cardId);
+    if (def.kind !== 'hero') return { error: 'Paibok: choose a Hero from the HQ' };
+    const [recipientSeat, ...rest] = choice.recipientSeats;
+    const recipient = state.players.find(p => p.seat === recipientSeat) ?? me;
+    state.hq[slotIdx] = null;
+    recipient.discard.push(card);
+    refillHQ(state, true);
+    pushLog(state, { kind: 'system', text:
+      `${recipient.username} gains ${def.cardName} from the HQ (Paibok).` });
+    // More players still to serve, and HQ still has a Hero? Re-prompt.
+    const hqHasHero = state.hq.some(c => c && getCard(c.cardId).kind === 'hero');
+    if (rest.length > 0 && hqHasHero) {
+      state.thisTurn.pendingChoice = { kind: 'paibok_gain_hq_hero', recipientSeats: rest };
+      const nextName = state.players.find(p => p.seat === rest[0])?.username ?? 'player';
+      pushLog(state, { kind: 'system', text: `Paibok — choose a Hero in the HQ for ${nextName}.` });
+    } else {
+      state.thisTurn.pendingChoice = undefined;
+    }
+    return state;
+  }
+
   // ── Order Top of Deck: player picks the next card to be placed on top ──
   // Click order becomes draw order — first click ends up on top of the deck
   // (drawn next), subsequent clicks below it. When the queue empties, all
@@ -3236,6 +3286,9 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
   }
   if (choice.kind === 'escape_ko_hq_hero') {
     return { error: 'You must KO a Hero from the HQ — the escape penalty cannot be skipped.' };
+  }
+  if (choice.kind === 'paibok_gain_hq_hero') {
+    return { error: 'You must choose a Hero in the HQ for each player (Paibok).' };
   }
   state.thisTurn.pendingChoice = undefined;
   // Gambit – Hypnotic Charm: skip = put the revealed card back on top of deck.

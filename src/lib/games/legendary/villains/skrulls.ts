@@ -61,7 +61,7 @@ export const PAIBOK_THE_POWER_SKRULL: VillainCardDef = {
   attack: 8,
   vp: 3,
   team: 'skrulls',
-  // fight: TODO — active player chooses a Hero in the HQ for each player.
+  fight: [{ kind: 'each_player_gains_hq_hero' }],
   text: 'Fight: Choose a Hero in the HQ for each player. Each player gains that Hero.',
 };
 

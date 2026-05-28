@@ -147,6 +147,7 @@ export default function LegendaryBoard({
   // Choices that target the city, HQ, or deck-peek zone (not the hand) are excluded from hand-choice mode.
   const isChoiceMode = isMyTurn && !!pendingChoice &&
     pendingChoice.kind !== 'free_recruit_from_hq' &&
+    pendingChoice.kind !== 'paibok_gain_hq_hero' &&
     pendingChoice.kind !== 'free_recruit_xmen_from_hq' &&
     pendingChoice.kind !== 'ko_up_to_from_discard' &&
     pendingChoice.kind !== 'em_bubble_select_hero' &&
@@ -169,6 +170,7 @@ export default function LegendaryBoard({
   const isMoveVillainSelectVillain    = pendingChoice?.kind === 'move_villain_select_villain';
   const isMoveVillainSelectDest       = pendingChoice?.kind === 'move_villain_select_dest';
   const isFreeRecruitFromHQ           = isMyTurn && pendingChoice?.kind === 'free_recruit_from_hq';
+  const isPaibokGainFromHQ            = isMyTurn && pendingChoice?.kind === 'paibok_gain_hq_hero';
   const isFreeRecruitXmenFromHQ       = isMyTurn && pendingChoice?.kind === 'free_recruit_xmen_from_hq';
   const isKoUpToFromDiscard           = isMyTurn && pendingChoice?.kind === 'ko_up_to_from_discard';
   const isEmBubbleSelectHero          = isMyTurn && pendingChoice?.kind === 'em_bubble_select_hero';
@@ -875,6 +877,9 @@ export default function LegendaryBoard({
                       onKoFromHq={isEscapeKoHqHero && visibleCard
                         ? () => onResolveChoice(visibleCard.instanceId)
                         : undefined}
+                      onPaibokGain={isPaibokGainFromHQ && visibleCard
+                        ? () => onResolveChoice(visibleCard.instanceId)
+                        : undefined}
                     />
                   </div>
                 );
@@ -1075,6 +1080,12 @@ export default function LegendaryBoard({
                   ? `🌀 Storm — moving ${(pendingChoice as { sourceName: string }).sourceName} — click a city space to place it`
                   : pendingChoice.kind === 'free_recruit_from_hq'
                   ? '⚙️ Dark Technology — click a Tech or Ranged Hero in the HQ to recruit it for free'
+                  : pendingChoice.kind === 'paibok_gain_hq_hero'
+                  ? (() => {
+                      const seats = (pendingChoice as { recipientSeats: number[] }).recipientSeats;
+                      const who = state.players.find(p => p.seat === seats[0])?.username ?? 'the next player';
+                      return `🦠 Paibok — click a Hero in the HQ to give to ${who} (${seats.length} player(s) left)`;
+                    })()
                   : pendingChoice.kind === 'free_recruit_xmen_from_hq'
                   ? '🟩 Bitter Captor — click an X-Men Hero in the HQ to recruit it for free'
                   : pendingChoice.kind === 'ko_up_to_from_discard'
@@ -1904,7 +1915,7 @@ function CitySlot({
 }
 
 function HQSlot({
-  card, slot, recruit, disabled, onRecruit, refillAnim = false, onFreeRecruit, onFreeRecruitXmen, onTuckHero, onKoFromHq,
+  card, slot, recruit, disabled, onRecruit, refillAnim = false, onFreeRecruit, onFreeRecruitXmen, onTuckHero, onKoFromHq, onPaibokGain,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1916,6 +1927,9 @@ function HQSlot({
   /** Dark Technology: when provided, this slot is in free-recruit mode.
    *  Eligible (Tech/Ranged) cards are highlighted and clickable; others are dimmed. */
   onFreeRecruit?: () => void;
+  /** Paibok the Power Skrull: when provided, click ANY Hero in the HQ to give
+   *  it to the current recipient player. */
+  onPaibokGain?: () => void;
   /** Bitter Captor (Magneto Tactic 2): when provided, this slot is in X-Men free-recruit mode.
    *  Eligible (X-Men) cards are highlighted in emerald and clickable; others are dimmed. */
   onFreeRecruitXmen?: () => void;
@@ -1954,6 +1968,24 @@ function HQSlot({
       >
         <HeroCardArt def={def} wide height="h-36" copies={copies} />
         <span className="sr-only">Recruit {def.cardName} for free</span>
+      </button>
+    );
+  }
+
+  // ── Paibok "gain an HQ Hero" mode (any Hero eligible) ───────────────────────
+  if (onPaibokGain !== undefined) {
+    return (
+      <button
+        type="button"
+        onClick={onPaibokGain}
+        className={[
+          'block w-full transition-all duration-150',
+          refillAnim ? 'animate-hq-flip-in' : '',
+          '-translate-y-3 shadow-lg ring-2 ring-green-400 hover:-translate-y-4 hover:shadow-xl hover:ring-green-300',
+        ].join(' ')}
+      >
+        <HeroCardArt def={def} wide height="h-36" copies={copies} />
+        <span className="sr-only">Give {def.cardName} to the current player (Paibok)</span>
       </button>
     );
   }

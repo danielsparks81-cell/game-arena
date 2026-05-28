@@ -322,6 +322,11 @@ export type Effect =
   /** Skrull Fight: the active player gains the Hero attached to this Villain
    *  (moves to their discard). Cleans up the attachment record. */
   | { kind: 'skrull_gain_attached_hero' }
+  /** Paibok the Power Skrull Fight: "Choose a Hero in the HQ for each player.
+   *  Each player gains that Hero." The active player picks one HQ Hero per
+   *  player (interactive, chained); each chosen Hero goes to that player's
+   *  discard and the HQ refills between picks. */
+  | { kind: 'each_player_gains_hq_hero' }
 
   // ── Spider-Foes villain group ────────────────────────────────────────────────
   /** The Lizard Fight: if defeated in the Sewers, each OTHER player gains a
@@ -695,6 +700,11 @@ export type PendingChoice =
   /** Dark Technology (Dr. Doom Tactic 2): player clicks a Tech or Ranged Hero
    *  in the HQ to recruit it for free; skippable ("may"). */
   | { kind: 'free_recruit_from_hq' }
+  /** Paibok the Power Skrull Fight: the active player clicks a Hero in the HQ;
+   *  it goes to the head-of-queue player's discard, then the HQ refills and
+   *  the next player in `recipientSeats` is served. Mandatory until the queue
+   *  empties (or the HQ runs out of Heroes). */
+  | { kind: 'paibok_gain_hq_hero'; recipientSeats: number[] }
   /** Deadpool – Here, Hold This: player clicks a Villain or Henchman in the
    *  city to assign a captured Bystander (mandatory — must pick a target). */
   | { kind: 'choose_city_villain_for_bystander'; bystander: CardInstance }
