@@ -467,6 +467,77 @@ describe('legendary: Juggernaut Ambush sequential KO', () => {
   });
 });
 
+describe('legendary: Sidekick return replenishes the stack', () => {
+  it('returning a Sidekick to the stack increments sidekickPoolCount', () => {
+    const s = freshSinglePlayerGame();
+    // Simulate having recruited a Sidekick this turn: pool down by 1, the card
+    // sits in playedThisTurn, and the return prompt is up.
+    s.sidekickPoolCount = 29;
+    const sk: CardInstance = { instanceId: 'sk-1', cardId: 'sidekick' };
+    s.thisTurn.playedThisTurn.push(sk);
+    s.thisTurn.pendingChoice = { kind: 'optional_return_sidekick_draw_two' };
+
+    const r = applyAction(s, 'alice', { kind: 'accept_choice' });
+    if ('error' in r) throw new Error(String(r.error));
+    const ns = r as LegendaryState;
+
+    expect(ns.sidekickPoolCount).toBe(30); // replenished
+    expect(ns.thisTurn.playedThisTurn.some(c => c.instanceId === 'sk-1')).toBe(false);
+  });
+});
+
+describe('legendary: Random Acts of Unkindness — each player chooses', () => {
+  it('every player picks a card to pass left (sequential), not an auto-pass', () => {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1);
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+
+    // Give each player a known 2-card hand and stage the wound/pass prompt for
+    // the active player (Alice).
+    g.players[0].hand = [
+      { instanceId: 'a0', cardId: 'shield_trooper' },
+      { instanceId: 'a1', cardId: 'shield_agent' },
+    ];
+    g.players[1].hand = [
+      { instanceId: 'b0', cardId: 'shield_trooper' },
+      { instanceId: 'b1', cardId: 'shield_agent' },
+    ];
+    g.currentPlayerIdx = 0;
+    g.thisTurn.pendingChoice = { kind: 'optional_gain_wound_pass_left' };
+
+    // Alice declines the wound → card-passing begins as a sequential choice.
+    const r1 = applyAction(g, 'alice', { kind: 'skip_choice' });
+    if ('error' in r1) throw new Error(String(r1.error));
+    let s2 = r1 as LegendaryState;
+    expect(s2.pendingStrike?.kind).toBe('pass_left');
+    expect(s2.thisTurn.choiceOwnerSeat).toBe(0);
+    expect(s2.thisTurn.pendingChoice?.kind).toBe('pass_left_select_card');
+    expect(getActivePlayerId(s2)).toBe('alice');
+
+    // Alice chooses a0 to pass → control moves to Bob.
+    const r2 = applyAction(s2, 'alice', { kind: 'resolve_choice', instanceId: 'a0' });
+    if ('error' in r2) throw new Error(String(r2.error));
+    s2 = r2 as LegendaryState;
+    expect(s2.thisTurn.choiceOwnerSeat).toBe(1);
+    expect(getActivePlayerId(s2)).toBe('bob');
+
+    // Bob chooses b0 → all cards pass simultaneously to the left, strike ends.
+    const r3 = applyAction(s2, 'bob', { kind: 'resolve_choice', instanceId: 'b0' });
+    if ('error' in r3) throw new Error(String(r3.error));
+    s2 = r3 as LegendaryState;
+    expect(s2.pendingStrike).toBeUndefined();
+    expect(s2.thisTurn.choiceOwnerSeat).toBeUndefined();
+
+    // With 2 players, "left" wraps: Alice→Bob and Bob→Alice.
+    const aliceIds = s2.players[0].hand.map(c => c.instanceId).sort();
+    const bobIds = s2.players[1].hand.map(c => c.instanceId).sort();
+    expect(aliceIds).toEqual(['a1', 'b0']); // kept a1, received Bob's b0
+    expect(bobIds).toEqual(['a0', 'b1']);   // kept b1, received Alice's a0
+  });
+});
+
 describe('legendary: Scheme Twist fires once (not per-player)', () => {
   it('Super Hero Civil War KOs the HQ exactly once on a single twist (multiplayer)', () => {
     let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });

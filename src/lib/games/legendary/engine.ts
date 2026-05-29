@@ -2771,6 +2771,18 @@ function doResolveChoice(
     return state;
   }
 
+  // ── Random Acts of Unkindness: choose a card from hand to pass left ──────
+  if (choice.kind === 'pass_left_select_card') {
+    const idx = me.hand.findIndex(c => c.instanceId === instanceId);
+    if (idx < 0) return { error: 'Card not in your hand' };
+    const card = me.hand.splice(idx, 1)[0];
+    if (!state.passLeftChosen) state.passLeftChosen = {};
+    state.passLeftChosen[me.seat] = card;
+    state.thisTurn.pendingChoice = undefined;
+    pushLog(state, { kind: 'system', text: `${me.username} sets aside a card to pass left.` });
+    return state;
+  }
+
   // ── Rogue – Copy Powers: pick a hero from playedThisTurn ─────────────────
   if (choice.kind === 'copy_played_hero') {
     const idx = state.thisTurn.playedThisTurn.findIndex(c => c.instanceId === instanceId);
@@ -3286,33 +3298,43 @@ function doResolveChoice(
   return state;
 }
 
-/** Deadpool – Random Acts: each player passes their top hand-card to the left.
- *  "Left" = next seat in ascending seat order, wrapping around.
- *  In a 1-player game this is a no-op (nothing to pass to). */
-function executePassCardsLeft(state: LegendaryState): void {
-  const n = state.players.length;
-  if (n < 2) {
+/** Deadpool – Random Acts of Unkindness: begin the "each player passes a card
+ *  to their left" sequence. Each player (in turn order, revealer first) CHOOSES
+ *  which card to pass via an interactive prompt; the chosen cards are held in
+ *  state.passLeftChosen and passed simultaneously once everyone has chosen.
+ *  driveSequentialStrike kicks this off after the triggering action returns.
+ *  In a solo game there's no one to pass to — no-op. */
+function setPassLeftStrike(state: LegendaryState): void {
+  if (state.players.length < 2) {
     pushLog(state, { kind: 'system', text: 'Card passing: no other players.' });
     return;
   }
-  // Collect the top card from every player's hand simultaneously, then give
-  // each to the player at the next seat index (left = +1 mod n).
-  const passCards: (CardInstance | null)[] = state.players.map(p =>
-    p.hand.length > 0 ? p.hand.splice(0, 1)[0]! : null
-  );
+  if (state.pendingStrike) return; // a strike is already pending this turn
+  state.passLeftChosen = {};
+  state.pendingStrike = {
+    kind: 'pass_left',
+    revealerSeat: state.players[state.currentPlayerIdx].seat,
+  };
+  pushLog(state, { kind: 'system', text:
+    'Random Acts of Unkindness — each player chooses a card to pass to the player on their left.' });
+}
+
+/** Distribute the cards each player chose (state.passLeftChosen) to the player
+ *  on their left, simultaneously. Called when the pass_left queue drains. */
+function executePassLeftChosen(state: LegendaryState): void {
+  const n = state.players.length;
   for (let i = 0; i < n; i++) {
-    const card = passCards[i];
+    const giver = state.players[i];
+    const card = state.passLeftChosen?.[giver.seat];
     if (!card) {
-      pushLog(state, { kind: 'system', text: `${state.players[i].username} has no card to pass.` });
+      pushLog(state, { kind: 'system', text: `${giver.username} has no card to pass.` });
       continue;
     }
     const leftPlayer = state.players[(i + 1) % n];
     leftPlayer.hand.push(card);
-    pushLog(state, {
-      kind: 'system',
-      text: `${state.players[i].username} passes a card to ${leftPlayer.username}.`,
-    });
+    pushLog(state, { kind: 'system', text: `${giver.username} passes a card to ${leftPlayer.username}.` });
   }
+  state.passLeftChosen = undefined;
 }
 
 /** Handle binary (Accept / Skip) pending choices that don't require card selection. */
@@ -3358,8 +3380,8 @@ function doAcceptChoice(
     } else {
       pushLog(state, { kind: 'system', text: 'No wounds left in the deck.' });
     }
-    // Card passing always happens, wound or not.
-    executePassCardsLeft(state);
+    // Card passing always happens, wound or not — each player chooses a card.
+    setPassLeftStrike(state);
     return state;
   }
 
@@ -3386,6 +3408,9 @@ function doAcceptChoice(
     const idx = state.thisTurn.playedThisTurn.map(c => c.cardId).lastIndexOf('sidekick');
     if (idx >= 0) {
       state.thisTurn.playedThisTurn.splice(idx, 1);
+      // The Sidekick goes back to the shared Sidekick stack — replenish the
+      // pool count so it can be recruited again (recruiting decremented it).
+      state.sidekickPoolCount++;
     }
     const before = me.hand.length;
     drawUpTo(me, 2);
@@ -3472,6 +3497,9 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
   if (choice.kind === 'paibok_gain_hq_hero') {
     return { error: 'You must choose a Hero in the HQ for each player (Paibok).' };
   }
+  if (choice.kind === 'pass_left_select_card') {
+    return { error: 'You must choose a card to pass to the player on your left.' };
+  }
   state.thisTurn.pendingChoice = undefined;
   // Gambit – Hypnotic Charm: skip = put the revealed card back on top of deck.
   if (choice.kind === 'reveal_top_discard_or_return') {
@@ -3524,9 +3552,9 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
   }
   // Random Acts: player declined the wound, but card-passing still fires.
   if (choice.kind === 'optional_gain_wound_pass_left') {
-    executePassCardsLeft(state);
     const me = state.players[state.currentPlayerIdx];
     pushLog(state, { kind: 'system', text: `${me.username} declined the wound.` });
+    setPassLeftStrike(state);
     return state;
   }
   // Dark Technology: player chose not to take the free recruit — nothing happens.
@@ -4141,6 +4169,11 @@ function processStrikeQueue(state: LegendaryState): void {
     }
     state.strikeQueue.shift();
   }
+  // Queue drained. Random Acts of Unkindness: now that every player has chosen,
+  // pass all the held cards to the left simultaneously.
+  if (state.pendingStrike?.kind === 'pass_left') {
+    executePassLeftChosen(state);
+  }
   finishSequentialStrike(state);
 }
 
@@ -4229,6 +4262,16 @@ function applyStrikeToPlayer(state: LegendaryState, player: PlayerState): boolea
       };
     }
     pushLog(state, { kind: 'system', text: `${player.username}: Juggernaut — choose ${toKo} Hero${toKo === 1 ? '' : 's'} to KO from your ${where}.` });
+    return true;
+  }
+  if (ps.kind === 'pass_left') {
+    // Random Acts of Unkindness: this player chooses a card to pass left.
+    if (player.hand.length === 0) {
+      pushLog(state, { kind: 'system', text: `${player.username} has no card to pass.` });
+      return false;
+    }
+    state.thisTurn.pendingChoice = { kind: 'pass_left_select_card' };
+    pushLog(state, { kind: 'system', text: `${player.username}: choose a card to pass to the player on your left.` });
     return true;
   }
   return false;

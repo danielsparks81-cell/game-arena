@@ -720,6 +720,11 @@ export type PendingChoice =
   /** Deadpool – Random Acts: "take a Wound to your hand?" Accept gains the wound;
    *  Skip declines it. Either way, all players then pass a card to the left. */
   | { kind: 'optional_gain_wound_pass_left' }
+  /** Deadpool – Random Acts of Unkindness: each player (in turn order) clicks a
+   *  card in their hand to pass to the player on their left. Mandatory while the
+   *  player has any card. The chosen card is stashed in state.passLeftChosen
+   *  until everyone has chosen, then all are passed simultaneously to the left. */
+  | { kind: 'pass_left_select_card' }
   /** Hawkeye – Covering Fire ([tech] bonus): "each other player draws" (Accept)
    *  or "each other player discards" (Skip). Binary — no card selection needed. */
   | { kind: 'choose_others_draw_or_discard' }
@@ -981,13 +986,18 @@ export type LegendaryState = {
    *  points at the head-of-queue player and getActivePlayerId returns them so
    *  the existing pending-choice UI works for the out-of-turn owner. */
   pendingStrike?: {
-    kind: 'magneto' | 'doom' | 'redskull' | 'juggernaut';
+    kind: 'magneto' | 'doom' | 'redskull' | 'juggernaut' | 'pass_left';
     revealerSeat: number;
     /** Juggernaut only: which pile each player KOs Heroes from, and how many. */
     zone?: 'discard' | 'hand';
     amount?: number;
   };
   strikeQueue?: number[];
+  /** Deadpool – Random Acts of Unkindness: while each player chooses (in turn
+   *  order) which card to pass to their left, the chosen card is held here
+   *  (keyed by the giver's seat). When the queue drains, all held cards are
+   *  passed simultaneously to the player on the left, then this is cleared. */
+  passLeftChosen?: Record<number, CardInstance>;
 
   // ----- Scheme bookkeeping -----
   schemeTwistsRevealed: number;

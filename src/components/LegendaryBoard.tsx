@@ -1090,6 +1090,8 @@ export default function LegendaryBoard({
                   ? '🔄 Discard your remaining hand and draw 4 cards?'
                   : pendingChoice.kind === 'optional_gain_wound_pass_left'
                   ? '💉 Gain a Wound to your hand? (Then all players pass a card to the left.)'
+                  : pendingChoice.kind === 'pass_left_select_card'
+                  ? '↩️ Random Acts of Unkindness — click a card in your hand to pass to the player on your left'
                   : pendingChoice.kind === 'optional_gain_card'
                   ? `🎁 You may gain a ${(pendingChoice as { label: string }).label} to your hand — take it?`
                   : pendingChoice.kind === 'choose_others_draw_or_discard'
@@ -1205,7 +1207,8 @@ export default function LegendaryBoard({
                     have a `mandatory` flag on the choice itself. */}
                 {!('mandatory' in pendingChoice && pendingChoice.mandatory)
                   && pendingChoice.kind !== 'order_top_of_deck'
-                  && pendingChoice.kind !== 'escape_ko_hq_hero' && (
+                  && pendingChoice.kind !== 'escape_ko_hq_hero'
+                  && pendingChoice.kind !== 'pass_left_select_card' && (
                   <button
                     type="button"
                     disabled={disabled}
@@ -1252,6 +1255,8 @@ export default function LegendaryBoard({
             ? 'Your hand — click Diving Block to reveal it'
             : pendingChoice!.kind === 'put_card_on_deck'
             ? 'Choose a card to put on top of your deck'
+            : pendingChoice!.kind === 'pass_left_select_card'
+            ? 'Choose a card to pass to the player on your left'
             : 'Choose a card to ' + (pendingChoice!.kind === 'ko_from_hand' ? 'KO' : 'discard')}
         </ZoneLabel>
       )}
@@ -2207,7 +2212,7 @@ function HandCard({
   disabled: boolean;
   onClick: () => void;
   /** When set the card is highlighted as a KO/discard/topdeck/reveal/copy target. */
-  choiceMode?: 'ko_from_hand' | 'discard_from_hand' | 'reveal_to_prevent_wound' | 'put_card_on_deck' | 'copy_played_hero' | 'move_villain_select_villain' | 'move_villain_select_dest';
+  choiceMode?: 'ko_from_hand' | 'discard_from_hand' | 'reveal_to_prevent_wound' | 'put_card_on_deck' | 'copy_played_hero' | 'move_villain_select_villain' | 'move_villain_select_dest' | 'pass_left_select_card';
   /** Stretch the card to fill a CSS grid cell instead of using a fixed pixel width. */
   wide?: boolean;
 }) {
