@@ -704,32 +704,51 @@ export function applyAction(
     return { error: 'Resolve your pending choice first — select a card or click Skip.' };
   }
 
+  let result: LegendaryState | { error: string };
   switch (action.kind) {
-    case 'play_card':         return doPlayCard(next, meNext, action.instanceId);
-    case 'recruit_hero':      return doRecruit(next, meNext, action.slot);
-    case 'recruit_sidekick':  return doRecruitPool(next, meNext, 'sidekick');
-    case 'recruit_officer':   return doRecruitPool(next, meNext, 'shield_officer');
-    case 'fight_city':        return doFightCity(next, meNext, action.slot);
-    case 'fight_mastermind':  return doFightMastermind(next, meNext);
-    case 'play_wound_healing': return doWoundHealing(next, meNext);
-    case 'resolve_choice':    return afterChoiceResolution(doResolveChoice(next, meNext, action.instanceId));
-    case 'skip_choice':       return afterChoiceResolution(doSkipChoice(next));
-    case 'accept_choice':     return afterChoiceResolution(doAcceptChoice(next, meNext));
-    case 'end_turn':              return doEndTurn(next);
-    case 'reveal_first_villain':  return doRevealFirstVillain(next);
+    case 'play_card':         result = doPlayCard(next, meNext, action.instanceId); break;
+    case 'recruit_hero':      result = doRecruit(next, meNext, action.slot); break;
+    case 'recruit_sidekick':  result = doRecruitPool(next, meNext, 'sidekick'); break;
+    case 'recruit_officer':   result = doRecruitPool(next, meNext, 'shield_officer'); break;
+    case 'fight_city':        result = doFightCity(next, meNext, action.slot); break;
+    case 'fight_mastermind':  result = doFightMastermind(next, meNext); break;
+    case 'play_wound_healing': result = doWoundHealing(next, meNext); break;
+    case 'resolve_choice':    result = doResolveChoice(next, meNext, action.instanceId); break;
+    case 'skip_choice':       result = doSkipChoice(next); break;
+    case 'accept_choice':     result = doAcceptChoice(next, meNext); break;
+    case 'end_turn':              result = doEndTurn(next); break;
+    case 'reveal_first_villain':  result = doRevealFirstVillain(next); break;
   }
+  return driveSequentialStrike(result!);
 }
 
-/** After a choice-resolution action completes, if we're in a sequential
- *  Master Strike and the owner's pendingChoice has cleared, advance the strike
- *  queue to the next player (or finish the strike and hand control to the real
- *  active player). No-op for ordinary in-turn choices. */
-function afterChoiceResolution(
+/** Post-process every action result to drive sequential strike resolution
+ *  (Magneto / Red Skull / Juggernaut — any effect that requires every player to
+ *  make an interactive choice in turn order).
+ *
+ *  Two cases:
+ *   1. A strike is in progress and the head-of-queue owner just finished their
+ *      pending choice → advance the queue to the next player (or finish).
+ *   2. A new strike was flagged during a reveal (state.pendingStrike set, queue
+ *      not yet built) → kick it off. This fires for both the end-of-turn reveal
+ *      (after doEndTurn has advanced the turn) and mid-turn reveals (e.g.
+ *      Endless Armies of Hydra revealing Juggernaut), so the resolution always
+ *      happens immediately rather than being deferred. */
+function driveSequentialStrike(
   result: LegendaryState | { error: string },
 ): LegendaryState | { error: string } {
   if ('error' in result) return result;
-  if (result.pendingStrike && !result.thisTurn.pendingChoice) {
+  if (result.pendingStrike
+      && result.strikeQueue !== undefined
+      && result.thisTurn.choiceOwnerSeat !== undefined
+      && !result.thisTurn.pendingChoice) {
+    // Case 1: the current owner resolved their choice — advance.
     advanceStrikeQueue(result);
+  } else if (result.pendingStrike
+      && result.strikeQueue === undefined
+      && result.thisTurn.choiceOwnerSeat === undefined) {
+    // Case 2: a freshly flagged strike — build the queue and start processing.
+    startSequentialStrike(result);
   }
   return result;
 }
@@ -2118,20 +2137,14 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
-    // Juggernaut Ambush (per-player): KO `amount` Heroes from discard.
-    // Fires at the end-of-turn villain reveal. The turn-ending (active) player
-    // gets to CHOOSE which Heroes at the start of their next turn (deferred,
-    // since a pending choice set here would be wiped by the turn advance);
-    // every other player auto-KOs immediately (can't be prompted mid-turn).
-    case 'ko_heroes_from_discard': {
-      return juggernautKO(state, me, 'discard', effect.amount);
-    }
-
-    // Juggernaut Escape (per-player): KO `amount` Heroes from hand. Same
-    // active-player-chooses / others-auto split as the Ambush.
-    case 'ko_heroes_from_hand_immediate': {
-      return juggernautKO(state, me, 'hand', effect.amount);
-    }
+    // Juggernaut Ambush / Escape: resolution is NOT handled here. The ambush
+    // and escape loops detect these kinds and call setJuggernautStrike ONCE,
+    // which driveSequentialStrike turns into a per-player interactive KO in
+    // turn order. These cases are no-ops kept only to keep resolveEffect's
+    // switch exhaustive.
+    case 'ko_heroes_from_discard':
+    case 'ko_heroes_from_hand_immediate':
+      return;
 
     // Scheme twist conditional: fires inner effects only when the current
     // schemeTwistsRevealed count is within [min, max] (inclusive).
@@ -3724,49 +3737,6 @@ function doWoundHealing(
   return state;
 }
 
-/** Juggernaut Ambush/Escape: KO `amount` Heroes from a player's discard
- *  (ambush) or hand (escape). The turn-ending (active) player defers to an
- *  interactive choice at the start of their next turn; everyone else auto-KOs
- *  the cheapest Heroes immediately. Always logs the card names. */
-function juggernautKO(
-  state: LegendaryState,
-  me: PlayerState,
-  zone: 'discard' | 'hand',
-  amount: number,
-): void {
-  const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
-  const pile = zone === 'discard' ? me.discard : me.hand;
-  const heroes = pile.filter(isHero);
-  const toKo = Math.min(amount, heroes.length);
-  const where = zone === 'discard' ? 'discard pile' : 'hand';
-  if (toKo === 0) {
-    pushLog(state, { kind: 'system', text: `${me.username} has no Heroes in their ${where} to KO (Juggernaut).` });
-    return;
-  }
-  const isActive = me.playerId === state.players[state.currentPlayerIdx]?.playerId;
-  if (isActive) {
-    me.pendingJuggernautKO = { zone, amount: toKo };
-    pushLog(state, { kind: 'system', text:
-      `${me.username} must KO ${toKo} Hero${toKo === 1 ? '' : 's'} from their ${where} at the start of their next turn (Juggernaut) — they choose which.` });
-    return;
-  }
-  // Non-active player: auto-KO the cheapest Heroes, naming them.
-  const sorted = [...heroes].sort((a, b) => (getCard(a.cardId) as HeroCardDef).cost - (getCard(b.cardId) as HeroCardDef).cost);
-  const koed = sorted.slice(0, toKo);
-  const names: string[] = [];
-  for (const card of koed) {
-    const src = zone === 'discard' ? me.discard : me.hand;
-    const idx = src.findIndex(c => c.instanceId === card.instanceId);
-    if (idx < 0) continue;
-    src.splice(idx, 1);
-    state.ko.push(card);
-    names.push((getCard(card.cardId) as HeroCardDef).cardName);
-  }
-  if (names.length > 0) {
-    pushLog(state, { kind: 'system', text: `${me.username} KOs ${names.join(', ')} from their ${where} (Juggernaut).` });
-    recomputeVp(me);
-  }
-}
 
 function recomputeVp(p: PlayerState): void {
   let vp = 0;
@@ -3915,45 +3885,8 @@ function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void
     resolveDoomStrike(state, player);
   }
 
-  // Juggernaut Ambush/Escape: the player now CHOOSES which Heroes to KO from
-  // their discard (ambush) or hand (escape) — an interactive prompt over the
-  // freshly available cards.
-  if (player.pendingJuggernautKO) {
-    const { zone, amount } = player.pendingJuggernautKO;
-    player.pendingJuggernautKO = undefined;
-    const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
-    if (zone === 'discard') {
-      const heroes = player.discard.filter(isHero);
-      const toKo = Math.min(amount, heroes.length);
-      if (toKo > 0) {
-        state.thisTurn.pendingChoice = {
-          kind: 'ko_up_to_from_discard',
-          remaining: toKo,
-          cards: heroes,
-          label: 'Juggernaut',
-          heroesOnly: true,
-          mandatory: true,
-        };
-        pushLog(state, { kind: 'system', text:
-          `${player.username}: Juggernaut — choose ${toKo} Hero${toKo === 1 ? '' : 's'} to KO from your discard pile.` });
-      }
-    } else {
-      const heroes = player.hand.filter(isHero);
-      const toKo = Math.min(amount, heroes.length);
-      if (toKo > 0) {
-        state.thisTurn.pendingChoice = {
-          kind: 'ko_from_hand',
-          bonus: [],
-          filter: 'heroes_only',
-          sources: ['hand'],
-          mandatory: true,
-          remaining: toKo - 1,
-        };
-        pushLog(state, { kind: 'system', text:
-          `${player.username}: Juggernaut — choose ${toKo} Hero${toKo === 1 ? '' : 's'} to KO from your hand.` });
-      }
-    }
-  }
+  // (Juggernaut Ambush/Escape now resolves sequentially at reveal time — see
+  // setJuggernautStrike / applyStrikeToPlayer — so it is no longer deferred.)
 
   // Loki: reveal a Strength Hero, or gain a Wound.
   if (player.pendingLokiStrike) {
@@ -4126,9 +4059,8 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
     resolvePendingStrikes(state, samePlayer);
     pushLog(state, { kind: 'system', text: `${samePlayer.username} takes an extra turn!` });
     pushLog(state, { kind: 'turn_started', seat: samePlayer.seat, username: samePlayer.username });
-    // Sequential Master Strike revealed this turn: every player resolves it in
-    // turn order before the active player resumes (see startSequentialStrike).
-    if (state.pendingStrike) startSequentialStrike(state);
+    // A sequential strike flagged during this turn's reveal (state.pendingStrike)
+    // is kicked off by driveSequentialStrike in applyAction after this returns.
     return state;
   }
 
@@ -4153,11 +4085,10 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   resolvePendingStrikes(state, nextPlayer);
 
   pushLog(state, { kind: 'turn_started', seat: nextPlayer.seat, username: nextPlayer.username });
-  // Sequential Master Strike (e.g. Magneto): each player resolves their own
-  // choice in turn order (revealer first) before nextPlayer may act. This sets
-  // thisTurn.choiceOwnerSeat to the head-of-queue player; getActivePlayerId
-  // routes control to them until the queue drains.
-  if (state.pendingStrike) startSequentialStrike(state);
+  // A sequential strike flagged during the reveal (Magneto / Red Skull /
+  // Juggernaut) is kicked off by driveSequentialStrike in applyAction once this
+  // returns — it builds the queue (revealer first) and parks control on the
+  // head-of-queue player via thisTurn.choiceOwnerSeat.
   return state;
 }
 
@@ -4264,6 +4195,42 @@ function applyStrikeToPlayer(state: LegendaryState, player: PlayerState): boolea
     pushLog(state, { kind: 'system', text: `${player.username}: Red Skull's Master Strike — KO a Hero from your hand.` });
     return true;
   }
+  if (ps.kind === 'juggernaut') {
+    // Juggernaut Ambush (KO from discard) / Escape (KO from hand): each player
+    // chooses which Heroes to KO. Auto-skip players with no Heroes available.
+    const zone = ps.zone ?? 'discard';
+    const amount = ps.amount ?? 0;
+    const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
+    const pile = zone === 'discard' ? player.discard : player.hand;
+    const heroes = pile.filter(isHero);
+    const toKo = Math.min(amount, heroes.length);
+    const where = zone === 'discard' ? 'discard pile' : 'hand';
+    if (toKo === 0) {
+      pushLog(state, { kind: 'system', text: `${player.username} has no Heroes in their ${where} to KO (Juggernaut).` });
+      return false;
+    }
+    if (zone === 'discard') {
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_up_to_from_discard',
+        remaining: toKo,
+        cards: heroes,
+        label: 'Juggernaut',
+        heroesOnly: true,
+        mandatory: true,
+      };
+    } else {
+      state.thisTurn.pendingChoice = {
+        kind: 'ko_from_hand',
+        bonus: [],
+        filter: 'heroes_only',
+        sources: ['hand'],
+        mandatory: true,
+        remaining: toKo - 1,
+      };
+    }
+    pushLog(state, { kind: 'system', text: `${player.username}: Juggernaut — choose ${toKo} Hero${toKo === 1 ? '' : 's'} to KO from your ${where}.` });
+    return true;
+  }
   return false;
 }
 
@@ -4281,6 +4248,25 @@ function finishSequentialStrike(state: LegendaryState): void {
   state.pendingStrike = undefined;
   state.strikeQueue = undefined;
   state.thisTurn.choiceOwnerSeat = undefined;
+}
+
+/** Flag Juggernaut's Ambush (KO Heroes from discard) or Escape (KO Heroes from
+ *  hand) for sequential per-player resolution. Called ONCE when Juggernaut is
+ *  revealed/escapes (the ambush/escape loops special-case it instead of firing
+ *  per-player). driveSequentialStrike kicks off the queue once the triggering
+ *  action returns — for both end-of-turn and mid-turn (Endless Armies) reveals.
+ *  Guards against clobbering a strike already flagged this reveal. */
+function setJuggernautStrike(state: LegendaryState, zone: 'discard' | 'hand', amount: number): void {
+  if (state.pendingStrike) return;
+  state.pendingStrike = {
+    kind: 'juggernaut',
+    revealerSeat: state.players[state.currentPlayerIdx].seat,
+    zone,
+    amount,
+  };
+  const where = zone === 'discard' ? 'discard pile' : 'hand';
+  pushLog(state, { kind: 'system', text:
+    `Juggernaut — each player must KO up to ${amount} Hero${amount === 1 ? '' : 's'} from their ${where} (in turn order).` });
 }
 
 /**
@@ -4613,6 +4599,11 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
             // trigger_scheme_twist must fire exactly once (not once per player).
             if (eff.kind === 'trigger_scheme_twist') {
               resolveEffect(state, state.players[state.currentPlayerIdx], eff);
+            } else if (eff.kind === 'ko_heroes_from_hand_immediate') {
+              // Juggernaut Escape "Each player KOs Heroes from their hand":
+              // fire ONCE as a sequential strike (each player chooses in turn
+              // order) rather than per-player.
+              setJuggernautStrike(state, 'hand', eff.amount);
             } else {
               for (const p of state.players) resolveEffect(state, p, eff);
             }
@@ -4663,6 +4654,13 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
         // under THIS specific villain (not per-player like other ambushes).
         if (eff.kind === 'skrull_attach_hero_from_hq') {
           attachHeroToVillain(state, card, eff.mode);
+          continue;
+        }
+        // Juggernaut Ambush "Each player KOs Heroes from their discard": fire
+        // ONCE as a sequential strike (each player chooses in turn order) rather
+        // than per-player (which deferred non-active players to their own turn).
+        if (eff.kind === 'ko_heroes_from_discard') {
+          setJuggernautStrike(state, 'discard', eff.amount);
           continue;
         }
         // The Leader (Radiation) ambush "Play the top card of the Villain

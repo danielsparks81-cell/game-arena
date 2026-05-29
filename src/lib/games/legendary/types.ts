@@ -666,12 +666,6 @@ export type PlayerState = {
    *  the start of this player's next turn: reveal a [tech] Hero or put 2 cards
    *  on top of their deck (interactive). */
   pendingDoomStrike?: boolean;
-  /** Set by Juggernaut's Ambush/Escape (which fire at the end-of-turn villain
-   *  reveal) for the turn-ending player so they get an INTERACTIVE choice of
-   *  which Heroes to KO at the start of their next turn. `zone` = which pile
-   *  ('discard' for Ambush, 'hand' for Escape); `amount` = how many to KO.
-   *  Non-active players auto-KO immediately at reveal. */
-  pendingJuggernautKO?: { zone: 'discard' | 'hand'; amount: number };
   /** "Discard N cards from your hand" owed by this player, resolved as an
    *  interactive choice at the start of their next turn. Used by any
    *  each-player / each-other-player discard effect (Hawkeye Covering Fire,
@@ -986,7 +980,13 @@ export type LegendaryState = {
    *  first) still to resolve. While these are set, `thisTurn.choiceOwnerSeat`
    *  points at the head-of-queue player and getActivePlayerId returns them so
    *  the existing pending-choice UI works for the out-of-turn owner. */
-  pendingStrike?: { kind: 'magneto' | 'doom' | 'redskull'; revealerSeat: number };
+  pendingStrike?: {
+    kind: 'magneto' | 'doom' | 'redskull' | 'juggernaut';
+    revealerSeat: number;
+    /** Juggernaut only: which pile each player KOs Heroes from, and how many. */
+    zone?: 'discard' | 'hand';
+    amount?: number;
+  };
   strikeQueue?: number[];
 
   // ----- Scheme bookkeeping -----

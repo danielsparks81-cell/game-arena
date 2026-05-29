@@ -416,6 +416,57 @@ describe('legendary: Red Skull sequential Master Strike', () => {
   });
 });
 
+describe('legendary: Juggernaut Ambush sequential KO', () => {
+  it('every player chooses Heroes to KO from discard in turn order when Juggernaut enters', () => {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1);
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+
+    // Give Bob Heroes in his discard pile (Alice's discard fills naturally when
+    // she ends her turn — her hand is discarded then a fresh hand is drawn).
+    g.players[1].discard = [0, 1, 2].map(i => ({ instanceId: `bd${i}`, cardId: 'shield_trooper' } as CardInstance));
+    // Force the next reveal to be Juggernaut entering the (empty) city.
+    g.villainDeck.unshift({ instanceId: 'jug-1', cardId: 'juggernaut' });
+
+    const r = applyAction(g, 'alice', { kind: 'end_turn' });
+    if ('error' in r) throw new Error(String(r.error));
+    let s2 = r as LegendaryState;
+
+    // Juggernaut's Ambush triggered a sequential discard-KO starting with the
+    // revealer (Alice, seat 0) — NOT deferred, NOT auto-applied.
+    expect(s2.pendingStrike?.kind).toBe('juggernaut');
+    expect(s2.pendingStrike?.zone).toBe('discard');
+    expect(s2.thisTurn.choiceOwnerSeat).toBe(0);
+    expect(getActivePlayerId(s2)).toBe('alice');
+    expect(s2.thisTurn.pendingChoice?.kind).toBe('ko_up_to_from_discard');
+
+    // Alice KOs her 2 Heroes from discard (interactive), then control passes to Bob.
+    for (let i = 0; i < 2; i++) {
+      const hero = s2.players[0].discard.find(c => getCard(c.cardId).kind === 'hero');
+      if (!hero) break;
+      const rr = applyAction(s2, 'alice', { kind: 'resolve_choice', instanceId: hero.instanceId });
+      if ('error' in rr) throw new Error(String(rr.error));
+      s2 = rr as LegendaryState;
+    }
+    expect(s2.thisTurn.choiceOwnerSeat).toBe(1);
+    expect(getActivePlayerId(s2)).toBe('bob');
+
+    // Bob KOs his 2 Heroes → strike finishes, control returns to the active player.
+    for (let i = 0; i < 2; i++) {
+      const hero = s2.players[1].discard.find(c => getCard(c.cardId).kind === 'hero');
+      if (!hero) break;
+      const rr = applyAction(s2, 'bob', { kind: 'resolve_choice', instanceId: hero.instanceId });
+      if ('error' in rr) throw new Error(String(rr.error));
+      s2 = rr as LegendaryState;
+    }
+    expect(s2.pendingStrike).toBeUndefined();
+    expect(s2.thisTurn.choiceOwnerSeat).toBeUndefined();
+    expect(s2.players[1].discard.filter(c => getCard(c.cardId).kind === 'hero').length).toBe(1); // 3 → KO'd 2
+  });
+});
+
 describe('legendary: Scheme Twist fires once (not per-player)', () => {
   it('Super Hero Civil War KOs the HQ exactly once on a single twist (multiplayer)', () => {
     let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
