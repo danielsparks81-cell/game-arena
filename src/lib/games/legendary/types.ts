@@ -114,6 +114,11 @@ export type Effect =
   /** Deadpool – Here, Hold This: forces the leftmost city villain (or the
    *  Mastermind if the city is empty) to immediately capture a fresh Bystander. */
   | { kind: 'villain_captures_bystander' }
+  /** Midtown Bank Robbery Twist: the Villain currently in the BANK city space
+   *  captures `amount` Bystanders (auto — no player choice). If the Bank is
+   *  empty, nothing happens. Each held Bystander adds +1 strike via the
+   *  scheme's villainStrikePerBystander rule. */
+  | { kind: 'bank_villain_captures_bystanders'; amount: number }
   /** Deadpool – Oddball: +1 Attack for each OTHER Hero with an odd-numbered cost
    *  that was played before this card this turn. */
   | { kind: 'gain_attack_per_odd_cost_hero_played' }

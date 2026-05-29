@@ -29,8 +29,9 @@ export const MIDTOWN_BANK_ROBBERY: SchemeCardDef = {
   // state.escapedBystanders), replacing the old twist-count placeholder.
   evilWinsAfterEscapedBystanders: 8,
   onTwist: [
-    { kind: 'villain_captures_bystander' },
-    { kind: 'villain_captures_bystander' },
+    // The Villain in the Bank space captures 2 Bystanders (auto — no choice),
+    // then the top Villain Deck card is revealed.
+    { kind: 'bank_villain_captures_bystanders', amount: 2 },
     { kind: 'villain_deck_reveal_top', amount: 1 },
   ],
 };

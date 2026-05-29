@@ -816,6 +816,7 @@ function defaultEffectForKind(kind: EffectKind): Effect {
     case 'reveal_top_discard_or_return_others':     return { kind };
     case 'gain_attack_equal_to_top_card_cost':      return { kind };
     case 'villain_captures_bystander':              return { kind };
+    case 'bank_villain_captures_bystanders':        return { kind, amount: 2 };
     case 'gain_attack_per_odd_cost_hero_played':    return { kind };
     case 'if_first_hero_discard_hand_draw_four':    return { kind };
     case 'optional_gain_wound_pass_left':           return { kind };

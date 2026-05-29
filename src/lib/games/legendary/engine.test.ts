@@ -540,6 +540,57 @@ describe('legendary: Random Acts of Unkindness — each player chooses', () => {
   });
 });
 
+describe('legendary: Midtown Bank Robbery twist', () => {
+  it('the Villain in the Bank auto-captures 2 Bystanders (no choice prompt)', () => {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1); // 2 players → no solo henchmen / solo-twist noise
+    s.schemeId = 'scheme_bank_robbery';
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+    g.currentPlayerIdx = 0;
+
+    // Place a Villain in the Bank (city index 1). Make the ONLY remaining
+    // Villain Deck card a Twist so the post-twist reveal finds nothing else to
+    // capture (isolates the Bank-capture effect).
+    const bankVillain: CardInstance = { instanceId: 'bank-v', cardId: 'juggernaut' };
+    g.city[1] = bankVillain;
+    g.villainDeck = [{ instanceId: 'twist-bank', cardId: 'scheme_twist' }];
+
+    const r = applyAction(g, 'alice', { kind: 'end_turn' });
+    if ('error' in r) throw new Error(String(r.error));
+    const ns = r as LegendaryState;
+
+    // The Bank villain gained exactly 2 Bystanders, applied automatically.
+    expect(ns.cityBystanders['bank-v']?.length ?? 0).toBe(2);
+    // No "choose a villain" prompt was raised.
+    expect(ns.thisTurn.pendingChoice?.kind).not.toBe('choose_city_villain_for_bystander');
+  });
+});
+
+describe('legendary: Storm Lightning Bolt location debuff', () => {
+  it('reduces the Attack needed to fight a Villain at that location', () => {
+    const s = freshSinglePlayerGame();
+    // Juggernaut (printed strike 6) at the Rooftops (city index 2).
+    s.city[2] = { instanceId: 'rooft-v', cardId: 'juggernaut' };
+    // Storm Lightning Bolt: Villains at the Rooftops get -2 this turn.
+    s.thisTurn.locationVillainDebuffs = { 2: 2 };
+
+    // 3 Attack is NOT enough (6 − 2 = 4 required)...
+    s.thisTurn.attack = 3;
+    const tooWeak = applyAction(s, 'alice', { kind: 'fight_city', slot: 2 });
+    expect('error' in tooWeak).toBe(true);
+
+    // ...but 4 Attack defeats it thanks to the −2 debuff.
+    s.thisTurn.attack = 4;
+    const ok = applyAction(s, 'alice', { kind: 'fight_city', slot: 2 });
+    if ('error' in ok) throw new Error(String(ok.error));
+    const ns = ok as LegendaryState;
+    expect(ns.city[2]).toBeNull();
+    expect(ns.players[0].victoryPile.some(c => c.instanceId === 'rooft-v')).toBe(true);
+  });
+});
+
 describe('legendary: Scheme Twist fires once (not per-player)', () => {
   it('Super Hero Civil War KOs the HQ exactly once on a single twist (multiplayer)', () => {
     let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });

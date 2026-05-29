@@ -1074,6 +1074,28 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       }
       return;
     }
+    // ── Midtown Bank Robbery Twist: the Bank villain captures N Bystanders ────
+    case 'bank_villain_captures_bystanders': {
+      const bankIdx = CITY_LOCATION_INDEX['bank']; // city slot index for the Bank
+      const bankCard = state.city[bankIdx];
+      if (!bankCard) {
+        pushLog(state, { kind: 'system', text: 'No Villain in the Bank — no Bystanders captured (Bank Robbery).' });
+        return;
+      }
+      const bankDef = getCard(bankCard.cardId);
+      if (bankDef.kind !== 'villain' && bankDef.kind !== 'henchman') {
+        pushLog(state, { kind: 'system', text: 'No Villain in the Bank — no Bystanders captured (Bank Robbery).' });
+        return;
+      }
+      const captorName = 'name' in bankDef ? (bankDef as { name: string }).name : bankCard.cardId;
+      const existing = state.cityBystanders[bankCard.instanceId] ?? [];
+      const added: CardInstance[] = [];
+      for (let i = 0; i < effect.amount; i++) added.push(mkInstance('bystander'));
+      state.cityBystanders[bankCard.instanceId] = [...existing, ...added];
+      pushLog(state, { kind: 'system', text:
+        `${captorName} in the Bank captures ${effect.amount} Bystander${effect.amount === 1 ? '' : 's'} (Bank Robbery) — +${effect.amount} strike.` });
+      return;
+    }
     case 'gain_attack_per_odd_cost_hero_played': {
       // "Each OTHER hero with an odd-numbered cost you played this turn."
       // The currently-playing card is the last entry in playedThisTurn —
