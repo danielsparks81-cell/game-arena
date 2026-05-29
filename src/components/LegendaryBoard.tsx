@@ -758,6 +758,9 @@ export default function LegendaryBoard({
                           const hd = CARDS[h.cardId];
                           return hd?.kind === 'hero' ? hd.cost : undefined;
                         })()}
+                        attachedHeroCardId={visibleCard
+                          ? state.cityAttachedHeroes?.[visibleCard.instanceId]?.cardId
+                          : undefined}
                         killbotStrike={visibleCard?.cardId === 'killbot'
                           ? state.schemeTwistsRevealed
                           : undefined}
@@ -1840,7 +1843,7 @@ function CitySlot({
   strikePerBystander = 0, portalBonus = 0, skrullHeroStrike, hasPortal = false,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
   onMoveSelect, onMoveDest, onBystanderSelect,
-  attachedHeroName, attachedHeroCost, killbotStrike, fightConditionMet = true,
+  attachedHeroName, attachedHeroCost, attachedHeroCardId, killbotStrike, fightConditionMet = true,
 }: {
   card: CardInstance | null;
   slot: number;
@@ -1873,6 +1876,9 @@ function CitySlot({
   /** Skrull attach mechanic — name and cost of the Hero tucked under this villain. */
   attachedHeroName?: string;
   attachedHeroCost?: number;
+  /** Skrull attach mechanic — cardId of the tucked Hero, so the slot can show a
+   *  hover preview of the full Hero card. */
+  attachedHeroCardId?: CardId;
   /** Killbots scheme: when this villain is a Killbot, its effective strike
    *  equals the current twist count. Used by the canFight gate so the player
    *  sees the live required attack. */
@@ -2026,24 +2032,35 @@ function CitySlot({
   const freeFightRing = !disabled && fightCityFreeAvailable
     ? 'ring-2 ring-offset-1 ring-offset-neutral-950 ring-amber-400'
     : '';
+  // Skrull attach mechanic: full Hero card for the hover preview.
+  const attachedHeroDef = attachedHeroCardId ? CARDS[attachedHeroCardId] : undefined;
   return (
-    <button
-      type="button"
-      disabled={!canFight}
-      onClick={onFight}
-      className={`relative block w-full rounded-lg transition-all duration-150 ${freeFightRing} ${
-        canFight
-          ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl'
-          : ''
-      }`}
-    >
-      {def.kind === 'villain'
-        ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} bystanderStrikeBonus={bystanderStrikeBonus} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} killbotStrike={killbotStrike} />
-        : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} bystanderStrikeBonus={bystanderStrikeBonus} />
-      }
-      {hasPortal && <DarkPortalMarker />}
-      <span className="sr-only">Slot {slot}</span>
-    </button>
+    <div className="group relative">
+      <button
+        type="button"
+        disabled={!canFight}
+        onClick={onFight}
+        className={`relative block w-full rounded-lg transition-all duration-150 ${freeFightRing} ${
+          canFight
+            ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl'
+            : ''
+        }`}
+      >
+        {def.kind === 'villain'
+          ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} locationDebuff={locationDebuff} bystanderStrikeBonus={bystanderStrikeBonus} attachedHeroName={attachedHeroName} attachedHeroCost={attachedHeroCost} killbotStrike={killbotStrike} />
+          : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} bystanderStrikeBonus={bystanderStrikeBonus} />
+        }
+        {hasPortal && <DarkPortalMarker />}
+        <span className="sr-only">Slot {slot}</span>
+      </button>
+      {/* Hover preview of the Hero tucked under a Skrull villain — sibling of
+          the button so its z-index escapes the button's transform context. */}
+      {attachedHeroDef?.kind === 'hero' && (
+        <div className="pointer-events-none absolute bottom-full left-1/2 z-[500] mb-1 -translate-x-1/2 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          <HeroCardArt def={attachedHeroDef} />
+        </div>
+      )}
+    </div>
   );
 }
 
