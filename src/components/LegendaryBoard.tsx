@@ -2296,12 +2296,17 @@ function HandCard({
   const shieldStyle: React.CSSProperties | undefined = SHIELD_CARD_IDS.includes(card.cardId)
     ? { background: 'linear-gradient(135deg, #7a7a7a, #686868)' }
     : undefined;
-  // Choice-mode ring: red for KO, amber for discard, sky for reveal.
+  // Choice-mode ring: red for KO, amber for discard, sky for reveal, fuchsia
+  // for Rogue copy, cyan for pass-left. The ring is the visual cue that the
+  // card is a selectable target — without it (the old bug) S.H.I.E.L.D. starter
+  // Heroes looked un-copyable even though they were valid.
   const choiceRing =
     choiceMode === 'ko_from_hand'            ? 'ring-2 ring-rose-500 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
     choiceMode === 'discard_from_hand'       ? 'ring-2 ring-amber-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
     choiceMode === 'reveal_to_prevent_wound' ? 'ring-2 ring-sky-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
     choiceMode === 'put_card_on_deck'        ? 'ring-2 ring-emerald-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    choiceMode === 'copy_played_hero'        ? 'ring-2 ring-fuchsia-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
+    choiceMode === 'pass_left_select_card'   ? 'ring-2 ring-cyan-400 -translate-y-2 shadow-lg hover:-translate-y-3 hover:shadow-xl' :
     '';
 
   return (
