@@ -676,6 +676,13 @@ export type PlayerState = {
    *  ('discard' for Ambush, 'hand' for Escape); `amount` = how many to KO.
    *  Non-active players auto-KO immediately at reveal. */
   pendingJuggernautKO?: { zone: 'discard' | 'hand'; amount: number };
+  /** "Discard N cards from your hand" owed by this player, resolved as an
+   *  interactive choice at the start of their next turn. Used by any
+   *  each-player / each-other-player discard effect (Hawkeye Covering Fire,
+   *  mastermind Tactic punishments, the villain-escape Bystander penalty) so
+   *  EVERY player picks their own discards instead of auto-losing the top of
+   *  hand. Accumulates if multiple effects pile on before the player acts. */
+  pendingHandDiscard?: number;
   /** Set by Treasures of Latveria (Dr. Doom Tactic 3). This many extra cards
    *  are added to the player's next hand draw. Consumed and cleared on draw. */
   endOfTurnExtraDraw?: number;

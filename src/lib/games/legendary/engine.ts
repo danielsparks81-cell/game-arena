@@ -1237,10 +1237,10 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
           for (const eff of tacticDef.fightOthers ?? []) {
             for (const p of others) {
               if (eff.kind === 'discard_from_hand') {
-                for (let j = 0; j < eff.up_to && p.hand.length > 0; j++) {
-                  const discarded = p.hand.splice(0, 1)[0];
-                  p.discard.push(discarded);
-                  pushLog(state, { kind: 'system', text: `${p.username} discards a card — ${tacticDef.name}.` });
+                // Defer so each player CHOOSES their discard at their next turn.
+                if (p.hand.length > 0) {
+                  p.pendingHandDiscard = (p.pendingHandDiscard ?? 0) + eff.up_to;
+                  pushLog(state, { kind: 'system', text: `${p.username} must discard ${eff.up_to} card${eff.up_to === 1 ? '' : 's'} at the start of their next turn — ${tacticDef.name}.` });
                 }
               } else { resolveEffect(state, p, eff); }
             }
@@ -1629,29 +1629,21 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Magneto Master Strike ─────────────────────────────────────────────────
     case 'magneto_master_strike': {
-      // Defer for the active player — pendingChoice that resolveMagnetoStrike
-      // would set on state.thisTurn gets wiped by emptyTurnState() during the
-      // turn advance that follows this end-of-turn villain reveal. By flagging
-      // the player here, resolvePendingStrikes will run resolveMagnetoStrike
-      // AFTER the new turn's emptyTurnState, so the pendingChoice sticks and
-      // the player gets prompted at the start of their next turn.
-      // Also defer when the hand happens to be empty (skip; nothing to do
-      // right now anyway — gets re-checked once the new hand is drawn).
-      const isActive = state.players[state.currentPlayerIdx]?.playerId === me.playerId;
-      if (isActive || me.hand.length === 0) {
-        if (!me.pendingMagnetoStrike) {
-          me.pendingMagnetoStrike = true;
-          pushLog(state, {
-            kind: 'system',
-            text: `${me.username}: Magneto's Master Strike will fire at the start of their next turn (reveal an X-Men Hero or discard down to 4).`,
-          });
-        }
-        return;
+      // "Each player reveals an X-Men Hero or discards down to four cards."
+      // DEFER for EVERY player (not just the active one): set the flag so that
+      // resolveMagnetoStrike runs at the start of each player's own next turn,
+      // when they ARE the active player and can be prompted to CHOOSE which
+      // cards to discard. (Non-active players can't run an interactive prompt
+      // mid-someone-else's-turn, and auto-discarding them robbed them of the
+      // choice.) The pendingChoice itself would also be wiped by the turn
+      // advance, so the flag is the only reliable carrier.
+      if (!me.pendingMagnetoStrike) {
+        me.pendingMagnetoStrike = true;
+        pushLog(state, {
+          kind: 'system',
+          text: `${me.username}: Magneto's Master Strike will fire at the start of their next turn (reveal an X-Men Hero or discard down to 4).`,
+        });
       }
-      // Non-active player with a non-empty hand → resolve immediately
-      // (auto-discard from top of hand; we can't run interactive prompts
-      // for non-active players from this engine).
-      resolveMagnetoStrike(state, me);
       return;
     }
 
@@ -3537,14 +3529,15 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
     return state;
   }
   // Covering Fire (Skip): each other player discards a card from their hand.
+  // Defer so each player CHOOSES which card at the start of their next turn
+  // (they're non-active right now and can't be prompted mid-turn).
   if (choice.kind === 'choose_others_draw_or_discard') {
     const me = state.players[state.currentPlayerIdx];
     for (const p of state.players) {
       if (p.playerId === me.playerId) continue;
       if (p.hand.length > 0) {
-        const card = p.hand.splice(0, 1)[0];
-        p.discard.push(card);
-        pushLog(state, { kind: 'system', text: `${p.username} discards a card.` });
+        p.pendingHandDiscard = (p.pendingHandDiscard ?? 0) + 1;
+        pushLog(state, { kind: 'system', text: `${p.username} must discard a card at the start of their next turn (Covering Fire).` });
       }
     }
     return state;
@@ -3625,17 +3618,16 @@ function doFightMastermind(
   }
 
   // ── Step 3: Resolve the Tactic's Fight effects ───────────────────────────
-  // "fightOthers" effects target EACH other player (punishments). We resolve
-  // them with auto-pick (no prompt) since they are imposed, not chosen.
+  // "fightOthers" effects target EACH other player (punishments). Discards are
+  // deferred so each player CHOOSES which card at the start of their next turn;
+  // other imposed effects resolve immediately.
   const others = state.players.filter(p => p.playerId !== me.playerId);
   for (const eff of tacticDef.fightOthers ?? []) {
     for (const p of others) {
       if (eff.kind === 'discard_from_hand') {
-        // Force-discard top card of hand without player choice.
-        for (let i = 0; i < eff.up_to && p.hand.length > 0; i++) {
-          const discarded = p.hand.splice(0, 1)[0];
-          p.discard.push(discarded);
-          pushLog(state, { kind: 'system', text: `${p.username} discards a card — ${tacticDef.name}.` });
+        if (p.hand.length > 0) {
+          p.pendingHandDiscard = (p.pendingHandDiscard ?? 0) + eff.up_to;
+          pushLog(state, { kind: 'system', text: `${p.username} must discard ${eff.up_to} card${eff.up_to === 1 ? '' : 's'} at the start of their next turn — ${tacticDef.name}.` });
         }
       } else {
         resolveEffect(state, p, eff);
@@ -3847,28 +3839,17 @@ function resolveMagnetoStrike(state: LegendaryState, player: PlayerState): void 
     return;
   }
   const toDiscard = player.hand.length - 4;
-  const isActive = state.players[state.currentPlayerIdx]?.playerId === player.playerId;
-  if (isActive) {
-    // Interactive prompt: chain `toDiscard` discard_from_hand choices.
-    state.thisTurn.pendingChoice = {
-      kind: 'discard_from_hand',
-      bonus: [],
-      mandatory: true,
-      sources: ['hand'],
-      remaining: toDiscard - 1,
-    };
-    pushLog(state, { kind: 'system', text: `${player.username}: Magneto's Master Strike — choose ${toDiscard} card${toDiscard === 1 ? '' : 's'} to discard from your hand.` });
-  } else {
-    // Non-active player: auto-discard from the top of hand.
-    for (let i = 0; i < toDiscard; i++) {
-      const discarded = player.hand.splice(0, 1)[0];
-      if (!discarded) break;
-      player.discard.push(discarded);
-      const dDef = getCard(discarded.cardId);
-      const dName = dDef.kind === 'hero' ? dDef.cardName : 'name' in dDef ? (dDef as { name: string }).name : discarded.cardId;
-      pushLog(state, { kind: 'system', text: `${player.username} discards ${dName} (Magneto Master Strike — down to 4).` });
-    }
-  }
+  // Always interactive: this only runs from resolvePendingStrikes at the start
+  // of `player`'s own turn (so they ARE the active player). The player chooses
+  // which cards to discard down to 4 — chained discard_from_hand prompts.
+  state.thisTurn.pendingChoice = {
+    kind: 'discard_from_hand',
+    bonus: [],
+    mandatory: true,
+    sources: ['hand'],
+    remaining: toDiscard - 1,
+  };
+  pushLog(state, { kind: 'system', text: `${player.username}: Magneto's Master Strike — choose ${toDiscard} card${toDiscard === 1 ? '' : 's'} to discard from your hand.` });
 }
 
 /**
@@ -4017,6 +3998,29 @@ function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void
         player.discard.push(wound);
         pushLog(state, { kind: 'wound_taken', seat: player.seat, username: player.username });
       }
+    }
+  }
+
+  // Generic deferred hand-discard (Hawkeye Covering Fire, Tactic punishments,
+  // villain-escape Bystander penalty): the player CHOOSES which cards to
+  // discard. Only fire if nothing else already set a prompt this turn — any
+  // leftover discard count persists and resolves next turn (rare double-up).
+  if (player.pendingHandDiscard && !state.thisTurn.pendingChoice) {
+    const owed = player.pendingHandDiscard;
+    const toDiscard = Math.min(owed, player.hand.length);
+    if (toDiscard > 0) {
+      player.pendingHandDiscard = undefined;
+      state.thisTurn.pendingChoice = {
+        kind: 'discard_from_hand',
+        bonus: [],
+        mandatory: true,
+        sources: ['hand'],
+        remaining: toDiscard - 1,
+      };
+      pushLog(state, { kind: 'system', text:
+        `${player.username}: choose ${toDiscard} card${toDiscard === 1 ? '' : 's'} to discard from your hand.` });
+    } else {
+      player.pendingHandDiscard = undefined; // nothing in hand to discard
     }
   }
 }
@@ -4437,13 +4441,15 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
           // them to the escape pile.
           state.escapedBystanders = (state.escapedBystanders ?? 0) + byCount;
           state.escapedPile.push(...bys);
+          // Each player discards a card — deferred so they CHOOSE which one at
+          // the start of their next turn (this fires during the end-of-turn
+          // reveal, so an immediate pending choice would be wiped anyway).
           for (const p of state.players) {
             if (p.hand.length > 0) {
-              const discarded = p.hand.splice(0, 1)[0];
-              p.discard.push(discarded);
+              p.pendingHandDiscard = (p.pendingHandDiscard ?? 0) + 1;
               pushLog(state, {
                 kind: 'system',
-                text: `${p.username} discarded a card — ${escapedName} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
+                text: `${p.username} must discard a card at the start of their next turn — ${escapedName} escaped with ${byCount} bystander${byCount === 1 ? '' : 's'}.`,
               });
             }
           }
