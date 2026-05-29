@@ -288,6 +288,14 @@ export const GAMES: Record<string, GameDef> = {
       return Array.isArray(o.players) ? o.players.map(p => p.playerId) : [];
     },
     computeHistory: (s) => {
+      // CRITICAL: only record history for a COMPLETED race. The server calls
+      // recordHistoryIfFinished after every roll/action, and that helper
+      // inserts a row whenever computeHistory returns non-null — so returning
+      // a winner mid-game wrote a W/L row on every single move (the cause of
+      // players racking up dozens of phantom wins/losses per game). Gate on
+      // phase === 'finished' like every other engine does.
+      const o = (s ?? {}) as { phase?: string };
+      if (o.phase !== 'finished') return null;
       // Winner = top of the final-score table. Ties at top + same best-podium
       // result in winnerId=null (treated as a draw for W/L stats).
       const state = s as Parameters<typeof ls.calculateFinalScores>[0];
