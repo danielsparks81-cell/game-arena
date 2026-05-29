@@ -1499,18 +1499,12 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Red Skull Master Strike ───────────────────────────────────────────────
     case 'each_player_ko_hero_from_hand': {
-      // Called once per player (me) by the outer loop in the master_strike handler.
-      // Always set the flag — the "are there heroes in hand?" check happens at
-      // turn-start when the player has drawn their fresh 6-card hand. We cannot
-      // check here because at end-of-turn the current player's hand is already
-      // discarded (empty), which would incorrectly skip them.
-      if (!me.pendingMasterStrikeKO) {
-        me.pendingMasterStrikeKO = true;
-        pushLog(state, {
-          kind: 'system',
-          text: `${me.username} must KO a Hero from their hand at the start of their next turn.`,
-        });
-      }
+      // Resolution is NOT handled here. The master_strike reveal detects this
+      // strike kind and sets state.pendingStrike, which doEndTurn drives as a
+      // sequential, per-player INTERACTIVE resolution in turn order (revealer
+      // first) before the new active player acts — see startSequentialStrike /
+      // applyStrikeToPlayer. This case is a no-op kept only to keep
+      // resolveEffect's switch exhaustive.
       return;
     }
 
@@ -4253,6 +4247,23 @@ function applyStrikeToPlayer(state: LegendaryState, player: PlayerState): boolea
     pushLog(state, { kind: 'system', text: `${player.username}: Magneto's Master Strike — choose ${toDiscard} card${toDiscard === 1 ? '' : 's'} to discard from your hand.` });
     return true;
   }
+  if (ps.kind === 'redskull') {
+    // Red Skull: "Each player KOs a Hero from their hand." Prompt for the
+    // choice; auto-skip players with no Hero in hand.
+    const hasHero = player.hand.some(c => getCard(c.cardId).kind === 'hero');
+    if (!hasHero) {
+      pushLog(state, { kind: 'system', text: `${player.username} has no Hero in hand to KO (Red Skull's Master Strike).` });
+      return false;
+    }
+    state.thisTurn.pendingChoice = {
+      kind: 'ko_from_hand',
+      mandatory: true,
+      bonus: [],
+      filter: 'heroes_only',
+    };
+    pushLog(state, { kind: 'system', text: `${player.username}: Red Skull's Master Strike — KO a Hero from your hand.` });
+    return true;
+  }
   return false;
 }
 
@@ -4312,8 +4323,10 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
         // doEndTurn kicks off startSequentialStrike() AFTER the turn advances,
         // so every player resolves their own choice in turn order (the
         // revealer first) before the new active player gets to act.
-        const seqKind: 'magneto' | null =
-          mmDef.strike.some(e => e.kind === 'magneto_master_strike') ? 'magneto' : null;
+        const seqKind: 'magneto' | 'redskull' | null =
+          mmDef.strike.some(e => e.kind === 'magneto_master_strike') ? 'magneto' :
+          mmDef.strike.some(e => e.kind === 'each_player_ko_hero_from_hand') ? 'redskull' :
+          null;
         if (seqKind) {
           state.pendingStrike = {
             kind: seqKind,

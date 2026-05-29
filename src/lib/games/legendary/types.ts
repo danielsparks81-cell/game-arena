@@ -986,7 +986,7 @@ export type LegendaryState = {
    *  first) still to resolve. While these are set, `thisTurn.choiceOwnerSeat`
    *  points at the head-of-queue player and getActivePlayerId returns them so
    *  the existing pending-choice UI works for the out-of-turn owner. */
-  pendingStrike?: { kind: 'magneto' | 'doom'; revealerSeat: number };
+  pendingStrike?: { kind: 'magneto' | 'doom' | 'redskull'; revealerSeat: number };
   strikeQueue?: number[];
 
   // ----- Scheme bookkeeping -----

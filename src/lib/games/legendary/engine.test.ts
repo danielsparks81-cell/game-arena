@@ -369,6 +369,53 @@ describe('legendary: Magneto sequential Master Strike', () => {
   });
 });
 
+describe('legendary: Red Skull sequential Master Strike', () => {
+  it('prompts every player to KO a Hero in turn order the moment the strike is drawn', () => {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1);
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+
+    // Force Red Skull as the Mastermind and stage the next reveal as a Master
+    // Strike. Give Bob a hand of Heroes so he has something to KO.
+    g.mastermindId = 'mm_red_skull';
+    g.mastermind.cardId = 'mm_red_skull';
+    g.players[1].hand = [0, 1, 2, 3, 4, 5].map(i => ({ instanceId: `b${i}`, cardId: 'shield_trooper' } as CardInstance));
+    g.villainDeck.unshift({ instanceId: 'ms-1', cardId: 'master_strike' });
+
+    // Alice ends her turn → fresh hand drawn → Master Strike revealed.
+    const r = applyAction(g, 'alice', { kind: 'end_turn' });
+    if ('error' in r) throw new Error(String(r.error));
+    let s2 = r as LegendaryState;
+
+    // Sequential strike begins with the revealer (Alice, seat 0), not the new
+    // active player (Bob, seat 1).
+    expect(s2.pendingStrike?.kind).toBe('redskull');
+    expect(s2.thisTurn.choiceOwnerSeat).toBe(0);
+    expect(getActivePlayerId(s2)).toBe('alice');
+    expect(s2.thisTurn.pendingChoice?.kind).toBe('ko_from_hand');
+
+    // Alice KOs a Hero → queue advances to Bob.
+    const aliceHero = s2.players[0].hand.find(c => getCard(c.cardId).kind === 'hero')!;
+    const r2 = applyAction(s2, 'alice', { kind: 'resolve_choice', instanceId: aliceHero.instanceId });
+    if ('error' in r2) throw new Error(String(r2.error));
+    s2 = r2 as LegendaryState;
+    expect(s2.thisTurn.choiceOwnerSeat).toBe(1);
+    expect(getActivePlayerId(s2)).toBe('bob');
+    expect(s2.thisTurn.pendingChoice?.kind).toBe('ko_from_hand');
+
+    // Bob KOs a Hero → strike fully resolved, control back to Bob's turn.
+    const bobHero = s2.players[1].hand.find(c => getCard(c.cardId).kind === 'hero')!;
+    const r3 = applyAction(s2, 'bob', { kind: 'resolve_choice', instanceId: bobHero.instanceId });
+    if ('error' in r3) throw new Error(String(r3.error));
+    s2 = r3 as LegendaryState;
+    expect(s2.pendingStrike).toBeUndefined();
+    expect(s2.thisTurn.choiceOwnerSeat).toBeUndefined();
+    expect(getActivePlayerId(s2)).toBe('bob');
+  });
+});
+
 describe('legendary: Scheme Twist fires once (not per-player)', () => {
   it('Super Hero Civil War KOs the HQ exactly once on a single twist (multiplayer)', () => {
     let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
