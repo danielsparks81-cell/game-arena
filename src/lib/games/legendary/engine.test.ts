@@ -381,6 +381,7 @@ describe('legendary: Red Skull sequential Master Strike', () => {
     // Strike. Give Bob a hand of Heroes so he has something to KO.
     g.mastermindId = 'mm_red_skull';
     g.mastermind.cardId = 'mm_red_skull';
+    g.currentPlayerIdx = 0; // pin Alice as active (startGame randomizes the starter)
     g.players[1].hand = [0, 1, 2, 3, 4, 5].map(i => ({ instanceId: `b${i}`, cardId: 'shield_trooper' } as CardInstance));
     g.villainDeck.unshift({ instanceId: 'ms-1', cardId: 'master_strike' });
 
@@ -427,6 +428,7 @@ describe('legendary: Juggernaut Ambush sequential KO', () => {
     // Give Bob Heroes in his discard pile (Alice's discard fills naturally when
     // she ends her turn — her hand is discarded then a fresh hand is drawn).
     g.players[1].discard = [0, 1, 2].map(i => ({ instanceId: `bd${i}`, cardId: 'shield_trooper' } as CardInstance));
+    g.currentPlayerIdx = 0; // pin Alice as active (startGame randomizes the starter)
     // Force the next reveal to be Juggernaut entering the (empty) city.
     g.villainDeck.unshift({ instanceId: 'jug-1', cardId: 'juggernaut' });
 
@@ -547,6 +549,7 @@ describe('legendary: Scheme Twist fires once (not per-player)', () => {
     if ('error' in started) throw new Error(started.error);
     const g = started;
 
+    g.currentPlayerIdx = 0; // pin Alice as active (startGame randomizes the starter)
     // Force the next Villain Deck reveal to be a Scheme Twist.
     g.villainDeck.unshift({ instanceId: 'twist-1', cardId: 'scheme_twist' });
     const twistsBefore = g.schemeTwistsRevealed;

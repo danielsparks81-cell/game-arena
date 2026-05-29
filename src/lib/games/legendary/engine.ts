@@ -576,7 +576,9 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
   next.city = Array(CITY_SIZE).fill(null);
 
   // ----- Kick off turn 0 → 1 -----
-  next.currentPlayerIdx = 0;
+  // Randomize the starting player (Legendary: "the player who most recently
+  // … goes first" — we just pick at random so the host isn't always first).
+  next.currentPlayerIdx = Math.floor(Math.random() * next.players.length);
   next.turn = 1;
   next.thisTurn = emptyTurnState();
   // Deal a starting hand to EVERY player up-front so off-turn players can
@@ -585,9 +587,13 @@ export function startGame(state: LegendaryState): LegendaryState | { error: stri
   for (const p of next.players) drawUpTo(p, STARTING_HAND_SIZE);
 
   next.phase = 'playing';
+  const starter = next.players[next.currentPlayerIdx];
   pushLog(next, { kind: 'system', text: `Game started: ${mastermind.name} vs the heroes.` });
+  if (next.players.length > 1) {
+    pushLog(next, { kind: 'system', text: `${starter.username} was chosen to go first.` });
+  }
   pushLog(next, {
-    kind: 'turn_started', seat: 0, username: next.players[0].username,
+    kind: 'turn_started', seat: starter.seat, username: starter.username,
   });
   return next;
 }
