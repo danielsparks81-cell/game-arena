@@ -670,6 +670,12 @@ export type PlayerState = {
    *  the start of this player's next turn: reveal a [tech] Hero or put 2 cards
    *  on top of their deck (interactive). */
   pendingDoomStrike?: boolean;
+  /** Set by Juggernaut's Ambush/Escape (which fire at the end-of-turn villain
+   *  reveal) for the turn-ending player so they get an INTERACTIVE choice of
+   *  which Heroes to KO at the start of their next turn. `zone` = which pile
+   *  ('discard' for Ambush, 'hand' for Escape); `amount` = how many to KO.
+   *  Non-active players auto-KO immediately at reveal. */
+  pendingJuggernautKO?: { zone: 'discard' | 'hand'; amount: number };
   /** Set by Treasures of Latveria (Dr. Doom Tactic 3). This many extra cards
    *  are added to the player's next hand draw. Consumed and cleared on draw. */
   endOfTurnExtraDraw?: number;
@@ -762,8 +768,11 @@ export type PendingChoice =
   | { kind: 'solo_twist_tuck_hero' }
   /** Bitter Captor: player clicks an [x-men] Hero in the HQ to recruit it for free. */
   | { kind: 'free_recruit_xmen_from_hq' }
-  /** Maniacal Tyrant: KO up to `remaining` cards from your discard pile; click to KO, skip to stop. */
-  | { kind: 'ko_up_to_from_discard'; remaining: number; cards: CardInstance[] }
+  /** Maniacal Tyrant / Juggernaut Ambush: KO cards from your discard pile by
+   *  clicking them. `label` flavors the prompt (default Maniacal Tyrant);
+   *  `heroesOnly` restricts the candidate list to Heroes (Juggernaut);
+   *  `mandatory` forbids skipping until `remaining` reaches 0 (Juggernaut). */
+  | { kind: 'ko_up_to_from_discard'; remaining: number; cards: CardInstance[]; label?: string; heroesOnly?: boolean; mandatory?: boolean }
   /** Electromagnetic Bubble: player clicks an [x-men] Hero from their played-this-turn area. */
   | { kind: 'em_bubble_select_hero' }
   /** Melter Fight: revealed top deck cards from every player, queued one-at-a-time

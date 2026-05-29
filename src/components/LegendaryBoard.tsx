@@ -1099,7 +1099,7 @@ export default function LegendaryBoard({
                   : pendingChoice.kind === 'free_recruit_xmen_from_hq'
                   ? '🟩 Bitter Captor — click an X-Men Hero in the HQ to recruit it for free'
                   : pendingChoice.kind === 'ko_up_to_from_discard'
-                  ? `🗑️ Maniacal Tyrant — click a card from your discard pile to KO it (${(pendingChoice as { remaining: number }).remaining} remaining)`
+                  ? `🗑️ ${(pendingChoice as { label?: string }).label ?? 'Maniacal Tyrant'} — click a ${(pendingChoice as { heroesOnly?: boolean }).heroesOnly ? 'Hero' : 'card'} from your discard pile to KO it (${(pendingChoice as { remaining: number }).remaining} remaining)`
                   : pendingChoice.kind === 'em_bubble_select_hero'
                   ? '🔮 Electromagnetic Bubble — click an X-Men Hero from your played area to keep in next hand'
                   : pendingChoice.kind === 'solo_twist_tuck_hero'
@@ -1589,7 +1589,7 @@ export default function LegendaryBoard({
       {/* Maniacal Tyrant — player clicks a card from their discard to KO it. */}
       {isKoUpToFromDiscard && pendingChoice?.kind === 'ko_up_to_from_discard' && me && (
         <>
-          <ZoneLabel>Maniacal Tyrant — click a card from your discard pile to KO it ({pendingChoice.remaining} remaining)</ZoneLabel>
+          <ZoneLabel>{pendingChoice.label ?? 'Maniacal Tyrant'} — click a {pendingChoice.heroesOnly ? 'Hero' : 'card'} from your discard pile to KO it ({pendingChoice.remaining} remaining)</ZoneLabel>
           {(() => {
             const cards = pendingChoice.cards;
             const n = Math.max(1, cards.length);

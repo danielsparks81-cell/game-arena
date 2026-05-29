@@ -2107,36 +2107,19 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
 
-    // Juggernaut Ambush (per-player): KO up to `amount` Heroes from discard.
+    // Juggernaut Ambush (per-player): KO `amount` Heroes from discard.
+    // Fires at the end-of-turn villain reveal. The turn-ending (active) player
+    // gets to CHOOSE which Heroes at the start of their next turn (deferred,
+    // since a pending choice set here would be wiped by the turn advance);
+    // every other player auto-KOs immediately (can't be prompted mid-turn).
     case 'ko_heroes_from_discard': {
-      let koed = 0;
-      for (let i = 0; i < effect.amount; i++) {
-        const idx = me.discard.findIndex(c => getCard(c.cardId).kind === 'hero');
-        if (idx < 0) break;
-        state.ko.push(me.discard.splice(idx, 1)[0]);
-        koed++;
-      }
-      if (koed > 0) {
-        pushLog(state, { kind: 'system', text: `${me.username} KOs ${koed} Hero${koed > 1 ? 's' : ''} from their discard pile (Juggernaut).` });
-        recomputeVp(me);
-      }
-      return;
+      return juggernautKO(state, me, 'discard', effect.amount);
     }
 
-    // Juggernaut Escape (per-player): KO up to `amount` Heroes from hand.
+    // Juggernaut Escape (per-player): KO `amount` Heroes from hand. Same
+    // active-player-chooses / others-auto split as the Ambush.
     case 'ko_heroes_from_hand_immediate': {
-      let koed = 0;
-      for (let i = 0; i < effect.amount; i++) {
-        const idx = me.hand.findIndex(c => getCard(c.cardId).kind === 'hero');
-        if (idx < 0) break;
-        state.ko.push(me.hand.splice(idx, 1)[0]);
-        koed++;
-      }
-      if (koed > 0) {
-        pushLog(state, { kind: 'system', text: `${me.username} KOs ${koed} Hero${koed > 1 ? 's' : ''} from their hand (Juggernaut Escape).` });
-        recomputeVp(me);
-      }
-      return;
+      return juggernautKO(state, me, 'hand', effect.amount);
     }
 
     // Scheme twist conditional: fires inner effects only when the current
@@ -3001,17 +2984,28 @@ function doResolveChoice(
   if (choice.kind === 'ko_up_to_from_discard') {
     const idx = me.discard.findIndex(c => c.instanceId === instanceId);
     if (idx < 0) return { error: 'Card not found in discard pile' };
+    // Heroes-only variant (Juggernaut): the clicked card must be a Hero.
+    if (choice.heroesOnly && getCard(me.discard[idx].cardId).kind !== 'hero') {
+      return { error: 'Choose a Hero from your discard pile' };
+    }
     const card = me.discard.splice(idx, 1)[0];
     state.ko.push(card);
     const def = getCard(card.cardId);
     const name = def.kind === 'hero' ? def.cardName : 'name' in def ? (def as { name: string }).name : card.cardId;
-    pushLog(state, { kind: 'system', text: `${me.username} KOs ${name} from discard (Maniacal Tyrant).` });
+    pushLog(state, { kind: 'system', text: `${me.username} KOs ${name} from discard (${choice.label ?? 'Maniacal Tyrant'}).` });
     const remaining = choice.remaining - 1;
-    if (remaining > 0 && me.discard.length > 0) {
+    // Candidate pool for the next pick — heroes-only when restricted.
+    const pool = choice.heroesOnly
+      ? me.discard.filter(c => getCard(c.cardId).kind === 'hero')
+      : [...me.discard];
+    if (remaining > 0 && pool.length > 0) {
       state.thisTurn.pendingChoice = {
         kind: 'ko_up_to_from_discard',
         remaining,
-        cards: [...me.discard],
+        cards: pool,
+        label: choice.label,
+        heroesOnly: choice.heroesOnly,
+        mandatory: choice.mandatory,
       };
     } else {
       state.thisTurn.pendingChoice = undefined;
@@ -3434,9 +3428,14 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
   const choice = state.thisTurn.pendingChoice;
   if (!choice) return { error: 'No pending choice to skip' };
   if ('mandatory' in choice && choice.mandatory) {
-    return { error: choice.kind === 'put_card_on_deck'
-      ? 'You must choose a card to put on top of your deck — this cannot be skipped.'
-      : 'You must discard a card — this cost cannot be skipped.' };
+    return { error:
+      choice.kind === 'put_card_on_deck'
+        ? 'You must choose a card to put on top of your deck — this cannot be skipped.'
+      : choice.kind === 'ko_up_to_from_discard'
+        ? 'You must KO the required Heroes from your discard pile — this cannot be skipped.'
+      : choice.kind === 'ko_from_hand'
+        ? 'You must KO the required Heroes — this cannot be skipped.'
+        : 'You must discard a card — this cost cannot be skipped.' };
   }
   // A few choice kinds don't carry a `mandatory` flag but still can't be
   // skipped — skipping them would silently lose state (cards disappear).
@@ -3518,7 +3517,8 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
     pushLog(state, { kind: 'system', text: `${me.username} passes on the free X-Men recruit.` });
     return state;
   }
-  // Maniacal Tyrant: player stops KO-ing from discard.
+  // Maniacal Tyrant: player stops KO-ing from discard. (Juggernaut's variant
+  // sets mandatory:true and is rejected by the generic mandatory guard above.)
   if (choice.kind === 'ko_up_to_from_discard') {
     const me = state.players[state.currentPlayerIdx];
     pushLog(state, { kind: 'system', text: `${me.username} stops discarding (Maniacal Tyrant).` });
@@ -3711,6 +3711,50 @@ function doWoundHealing(
   state.thisTurn.healedThisTurn = true;
   pushLog(state, { kind: 'system', text: `${me.username} heals: KO'd ${wounds.length} Wound${wounds.length === 1 ? '' : 's'} from their hand. (No more recruit / fight this turn.)` });
   return state;
+}
+
+/** Juggernaut Ambush/Escape: KO `amount` Heroes from a player's discard
+ *  (ambush) or hand (escape). The turn-ending (active) player defers to an
+ *  interactive choice at the start of their next turn; everyone else auto-KOs
+ *  the cheapest Heroes immediately. Always logs the card names. */
+function juggernautKO(
+  state: LegendaryState,
+  me: PlayerState,
+  zone: 'discard' | 'hand',
+  amount: number,
+): void {
+  const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
+  const pile = zone === 'discard' ? me.discard : me.hand;
+  const heroes = pile.filter(isHero);
+  const toKo = Math.min(amount, heroes.length);
+  const where = zone === 'discard' ? 'discard pile' : 'hand';
+  if (toKo === 0) {
+    pushLog(state, { kind: 'system', text: `${me.username} has no Heroes in their ${where} to KO (Juggernaut).` });
+    return;
+  }
+  const isActive = me.playerId === state.players[state.currentPlayerIdx]?.playerId;
+  if (isActive) {
+    me.pendingJuggernautKO = { zone, amount: toKo };
+    pushLog(state, { kind: 'system', text:
+      `${me.username} must KO ${toKo} Hero${toKo === 1 ? '' : 's'} from their ${where} at the start of their next turn (Juggernaut) — they choose which.` });
+    return;
+  }
+  // Non-active player: auto-KO the cheapest Heroes, naming them.
+  const sorted = [...heroes].sort((a, b) => (getCard(a.cardId) as HeroCardDef).cost - (getCard(b.cardId) as HeroCardDef).cost);
+  const koed = sorted.slice(0, toKo);
+  const names: string[] = [];
+  for (const card of koed) {
+    const src = zone === 'discard' ? me.discard : me.hand;
+    const idx = src.findIndex(c => c.instanceId === card.instanceId);
+    if (idx < 0) continue;
+    src.splice(idx, 1);
+    state.ko.push(card);
+    names.push((getCard(card.cardId) as HeroCardDef).cardName);
+  }
+  if (names.length > 0) {
+    pushLog(state, { kind: 'system', text: `${me.username} KOs ${names.join(', ')} from their ${where} (Juggernaut).` });
+    recomputeVp(me);
+  }
 }
 
 function recomputeVp(p: PlayerState): void {
@@ -3913,6 +3957,46 @@ function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void
   if (player.pendingDoomStrike) {
     player.pendingDoomStrike = undefined;
     resolveDoomStrike(state, player);
+  }
+
+  // Juggernaut Ambush/Escape: the player now CHOOSES which Heroes to KO from
+  // their discard (ambush) or hand (escape) — an interactive prompt over the
+  // freshly available cards.
+  if (player.pendingJuggernautKO) {
+    const { zone, amount } = player.pendingJuggernautKO;
+    player.pendingJuggernautKO = undefined;
+    const isHero = (c: CardInstance) => getCard(c.cardId).kind === 'hero';
+    if (zone === 'discard') {
+      const heroes = player.discard.filter(isHero);
+      const toKo = Math.min(amount, heroes.length);
+      if (toKo > 0) {
+        state.thisTurn.pendingChoice = {
+          kind: 'ko_up_to_from_discard',
+          remaining: toKo,
+          cards: heroes,
+          label: 'Juggernaut',
+          heroesOnly: true,
+          mandatory: true,
+        };
+        pushLog(state, { kind: 'system', text:
+          `${player.username}: Juggernaut — choose ${toKo} Hero${toKo === 1 ? '' : 's'} to KO from your discard pile.` });
+      }
+    } else {
+      const heroes = player.hand.filter(isHero);
+      const toKo = Math.min(amount, heroes.length);
+      if (toKo > 0) {
+        state.thisTurn.pendingChoice = {
+          kind: 'ko_from_hand',
+          bonus: [],
+          filter: 'heroes_only',
+          sources: ['hand'],
+          mandatory: true,
+          remaining: toKo - 1,
+        };
+        pushLog(state, { kind: 'system', text:
+          `${player.username}: Juggernaut — choose ${toKo} Hero${toKo === 1 ? '' : 's'} to KO from your hand.` });
+      }
+    }
   }
 
   // Loki: reveal a Strength Hero, or gain a Wound.
