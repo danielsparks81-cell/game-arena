@@ -2161,10 +2161,10 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
         twistsTotal: state.schemeTwistsTotal ?? scheme?.twists ?? state.schemeTwistsRevealed,
       });
       pushLog(state, { kind: 'system', text: `Mystique triggers a Scheme Twist! (${state.schemeTwistsRevealed} total)` });
+      // Fire the twist effect ONCE (board-level); per-player effects iterate
+      // internally. Mirrors the end-of-turn scheme_twist reveal.
       if (scheme?.onTwist) {
-        for (const eff of scheme.onTwist) {
-          for (const p of state.players) resolveEffect(state, p, eff);
-        }
+        for (const eff of scheme.onTwist) resolveEffect(state, me, eff);
       }
       // Check the evil-wins condition immediately (same logic as doEndTurn).
       if (scheme && scheme.evilWinsAfterTwists !== undefined
@@ -4341,11 +4341,16 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
         twistsRevealed: state.schemeTwistsRevealed,
         twistsTotal: state.schemeTwistsTotal ?? scheme?.twists ?? state.schemeTwistsRevealed,
       });
-      // Fire the scheme's per-twist effect (if any).
+      // Fire the scheme's twist effect ONCE. Scheme Twists act on the shared
+      // board (KO all HQ Heroes, place a Dark Portal, capture Bystanders, …),
+      // so they must fire a single time — NOT once per player. Effects that
+      // genuinely hit every player (e.g. each_player_gains_wound,
+      // each_player_reveal_tech_hero_or_wound) iterate over all players
+      // internally, so a single call covers everyone. The active player is
+      // passed as the effect's `me` context.
       if (scheme?.onTwist) {
-        for (const eff of scheme.onTwist) {
-          for (const p of state.players) resolveEffect(state, p, eff);
-        }
+        const twistPlayer = state.players[state.currentPlayerIdx];
+        for (const eff of scheme.onTwist) resolveEffect(state, twistPlayer, eff);
       }
       // Immediately check if this twist triggers the evil-wins condition
       // (e.g. Cosmic Cube Twist 8: Evil Wins!). Mirrors the Mystique check.

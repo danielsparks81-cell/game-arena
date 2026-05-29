@@ -369,4 +369,31 @@ describe('legendary: Magneto sequential Master Strike', () => {
   });
 });
 
+describe('legendary: Scheme Twist fires once (not per-player)', () => {
+  it('Super Hero Civil War KOs the HQ exactly once on a single twist (multiplayer)', () => {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1);
+    s.schemeId = 'scheme_super_hero_civil_war';
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+
+    // Force the next Villain Deck reveal to be a Scheme Twist.
+    g.villainDeck.unshift({ instanceId: 'twist-1', cardId: 'scheme_twist' });
+    const twistsBefore = g.schemeTwistsRevealed;
+
+    const r = applyAction(g, 'alice', { kind: 'end_turn' });
+    if ('error' in r) throw new Error(String(r.error));
+    const ns = r as LegendaryState;
+
+    // Exactly one twist was revealed...
+    expect(ns.schemeTwistsRevealed).toBe(twistsBefore + 1);
+    // ...and the HQ-KO effect logged exactly once (the bug fired it per-player).
+    const koLines = ns.log.filter(
+      e => e.kind === 'system' && /Heroes? KO'd from the HQ/.test(e.text),
+    );
+    expect(koLines).toHaveLength(1);
+  });
+});
+
 void CITY_SIZE;

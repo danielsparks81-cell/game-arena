@@ -16,14 +16,17 @@ export const COSMIC_CUBE: SchemeCardDef = {
   twists: 8,
   // No explicit bystander count — use the default per-player table (2/8/16).
   evilWinsAfterTwists: 8,
+  // Twist effects fire ONCE (not per-player); each_player_gains_wound iterates
+  // over every player internally, so "each player gains a Wound" works whether
+  // there are 1 or 5 players.
   onTwist: [
     // Twists 5–6: one Wound per player.
-    { kind: 'if_twists_revealed', min: 5, max: 6, effects: [{ kind: 'gain_wound' }] },
+    { kind: 'if_twists_revealed', min: 5, max: 6, effects: [{ kind: 'each_player_gains_wound' }] },
     // Twist 7: three Wounds per player.
     { kind: 'if_twists_revealed', min: 7, max: 7, effects: [
-      { kind: 'gain_wound' },
-      { kind: 'gain_wound' },
-      { kind: 'gain_wound' },
+      { kind: 'each_player_gains_wound' },
+      { kind: 'each_player_gains_wound' },
+      { kind: 'each_player_gains_wound' },
     ]},
   ],
 };
