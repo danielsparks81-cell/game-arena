@@ -792,12 +792,21 @@ async function recordHistoryIfFinished(
   if (!def?.computeHistory) return;
   const h = def.computeHistory(state);
   if (!h) return;
-  await supabase.from('game_history').insert({
+  const base = {
     room_id: roomId,
     game_type: gameType,
     winner_id: h.winnerId,
     player_ids: h.playerIds,
-  });
+  };
+  // Include analytics meta when the engine provides it (Legendary). Falls back
+  // to a meta-less insert if the `meta` column hasn't been migrated yet, so
+  // history recording never breaks for any game.
+  if (h.meta) {
+    const { error } = await supabase.from('game_history').insert({ ...base, meta: h.meta });
+    if (error) await supabase.from('game_history').insert(base);
+  } else {
+    await supabase.from('game_history').insert(base);
+  }
 }
 
 export async function makeMoveTTT(roomId: string, cell: number) {

@@ -93,7 +93,14 @@ export type GameDef = {
    * `recordHistoryIfFinished()` cover every game type instead of the 4-5
    * bespoke `recordXxxHistory()` helpers we used to have.
    */
-  computeHistory?: (state: unknown) => { winnerId: string | null; playerIds: string[] } | null;
+  computeHistory?: (state: unknown) => {
+    winnerId: string | null;
+    playerIds: string[];
+    /** Optional per-game analytics payload stored in game_history.meta.
+     *  Legendary uses it for win-rate stats (mastermind / scheme / hero
+     *  classes / player count). */
+    meta?: Record<string, unknown>;
+  } | null;
   /**
    * Forward-migrate a state from an older shape to today's. Called on every
    * state read so in-flight games (started before a deploy) keep working

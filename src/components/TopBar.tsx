@@ -23,6 +23,14 @@ export default function TopBar({
         </div>
       )}
       <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+        {/* Legendary battle records — win-rates per Mastermind / Scheme / Hero. */}
+        <Link
+          href="/legendary-stats"
+          title="Legendary battle records — win-rates per Mastermind / Scheme / Hero"
+          className="hidden text-xs text-neutral-400 transition hover:text-amber-400 sm:inline"
+        >
+          📊 Legendary stats
+        </Link>
         {/* Legendary card sandbox — author-time tool for building hero packs. */}
         <Link
           href="/legendary-sandbox"

@@ -4566,5 +4566,15 @@ export function computeHistory(state: LegendaryState) {
     state.result === 'loss' ? null
     : tieAtTop              ? null
     : ordered[0]?.playerId ?? null;
-  return { winnerId, playerIds: ordered.map(p => p.playerId) };
+  // Analytics meta — recorded into game_history.meta so /legendary-stats can
+  // aggregate win-rates per Mastermind / Scheme / Hero class by player count.
+  // result is the co-op party outcome (win = party beat the Mastermind).
+  const meta = {
+    result: state.result,                       // 'win' | 'loss' | 'tie'
+    mastermind: state.mastermindId,
+    scheme: state.schemeId,
+    heroClasses: [...state.heroClassIds],
+    playerCount: state.players.length,
+  };
+  return { winnerId, playerIds: ordered.map(p => p.playerId), meta };
 }
