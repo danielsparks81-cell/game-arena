@@ -5,6 +5,7 @@ import {
   addPlayer,
   startGame,
   projectStateForViewer,
+  getActivePlayerId,
   HQ_SIZE,
   CITY_SIZE,
   STARTER_TROOPERS,
@@ -12,6 +13,7 @@ import {
   STARTING_HAND_SIZE,
   getCard,
   type LegendaryState,
+  type CardInstance,
 } from './index';
 
 function freshSinglePlayerGame(): LegendaryState {
@@ -276,6 +278,94 @@ describe('legendary: Skrull Invasion scheme', () => {
     expect(ns.players[0].victoryPile.length).toBe(beforeVp);
     expect(ns.skrullHeroes?.includes(heroCard.instanceId)).toBe(false);
     expect(ns.city[0]).toBeNull();
+  });
+});
+
+describe('legendary: Magneto sequential Master Strike', () => {
+  // Build a 3-player game and stage a Magneto Master Strike that has just been
+  // revealed: revealer = Alice (seat 0), next active player = Bob (seat 1),
+  // and the engine is mid-sequence with Alice's discard prompt up. The strike
+  // must resolve for EVERY player in turn order (Alice → Bob → Carol) before
+  // control returns to the new active player (Bob).
+  function makeMagnetoStrikeInProgress(): LegendaryState {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1);
+    s = addPlayer(s, 'carol', 'Carol', 2);
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+
+    // Force Magneto as the Mastermind.
+    g.mastermindId = 'mm_magneto';
+    g.mastermind.cardId = 'mm_magneto';
+
+    const trooper = (n: string): CardInstance => ({ instanceId: n, cardId: 'shield_trooper' });
+    // Alice (revealer) + Bob each hold 6 non-X-Men cards → must discard down to
+    // 4. Carol holds only 4 → no discard needed (auto-resolves with no prompt).
+    g.players[0].hand = [0, 1, 2, 3, 4, 5].map(i => trooper(`a${i}`));
+    g.players[1].hand = [0, 1, 2, 3, 4, 5].map(i => trooper(`b${i}`));
+    g.players[2].hand = [0, 1, 2, 3].map(i => trooper(`c${i}`));
+
+    // New active player after the reveal/advance is Bob (seat 1).
+    g.currentPlayerIdx = 1;
+
+    // Stage the in-progress sequential strike: Alice (seat 0) is head of queue.
+    g.pendingStrike = { kind: 'magneto', revealerSeat: 0 };
+    g.strikeQueue = [0, 1, 2];
+    g.thisTurn.choiceOwnerSeat = 0;
+    g.thisTurn.pendingChoice = {
+      kind: 'discard_from_hand', bonus: [], mandatory: true, sources: ['hand'], remaining: 1,
+    };
+    return g;
+  }
+
+  function resolveOwnerDiscards(s: LegendaryState, playerId: string, count: number): LegendaryState {
+    for (let i = 0; i < count; i++) {
+      const owner = s.players.find(p => p.seat === s.thisTurn.choiceOwnerSeat)!;
+      const cardId = owner.hand[0].instanceId;
+      const r = applyAction(s, playerId, { kind: 'resolve_choice', instanceId: cardId });
+      if ('error' in r) throw new Error(String(r.error));
+      s = r;
+    }
+    return s;
+  }
+
+  it('routes control to the head-of-queue owner, not the active player', () => {
+    const s = makeMagnetoStrikeInProgress();
+    expect(getActivePlayerId(s)).toBe('alice'); // owner, despite currentPlayerIdx = Bob
+  });
+
+  it('rejects choice resolution from a player who is not the current owner', () => {
+    const s = makeMagnetoStrikeInProgress();
+    const r = applyAction(s, 'bob', { kind: 'resolve_choice', instanceId: 'a0' });
+    expect('error' in r).toBe(true);
+  });
+
+  it('resolves each player in turn order, then hands control to the active player', () => {
+    let s = makeMagnetoStrikeInProgress();
+
+    // Alice discards down to 4 (2 cards). After her chain clears, the queue
+    // advances to Bob (seat 1).
+    s = resolveOwnerDiscards(s, 'alice', 2);
+    expect(s.players[0].hand).toHaveLength(4);
+    expect(s.thisTurn.choiceOwnerSeat).toBe(1);
+    expect(getActivePlayerId(s)).toBe('bob');
+
+    // Alice can no longer act — it's Bob's turn in the queue.
+    const aliceBlocked = applyAction(s, 'alice', { kind: 'resolve_choice', instanceId: s.players[1].hand[0].instanceId });
+    expect('error' in aliceBlocked).toBe(true);
+
+    // Bob discards down to 4 (2 cards). Carol (4 cards) auto-resolves with no
+    // prompt, so the queue drains and the strike finishes.
+    s = resolveOwnerDiscards(s, 'bob', 2);
+    expect(s.players[1].hand).toHaveLength(4);
+    expect(s.players[2].hand).toHaveLength(4); // untouched — no discard needed
+
+    // Strike fully resolved: bookkeeping cleared, control back to Bob.
+    expect(s.pendingStrike).toBeUndefined();
+    expect(s.strikeQueue).toBeUndefined();
+    expect(s.thisTurn.choiceOwnerSeat).toBeUndefined();
+    expect(getActivePlayerId(s)).toBe('bob');
   });
 });
 

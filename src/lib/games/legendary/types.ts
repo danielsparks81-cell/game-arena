@@ -659,10 +659,6 @@ export type PlayerState = {
   /** Set by a Master Strike effect (e.g. Red Skull). The player must KO a Hero
    *  of their choice from their new hand at the start of their next turn. */
   pendingMasterStrikeKO?: boolean;
-  /** Set by Magneto's Master Strike when fired on an empty hand (the active
-   *  player just discarded). Resolved at the start of this player's next turn
-   *  against their freshly drawn hand: reveal an X-Men Hero or discard to 4. */
-  pendingMagnetoStrike?: boolean;
   /** Set by Loki's Master Strike when fired on an empty hand. Resolved at the
    *  start of this player's next turn: reveal a Strength Hero or gain a Wound. */
   pendingLokiStrike?: boolean;
@@ -822,6 +818,12 @@ export type TurnState = {
   /** When set, the active player must pick a card from their hand to
    *  KO/discard before they can take any other action. */
   pendingChoice?: PendingChoice;
+  /** Seat (NOT index) of the player who currently OWNS the pendingChoice, when
+   *  it is being resolved OUT OF TURN. Used by sequential Master Strike
+   *  resolution: when a strike is drawn, each player resolves their own choice
+   *  in turn order before the real active player (currentPlayerIdx) plays.
+   *  When undefined, the pendingChoice belongs to the active player as usual. */
+  choiceOwnerSeat?: number;
   /** Set by `grant_free_bystander_fight`. Allows the player to fight ONE
    *  villain or mastermind that has an attached bystander without spending any
    *  Attack. Consumed on use; reset to false on end-of-turn. */
@@ -974,6 +976,18 @@ export type LegendaryState = {
   currentPlayerIdx: number;
   turn: number;
   thisTurn: TurnState;
+
+  /** Sequential Master Strike resolution. When a Master Strike that requires
+   *  EACH player to make an interactive choice (Magneto: discard down to 4;
+   *  Dr. Doom: put cards on deck) is revealed, every player must resolve their
+   *  own choice in turn order BEFORE the new active player begins their turn.
+   *  `pendingStrike` records which strike is being processed and who revealed
+   *  it; `strikeQueue` is the remaining list of seats (in turn order, head
+   *  first) still to resolve. While these are set, `thisTurn.choiceOwnerSeat`
+   *  points at the head-of-queue player and getActivePlayerId returns them so
+   *  the existing pending-choice UI works for the out-of-turn owner. */
+  pendingStrike?: { kind: 'magneto' | 'doom'; revealerSeat: number };
+  strikeQueue?: number[];
 
   // ----- Scheme bookkeeping -----
   schemeTwistsRevealed: number;

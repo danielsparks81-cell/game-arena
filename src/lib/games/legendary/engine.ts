@@ -670,11 +670,31 @@ export function applyAction(
   if (state.phase !== 'playing') return { error: 'Game not in progress' };
   if (state.result) return { error: 'Game already finished' };
 
-  const me = state.players[state.currentPlayerIdx];
-  if (!me || me.playerId !== playerId) return { error: "It's not your turn" };
+  // Sequential Master Strike: while a strike is being resolved out of turn the
+  // acting player is the head-of-queue owner (choiceOwnerSeat), NOT the player
+  // at currentPlayerIdx. Authorize that owner instead, and restrict them to
+  // choice-resolution actions only.
+  const ownerSeat = state.thisTurn.choiceOwnerSeat;
+  const outOfTurn = ownerSeat !== undefined;
+  const actor = outOfTurn
+    ? state.players.find(p => p.seat === ownerSeat)
+    : state.players[state.currentPlayerIdx];
+  if (!actor || actor.playerId !== playerId) {
+    return { error: outOfTurn ? 'Waiting for another player to resolve a Master Strike.' : "It's not your turn" };
+  }
+  if (outOfTurn &&
+      action.kind !== 'resolve_choice' &&
+      action.kind !== 'skip_choice' &&
+      action.kind !== 'accept_choice') {
+    return { error: 'Resolve your Master Strike choice first — select a card or click Skip.' };
+  }
 
   const next = clone(state);
-  const meNext = next.players[next.currentPlayerIdx];
+  // The acting player inside `next` (the owner during out-of-turn resolution,
+  // otherwise the active player).
+  const meNext = outOfTurn
+    ? next.players.find(p => p.seat === ownerSeat)!
+    : next.players[next.currentPlayerIdx];
 
   // If a player-choice is pending, only allow choice-resolution actions.
   if (next.thisTurn.pendingChoice &&
@@ -692,12 +712,26 @@ export function applyAction(
     case 'fight_city':        return doFightCity(next, meNext, action.slot);
     case 'fight_mastermind':  return doFightMastermind(next, meNext);
     case 'play_wound_healing': return doWoundHealing(next, meNext);
-    case 'resolve_choice':    return doResolveChoice(next, meNext, action.instanceId);
-    case 'skip_choice':       return doSkipChoice(next);
-    case 'accept_choice':     return doAcceptChoice(next, meNext);
+    case 'resolve_choice':    return afterChoiceResolution(doResolveChoice(next, meNext, action.instanceId));
+    case 'skip_choice':       return afterChoiceResolution(doSkipChoice(next));
+    case 'accept_choice':     return afterChoiceResolution(doAcceptChoice(next, meNext));
     case 'end_turn':              return doEndTurn(next);
     case 'reveal_first_villain':  return doRevealFirstVillain(next);
   }
+}
+
+/** After a choice-resolution action completes, if we're in a sequential
+ *  Master Strike and the owner's pendingChoice has cleared, advance the strike
+ *  queue to the next player (or finish the strike and hand control to the real
+ *  active player). No-op for ordinary in-turn choices. */
+function afterChoiceResolution(
+  result: LegendaryState | { error: string },
+): LegendaryState | { error: string } {
+  if ('error' in result) return result;
+  if (result.pendingStrike && !result.thisTurn.pendingChoice) {
+    advanceStrikeQueue(result);
+  }
+  return result;
 }
 
 // ---------------- Play card ----------------
@@ -1630,20 +1664,11 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
     // ── Magneto Master Strike ─────────────────────────────────────────────────
     case 'magneto_master_strike': {
       // "Each player reveals an X-Men Hero or discards down to four cards."
-      // DEFER for EVERY player (not just the active one): set the flag so that
-      // resolveMagnetoStrike runs at the start of each player's own next turn,
-      // when they ARE the active player and can be prompted to CHOOSE which
-      // cards to discard. (Non-active players can't run an interactive prompt
-      // mid-someone-else's-turn, and auto-discarding them robbed them of the
-      // choice.) The pendingChoice itself would also be wiped by the turn
-      // advance, so the flag is the only reliable carrier.
-      if (!me.pendingMagnetoStrike) {
-        me.pendingMagnetoStrike = true;
-        pushLog(state, {
-          kind: 'system',
-          text: `${me.username}: Magneto's Master Strike will fire at the start of their next turn (reveal an X-Men Hero or discard down to 4).`,
-        });
-      }
+      // Resolution is NOT handled here: the master_strike reveal detects this
+      // strike kind and instead sets state.pendingStrike, which doEndTurn drives
+      // as a sequential, per-player INTERACTIVE resolution in turn order (see
+      // startSequentialStrike / applyStrikeToPlayer). This case is therefore a
+      // no-op — it only exists to keep resolveEffect's switch exhaustive.
       return;
     }
 
@@ -3814,45 +3839,6 @@ function doRevealFirstVillain(state: LegendaryState): LegendaryState | { error: 
 // ---------------- End turn ----------------
 
 /**
- * Resolve Magneto's master-strike against a single player's hand.
- *
- * If the player has any X-Men hero in hand they reveal it for no penalty.
- * Otherwise they must discard down to 4 cards. When the target IS the
- * currently-active player, queue a chained `discard_from_hand` pending
- * choice so the player picks which cards to drop. Non-active players don't
- * get a UI prompt — auto-discard from the top of hand instead (Marvel
- * Legendary's parallel "each player simultaneously…" wording isn't
- * something our turn-by-turn engine can offer per-player UI for).
- */
-function resolveMagnetoStrike(state: LegendaryState, player: PlayerState): void {
-  if (player.hand.length === 0) return;
-  const hasXmen = player.hand.some(c => {
-    const d = getCard(c.cardId);
-    return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
-  });
-  if (hasXmen) {
-    pushLog(state, { kind: 'system', text: `${player.username} reveals an X-Men Hero — no penalty from Magneto's Master Strike.` });
-    return;
-  }
-  if (player.hand.length <= 4) {
-    pushLog(state, { kind: 'system', text: `${player.username} already has ${player.hand.length} cards — no discard needed (Magneto).` });
-    return;
-  }
-  const toDiscard = player.hand.length - 4;
-  // Always interactive: this only runs from resolvePendingStrikes at the start
-  // of `player`'s own turn (so they ARE the active player). The player chooses
-  // which cards to discard down to 4 — chained discard_from_hand prompts.
-  state.thisTurn.pendingChoice = {
-    kind: 'discard_from_hand',
-    bonus: [],
-    mandatory: true,
-    sources: ['hand'],
-    remaining: toDiscard - 1,
-  };
-  pushLog(state, { kind: 'system', text: `${player.username}: Magneto's Master Strike — choose ${toDiscard} card${toDiscard === 1 ? '' : 's'} to discard from your hand.` });
-}
-
-/**
  * Dr. Doom Master Strike: reveal a [tech] Hero (no penalty) or put 2 cards
  * from hand on top of deck. The active player picks which 2 cards (chained
  * interactive prompt); non-active players auto-shed the 2 cheapest.
@@ -3903,9 +3889,9 @@ function resolveDoomStrike(state: LegendaryState, player: PlayerState): void {
  * Resolve any master-strike effects that were deferred because the player's
  * hand was empty when the strike fired (active player at end-of-turn villain
  * reveal). Called after a fresh hand is drawn, so the deferred effect lands
- * on the new hand. Currently handles Red Skull (KO a Hero), Magneto (reveal
- * X-Men or discard down to 4), Loki (reveal Strength Hero or gain Wound), and
- * Dr. Doom (reveal a [tech] Hero or put 2 cards on top of deck).
+ * on the new hand. Currently handles Red Skull (KO a Hero), Loki (reveal
+ * Strength Hero or gain Wound), and Dr. Doom (reveal a [tech] Hero or put 2
+ * cards on top of deck). (Magneto resolves sequentially at reveal time.)
  */
 function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void {
   // Red Skull: KO a Hero of your choice (prompt via pendingChoice).
@@ -3926,13 +3912,8 @@ function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void
     }
   }
 
-  // Magneto: reveal an X-Men Hero, or discard the hand down to 4 cards.
-  // resolveMagnetoStrike handles both the X-Men reveal short-circuit and
-  // the interactive vs auto-discard branch (active player gets a prompt).
-  if (player.pendingMagnetoStrike) {
-    player.pendingMagnetoStrike = undefined;
-    resolveMagnetoStrike(state, player);
-  }
+  // (Magneto's Master Strike is no longer deferred per-player — it resolves
+  // sequentially for all players at reveal time; see startSequentialStrike.)
 
   // Dr. Doom: reveal a [tech] Hero, or put 2 cards on top of deck (interactive).
   if (player.pendingDoomStrike) {
@@ -4151,6 +4132,9 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
     resolvePendingStrikes(state, samePlayer);
     pushLog(state, { kind: 'system', text: `${samePlayer.username} takes an extra turn!` });
     pushLog(state, { kind: 'turn_started', seat: samePlayer.seat, username: samePlayer.username });
+    // Sequential Master Strike revealed this turn: every player resolves it in
+    // turn order before the active player resumes (see startSequentialStrike).
+    if (state.pendingStrike) startSequentialStrike(state);
     return state;
   }
 
@@ -4175,7 +4159,117 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   resolvePendingStrikes(state, nextPlayer);
 
   pushLog(state, { kind: 'turn_started', seat: nextPlayer.seat, username: nextPlayer.username });
+  // Sequential Master Strike (e.g. Magneto): each player resolves their own
+  // choice in turn order (revealer first) before nextPlayer may act. This sets
+  // thisTurn.choiceOwnerSeat to the head-of-queue player; getActivePlayerId
+  // routes control to them until the queue drains.
+  if (state.pendingStrike) startSequentialStrike(state);
   return state;
+}
+
+// ====================== Sequential Master Strike =========================
+//
+// Some Master Strikes hit EACH player with an interactive choice (Magneto:
+// "reveal an X-Men Hero or discard down to 4 cards"). Per the rules these
+// resolve in turn order starting with the player whose turn it is when the
+// strike is revealed (the "revealer"), then each other player in turn order —
+// and only then does the new active player begin their turn.
+//
+// We can't prompt non-active players mid-turn the normal way, so we drive the
+// sequence with a queue: state.strikeQueue holds the seats still to resolve
+// (head first). The head seat is mirrored into thisTurn.choiceOwnerSeat so
+// getActivePlayerId / applyAction treat that player as the actor for the
+// duration of their pending choice. When the head resolves their choice (or
+// is auto-resolved with no prompt), advanceStrikeQueue() pops them and moves
+// to the next seat; when the queue empties the strike finishes and the real
+// active player (currentPlayerIdx) takes over.
+
+/** Kick off the sequential resolution of state.pendingStrike. Builds the seat
+ *  queue (revealer first, then the remaining players in turn order) and starts
+ *  processing it. No-op if no strike is pending. */
+function startSequentialStrike(state: LegendaryState): void {
+  const ps = state.pendingStrike;
+  if (!ps) return;
+  const n = state.players.length;
+  const revealerIdx = state.players.findIndex(p => p.seat === ps.revealerSeat);
+  const queue: number[] = [];
+  for (let i = 0; i < n; i++) {
+    queue.push(state.players[(revealerIdx + i) % n].seat);
+  }
+  state.strikeQueue = queue;
+  processStrikeQueue(state);
+}
+
+/** Walk the strike queue, auto-resolving players who need no prompt and
+ *  stopping at the first player who must make an interactive choice (their
+ *  pendingChoice + choiceOwnerSeat are set and we return). When the queue
+ *  drains, the strike is finished. */
+function processStrikeQueue(state: LegendaryState): void {
+  while (state.strikeQueue && state.strikeQueue.length > 0) {
+    const seat = state.strikeQueue[0];
+    const player = state.players.find(p => p.seat === seat);
+    if (!player) { state.strikeQueue.shift(); continue; }
+    const needsChoice = applyStrikeToPlayer(state, player);
+    if (needsChoice) {
+      state.thisTurn.choiceOwnerSeat = seat;
+      return;
+    }
+    state.strikeQueue.shift();
+  }
+  finishSequentialStrike(state);
+}
+
+/** Apply the pending strike to one player. Returns true if an interactive
+ *  pending choice was set (caller must wait), false if the strike auto-resolved
+ *  for this player (no prompt — caller advances to the next seat). */
+function applyStrikeToPlayer(state: LegendaryState, player: PlayerState): boolean {
+  const ps = state.pendingStrike;
+  if (!ps) return false;
+  if (ps.kind === 'magneto') {
+    if (player.hand.length === 0) {
+      pushLog(state, { kind: 'system', text: `${player.username} has no cards in hand — no effect from Magneto's Master Strike.` });
+      return false;
+    }
+    const hasXmen = player.hand.some(c => {
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' && (d as HeroCardDef).teams.includes('x-men');
+    });
+    if (hasXmen) {
+      pushLog(state, { kind: 'system', text: `${player.username} reveals an X-Men Hero — no penalty from Magneto's Master Strike.` });
+      return false;
+    }
+    if (player.hand.length <= 4) {
+      pushLog(state, { kind: 'system', text: `${player.username} already has ${player.hand.length} card${player.hand.length === 1 ? '' : 's'} — no discard needed (Magneto).` });
+      return false;
+    }
+    const toDiscard = player.hand.length - 4;
+    state.thisTurn.pendingChoice = {
+      kind: 'discard_from_hand',
+      bonus: [],
+      mandatory: true,
+      sources: ['hand'],
+      remaining: toDiscard - 1,
+    };
+    pushLog(state, { kind: 'system', text: `${player.username}: Magneto's Master Strike — choose ${toDiscard} card${toDiscard === 1 ? '' : 's'} to discard from your hand.` });
+    return true;
+  }
+  return false;
+}
+
+/** Called after the current strike-queue owner finishes their pending choice.
+ *  Pops them off the queue, clears the owner pointer, and continues. */
+function advanceStrikeQueue(state: LegendaryState): void {
+  if (state.strikeQueue && state.strikeQueue.length > 0) state.strikeQueue.shift();
+  state.thisTurn.choiceOwnerSeat = undefined;
+  processStrikeQueue(state);
+}
+
+/** Tear down all sequential-strike bookkeeping. Control returns to the real
+ *  active player (currentPlayerIdx). */
+function finishSequentialStrike(state: LegendaryState): void {
+  state.pendingStrike = undefined;
+  state.strikeQueue = undefined;
+  state.thisTurn.choiceOwnerSeat = undefined;
 }
 
 /**
@@ -4212,10 +4306,25 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
       const mmDef = getCard(state.mastermind.cardId);
       if (mmDef.kind === 'mastermind') {
         pushLog(state, { kind: 'master_strike', effectText: mmDef.text ?? mmDef.name });
-        // Master Strike fires the Mastermind's specific strike effect on
-        // EVERY player simultaneously.
-        for (const p of state.players) {
-          for (const eff of mmDef.strike) resolveEffect(state, p, eff);
+        // Sequential each-player INTERACTIVE strike (Magneto: "Each player
+        // reveals an X-Men Hero or discards down to 4 cards"). Rather than
+        // auto-resolving each player here, flag a state-level pendingStrike;
+        // doEndTurn kicks off startSequentialStrike() AFTER the turn advances,
+        // so every player resolves their own choice in turn order (the
+        // revealer first) before the new active player gets to act.
+        const seqKind: 'magneto' | null =
+          mmDef.strike.some(e => e.kind === 'magneto_master_strike') ? 'magneto' : null;
+        if (seqKind) {
+          state.pendingStrike = {
+            kind: seqKind,
+            revealerSeat: state.players[state.currentPlayerIdx].seat,
+          };
+        } else {
+          // Master Strike fires the Mastermind's specific strike effect on
+          // EVERY player simultaneously.
+          for (const p of state.players) {
+            for (const eff of mmDef.strike) resolveEffect(state, p, eff);
+          }
         }
       }
       // Master Strikes do NOT push city villains forward — only an actual
@@ -4637,6 +4746,12 @@ export function projectStateForViewer(state: LegendaryState, viewerId: string | 
 
 export function getActivePlayerId(state: LegendaryState): string | null {
   if (state.phase !== 'playing' || state.result) return null;
+  // During a sequential Master Strike, control belongs to the head-of-queue
+  // player (the one with the pending choice), not the player at currentPlayerIdx.
+  const ownerSeat = state.thisTurn.choiceOwnerSeat;
+  if (ownerSeat !== undefined) {
+    return state.players.find(p => p.seat === ownerSeat)?.playerId ?? null;
+  }
   return state.players[state.currentPlayerIdx]?.playerId ?? null;
 }
 

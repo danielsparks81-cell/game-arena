@@ -138,7 +138,15 @@ export default function LegendaryBoard({
 }) {
   const me = state.players.find(p => p.playerId === currentUserId);
   const mySeat = me?.seat ?? -1;
-  const currentPlayer = state.players[state.currentPlayerIdx];
+  // During a sequential Master Strike (e.g. Magneto) control belongs to the
+  // head-of-queue player (thisTurn.choiceOwnerSeat), not the player at
+  // currentPlayerIdx. Resolve the effective actor so the owner gets the
+  // pending-choice UI and everyone else is treated as off-turn.
+  const strikeOwnerSeat = state.thisTurn.choiceOwnerSeat;
+  const strikeInProgress = strikeOwnerSeat !== undefined;
+  const currentPlayer = strikeInProgress
+    ? state.players.find(p => p.seat === strikeOwnerSeat)
+    : state.players[state.currentPlayerIdx];
   const isMyTurn = state.phase === 'playing' && currentPlayer?.playerId === currentUserId;
 
   // Pending choice: the engine is waiting for the active player to pick a card
@@ -561,6 +569,10 @@ export default function LegendaryBoard({
     ? state.result === 'win'  ? `🏆 ${state.resultReason ?? 'Heroes Win!'}`
     : state.result === 'tie'  ? `🤝 ${state.resultReason ?? 'Tie — heroes survived!'}`
     :                           `💀 ${state.resultReason ?? 'Evil Wins.'}`
+    : strikeInProgress
+      ? isMyTurn
+        ? '⚡ Master Strike — resolve your choice before play continues.'
+        : `⚡ Master Strike — waiting for ${currentPlayer?.username ?? 'a player'} to resolve their choice…`
     : isMyTurn ? 'Your turn — play cards, then buy/fight, then End Turn.'
     : `${currentPlayer?.username ?? 'A player'}'s turn`;
 
