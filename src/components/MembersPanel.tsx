@@ -439,6 +439,7 @@ export default function MembersPanel({
                     <span className="h-2 w-2 rounded-full" style={{ backgroundColor: myAccent }} />
                     <span className="font-medium" style={{ color: myAccent }}>{currentUsername}</span>
                   </span>
+                  <WinRateBadge stat={stats.get(currentUserId)} />
                 </li>
               )}
             {(hideInGameSection ? otherOnline : otherOnlineFree).map(u => {
@@ -449,21 +450,24 @@ export default function MembersPanel({
                     <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: accent }} />
                     <span className="truncate" style={{ color: accent }}>{u.username}</span>
                   </span>
-                  {currentRoom && (
-                    <button
-                      onClick={() => {
-                        if (canInviteToCurrent) {
-                          doInvite(u, currentRoom.gameType);
-                        } else {
-                          setInvitee(u);
-                        }
-                      }}
-                      disabled={pending}
-                      className="ml-2 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-50"
-                    >
-                      Invite
-                    </button>
-                  )}
+                  <span className="ml-2 flex shrink-0 items-center gap-2">
+                    <WinRateBadge stat={stats.get(u.id)} />
+                    {currentRoom && (
+                      <button
+                        onClick={() => {
+                          if (canInviteToCurrent) {
+                            doInvite(u, currentRoom.gameType);
+                          } else {
+                            setInvitee(u);
+                          }
+                        }}
+                        disabled={pending}
+                        className="rounded-md bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500 hover:text-neutral-950 disabled:opacity-50"
+                      >
+                        Invite
+                      </button>
+                    )}
+                  </span>
                 </li>
                 );
               })}
@@ -499,23 +503,26 @@ export default function MembersPanel({
                     <span className="h-2 w-2 shrink-0 rounded-full opacity-60" style={{ backgroundColor: accent }} />
                     <span className="truncate">{u.username}</span>
                   </span>
-                  {currentRoom && (
-                    <button
-                      onClick={() => {
-                        const target = { id: u.user_id, username: u.username };
-                        if (canInviteToCurrent) {
-                          doInvite(target, currentRoom.gameType);
-                        } else {
-                          setInvitee(target);
-                        }
-                      }}
-                      disabled={pending}
-                      title="They won't see a popup, but the room you create will appear in their lobby when they log in"
-                      className="ml-2 shrink-0 rounded-md border border-neutral-700 px-2 py-0.5 text-xs font-medium text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200 disabled:opacity-50"
-                    >
-                      Invite
-                    </button>
-                  )}
+                  <span className="ml-2 flex shrink-0 items-center gap-2">
+                    <WinRateBadge stat={stats.get(u.user_id)} />
+                    {currentRoom && (
+                      <button
+                        onClick={() => {
+                          const target = { id: u.user_id, username: u.username };
+                          if (canInviteToCurrent) {
+                            doInvite(target, currentRoom.gameType);
+                          } else {
+                            setInvitee(target);
+                          }
+                        }}
+                        disabled={pending}
+                        title="They won't see a popup, but the room you create will appear in their lobby when they log in"
+                        className="rounded-md border border-neutral-700 px-2 py-0.5 text-xs font-medium text-neutral-400 transition hover:border-neutral-500 hover:text-neutral-200 disabled:opacity-50"
+                      >
+                        Invite
+                      </button>
+                    )}
+                  </span>
                 </li>
                 );
               })}
