@@ -5,12 +5,13 @@ import type { VillainCardDef } from '../types';
 // Veranke, 1× Paibok the Power Skrull (8 total).
 //
 // Several cards have variable [strike] equal to an attached Hero's [cost].
-// MVP implementation note: the "attach Hero from HQ to this Villain, strike
-// scales with that Hero's cost, gain it on defeat" mechanic needs a new
-// per-villain-instance attachment slot (mirror of cityBystanders). Until
-// that's wired, the Shapeshifters / Veranke cards use placeholder fixed
-// attack values matching their printed average, and the card text still
-// describes the official rule so players know what should happen.
+// This is fully wired: the attach-hero mechanic uses a per-villain-instance
+// attachment slot (state.cityAttachedHeroes, mirror of cityBystanders).
+// On Ambush the Shapeshifters / Veranke pull a Hero from the HQ under
+// themselves; doFightCity then uses that Hero's [cost] as the strike, and the
+// Fight effect (skrull_gain_attached_hero) gives the Hero to the defeating
+// player. The printed `attack: 0` is only a fallback for when the HQ was
+// empty at Ambush time (no Hero to attach → the "*" with no value).
 
 export const SKRULL_SHAPESHIFTERS: VillainCardDef = {
   kind: 'villain',

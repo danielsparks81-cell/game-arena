@@ -2014,26 +2014,33 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Red Skull Tactic 1 ────────────────────────────────────────────────────
     case 'look_top_three_ko_discard_return': {
-      // Reveal the top 3 cards; sort by cost and auto-resolve:
-      // KO cheapest, discard middle, return most expensive to top.
-      // TODO: replace with an interactive choice prompt.
-      const top = me.deck.splice(0, Math.min(3, me.deck.length));
-      if (top.length === 0) return;
-      const sorted = [...top].sort((a, b) => {
-        const da = getCard(a.cardId), db = getCard(b.cardId);
-        const ca = da.kind === 'hero' ? (da as HeroCardDef).cost : 0;
-        const cb = db.kind === 'hero' ? (db as HeroCardDef).cost : 0;
-        return ca - cb; // ascending: index 0 = cheapest
-      });
-      const names = sorted.map(c => {
+      // Reveal the top 3 cards; the PLAYER chooses one to KO, one to discard,
+      // and the last returns to the top. Reshuffle the discard in if the deck
+      // is short (mirrors Doombot Legion's look-top-two).
+      if (me.deck.length < 3 && me.discard.length > 0) {
+        me.deck = shuffle([...me.deck, ...me.discard]); me.discard = [];
+      }
+      const peeked = me.deck.splice(0, Math.min(3, me.deck.length));
+      const nameOf = (c: CardInstance) => {
         const d = getCard(c.cardId);
         return d.kind === 'hero' ? (d as HeroCardDef).cardName : ('name' in d ? (d as { name: string }).name : c.cardId);
-      });
-      if (sorted[0]) state.ko.push(sorted[0]);           // KO cheapest
-      if (sorted[1]) me.discard.push(sorted[1]);          // discard middle
-      if (sorted[2]) me.deck.unshift(sorted[2]);          // return best to top
+      };
+      if (peeked.length === 0) return;
+      if (peeked.length === 1) {
+        // Only one card — it simply returns to the top (nothing to KO/discard).
+        me.deck.unshift(peeked[0]);
+        pushLog(state, { kind: 'system', text: `${me.username} reveals only ${nameOf(peeked[0])} — it stays on top (Red Skull).` });
+        return;
+      }
+      // 2 or 3 cards → interactive: pick one to KO first.
+      state.thisTurn.pendingChoice = {
+        kind: 'look_top_three_ko_discard_return',
+        cards: peeked,
+        step: 'ko',
+        mandatory: true,
+      };
       pushLog(state, { kind: 'system', text:
-        `${me.username} revealed [${names.join(', ')}]: KO'd ${names[0] ?? '—'}, discarded ${names[1] ?? '—'}, kept ${names[2] ?? '—'} on top.` });
+        `${me.username} reveals the top ${peeked.length} cards (Red Skull) — choose one to KO.` });
       return;
     }
 
@@ -3062,6 +3069,44 @@ function doResolveChoice(
     me.deck.unshift(toReturn); // return other to top of deck
     pushLog(state, { kind: 'system', text: `${me.username} KO'd ${koName} and returned ${retName} to the top of their deck (Doombot Legion).` });
     state.thisTurn.pendingChoice = undefined;
+    return state;
+  }
+
+  // ── Red Skull Tactic 1: KO one of 3, discard one, return the last to top ──
+  if (choice.kind === 'look_top_three_ko_discard_return') {
+    const idx = choice.cards.findIndex(c => c.instanceId === instanceId);
+    if (idx < 0) return { error: 'Choose one of the revealed cards' };
+    const picked = choice.cards[idx];
+    const rest = choice.cards.filter((_, i) => i !== idx);
+    const nameOf = (c: CardInstance) => {
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' ? (d as HeroCardDef).cardName : ('name' in d ? (d as { name: string }).name : c.cardId);
+    };
+    if (choice.step === 'ko') {
+      state.ko.push(picked);
+      pushLog(state, { kind: 'system', text: `${me.username} KO'd ${nameOf(picked)} (Red Skull).` });
+      if (rest.length <= 1) {
+        // Only one card left → it returns to the top; no discard step.
+        if (rest[0]) {
+          me.deck.unshift(rest[0]);
+          pushLog(state, { kind: 'system', text: `${nameOf(rest[0])} returns to the top of the deck (Red Skull).` });
+        }
+        state.thisTurn.pendingChoice = undefined;
+      } else {
+        state.thisTurn.pendingChoice = { kind: 'look_top_three_ko_discard_return', cards: rest, step: 'discard', mandatory: true };
+        pushLog(state, { kind: 'system', text: `${me.username} — now choose one to discard.` });
+      }
+    } else {
+      // discard step: discard the picked card; the last one returns to top.
+      me.discard.push(picked);
+      const last = rest[0];
+      pushLog(state, { kind: 'system', text: `${me.username} discarded ${nameOf(picked)} (Red Skull).` });
+      if (last) {
+        me.deck.unshift(last);
+        pushLog(state, { kind: 'system', text: `${nameOf(last)} returns to the top of the deck (Red Skull).` });
+      }
+      state.thisTurn.pendingChoice = undefined;
+    }
     return state;
   }
 

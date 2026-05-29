@@ -221,9 +221,9 @@ export type Effect =
    *  another turn immediately after this one ends. */
   | { kind: 'extra_turn' }
   // ── Red Skull Tactic effects ──────────────────────────────────────────────
-  /** Red Skull Tactic 1: reveal the top 3 cards of the player's deck; auto-
-   *  resolve by KO-ing the cheapest, discarding the next, returning the
-   *  highest-cost to the top (TODO: interactive player choice). */
+  /** Red Skull Tactic 1: reveal the top 3 cards of the player's deck; the
+   *  player chooses one to KO, one to discard, and the last returns to the
+   *  top (interactive via the look_top_three_ko_discard_return pending choice). */
   | { kind: 'look_top_three_ko_discard_return' }
   /** Red Skull Tactic 3 bonus: draw one additional card for each Hydra Villain
    *  currently in the active player's Victory Pile. */
@@ -749,6 +749,10 @@ export type PendingChoice =
    *  clicks one to KO — the other is automatically returned to the top of the
    *  deck. Mandatory (no skip). */
   | { kind: 'look_top_two_ko_one_return_one'; cards: CardInstance[]; mandatory: true }
+  /** Red Skull Tactic 1 (Cosmic Cube Cosmic Power): three cards peeked from
+   *  the deck; the player KOs one (step 'ko'), then discards one (step
+   *  'discard'), and the last returns to the top. Mandatory (no skip). */
+  | { kind: 'look_top_three_ko_discard_return'; cards: CardInstance[]; step: 'ko' | 'discard'; mandatory: true }
   /** "MAY gain [card] to hand" prompt — fires when a fight effect with `may: true`
    *  is resolved. Accept = gain the card; Skip = decline. */
   | { kind: 'optional_gain_card'; cardId: CardId; label: string }

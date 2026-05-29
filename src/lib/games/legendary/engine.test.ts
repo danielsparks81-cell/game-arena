@@ -182,6 +182,20 @@ describe('legendary: defeat mastermind → win', () => {
       const next = applyAction(s, 'alice', { kind: 'fight_mastermind' });
       if ('error' in next) throw new Error(String(next.error));
       s = next as LegendaryState;
+      // A tactic's Fight effect may set an interactive pending choice (e.g.
+      // Red Skull Tactic 1 reveals 3 cards). Clear it before the next hit:
+      // skip if allowed, else resolve by picking the first revealed card.
+      let guard = 0;
+      while (s.thisTurn.pendingChoice && guard++ < 10) {
+        const skipped = applyAction(s, 'alice', { kind: 'skip_choice' });
+        if (!('error' in skipped)) { s = skipped as LegendaryState; continue; }
+        const ch = s.thisTurn.pendingChoice as { cards?: { instanceId: string }[] };
+        const pick = ch.cards?.[0]?.instanceId;
+        if (!pick) break;
+        const resolved = applyAction(s, 'alice', { kind: 'resolve_choice', instanceId: pick });
+        if ('error' in resolved) break;
+        s = resolved as LegendaryState;
+      }
     }
     // Per the official rules the player FINISHES their turn after the killing
     // blow (collecting any last VP). So the win is only ARMED here — the

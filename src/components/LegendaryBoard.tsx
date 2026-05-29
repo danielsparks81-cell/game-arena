@@ -155,7 +155,8 @@ export default function LegendaryBoard({
     pendingChoice.kind !== 'escape_ko_hq_hero' &&
     pendingChoice.kind !== 'order_top_of_deck' &&
     pendingChoice.kind !== 'choose_city_villain_for_bystander' &&
-    pendingChoice.kind !== 'look_top_two_ko_one_return_one';
+    pendingChoice.kind !== 'look_top_two_ko_one_return_one' &&
+    pendingChoice.kind !== 'look_top_three_ko_discard_return';
   // Binary choices don't require card selection — the player just clicks
   // Accept or Skip in the banner (Deadpool Do-Over / Random Acts, Gambit Hypnotic Charm).
   const isBinaryChoice =
@@ -178,6 +179,7 @@ export default function LegendaryBoard({
   const isEscapeKoHqHero              = isMyTurn && pendingChoice?.kind === 'escape_ko_hq_hero';
   const isChooseCityBystanderTarget   = isMyTurn && pendingChoice?.kind === 'choose_city_villain_for_bystander';
   const isLookTopTwoChoice            = isMyTurn && pendingChoice?.kind === 'look_top_two_ko_one_return_one';
+  const isLookTopThreeChoice          = isMyTurn && pendingChoice?.kind === 'look_top_three_ko_discard_return';
   const isOrderTopOfDeck              = isMyTurn && pendingChoice?.kind === 'order_top_of_deck';
   // Wound healing: clicking a Wound KOs all wounds from hand, but only if the
   // player has not yet fought or recruited this turn (and no choice is pending).
@@ -1507,6 +1509,40 @@ export default function LegendaryBoard({
                     wide
                     disabled={disabled}
                     choiceMode="ko_from_hand"
+                    onClick={() => onResolveChoice(card.instanceId)}
+                  />
+                ))}
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      {isLookTopThreeChoice && pendingChoice?.kind === 'look_top_three_ko_discard_return' && (
+        <>
+          <ZoneLabel>
+            {pendingChoice.step === 'ko'
+              ? 'Red Skull — reveal the top 3: click a card to KO'
+              : 'Red Skull — now click a card to discard (the last returns to the top of your deck)'}
+          </ZoneLabel>
+          {(() => {
+            const cards = (pendingChoice as Extract<typeof pendingChoice, { kind: 'look_top_three_ko_discard_return' }>).cards;
+            const n = cards.length;
+            const gs: React.CSSProperties = {
+              display: 'grid',
+              gridTemplateColumns: `repeat(${Math.max(1, n)}, minmax(0, 1fr))`,
+              gap: '6px',
+              maxWidth: `${Math.max(1, n) * 236 - 6}px`,
+            };
+            return (
+              <div className="mx-auto w-full min-h-[100px]" style={gs}>
+                {cards.map((card) => (
+                  <HandCard
+                    key={card.instanceId}
+                    card={card}
+                    wide
+                    disabled={disabled}
+                    choiceMode={pendingChoice.step === 'ko' ? 'ko_from_hand' : 'discard_from_hand'}
                     onClick={() => onResolveChoice(card.instanceId)}
                   />
                 ))}
