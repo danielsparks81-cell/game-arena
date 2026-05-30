@@ -619,4 +619,99 @@ describe('legendary: Scheme Twist fires once (not per-player)', () => {
   });
 });
 
+describe('legendary: single-level undo', () => {
+  it('sets state.undo after playing a vanilla card and restores it on undo', () => {
+    const s = freshSinglePlayerGame();
+    // Pin a known card in hand so we know what to play (Trooper has no draw/peek).
+    s.players[0].hand = [{ instanceId: 'play-1', cardId: 'shield_trooper' }];
+    const attackBefore = s.thisTurn.attack;
+
+    // Play the Trooper.
+    const r = applyAction(s, 'alice', { kind: 'play_card', instanceId: 'play-1' });
+    if ('error' in r) throw new Error(String(r.error));
+    const afterPlay = r as LegendaryState;
+    expect(afterPlay.thisTurn.attack).toBe(attackBefore + 1);
+    expect(afterPlay.players[0].hand.some(c => c.instanceId === 'play-1')).toBe(false);
+    expect(afterPlay.thisTurn.playedThisTurn.some(c => c.instanceId === 'play-1')).toBe(true);
+    expect(afterPlay.undo?.seat).toBe(0);
+    expect(afterPlay.undo?.label).toContain('Trooper');
+
+    // Undo: card returns to hand, attack reverts.
+    const r2 = applyAction(afterPlay, 'alice', { kind: 'undo' });
+    if ('error' in r2) throw new Error(String(r2.error));
+    const restored = r2 as LegendaryState;
+    expect(restored.thisTurn.attack).toBe(attackBefore);
+    expect(restored.players[0].hand.some(c => c.instanceId === 'play-1')).toBe(true);
+    expect(restored.thisTurn.playedThisTurn.some(c => c.instanceId === 'play-1')).toBe(false);
+    expect(restored.undo).toBeUndefined(); // single-level — can't chain
+  });
+
+  it('does NOT allow undo after recruiting a hero (refill reveals a card)', () => {
+    const s = freshSinglePlayerGame();
+    // Find the cheapest HQ hero the player can afford.
+    s.thisTurn.recruit = 10;
+    const slot = s.hq.findIndex(c => {
+      if (!c) return false;
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' && d.cost <= 10;
+    });
+    expect(slot).toBeGreaterThanOrEqual(0);
+
+    const r = applyAction(s, 'alice', { kind: 'recruit_hero', slot });
+    if ('error' in r) throw new Error(String(r.error));
+    const ns = r as LegendaryState;
+    // No undo offered — buying refills the HQ, revealing the next Hero Deck card.
+    expect(ns.undo).toBeUndefined();
+  });
+
+  it('a player cannot undo another player\'s action', () => {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1);
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+    g.currentPlayerIdx = 0;
+    g.players[0].hand = [{ instanceId: 'tp1', cardId: 'shield_trooper' }];
+
+    const r = applyAction(g, 'alice', { kind: 'play_card', instanceId: 'tp1' });
+    if ('error' in r) throw new Error(String(r.error));
+    const ns = r as LegendaryState;
+    expect(ns.undo?.seat).toBe(0);
+
+    // Bob is not the active player AND not the undo owner — rejected on both counts.
+    const bobTry = applyAction(ns, 'bob', { kind: 'undo' });
+    expect('error' in bobTry).toBe(true);
+  });
+
+  it('any subsequent action clears the previous undo (no chaining)', () => {
+    const s = freshSinglePlayerGame();
+    s.players[0].hand = [
+      { instanceId: 'tp1', cardId: 'shield_trooper' },
+      { instanceId: 'tp2', cardId: 'shield_trooper' },
+    ];
+
+    const r1 = applyAction(s, 'alice', { kind: 'play_card', instanceId: 'tp1' });
+    if ('error' in r1) throw new Error(String(r1.error));
+    expect((r1 as LegendaryState).undo?.label).toContain('Trooper');
+
+    // Play the second Trooper. The previous undo is overwritten — the new
+    // snapshot points back to the state AFTER the first play.
+    const r2 = applyAction(r1 as LegendaryState, 'alice', { kind: 'play_card', instanceId: 'tp2' });
+    if ('error' in r2) throw new Error(String(r2.error));
+    const ns = r2 as LegendaryState;
+    expect(ns.undo?.label).toContain('Trooper');
+
+    // Undo once → tp2 returns to hand, tp1 still played.
+    const r3 = applyAction(ns, 'alice', { kind: 'undo' });
+    if ('error' in r3) throw new Error(String(r3.error));
+    const restored = r3 as LegendaryState;
+    expect(restored.players[0].hand.some(c => c.instanceId === 'tp2')).toBe(true);
+    expect(restored.players[0].hand.some(c => c.instanceId === 'tp1')).toBe(false);
+    // The restored state has no undo of its own → second undo rejected.
+    expect(restored.undo).toBeUndefined();
+    const r4 = applyAction(restored, 'alice', { kind: 'undo' });
+    expect('error' in r4).toBe(true);
+  });
+});
+
 void CITY_SIZE;

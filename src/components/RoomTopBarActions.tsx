@@ -1,12 +1,14 @@
 'use client';
 
 import { useState, useTransition } from 'react';
-import { resignGame, voteAbandon } from '@/app/rooms/[id]/actions';
+import { gameMove, resignGame, voteAbandon } from '@/app/rooms/[id]/actions';
 import NotificationBell from './NotificationBell';
 import SoundToggle from './SoundToggle';
 
 /**
  * Lives in the TopBar center while you're in a live game room. Renders:
+ *   • Undo — single-level undo for your last action (Legendary only; the engine
+ *     decides whether the action is undoable — sets state.undo for safe ones).
  *   • Resign — instant loss for the clicker, opponent wins (2-player only).
  *   • Propose Abandon — toggleable vote. When every seated player has voted,
  *     the game ends with NO W/L recorded. Shows current vote tally so you
@@ -21,6 +23,7 @@ export default function RoomTopBarActions({
   abandonVotes,
   seatedCount,
   iVoted,
+  undo,
 }: {
   roomId: string;
   /** Resign is hidden in 3+ player games (use Propose Abandon instead). */
@@ -31,6 +34,10 @@ export default function RoomTopBarActions({
   seatedCount: number;
   /** Has the current user already voted to abandon? */
   iVoted: boolean;
+  /** When set, the viewer has an undoable last action. The label is shown as
+   *  the button tooltip (e.g. "Played Lightning Bolt"). Currently only wired
+   *  for Legendary; other games omit this prop. */
+  undo?: { label: string } | null;
 }) {
   const [pending, startTransition] = useTransition();
   const [confirmingResign, setConfirmingResign] = useState(false);
@@ -39,6 +46,17 @@ export default function RoomTopBarActions({
     <>
       <SoundToggle />
       <NotificationBell />
+      {undo && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => startTransition(() => { gameMove(roomId, { game: 'legendary', kind: 'undo' }); })}
+          title={`Undo: ${undo.label}`}
+          className="rounded-md border border-sky-700/60 bg-sky-500/10 px-3 py-1.5 text-xs font-medium text-sky-300 transition hover:bg-sky-500/20 disabled:opacity-50 sm:text-sm"
+        >
+          ↶ Undo
+        </button>
+      )}
       {isTwoPlayerGame && (
         <button
           disabled={pending}

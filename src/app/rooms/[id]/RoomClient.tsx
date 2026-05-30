@@ -177,6 +177,18 @@ export default function RoomClient({
   const abandonVotes = (room.abandon_votes ?? []).length;
   const iVotedAbandon = (room.abandon_votes ?? []).includes(currentUserId);
 
+  // Single-level Undo for Legendary. state.undo is set by the engine after any
+  // action that revealed no hidden information AND belongs to this viewer's
+  // seat. The snapshot itself was stripped by projection — we only need the
+  // {seat,label} marker to know whether to render the button.
+  const mySeat = room.room_players.find(p => p.player_id === currentUserId)?.seat;
+  const undoMarker = (() => {
+    if (room.game_type !== 'legendary' || !showRoomActions || mySeat === undefined) return null;
+    const u = (room.state as { undo?: { seat: number; label: string } } | null)?.undo;
+    if (!u || u.seat !== mySeat) return null;
+    return { label: u.label };
+  })();
+
   return (
     <div className="flex min-h-screen flex-col">
       <TopBar
@@ -188,6 +200,7 @@ export default function RoomClient({
             abandonVotes={abandonVotes}
             seatedCount={room.room_players.length}
             iVoted={iVotedAbandon}
+            undo={undoMarker}
           />
         ) : undefined}
       />

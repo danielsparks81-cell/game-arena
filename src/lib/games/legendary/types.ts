@@ -998,6 +998,26 @@ export type LegendaryState = {
     amount?: number;
   };
   strikeQueue?: number[];
+
+  /** Single-level "undo your last action" snapshot. Set after every action that
+   *  did NOT reveal/draw/peek hidden information (signature diff) and that is
+   *  one of the candidate kinds (play_card, recruit_sidekick, recruit_officer,
+   *  fight_city, play_wound_healing). Cleared as soon as the next action is
+   *  taken — undo only ever reverts the most recent move. The `snapshot` is
+   *  stripped by projectStateForViewer so it never crosses the wire (only
+   *  {seat, turn, label} reach the client, enough to render the button). */
+  undo?: {
+    /** The full pre-action state to restore on undo. Always has its own .undo
+     *  set to undefined so undo can't be chained. Present server-side; the
+     *  projection drops it before sending to clients. */
+    snapshot?: LegendaryState;
+    /** Seat of the player who took the undoable action — only they may undo it. */
+    seat: number;
+    /** Turn number the action was taken on (sanity guard). */
+    turn: number;
+    /** Short human label for the button tooltip, e.g. "Played Lightning Bolt". */
+    label: string;
+  };
   /** Deadpool – Random Acts of Unkindness: while each player chooses (in turn
    *  order) which card to pass to their left, the chosen card is held here
    *  (keyed by the giver's seat). When the queue drains, all held cards are

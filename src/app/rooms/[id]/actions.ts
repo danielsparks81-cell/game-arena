@@ -651,6 +651,7 @@ export type GameAction =
   | { game: 'legendary'; kind: 'end_turn' }
   | { game: 'legendary'; kind: 'reveal_first_villain' }
   | { game: 'legendary'; kind: 'play_wound_healing' }
+  | { game: 'legendary'; kind: 'undo' }
 
   // Long Shot
   | { game: 'longshot'; kind: 'roll' }
@@ -740,6 +741,7 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'end_turn')            return makeMoveLG(roomId, { kind: 'end_turn' });
       if (action.kind === 'reveal_first_villain') return makeMoveLG(roomId, { kind: 'reveal_first_villain' });
       if (action.kind === 'play_wound_healing')   return makeMoveLG(roomId, { kind: 'play_wound_healing' });
+      if (action.kind === 'undo')                 return makeMoveLG(roomId, { kind: 'undo' });
       break;
     case 'longshot':
       if (action.kind === 'startGame') return startGame(roomId);

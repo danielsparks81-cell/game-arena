@@ -666,7 +666,12 @@ export type LegendaryAction =
   | { kind: 'reveal_first_villain' }
   /** Heal wounds: if the player has not fought or recruited this turn, KO all
    *  Wounds from their hand. Only valid when the player has wounds in hand. */
-  | { kind: 'play_wound_healing' };
+  | { kind: 'play_wound_healing' }
+  /** Undo the actor's most recent action this turn. Only legal when state.undo
+   *  is set AND belongs to this player AND it's still the same turn. The
+   *  snapshot stored in state.undo.snapshot is restored verbatim (with its own
+   *  .undo cleared so chained undos are impossible — strict single-level). */
+  | { kind: 'undo' };
 
 export function applyAction(
   state: LegendaryState,
@@ -675,6 +680,24 @@ export function applyAction(
 ): LegendaryState | { error: string } {
   if (state.phase !== 'playing') return { error: 'Game not in progress' };
   if (state.result) return { error: 'Game already finished' };
+
+  // ── Undo — handled at the top so it bypasses the regular gates. ─────────
+  // Only the active player can undo, only their own last action, and only on
+  // the same turn. Strict single-level: the restored snapshot has undo=undefined.
+  if (action.kind === 'undo') {
+    const me = state.players[state.currentPlayerIdx];
+    if (!me || me.playerId !== playerId) return { error: "It's not your turn." };
+    if (!state.undo)               return { error: 'Nothing to undo.' };
+    if (state.undo.seat !== me.seat) return { error: 'You can only undo your own action.' };
+    if (state.undo.turn !== state.turn) return { error: "The turn has moved on — can't undo." };
+    if (!state.undo.snapshot)      return { error: 'Undo snapshot unavailable.' };
+    if (state.thisTurn.choiceOwnerSeat !== undefined || state.pendingStrike) {
+      return { error: 'Cannot undo during a Master Strike resolution.' };
+    }
+    const restored = clone(state.undo.snapshot);
+    restored.undo = undefined;
+    return restored;
+  }
 
   // Sequential Master Strike: while a strike is being resolved out of turn the
   // acting player is the head-of-queue owner (choiceOwnerSeat), NOT the player
@@ -694,6 +717,10 @@ export function applyAction(
       action.kind !== 'accept_choice') {
     return { error: 'Resolve your Master Strike choice first — select a card or click Skip.' };
   }
+
+  // Capture the hidden-info signature BEFORE we touch anything — used by the
+  // undo bookkeeping below to decide whether this action is undoable.
+  const prevSig = hiddenSignature(state);
 
   const next = clone(state);
   // The acting player inside `next` (the owner during out-of-turn resolution,
@@ -725,7 +752,137 @@ export function applyAction(
     case 'end_turn':              result = doEndTurn(next); break;
     case 'reveal_first_villain':  result = doRevealFirstVillain(next); break;
   }
-  return driveSequentialStrike(result!);
+  const final = driveSequentialStrike(result!);
+  if (!('error' in final)) {
+    applyUndoBookkeeping(state, action, final, actor.seat, prevSig);
+  }
+  return final;
+}
+
+// ====================== Single-level Undo ===============================
+//
+// After every successful action we capture a snapshot of the PRE-action state
+// IFF this action revealed no hidden information. The button to invoke
+// `{kind:'undo'}` is rendered in the room's TopBar centerSlot when state.undo
+// belongs to the viewer. Only one level deep — the restored snapshot has its
+// own .undo cleared so undo cannot chain.
+
+/** Action kinds that are CANDIDATES for undo. Excluded by design:
+ *  • recruit_hero (refills the HQ → reveals the next Hero Deck card)
+ *  • fight_mastermind (draws a random Tactic)
+ *  • end_turn / reveal_first_villain (reveal villain deck cards, draw hands)
+ *  • resolve/skip/accept_choice (player is mid-resolution; undoing mid-chain
+ *    is ambiguous and risky — undo the originating action instead, which
+ *    won't be possible because it opened a choice)
+ *  • undo itself (no double-undo)
+ *  Even within the candidate set, an action is only undoable if it neither
+ *  changed the hiddenSignature nor opened a pendingChoice / strike. */
+const UNDOABLE_KINDS = new Set<LegendaryAction['kind']>([
+  'play_card', 'recruit_sidekick', 'recruit_officer', 'fight_city', 'play_wound_healing',
+]);
+
+/** onPlay effect kinds that peek at hidden cards without changing any deck
+ *  length / order (so the signature diff wouldn't catch them). play_card with
+ *  any of these in its onPlay is treated as non-undoable. */
+const PEEK_EFFECT_KINDS = new Set<Effect['kind']>([
+  'gain_attack_equal_to_top_card_cost',
+  'reveal_top_draw_if_xmen',
+  'reveal_top_draw_if_cost_le_2',
+  'reveal_top_three_draw_cost_le_2',
+  'reveal_top_discard_or_return',
+  'reveal_top_discard_or_return_others',
+]);
+
+/** Fingerprint of every hidden / random source in the game state. If this
+ *  changes between pre-action and post-action, the action either drew, peeked,
+ *  refilled, reshuffled, or revealed something — and is therefore NOT undoable.
+ *  Deck contents are included in ORDER so reshuffles also change the value. */
+function hiddenSignature(state: LegendaryState): string {
+  const parts: string[] = [];
+  for (const p of state.players) {
+    parts.push(`d${p.seat}:` + p.deck.map(c => c.cardId).join(','));
+  }
+  parts.push('hd:' + state.heroDeck.map(c => c.cardId).join(','));
+  parts.push('vd:' + state.villainDeck.map(c => c.cardId).join(','));
+  parts.push('wd:' + state.woundDeck.length);
+  parts.push('bd:' + state.bystanderDeck.length);
+  parts.push('mt:' + state.mastermind.tactics.map(c => c.cardId).join(','));
+  parts.push('hq:' + state.hq.map(c => c?.cardId ?? '_').join(','));
+  parts.push('city:' + state.city.map(c => c?.cardId ?? '_').join(','));
+  parts.push('sp:' + state.sidekickPoolCount);
+  parts.push('op:' + state.officerPoolCount);
+  parts.push('tw:' + state.schemeTwistsRevealed);
+  return parts.join('|');
+}
+
+/** Short button-tooltip label for the snapshot, e.g. "Played Lightning Bolt". */
+function labelForAction(action: LegendaryAction, prev: LegendaryState): string {
+  switch (action.kind) {
+    case 'play_card': {
+      const card = prev.players[prev.currentPlayerIdx].hand.find(c => c.instanceId === action.instanceId);
+      if (!card) return 'Played a card';
+      const def = getCard(card.cardId);
+      const name = def.kind === 'hero' ? def.cardName
+        : 'name' in def ? (def as { name: string }).name
+        : card.cardId;
+      return `Played ${name}`;
+    }
+    case 'recruit_sidekick':  return 'Recruited Sidekick';
+    case 'recruit_officer':   return 'Recruited S.H.I.E.L.D. Officer';
+    case 'fight_city': {
+      const c = prev.city[action.slot];
+      if (!c) return 'Fought a villain';
+      const def = getCard(c.cardId);
+      const name = def.kind === 'hero' ? def.cardName
+        : 'name' in def ? (def as { name: string }).name
+        : c.cardId;
+      return `Defeated ${name}`;
+    }
+    case 'play_wound_healing': return 'Healed wounds';
+    default: return 'Last action';
+  }
+}
+
+/** Returns true if the just-played card has a peek-style onPlay effect that
+ *  would let the player see hidden info without changing the signature. */
+function actionRevealsViaPeek(action: LegendaryAction, prev: LegendaryState): boolean {
+  if (action.kind !== 'play_card') return false;
+  const card = prev.players[prev.currentPlayerIdx].hand.find(c => c.instanceId === action.instanceId);
+  if (!card) return false;
+  const def = getCard(card.cardId);
+  if (def.kind !== 'hero') return false;
+  return (def.onPlay ?? []).some(e => PEEK_EFFECT_KINDS.has(e.kind));
+}
+
+/** Decide whether `action` is undoable, and either set or clear result.undo
+ *  accordingly. ANY new action invalidates a prior undo, so we always overwrite. */
+function applyUndoBookkeeping(
+  prev: LegendaryState,
+  action: LegendaryAction,
+  result: LegendaryState,
+  actorSeat: number,
+  prevSig: string,
+): void {
+  result.undo = undefined; // any new action invalidates the previous undo
+  if (!UNDOABLE_KINDS.has(action.kind)) return;
+  // The action opened an interactive choice or strike — mid-resolution, don't snapshot.
+  if (result.thisTurn.pendingChoice) return;
+  if (result.pendingStrike) return;
+  if (result.thisTurn.choiceOwnerSeat !== undefined) return;
+  // The action revealed/drew/refilled/reshuffled something hidden.
+  if (hiddenSignature(result) !== prevSig) return;
+  // Card-text peek that doesn't change counts (e.g. "gain Attack = top card cost").
+  if (actionRevealsViaPeek(action, prev)) return;
+  // Defeating an enemy that triggered another reveal/strike is caught by the
+  // signature/strike checks above. A "clean" defeat that only awarded VP is OK.
+  const snap = clone(prev);
+  snap.undo = undefined; // strict single-level — no chained undos
+  result.undo = {
+    snapshot: snap,
+    seat: actorSeat,
+    turn: result.turn,
+    label: labelForAction(action, prev),
+  };
 }
 
 /** Post-process every action result to drive sequential strike resolution
@@ -4824,6 +4981,13 @@ export function projectStateForViewer(state: LegendaryState, viewerId: string | 
   // Tactics pile is face-down — players see the count but not which card
   // would come next (preserves the "random" feel of the draw).
   next.mastermind.tactics = next.mastermind.tactics.map(() => clone(HIDDEN_CARD));
+  // Strip the heavy undo snapshot before it crosses the wire. The client only
+  // needs {seat, turn, label} to render the Undo button; the snapshot itself
+  // never leaves the server (avoids leaking the actor's hand/deck to others
+  // AND keeps Realtime payloads small).
+  if (next.undo) {
+    next.undo = { seat: next.undo.seat, turn: next.undo.turn, label: next.undo.label };
+  }
   return next;
 }
 
