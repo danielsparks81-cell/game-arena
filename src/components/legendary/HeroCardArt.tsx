@@ -560,9 +560,10 @@ export function HeroCardArt({
   // Rare (1 copy) cards get sharp corners as a visual rarity signal.
   const corners = copies === 1 ? 'rounded-none' : 'rounded-lg';
   // Auto-shrink the body text so long cards (e.g. Gambit's Hypnotic Charm)
-  // don't get clipped by the fixed card height. Steps 12px → 8px until the
-  // text stops overflowing its container.
-  const textFitRef = useAutoFitFontSize(12, 8, [def.text, height, wide]);
+  // don't get clipped by the fixed card height. Steps 12px → 10px so even the
+  // worst cards stay legible; the tightened body padding below gives the
+  // average card enough room to render at the full 12px.
+  const textFitRef = useAutoFitFontSize(12, 10, [def.text, height, wide]);
 
   return (
     <div
@@ -586,11 +587,13 @@ export function HeroCardArt({
       )}
 
       {/* Card text — parsed for inline icons via CardText. Font-size is set on
-           the container (not the children) so the auto-fit hook can scale it. */}
+           the container (not the children) so the auto-fit hook can scale it.
+           Padding is tight (pl-2 pr-1 pt-1) to maximize the body area so long
+           cards (Hypnotic Charm, Hypnotic Charm-likes) can render at 12px. */}
       {def.text && (
         <div
           ref={textFitRef}
-          className="mb-1 flex-1 overflow-hidden pl-3 pr-2 pt-3 leading-snug"
+          className="mb-1 flex-1 overflow-hidden pl-2 pr-1 pt-1 leading-snug"
           style={{ fontSize: 12 }}
         >
           <CardText text={def.text} lightBg={lightBg} />

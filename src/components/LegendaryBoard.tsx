@@ -2273,8 +2273,8 @@ function HandCard({
                 <span className="inline-block h-2.5 w-2.5 shrink-0" aria-hidden />
                 <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'transparent' }}>System Card</span>
               </div>
-              {/* Ability text — pl-3 pr-2 pt-3 matches HeroCardArt exactly */}
-              <div className="mb-1 flex-1 pl-3 pr-2 pt-3 text-[12px] leading-snug text-neutral-300">
+              {/* Ability text — padding matches HeroCardArt exactly */}
+              <div className="mb-1 flex-1 pl-2 pr-1 pt-1 text-[12px] leading-snug text-neutral-300">
                 {(WOUND as { text?: string }).text}
               </div>
             </div>
