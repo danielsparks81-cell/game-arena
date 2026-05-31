@@ -29,6 +29,10 @@ Run through this for any new game AND when reviewing an existing one:
   `rematch_votes: []` on finish) in the per-game `makeMove` update.
 - [ ] **Min/max players + categories** set on the `GameDef` so the lobby filters
   and seat grid behave.
+- [ ] **Lobby "How to play" guide.** Add a `GAME_GUIDES[<id>]` entry in
+  `registry.ts` (`{ theme, objective, rules[] }`). The lobby's per-game info
+  modal renders it and only shows the ⓘ button when it exists. Write `objective`
+  from the engine's real win condition (fidelity), `rules` as ~3–6 bullets.
 - [ ] **Lean state.** Trim logs, project away secrets, avoid storing heavy
   derived data in the room JSONB.
 - [ ] **Graceful with unapplied migrations** if the game reads a new column.
@@ -62,7 +66,9 @@ Run through this for any new game AND when reviewing an existing one:
    actions (resign/abandon/undo), member panel, and chat are inherited.
 
 5. **Lobby/metadata** — the `GameDef` fields drive the tile, beta badge,
-   categories, and player-count filter automatically. No lobby edits needed.
+   categories, and player-count filter automatically. Also add a
+   `GAME_GUIDES[<id>]` entry (theme / objective / rules) so the lobby's
+   "How to play" info modal works for the new game. No other lobby edits needed.
 
 6. **Verify + deploy** — see `verify-and-deploy.md`.
 

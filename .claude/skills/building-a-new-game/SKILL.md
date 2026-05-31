@@ -130,6 +130,13 @@ registry entry, `gameMove` dispatch + a `makeMove<Game>`, a board renderer in
 `boards.tsx`, and the every-game checklist (random start, projection if there's
 hidden info, the history gate, stable turn order, abandon/resign inheritance).
 
+**Don't forget the lobby "How to play" entry.** Every game needs a
+`GAME_GUIDES[<id>]` entry in `registry.ts` ( `{ theme, objective, rules[] }` )
+— the lobby renders it as the per-game info modal (the ⓘ/"?" button on the
+tile), and only shows that button when the entry exists. Write the `objective`
+(win condition) from the engine's actual finished/winner logic, not from memory
+(rules-fidelity), and keep `rules` to ~3–6 short bullets covering the core loop.
+
 ## References
 
 - `references/longshot-reference.md` — a deeper tour of Long Shot's structure (state fields, the action set, the choice flow, scoring) for when you want concrete code to mirror.
