@@ -1,5 +1,10 @@
 # Rules fidelity — making the engine match the printed card
 
+> For the GENERAL, game-agnostic discipline (the five WHO/WHAT/CHOICE/WHEN/MATH
+> questions, the choice-vs-automatic rule, once-vs-per-player timing), see the
+> global **rules-fidelity** skill. This file is the Legendary-specific instance:
+> the exact helpers, fields, and mismatches that bit *this* engine.
+
 Almost every Legendary bug this project hit was a **fidelity mismatch**: the
 engine did *something*, but not what the card text says. As you layer on more
 cards and rulesets, this is the failure mode to guard against. The card's
