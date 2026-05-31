@@ -50,6 +50,142 @@ export const CATEGORY_LABELS: Record<GameCategory, string> = {
   quick:    'Quick',
 };
 
+/** Player-facing "How to play" copy, keyed by game id. Kept separate from the
+ *  engine-heavy GameDef entries so all the prose lives in one readable block.
+ *  The lobby renders this in an info modal (theme → objective → basic rules).
+ *  Every game in GAMES should have an entry; lobbyInfo() falls back gracefully. */
+export type GameGuide = {
+  /** One or two sentences: the setting/flavor + what kind of game it is. */
+  theme: string;
+  /** How you win, in one sentence. */
+  objective: string;
+  /** 3–6 short bullets covering the core loop / basic rules. */
+  rules: string[];
+};
+
+export const GAME_GUIDES: Record<string, GameGuide> = {
+  tictactoe: {
+    theme: 'The classic 3×3 pencil-and-paper duel — quick, sharp, and endlessly replayable.',
+    objective: 'Be the first to line up three of your marks in a row.',
+    rules: [
+      'Players alternate placing their mark (X or O) on any empty square.',
+      'Who goes first is decided randomly.',
+      'Three of your marks in a row — horizontal, vertical, or diagonal — wins.',
+      'If the board fills with no line, the game is a draw.',
+    ],
+  },
+  connect4: {
+    theme: 'Four-in-a-row with gravity: drop your discs and stack toward a winning line.',
+    objective: 'Be the first to connect four of your discs in a straight line.',
+    rules: [
+      'On your turn, drop a disc into a column; it falls to the lowest open slot.',
+      'Players alternate colors; the first mover is chosen randomly.',
+      'Line up four of your color — horizontal, vertical, or diagonal — to win.',
+      'If the grid fills with no four-in-a-row, it’s a draw.',
+    ],
+  },
+  checkers: {
+    theme: 'Timeless diagonal-capture strategy on an 8×8 board.',
+    objective: 'Capture or trap all of your opponent’s pieces.',
+    rules: [
+      'Move a piece one square diagonally forward.',
+      'Jump over an adjacent enemy piece into the empty square beyond to capture it; chained jumps are allowed.',
+      'Reach the far row to crown a King, which can move and capture in both directions.',
+      'You lose when you have no pieces left or no legal move.',
+    ],
+  },
+  battleship: {
+    theme: 'A hidden-fleet naval guessing duel — deduce where the enemy ships are hiding.',
+    objective: 'Sink your opponent’s entire fleet before they sink yours.',
+    rules: [
+      'Secretly arrange your ships on your grid at the start.',
+      'Take turns firing at a coordinate on the enemy grid.',
+      'Each shot is reported as a hit or a miss; a ship sinks when all its cells are hit.',
+      'The first player to sink every enemy ship wins.',
+    ],
+  },
+  longshot: {
+    theme: 'A rowdy horse-race betting game where everyone cheers, wagers, and meddles with the field. 2–8 players.',
+    objective: 'Finish the race with the most money.',
+    rules: [
+      'On your turn, roll the dice to advance one of the horses, then take a single action.',
+      'Actions: bet on a horse, buy a horse you own, place a Helmet or Jersey, or mark your concession card.',
+      'Owned and bet-on horses pay out depending on whether they finish 1st, 2nd, or 3rd.',
+      'The race ends once three horses cross the line; the richest player wins.',
+    ],
+  },
+  boggle: {
+    theme: 'A frantic word hunt on a shared grid of letters — everyone races the same board against the clock.',
+    objective: 'Score more points than everyone else before time runs out.',
+    rules: [
+      'All players see the same letter grid and play simultaneously.',
+      'Form words by linking adjacent letters (including diagonals); each letter cell is used once per word.',
+      'Submit as many valid words as you can before the timer expires.',
+      'Longer words are worth more points; words other players also found may not count.',
+    ],
+  },
+  liarsdice: {
+    theme: 'A game of bluff and nerve — everyone has hidden dice and the bids keep climbing.',
+    objective: 'Be the last player with dice remaining.',
+    rules: [
+      'Everyone rolls their dice in secret each round.',
+      'On your turn, raise the bid for how many of a face are showing across ALL players’ dice — or call “Liar”.',
+      'When someone calls Liar, all dice are revealed and counted.',
+      'Whoever was wrong loses a die; lose all your dice and you’re out. Last player standing wins.',
+    ],
+  },
+  rps: {
+    theme: 'The instant-reveal hand duel everyone already knows.',
+    objective: 'Win the most rounds in a best-of match.',
+    rules: [
+      'Both players secretly choose Rock, Paper, or Scissors.',
+      'Choices reveal at the same time.',
+      'Rock beats Scissors, Scissors beats Paper, Paper beats Rock; matching picks replay.',
+      'First player to reach the round target wins the match.',
+    ],
+  },
+  spellduel: {
+    theme: 'A head-to-head wizard’s duel of spell cards, mana, and timing.',
+    objective: 'Reduce your opponent’s HP to zero.',
+    rules: [
+      'Each turn, play cards from your hand to attack, defend, and trigger effects.',
+      'Spells cost resources — manage your hand and energy to set up bigger turns.',
+      'Effects resolve immediately and can chain, so order and timing matter.',
+      'Drop your opponent to 0 HP to win the duel.',
+    ],
+  },
+  legendary: {
+    theme: 'A Marvel-themed cooperative deck-builder: 1–5 heroes team up against a supervillain Mastermind and their evil Scheme.',
+    objective: 'Work together to defeat the Mastermind before the Scheme’s “Evil Wins” timer triggers.',
+    rules: [
+      'Each turn, draw a 6-card hand and play cards for Attack and Recruit power.',
+      'Spend Recruit to buy stronger Hero cards from the HQ into your deck.',
+      'Spend Attack to defeat Villains in the City and to wound the Mastermind.',
+      'Master Strikes and escaping Villains punish the team; beat the Mastermind to win, or lose if the Scheme completes.',
+    ],
+  },
+  heroquest: {
+    theme: 'A cooperative dungeon crawl: up to 4 heroes explore, fight monsters, and complete a quest while an automated Zargon runs the dungeon.',
+    objective: 'Complete the quest — survive the dungeon and reach its goal — before the party falls.',
+    rules: [
+      'On your turn, roll to move, then take one action: attack, search (treasure / traps / secret doors), cast a spell, or open a door.',
+      'Combat is resolved with attack and defense dice.',
+      'The automated Zargon moves the monsters and springs traps against you.',
+      'The heroes win by completing the quest; you lose if all heroes are defeated.',
+    ],
+  },
+  yahtzee: {
+    theme: 'The classic push-your-luck dice game — chase the big combinations. 1–6 players.',
+    objective: 'Finish with the highest total on your scorecard.',
+    rules: [
+      'Roll five dice up to three times per turn, holding any dice you like between rolls.',
+      'Score your result in one open category (three-of-a-kind, full house, straight, Yahtzee, etc.).',
+      'Each category can be used only once, so choose where to bank each turn.',
+      'Fill the upper section well for a bonus; the highest grand total wins.',
+    ],
+  },
+};
+
 export type GameDef = {
   id: string;
   name: string;
