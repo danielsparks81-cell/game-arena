@@ -667,10 +667,6 @@ export type PlayerState = {
   /** Set by Loki's Master Strike when fired on an empty hand. Resolved at the
    *  start of this player's next turn: reveal a Strength Hero or gain a Wound. */
   pendingLokiStrike?: boolean;
-  /** Set by Dr. Doom's Master Strike when fired on an empty hand. Resolved at
-   *  the start of this player's next turn: reveal a [tech] Hero or put 2 cards
-   *  on top of their deck (interactive). */
-  pendingDoomStrike?: boolean;
   /** "Discard N cards from your hand" owed by this player, resolved as an
    *  interactive choice at the start of their next turn. Used by any
    *  each-player / each-other-player discard effect (Hawkeye Covering Fire,

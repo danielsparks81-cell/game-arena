@@ -1736,27 +1736,14 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Dr. Doom Master Strike ────────────────────────────────────────────────
     // "Each player with exactly 6 cards in hand reveals a [tech] Hero or puts
-    //  2 cards from their hand on top of their deck."
-    //  • Active player with an empty hand (end-of-turn villain reveal) → defer
-    //    via pendingDoomStrike so it lands on their freshly drawn hand.
-    //  • Otherwise resolve now (reveal a [tech] Hero for no penalty, else the
-    //    player CHOOSES which 2 cards to put on top — interactive for the
-    //    active player, auto-cheapest fallback for non-active players).
-    case 'doom_master_strike': {
-      const isActive = me.playerId === state.players[state.currentPlayerIdx]?.playerId;
-      if (me.hand.length === 0 && isActive) {
-        if (!me.pendingDoomStrike) {
-          me.pendingDoomStrike = true;
-          pushLog(state, {
-            kind: 'system',
-            text: `${me.username}: Dr. Doom's Master Strike will fire at the start of their next turn.`,
-          });
-        }
-        return;
-      }
-      resolveDoomStrike(state, me);
+    //  2 cards from their hand on top of their deck." Resolution is NOT handled
+    //  here: the master_strike reveal detects this kind and sets
+    //  state.pendingStrike, which doEndTurn drives as a sequential per-player
+    //  interactive resolution AFTER the turn advance (otherwise emptyTurnState
+    //  would wipe the pendingChoice). See startSequentialStrike /
+    //  applyStrikeToPlayer. No-op here, kept only to keep the switch exhaustive.
+    case 'doom_master_strike':
       return;
-    }
 
     // ── Dr. Doom Tactic 4 ────────────────────────────────────────────────────
     case 'extra_turn': {
@@ -4016,59 +4003,13 @@ function doRevealFirstVillain(state: LegendaryState): LegendaryState | { error: 
 // ---------------- End turn ----------------
 
 /**
- * Dr. Doom Master Strike: reveal a [tech] Hero (no penalty) or put 2 cards
- * from hand on top of deck. The active player picks which 2 cards (chained
- * interactive prompt); non-active players auto-shed the 2 cheapest.
- */
-function resolveDoomStrike(state: LegendaryState, player: PlayerState): void {
-  if (player.hand.length === 0) return;
-  const hasTech = player.hand.some(c => {
-    const d = getCard(c.cardId);
-    return d.kind === 'hero' && (d as HeroCardDef).classes.includes('tech');
-  });
-  if (hasTech) {
-    pushLog(state, { kind: 'system', text: `${player.username} reveals a [tech] Hero — no penalty from Dr. Doom's Master Strike.` });
-    return;
-  }
-  // No tech Hero → put 2 cards on top of the deck. Clamp to hand size.
-  const toPut = Math.min(2, player.hand.length);
-  if (toPut === 0) return;
-  const isActive = state.players[state.currentPlayerIdx]?.playerId === player.playerId;
-  if (isActive) {
-    state.thisTurn.pendingChoice = {
-      kind: 'put_card_on_deck',
-      mandatory: true,
-      remaining: toPut - 1,
-    };
-    pushLog(state, { kind: 'system', text: `${player.username}: Dr. Doom's Master Strike — choose ${toPut} card${toPut === 1 ? '' : 's'} to put on top of your deck.` });
-  } else {
-    // Non-active player: auto-shed the cheapest cards.
-    const sorted = [...player.hand].sort((a, b) => {
-      const da = getCard(a.cardId), db = getCard(b.cardId);
-      const ca = da.kind === 'hero' ? (da as HeroCardDef).cost : 0;
-      const cb = db.kind === 'hero' ? (db as HeroCardDef).cost : 0;
-      return ca - cb;
-    });
-    const toMove = sorted.slice(0, toPut);
-    for (const card of toMove) {
-      player.hand = player.hand.filter(c => c.instanceId !== card.instanceId);
-      player.deck.unshift(card);
-    }
-    const names = toMove.map(c => {
-      const d = getCard(c.cardId);
-      return d.kind === 'hero' ? (d as HeroCardDef).cardName : 'name' in d ? (d as { name: string }).name : c.cardId;
-    });
-    pushLog(state, { kind: 'system', text: `${player.username}: Dr. Doom's strike — ${names.join(' and ')} put on top of deck.` });
-  }
-}
-
-/**
  * Resolve any master-strike effects that were deferred because the player's
  * hand was empty when the strike fired (active player at end-of-turn villain
  * reveal). Called after a fresh hand is drawn, so the deferred effect lands
- * on the new hand. Currently handles Red Skull (KO a Hero), Loki (reveal
- * Strength Hero or gain Wound), and Dr. Doom (reveal a [tech] Hero or put 2
- * cards on top of deck). (Magneto resolves sequentially at reveal time.)
+ * on the new hand. Currently handles Red Skull (Super-Skrull Fight-style
+ * pendingMasterStrikeKO) and Loki (reveal Strength Hero or gain Wound).
+ * (Magneto / Red Skull's master strike / Juggernaut / Dr. Doom all resolve
+ * sequentially at reveal time via setJuggernautStrike / the seqKind dispatcher.)
  */
 function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void {
   // Red Skull: KO a Hero of your choice (prompt via pendingChoice).
@@ -4089,17 +4030,9 @@ function resolvePendingStrikes(state: LegendaryState, player: PlayerState): void
     }
   }
 
-  // (Magneto's Master Strike is no longer deferred per-player — it resolves
-  // sequentially for all players at reveal time; see startSequentialStrike.)
-
-  // Dr. Doom: reveal a [tech] Hero, or put 2 cards on top of deck (interactive).
-  if (player.pendingDoomStrike) {
-    player.pendingDoomStrike = undefined;
-    resolveDoomStrike(state, player);
-  }
-
-  // (Juggernaut Ambush/Escape now resolves sequentially at reveal time — see
-  // setJuggernautStrike / applyStrikeToPlayer — so it is no longer deferred.)
+  // (Magneto / Dr. Doom / Juggernaut all resolve sequentially at reveal time
+  // now — see setJuggernautStrike / startSequentialStrike — so none of them
+  // need to be deferred per-player anymore.)
 
   // Loki: reveal a Strength Hero, or gain a Wound.
   if (player.pendingLokiStrike) {
@@ -4413,6 +4346,29 @@ function applyStrikeToPlayer(state: LegendaryState, player: PlayerState): boolea
     pushLog(state, { kind: 'system', text: `${player.username}: Red Skull's Master Strike — KO a Hero from your hand.` });
     return true;
   }
+  if (ps.kind === 'doom') {
+    // Dr. Doom: "Each player with exactly 6 cards in hand reveals a [tech] Hero
+    // or puts 2 cards from their hand on top of their deck."
+    if (player.hand.length !== 6) {
+      pushLog(state, { kind: 'system', text: `${player.username} doesn't have exactly 6 cards — no effect from Dr. Doom's Master Strike.` });
+      return false;
+    }
+    const hasTech = player.hand.some(c => {
+      const d = getCard(c.cardId);
+      return d.kind === 'hero' && (d as HeroCardDef).classes.includes('tech');
+    });
+    if (hasTech) {
+      pushLog(state, { kind: 'system', text: `${player.username} reveals a [tech] Hero — no penalty from Dr. Doom's Master Strike.` });
+      return false;
+    }
+    state.thisTurn.pendingChoice = {
+      kind: 'put_card_on_deck',
+      mandatory: true,
+      remaining: 1, // two cards total — this prompt is the first, chain re-prompts for the second
+    };
+    pushLog(state, { kind: 'system', text: `${player.username}: Dr. Doom's Master Strike — choose 2 cards to put on top of your deck.` });
+    return true;
+  }
   if (ps.kind === 'juggernaut') {
     // Juggernaut Ambush (KO from discard) / Escape (KO from hand): each player
     // chooses which Heroes to KO. Auto-skip players with no Heroes available.
@@ -4537,9 +4493,10 @@ function revealOneVillainCard(state: LegendaryState): CardInstance | null {
         // doEndTurn kicks off startSequentialStrike() AFTER the turn advances,
         // so every player resolves their own choice in turn order (the
         // revealer first) before the new active player gets to act.
-        const seqKind: 'magneto' | 'redskull' | null =
+        const seqKind: 'magneto' | 'redskull' | 'doom' | null =
           mmDef.strike.some(e => e.kind === 'magneto_master_strike') ? 'magneto' :
           mmDef.strike.some(e => e.kind === 'each_player_ko_hero_from_hand') ? 'redskull' :
+          mmDef.strike.some(e => e.kind === 'doom_master_strike') ? 'doom' :
           null;
         if (seqKind) {
           state.pendingStrike = {

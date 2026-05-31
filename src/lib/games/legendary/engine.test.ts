@@ -369,6 +369,41 @@ describe('legendary: Magneto sequential Master Strike', () => {
   });
 });
 
+describe('legendary: Dr. Doom sequential Master Strike', () => {
+  it('survives the turn advance and prompts the revealer to put 2 cards on deck', () => {
+    let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
+    s = addPlayer(s, 'bob', 'Bob', 1);
+    const started = startGame(s);
+    if ('error' in started) throw new Error(started.error);
+    const g = started;
+    g.mastermindId = 'mm_dr_doom';
+    g.mastermind.cardId = 'mm_dr_doom';
+    g.currentPlayerIdx = 0; // pin Alice as active
+
+    // Give Bob a hand of 6 non-tech cards so the strike doesn't auto-skip him.
+    g.players[1].hand = [0, 1, 2, 3, 4, 5].map(i => ({ instanceId: `b${i}`, cardId: 'shield_trooper' } as CardInstance));
+    // Force the next reveal to be the Master Strike.
+    g.villainDeck.unshift({ instanceId: 'ms-doom', cardId: 'master_strike' });
+
+    const r = applyAction(g, 'alice', { kind: 'end_turn' });
+    if ('error' in r) throw new Error(String(r.error));
+    const s2 = r as LegendaryState;
+
+    // The strike survived the turn advance: pendingStrike + a real prompt are live.
+    // (The OLD code path set thisTurn.pendingChoice during the reveal and the
+    // emptyTurnState() in the turn advance wiped it — this guards against that.)
+    expect(s2.pendingStrike?.kind).toBe('doom');
+    expect(s2.thisTurn.choiceOwnerSeat).toBe(0); // revealer (Alice) chooses first
+    // Alice's freshly drawn hand has 6 cards from her starter deck (Shield
+    // troopers/agents — none have the [tech] class), so she's prompted to put 2 on deck.
+    expect(s2.thisTurn.pendingChoice?.kind).toBe('put_card_on_deck');
+    if (s2.thisTurn.pendingChoice?.kind === 'put_card_on_deck') {
+      expect(s2.thisTurn.pendingChoice.mandatory).toBe(true);
+      expect(s2.thisTurn.pendingChoice.remaining).toBe(1); // 2 total → second prompt after this
+    }
+  });
+});
+
 describe('legendary: Red Skull sequential Master Strike', () => {
   it('prompts every player to KO a Hero in turn order the moment the strike is drawn', () => {
     let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });
