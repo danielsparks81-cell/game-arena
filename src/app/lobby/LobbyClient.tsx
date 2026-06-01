@@ -31,8 +31,6 @@ export default function LobbyClient({
 }) {
   const supabase = createClient();
   const [rooms, setRooms] = useState<Room[]>(initialRooms);
-  // Which game's "How to play" modal is open (by game id), or null.
-  const [infoGameId, setInfoGameId] = useState<string | null>(null);
   // playerId-sets keyed by room id — derived from `lobby-presence` events.
   // Anyone broadcasting `room_id: X` is on that room's page right now. Subtract
   // the seated player ids to get "watchers" (active spectators).
@@ -276,18 +274,8 @@ export default function LobbyClient({
                       </div>
                     </button>
                   </form>
-                  {/* How-to-play button — overlays the thumbnail's top-right. */}
-                  {GAME_GUIDES[g.id] && (
-                    <button
-                      type="button"
-                      onClick={() => setInfoGameId(g.id)}
-                      title={`How to play ${g.name}`}
-                      aria-label={`How to play ${g.name}`}
-                      className="absolute right-1.5 top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-700/80 bg-neutral-950/70 text-xs font-semibold text-neutral-300 backdrop-blur-sm transition hover:border-emerald-400 hover:text-emerald-300"
-                    >
-                      ?
-                    </button>
-                  )}
+                  {/* How-to-play badge — hover (or focus) to reveal the guide. */}
+                  {GAME_GUIDES[g.id] && <GameInfoBadge gameId={g.id} gameName={g.name} />}
                 </div>
               ))}
             </div>
@@ -339,95 +327,67 @@ export default function LobbyClient({
         <GeneralChat currentUserId={currentUserId} currentUsername={currentUsername} currentUserAccent={currentUserAccent} />
       </div>
 
-      {infoGameId && (
-        <GameInfoModal gameId={infoGameId} onClose={() => setInfoGameId(null)} />
-      )}
     </div>
   );
 }
 
-/** "How to play" modal — theme → objective → basic rules for one game. */
-function GameInfoModal({ gameId, onClose }: { gameId: string; onClose: () => void }) {
+/**
+ * "How to play" badge — a small "?" overlaid on a game tile. Hovering it (or
+ * focusing it via keyboard) reveals a popover with theme → objective → rules.
+ * The popover is a DOM descendant of the hover wrapper, so moving the pointer
+ * onto it keeps it open (mouseleave doesn't fire while over a descendant).
+ */
+function GameInfoBadge({ gameId, gameName }: { gameId: string; gameName: string }) {
+  const [open, setOpen] = useState(false);
   const game = GAMES[gameId];
   const guide = GAME_GUIDES[gameId];
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  if (!game || !guide) return null;
-  const players = game.minPlayers === game.maxPlayers
-    ? `${game.minPlayers} player${game.minPlayers === 1 ? '' : 's'}`
-    : `${game.minPlayers}–${game.maxPlayers} players`;
+  if (!guide) return null;
+  const players = game
+    ? (game.minPlayers === game.maxPlayers
+        ? `${game.minPlayers} player${game.minPlayers === 1 ? '' : 's'}`
+        : `${game.minPlayers}–${game.maxPlayers} players`)
+    : '';
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-950/70 p-4 backdrop-blur-sm"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
+      className="absolute right-1.5 top-1.5 z-30"
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
     >
-      <div
-        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-neutral-800 bg-neutral-900 shadow-2xl"
-        onClick={e => e.stopPropagation()}
+      <button
+        type="button"
+        aria-label={`How to play ${gameName}`}
+        aria-expanded={open}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        // Prevent a tap/click from also submitting the tile's create-room form.
+        onClick={e => { e.preventDefault(); e.stopPropagation(); }}
+        className="flex h-6 w-6 items-center justify-center rounded-full border border-neutral-700/80 bg-neutral-950/70 text-xs font-semibold text-neutral-300 backdrop-blur-sm transition hover:border-emerald-400 hover:text-emerald-300"
       >
-        <div className="flex items-start justify-between gap-3 border-b border-neutral-800 p-4">
-          <div className="flex items-center gap-3">
-            <GameThumbnail gameId={gameId} className="h-12 w-16 shrink-0 overflow-hidden rounded-md" />
-            <div>
-              <h2 className="text-lg font-semibold leading-tight">
-                {game.name}
-                {game.beta && (
-                  <span className="ml-1.5 align-middle rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-amber-400">
-                    Beta
-                  </span>
-                )}
-              </h2>
-              <p className="text-xs text-neutral-500">{players}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="shrink-0 rounded-md p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-white"
-          >
-            ✕
-          </button>
+        ?
+      </button>
+      {open && (
+        <div
+          role="tooltip"
+          className="absolute right-0 top-6 w-64 rounded-lg border border-neutral-700 bg-neutral-950/95 p-3 text-left shadow-xl backdrop-blur-sm"
+        >
+          <div className="text-sm font-semibold leading-tight text-white">{gameName}</div>
+          {players && <div className="mb-2 text-[10px] uppercase tracking-wider text-neutral-500">{players}</div>}
+          <p className="mb-2 text-xs leading-snug text-neutral-300">{guide.theme}</p>
+
+          <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Objective</div>
+          <p className="mb-2 text-xs leading-snug text-neutral-300">{guide.objective}</p>
+
+          <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">How to play</div>
+          <ul className="space-y-1">
+            {guide.rules.map((r, i) => (
+              <li key={i} className="flex gap-1.5 text-xs leading-snug text-neutral-300">
+                <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-neutral-600" />
+                <span>{r}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-
-        <div className="space-y-4 p-4 text-sm">
-          <p className="text-neutral-300">{guide.theme}</p>
-
-          <div>
-            <h3 className="mb-1 text-xs font-semibold uppercase tracking-wider text-emerald-400">Objective</h3>
-            <p className="text-neutral-300">{guide.objective}</p>
-          </div>
-
-          <div>
-            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400">How to play</h3>
-            <ul className="space-y-1.5">
-              {guide.rules.map((r, i) => (
-                <li key={i} className="flex gap-2 text-neutral-300">
-                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-neutral-600" />
-                  <span>{r}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-
-        <div className="border-t border-neutral-800 p-4">
-          <form action={createRoom}>
-            <input type="hidden" name="gameType" value={gameId} />
-            <button
-              type="submit"
-              className="w-full rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-400"
-            >
-              Start a game →
-            </button>
-          </form>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
