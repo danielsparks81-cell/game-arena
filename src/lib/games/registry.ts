@@ -407,7 +407,9 @@ export const GAMES: Record<string, GameDef> = {
     minPlayers: 2,
     maxPlayers: 8,
     addedOn: '2026-05-17',
-    beta: true,
+    // Graduated from Beta after the headless fuzzer hardened the engine across
+    // 2–8 player counts (see longshot.fuzz.test.ts). Also fixed: refresh_wild
+    // now acts as a guaranteed pass for a player with no other legal action.
     categories: ['dice', 'party', 'strategy'],
     initialState: ls.initialState,
     createInitialStateForHost: (h) => ls.addPlayer(ls.initialState(), h.userId, h.username, 0, h.accentColor),

@@ -1021,11 +1021,16 @@ export function takeAction(
     }
 
     case 'refresh_wild': {
-      // Available whenever the player has at least one wild that's been used.
-      // No restriction on having other legal actions.
-      if (player.wildsUsed === 0) return { error: 'No wilds to refresh' };
-      updatedPlayer = { ...updatedPlayer, wildsUsed: player.wildsUsed - 1 };
-      log.push(`✨ ${player.username} spends the turn to refresh one Wild.`);
+      // Recover one used wild. Also serves as a "pass" when the player has no
+      // other legal actions (e.g. money=0, no unmarked concession cells on the
+      // rolled horse). A player who hasn't used any wilds still burns their turn
+      // — wildsUsed stays at 0 but actedThisRound flips to true.
+      if (player.wildsUsed > 0) {
+        updatedPlayer = { ...updatedPlayer, wildsUsed: player.wildsUsed - 1 };
+        log.push(`✨ ${player.username} spends the turn to refresh one Wild.`);
+      } else {
+        log.push(`${player.username} has no valid action this round and passes.`);
+      }
       break;
     }
   }
