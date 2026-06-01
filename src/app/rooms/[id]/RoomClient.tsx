@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 import { GAMES, displayName as gameDisplayName } from '@/lib/games/registry';
 import { sounds } from '@/lib/sounds';
 import MembersPanel from '@/components/MembersPanel';
+import GeneralChat from '@/components/GeneralChat';
 import TopBar from '@/components/TopBar';
 import RoomTopBarActions from '@/components/RoomTopBarActions';
 import RematchToast from '@/components/RematchToast';
@@ -301,47 +302,17 @@ export default function RoomClient({
           })()}
           className="lg:max-h-[360px] lg:overflow-y-auto"
         />
-      <aside className="flex h-80 flex-col rounded-xl border border-neutral-800 bg-neutral-900 lg:h-[340px]">
-        <div className="border-b border-neutral-800 px-4 py-2 text-sm font-medium">Chat</div>
-        <div className="flex-1 space-y-2 overflow-y-auto px-4 py-3 text-sm">
-          {messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
-          {messages.map(m => {
-            const accent = safeAccent(
-              m.profiles?.accent_color
-                ?? (m.sender_id === currentUserId ? currentUserAccent : null),
-            );
-            return (
-              <div key={m.id}>
-                <span className="font-medium" style={{ color: accent }}>
-                  {m.profiles?.username || '???'}:
-                </span>{' '}
-                <span className="text-neutral-200">{m.body}</span>
-              </div>
-            );
-          })}
-        </div>
-        <form
-          className="flex gap-2 border-t border-neutral-800 p-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            const v = draft;
-            if (!v.trim()) return;
-            setDraft('');
-            startTransition(() => { sendChat(roomId, v); });
-          }}
-        >
-          <input
-            value={draft} onChange={e => setDraft(e.target.value)}
-            placeholder={imSeated ? `Message as ${currentUsername}` : 'Join the room to chat'}
-            disabled={!imSeated}
-            className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm outline-none focus:border-emerald-500 disabled:opacity-50"
-          />
-          <button
-            type="submit" disabled={!imSeated || !draft.trim()}
-            className="rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50"
-          >Send</button>
-        </form>
-      </aside>
+      <RoomChatPanel
+        roomId={roomId}
+        currentUserId={currentUserId}
+        currentUsername={currentUsername || currentUserEmail || 'player'}
+        currentUserAccent={currentUserAccent}
+        messages={messages}
+        draft={draft}
+        setDraft={setDraft}
+        imSeated={imSeated}
+        onSend={(v) => { setDraft(''); startTransition(() => { sendChat(roomId, v); }); }}
+      />
       </div>
     </main>
     <RematchToast
@@ -428,6 +399,144 @@ function Seats({
         );
       })}
     </div>
+  );
+}
+
+// ─── RoomChatPanel ────────────────────────────────────────────────────────────
+// In-game chat widget with a Game / Global toggle.
+// • Game tab  — room-scoped messages (existing chat_messages table).
+// • Global tab — site-wide general_chat_messages via GeneralChat (embedded mode).
+// • New-message glow on whichever tab is NOT active when a message arrives.
+// • Timestamps on every message (small, right-aligned).
+
+function formatMsgTime(iso: string): string {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+  } catch { return ''; }
+}
+
+function RoomChatPanel({
+  roomId, currentUserId, currentUsername, currentUserAccent,
+  messages, draft, setDraft, imSeated, onSend,
+}: {
+  roomId: string;
+  currentUserId: string;
+  currentUsername: string;
+  currentUserAccent?: string | null;
+  messages: ChatMsg[];
+  draft: string;
+  setDraft: (v: string) => void;
+  imSeated: boolean;
+  onSend: (v: string) => void;
+}) {
+  const [tab, setTab] = useState<'game' | 'global'>('game');
+  const [gameUnread, setGameUnread] = useState(false);
+  const [globalUnread, setGlobalUnread] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Clear unread badge when switching to that tab.
+  const switchTab = (t: 'game' | 'global') => {
+    setTab(t);
+    if (t === 'game') setGameUnread(false);
+    if (t === 'global') setGlobalUnread(false);
+  };
+
+  // Game chat unread: watch messages length while on global tab.
+  const prevGameLen = useRef(messages.length);
+  useEffect(() => {
+    if (messages.length > prevGameLen.current && tab === 'global') {
+      setGameUnread(true);
+    }
+    prevGameLen.current = messages.length;
+  }, [messages.length, tab]);
+
+  // Auto-scroll game tab.
+  useEffect(() => {
+    if (tab === 'game' && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, tab]);
+
+  const tabBtn = (t: 'game' | 'global', label: string, unread: boolean) => (
+    <button
+      type="button"
+      onClick={() => switchTab(t)}
+      className={`relative flex-1 rounded-md py-1 text-xs font-medium transition ${
+        tab === t
+          ? 'bg-neutral-800 text-neutral-100'
+          : 'text-neutral-500 hover:text-neutral-300'
+      }`}
+    >
+      {label}
+      {unread && (
+        <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_6px_2px_rgba(52,211,153,0.7)]" />
+      )}
+    </button>
+  );
+
+  return (
+    <aside className={`flex h-80 flex-col rounded-xl border bg-neutral-900 lg:h-[340px] transition-all duration-300 ${
+      // Outer border glows emerald when either tab has unread messages.
+      (gameUnread && tab === 'global') || (globalUnread && tab === 'game')
+        ? 'border-emerald-500/60 shadow-[0_0_10px_2px_rgba(52,211,153,0.25)]'
+        : 'border-neutral-800'
+    }`}>
+      {/* Header: tab toggle */}
+      <div className="flex items-center gap-1 border-b border-neutral-800 px-2 py-1.5">
+        <div className="flex flex-1 gap-1 rounded-lg bg-neutral-950/60 p-0.5">
+          {tabBtn('game', 'Game', gameUnread && tab === 'global')}
+          {tabBtn('global', 'Global', globalUnread && tab === 'game')}
+        </div>
+      </div>
+
+      {/* Game chat */}
+      {tab === 'game' && (
+        <>
+          <div ref={scrollRef} className="flex-1 space-y-1.5 overflow-y-auto px-4 py-3 text-sm">
+            {messages.length === 0 && <p className="text-neutral-500">No messages yet.</p>}
+            {messages.map(m => {
+              const accent = safeAccent(m.profiles?.accent_color ?? (m.sender_id === currentUserId ? currentUserAccent : null));
+              return (
+                <div key={m.id} className="flex items-baseline gap-1.5 min-w-0">
+                  <span className="font-medium shrink-0" style={{ color: accent }}>
+                    {m.profiles?.username || '???'}:
+                  </span>
+                  <span className="text-neutral-200 break-words min-w-0 flex-1">{m.body}</span>
+                  <span className="ml-1 shrink-0 text-[10px] tabular-nums text-neutral-600">{formatMsgTime(m.created_at)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <form
+            className="flex gap-2 border-t border-neutral-800 p-2"
+            onSubmit={(e) => { e.preventDefault(); const v = draft; if (!v.trim()) return; onSend(v); }}
+          >
+            <input
+              value={draft} onChange={e => setDraft(e.target.value)}
+              placeholder={imSeated ? `Message as ${currentUsername}` : 'Join the room to chat'}
+              disabled={!imSeated}
+              className="flex-1 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-1.5 text-sm outline-none focus:border-emerald-500 disabled:opacity-50"
+            />
+            <button type="submit" disabled={!imSeated || !draft.trim()}
+              className="rounded-md bg-emerald-500 px-3 py-1.5 text-sm font-medium text-neutral-950 hover:bg-emerald-400 disabled:opacity-50">
+              Send
+            </button>
+          </form>
+        </>
+      )}
+
+      {/* Global chat — embedded, no outer border */}
+      {tab === 'global' && (
+        <GeneralChat
+          currentUserId={currentUserId}
+          currentUsername={currentUsername}
+          currentUserAccent={currentUserAccent}
+          embedded
+          active={tab === 'global'}
+          onUnread={() => setGlobalUnread(true)}
+        />
+      )}
+    </aside>
   );
 }
 
