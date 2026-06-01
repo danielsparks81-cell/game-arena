@@ -238,6 +238,34 @@ export default function LongShotBoard({
     resetBonusPick();
   }, [state.rollId, state.currentTurnSeat]);
 
+  // Podium sounds: fire when a horse moves from unfinished → 1st/2nd/3rd.
+  const prevFinishedCount = useRef<number>(state.finishedCount);
+  const prevHorseFinished = useRef<boolean[]>(state.horses.map(h => !!h.finished));
+  useEffect(() => {
+    const prevCount = prevFinishedCount.current;
+    const prevFin   = prevHorseFinished.current;
+    prevFinishedCount.current = state.finishedCount;
+    prevHorseFinished.current = state.horses.map(h => !!h.finished);
+    if (state.finishedCount <= prevCount) return; // no new finish this update
+    // How many horses newly crossed the line?
+    for (let i = 0; i < state.horses.length; i++) {
+      if (!prevFin[i] && state.horses[i].finished) {
+        const pos = state.horses[i].finished; // 1 | 2 | 3
+        if (pos === 1) sounds.lsHorseFinish1st();
+        else if (pos === 2) sounds.lsHorseFinish2nd();
+        else if (pos === 3) sounds.lsHorseFinish3rd();
+      }
+    }
+  }, [state.finishedCount, state.horses]);
+
+  // Final-round announcement: fires once when the 3rd horse finishes.
+  const prevFinalRound = useRef<boolean>(!!state.finalRound);
+  useEffect(() => {
+    const was = prevFinalRound.current;
+    prevFinalRound.current = !!state.finalRound;
+    if (!was && state.finalRound) sounds.lsFinalRound();
+  }, [state.finalRound]);
+
   // Spoken cue: "When the [N] horse moves" — fires every 5th DICE roll only.
   // Ability-driven movement (Strung Along, Pay it Forward, Partner in Crime, etc.) also
   // bumps state.rollId for animation, so we distinguish a real dice roll by detecting
@@ -395,9 +423,15 @@ export default function LongShotBoard({
       .map(c => c.i);
   }, [state.concessionGrid, me, effectiveHorse, wildHorse, state.assignedAbilities, state.horseDie]);
 
+  const ACTION_SOUND_TYPES = new Set(['buy', 'helmet', 'jersey', 'concession']);
+  const maybeLsAction = (payload: ActionPayload) => {
+    if (ACTION_SOUND_TYPES.has(payload.type)) sounds.lsAction();
+  };
+
   const sendAction = (payload: ActionPayload) => {
     if (wildHorse !== null) onAction({ ...payload, wild: wildHorse } as ActionPayload);
     else onAction(payload);
+    maybeLsAction(payload);
     setWildHorse(null);
     setSubPicker(null);
     setPickingWild(false);
@@ -409,6 +443,7 @@ export default function LongShotBoard({
    */
   const sendActionWithWild = (wildHorseNum: number, payload: ActionPayload) => {
     onAction({ ...payload, wild: wildHorseNum } as ActionPayload);
+    maybeLsAction(payload);
     setWildHorse(null);
     setSubPicker(null);
     setPickingWild(false);
@@ -531,6 +566,13 @@ export default function LongShotBoard({
     <div className="space-y-3">
       {/* End-of-race scoring window — full width, sits above the main grid */}
       {state.phase === 'finished' && <FinalScoringPanel state={state} />}
+
+      {/* Final Round banner — persists until the race finishes */}
+      {state.finalRound && state.phase === 'playing' && (
+        <div className="flex items-center justify-center gap-2 rounded-lg border border-amber-500/60 bg-amber-500/10 px-4 py-2 text-sm font-semibold text-amber-300">
+          🏁 Final Round — every player takes one last action, then scoring!
+        </div>
+      )}
 
       {/* Pending ability choice picker — only for the player who needs to act (interactive
           buttons, sub-pickers etc.). Other players see a waiting note in the phase panel. */}

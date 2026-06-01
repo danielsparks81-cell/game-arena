@@ -167,4 +167,36 @@ export const sounds = {
     { freq: 330, duration: 0.20, type: 'triangle', delay: 0.12 },     // E4
     { freq: 247, duration: 0.45, type: 'triangle', delay: 0.24 },     // B3
   ], 0.07),
+
+  // -------- Long Shot feedback cues --------
+  /** Ascending fanfare when a horse crosses the finish line in 1st place. */
+  lsHorseFinish1st: () => play([
+    { freq: 523,  duration: 0.12, type: 'triangle' },               // C5
+    { freq: 659,  duration: 0.12, type: 'triangle', delay: 0.08 },  // E5
+    { freq: 784,  duration: 0.12, type: 'triangle', delay: 0.16 },  // G5
+    { freq: 1047, duration: 0.30, type: 'triangle', delay: 0.24 },  // C6
+    { freq: 1319, duration: 0.35, type: 'triangle', delay: 0.32 },  // E6
+  ], 0.09),
+  /** Shorter ding for a 2nd-place finish. */
+  lsHorseFinish2nd: () => play([
+    { freq: 587, duration: 0.12, type: 'triangle' },                // D5
+    { freq: 740, duration: 0.12, type: 'triangle', delay: 0.09 },   // F#5
+    { freq: 880, duration: 0.30, type: 'triangle', delay: 0.18 },   // A5
+  ], 0.07),
+  /** Brief tone for a 3rd-place finish. */
+  lsHorseFinish3rd: () => play([
+    { freq: 440, duration: 0.10, type: 'triangle' },                // A4
+    { freq: 554, duration: 0.25, type: 'triangle', delay: 0.08 },   // C#5
+  ], 0.06),
+  /** Alert jingle when the 3rd horse finishes and the final round begins. */
+  lsFinalRound: () => play([
+    { freq: 880, duration: 0.10, type: 'sine' },
+    { freq: 740, duration: 0.10, type: 'sine', delay: 0.08 },
+    { freq: 587, duration: 0.22, type: 'sine', delay: 0.16 },
+  ], 0.07),
+  /** Soft confirmation click for buy / helmet / jersey actions. */
+  lsAction: () => play([
+    { freq: 660, duration: 0.06, type: 'triangle' },
+    { freq: 880, duration: 0.08, type: 'triangle', delay: 0.05 },
+  ], 0.04),
 };

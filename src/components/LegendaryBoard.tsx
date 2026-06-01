@@ -255,6 +255,19 @@ export default function LegendaryBoard({
   const sewersRef     = useRef<HTMLDivElement>(null); // sewers city slot (slot 0)
   const woundsRef     = useRef<HTMLDivElement>(null); // wounds pile box
   const mastermindRef = useRef<HTMLDivElement>(null); // mastermind zone (bystander fallback)
+
+  // Mastermind-hit flash: briefly highlight the zone whenever a Tactic is taken.
+  const prevTacticsLeft = useRef(state.mastermind.tactics.length);
+  const [mmHitFlash, setMmHitFlash] = useState(false);
+  useEffect(() => {
+    const prev = prevTacticsLeft.current;
+    prevTacticsLeft.current = state.mastermind.tactics.length;
+    if (state.mastermind.tactics.length < prev) {
+      setMmHitFlash(true);
+      const t = setTimeout(() => setMmHitFlash(false), 700);
+      return () => clearTimeout(t);
+    }
+  }, [state.mastermind.tactics.length]);
   const villainDeckRef = useRef<HTMLDivElement>(null); // villain deck pile (animation source)
   const heroDeckRef    = useRef<HTMLDivElement>(null); // hero deck pile (animation source)
   const myDiscardRef   = useRef<HTMLElement | null>(null); // active player's discard pile
@@ -573,6 +586,10 @@ export default function LegendaryBoard({
       ? isMyTurn
         ? '⚡ Master Strike — resolve your choice before play continues.'
         : `⚡ Master Strike — waiting for ${currentPlayer?.username ?? 'a player'} to resolve their choice…`
+    : state.thisTurn.extraTurn
+      ? isMyTurn
+        ? '⚡ Extra Turn (Secrets of Time Travel) — play your bonus turn!'
+        : `⚡ ${currentPlayer?.username ?? 'A player'} is taking an extra turn!`
     : isMyTurn ? 'Your turn — play cards, then buy/fight, then End Turn.'
     : `${currentPlayer?.username ?? 'A player'}'s turn`;
 
@@ -610,10 +627,7 @@ export default function LegendaryBoard({
   return (
     <div className="flex w-full flex-col gap-3">
       {state.phase === 'finished' && (
-        <>
-          <div className="text-center text-sm text-neutral-300">{banner}</div>
-          <FinalScoreboard players={state.players} />
-        </>
+        <LegendaryResultOverlay state={state} />
       )}
 
       {/* ============================================================
@@ -671,6 +685,7 @@ export default function LegendaryBoard({
                 disabled={disabled || actionsLockedByHeal || state.phase === 'finished'}
                 onFight={onFightMastermind}
                 bystanderCount={state.mastermind.bystanders?.length ?? 0}
+                hitFlash={mmHitFlash}
               />
             </div>
           </div>
@@ -1717,6 +1732,54 @@ const CITY_CHEVRON_COLORS: Record<number, string> = {
  *  MVP. Handles ties (every player tied for highest gets the MVP badge).
  *  Surfaces the final Victory Pile count alongside each VP total so it's easy
  *  to see at a glance how the points were earned. */
+/** Full-width result overlay shown when phase==='finished'. Replaces the old
+ *  one-liner banner with a proper Win / Loss / Tie presentation that also
+ *  surfaces the scheme name, a link to the battle records, and the VP
+ *  scoreboard. Item 3 (win overlay) + item 5 (mastermind flash) of the
+ *  Beta-graduation polish list. */
+function LegendaryResultOverlay({ state }: { state: LegendaryState }) {
+  const mmDef = getCard(state.mastermindId);
+  const mmName = mmDef.kind === 'mastermind' ? mmDef.name : 'the Mastermind';
+  const schemeDef = getCard(state.schemeId);
+  const schemeName = schemeDef.kind === 'scheme' ? schemeDef.name : 'the Scheme';
+  const isWin  = state.result === 'win';
+  const isTie  = state.result === 'tie';
+
+  const border  = isWin ? 'border-emerald-500/70' : isTie ? 'border-amber-500/60' : 'border-rose-700/60';
+  const bg      = isWin ? 'from-emerald-950/50 to-neutral-950/60' : isTie ? 'from-amber-950/40 to-neutral-950/60' : 'from-rose-950/50 to-neutral-950/60';
+  const emoji   = isWin ? '🏆' : isTie ? '🤝' : '💀';
+  const headline = isWin
+    ? `Heroes defeated ${mmName}!`
+    : isTie
+    ? 'The heroes survived — but the Mastermind escaped!'
+    : `${schemeName} — Evil Wins!`;
+  const subline = isWin
+    ? `The world is saved. ${schemeName} is foiled.`
+    : isTie
+    ? state.resultReason ?? 'The decks ran dry — highest VP wins.'
+    : state.resultReason ?? `${mmName} has triumphed.`;
+
+  return (
+    <div className={`mx-auto w-full max-w-2xl rounded-xl border-2 ${border} bg-gradient-to-br ${bg} p-5 shadow-xl`}>
+      <div className="mb-5 text-center">
+        <div className="text-5xl">{emoji}</div>
+        <h2 className={`mt-2 text-xl font-bold ${isWin ? 'text-emerald-200' : isTie ? 'text-amber-200' : 'text-rose-200'}`}>
+          {headline}
+        </h2>
+        <p className="mt-1 text-sm text-neutral-400">{subline}</p>
+        {/* Item 6: stats link — only if battle records are available */}
+        <a
+          href="/legendary-stats"
+          className="mt-3 inline-block rounded-md border border-amber-700/50 bg-amber-900/20 px-3 py-1 text-xs font-medium text-amber-300 transition hover:border-amber-500 hover:text-amber-200"
+        >
+          📊 View battle records →
+        </a>
+      </div>
+      <FinalScoreboard players={state.players} />
+    </div>
+  );
+}
+
 function FinalScoreboard({ players }: { players: PlayerState[] }) {
   if (players.length === 0) return null;
   // Stable sort: higher VP first; preserve seat order for ties.
@@ -2573,7 +2636,7 @@ function SchemeZone({
  *  the sandbox MastermindCardArt: crimson border, name/label/alwaysLeads/strike
  *  text. Tactic progress bar stays at the bottom. */
 function MastermindZone({
-  mmDef, tacticsLeft, attack, mastermindAttackDebuff = 0, portalBonus = 0, isMyTurn, disabled, onFight, bystanderCount = 0,
+  mmDef, tacticsLeft, attack, mastermindAttackDebuff = 0, portalBonus = 0, isMyTurn, disabled, onFight, bystanderCount = 0, hitFlash = false,
 }: {
   mmDef: ReturnType<typeof getCard>;
   /** How many Tactic cards are still face-down (= hits left to win). */
@@ -2589,6 +2652,8 @@ function MastermindZone({
   onFight: () => void;
   /** Bystanders currently held by the mastermind. */
   bystanderCount?: number;
+  /** When true, briefly flashes gold to show a Tactic was just taken. */
+  hitFlash?: boolean;
 }) {
   if (mmDef.kind !== 'mastermind') {
     return <div className="h-full rounded-lg border border-dashed border-neutral-800" />;
@@ -2597,7 +2662,8 @@ function MastermindZone({
   const effectiveRequired = Math.max(0, mmDef.attack + portalBonus - mastermindAttackDebuff);
   const canHit = isMyTurn && !disabled && attack >= effectiveRequired && tacticsLeft > 0;
   // Border is always bright crimson (matches scheme panel's always-bright violet).
-  const borderColor = '#DC143C';
+  // Briefly override to gold when a hit lands.
+  const borderColor = hitFlash ? '#f59e0b' : '#DC143C';
 
   return (
     <button
@@ -2605,9 +2671,9 @@ function MastermindZone({
       disabled={!canHit}
       onClick={onFight}
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
-      className={`relative flex h-full w-full flex-col rounded-lg bg-gradient-to-br from-red-950/40 to-neutral-950/40 p-2 text-left transition ${
-        canHit ? 'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-rose-700/50' : ''
-      }`}
+      className={`relative flex h-full w-full flex-col rounded-lg bg-gradient-to-br from-red-950/40 to-neutral-950/40 p-2 text-left transition-all duration-150 ${
+        hitFlash ? 'shadow-lg shadow-amber-500/60' : ''
+      } ${canHit ? 'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-rose-700/50' : ''}`}
     >
       {/* Name */}
       <div className="truncate text-[15px] font-bold leading-tight text-white">
@@ -3152,6 +3218,7 @@ function sfx(ev: LegendaryEvent, mySeat: number): void {
     case 'card_played':       sounds.sdCardPlay(); break;
     case 'hero_recruited':    sounds.sdMana(); break;
     case 'villain_defeated':  sounds.sdDamage(); break;
+    case 'mastermind_hit':    sounds.sdCounter(); break;
     case 'villain_escaped':
     case 'master_strike':     sounds.sdLose(); break;
     case 'wound_taken':       sounds.sdPayHp(); break;
