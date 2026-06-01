@@ -70,6 +70,13 @@ export default function GeneralChat({
   useEffect(() => {
     const load = async () => {
       const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      // Cleanup old messages on load — no cron needed.
+      // Fire-and-forget; ignore errors (RLS may block on anon but succeeds for authed users).
+      supabase
+        .from('general_chat_messages')
+        .delete()
+        .lt('created_at', cutoff)
+        .then(() => {});
       const { data } = await supabase
         .from('general_chat_messages')
         .select('id, body, created_at, sender_id, profiles(username, accent_color)')
