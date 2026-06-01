@@ -1,11 +1,19 @@
 import { describe, it, expect } from 'vitest';
 import {
   CARDS,
+  CARDS_BY_RARITY,
   HIDDEN_CARD,
   STARTING_HP,
   STARTING_HAND_SIZE,
   STATE_VERSION,
+  MAX_COPIES,
+  DRAFT_ROUNDS,
+  DRAFT_DECK_SIZE,
+  DRAFT_DECK_COMMONS,
+  DRAFT_DECK_UNCOMMONS,
+  DRAFT_DECK_RARES,
   applyMove,
+  autoCompleteDraft,
   createInitialStateForHost,
   initialState,
   migrateState,
@@ -23,10 +31,12 @@ import {
 // combo) so we don't break them while adding new cards.
 
 function setupDuel(opts?: { firstSeat?: 'A' | 'B' }): SDState {
-  // Build a "real" duel through the public API, then force first-turn seat if
-  // requested so the rest of the test can be deterministic about whose move it is.
+  // Build a "real" duel through the public API: host → join (opens the draft)
+  // → auto-complete the draft (both decks built, duel begins). Then force the
+  // first-turn seat if requested so the rest of the test is deterministic.
   const host = createInitialStateForHost({ userId: 'alice-id', username: 'Alice', accent_color: '#10b981' });
-  const both = seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob', accent_color: '#f59e0b' });
+  const drafting = seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob', accent_color: '#f59e0b' });
+  const both = autoCompleteDraft(drafting);
   if (opts?.firstSeat && both.currentSeat !== opts.firstSeat) {
     // Swap whose turn it is. The maxMana/mana state was set on whichever seat
     // got picked, so we need to move that to the other seat.
@@ -56,27 +66,41 @@ function primeForCard(state: SDState, cardId: keyof typeof CARDS, mana = 99): SD
 }
 
 describe('spellduel: construction', () => {
-  it('creates a lobby state when only the host is seated', () => {
+  it('creates a lobby state when only the host is seated (no deck dealt yet)', () => {
     const s = createInitialStateForHost({ userId: 'alice-id', username: 'Alice' });
     expect(s.phase).toBe('lobby');
     expect(s.seats.A).toBe('alice-id');
     expect(s.seats.B).toBeUndefined();
     expect(s.players.A.hp).toBe(STARTING_HP);
-    expect(s.players.A.hand.length).toBe(STARTING_HAND_SIZE);
-    // Both decks are pre-shuffled in advance so the joiner doesn't get to
-    // observe a known order.
-    expect(s.players.B.hand.length).toBe(STARTING_HAND_SIZE);
-    expect(s.players.B.deck.length).toBeGreaterThan(0);
+    // Decks/hands are empty in the lobby — they're built during the draft.
+    expect(s.players.A.hand.length).toBe(0);
+    expect(s.players.A.deck.length).toBe(0);
   });
 
-  it('seatJoinerAndStart fills seat B, flips to playing, gives starter 1 mana', () => {
+  it('seatJoinerAndStart fills seat B and opens the draft (not playing yet)', () => {
     const host = createInitialStateForHost({ userId: 'alice-id', username: 'Alice' });
-    const both = seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob' });
+    const drafting = seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob' });
+    expect(drafting.phase).toBe('drafting');
+    expect(drafting.seats.B).toBe('bob-id');
+    expect(drafting.draft).toBeTruthy();
+    expect(drafting.draft!.A.round).toBe(1);
+    expect(drafting.draft!.B.round).toBe(1);
+  });
+
+  it('autoCompleteDraft builds two legal 35-card decks and starts the duel', () => {
+    const host = createInitialStateForHost({ userId: 'alice-id', username: 'Alice' });
+    const drafting = seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob' });
+    const both = autoCompleteDraft(drafting);
     expect(both.phase).toBe('playing');
-    expect(both.seats.B).toBe('bob-id');
+    expect(both.draft).toBeUndefined();
     expect(['A', 'B']).toContain(both.currentSeat);
     expect(both.players[both.currentSeat].maxMana).toBe(1);
-    expect(both.players[both.currentSeat].mana).toBe(1);
+    for (const seat of ['A', 'B'] as const) {
+      const p = both.players[seat];
+      // deck + hand together = the full 35 drafted cards.
+      expect(p.deck.length + p.hand.length).toBe(DRAFT_DECK_SIZE);
+      expect(p.hand.length).toBe(STARTING_HAND_SIZE);
+    }
   });
 
   it('removePlayer in lobby clears the seat; ignored once playing', () => {
@@ -536,6 +560,99 @@ describe('spellduel: card pool integrity', () => {
     expect(byR.common).toBe(20);
     expect(byR.uncommon).toBe(10);
     expect(byR.rare).toBe(10);
+  });
+});
+
+describe('spellduel: draft', () => {
+  function startDraft(): SDState {
+    const host = createInitialStateForHost({ userId: 'alice-id', username: 'Alice' });
+    return seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob' });
+  }
+
+  it('round 1 offers 5 commons + 5 uncommons and no rares (odd round)', () => {
+    const s = startDraft();
+    const a = s.draft!.A;
+    expect(a.offer.common.length).toBe(5);
+    expect(a.offer.uncommon.length).toBe(5);
+    expect(a.offer.rare.length).toBe(0);
+    expect(a.need).toEqual({ common: 2, uncommon: 1, rare: 0 });
+  });
+
+  it('advances to round 2 only after both required picks are made, then offers rares', () => {
+    let s = startDraft();
+    const first = s.draft!.A.offer.common[0];
+    s = applyMove(s, { kind: 'draft_pick', cardId: first }, 'alice-id') as SDState;
+    expect(s.draft!.A.round).toBe(1);              // still round 1 (need 1 common + 1 uncommon)
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id') as SDState;
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.uncommon[0] }, 'alice-id') as SDState;
+    expect(s.draft!.A.round).toBe(2);              // round complete
+    expect(s.draft!.A.offer.rare.length).toBe(3);  // even round → rares appear
+    expect(s.draft!.A.need.rare).toBe(1);
+  });
+
+  it('rejects a pick that is not on offer', () => {
+    const s = startDraft();
+    const notOffered = CARDS_BY_RARITY.common.find(id => !s.draft!.A.offer.common.includes(id))!;
+    const res = applyMove(s, { kind: 'draft_pick', cardId: notOffered }, 'alice-id');
+    expect('error' in res).toBe(true);
+  });
+
+  it('rejects a third common pick in the same round (need exhausted)', () => {
+    let s = startDraft();
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id') as SDState;
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id') as SDState;
+    // need.common is now 0; a third common from the remaining offer must fail.
+    const res = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id');
+    expect('error' in res).toBe(true);
+  });
+
+  it('both seats draft in parallel — A picking does not block B', () => {
+    let s = startDraft();
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id') as SDState;
+    const bPick = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.B.offer.common[0] }, 'bob-id');
+    expect('error' in bPick).toBe(false);
+  });
+
+  it('final decks respect MAX_COPIES and the 20/10/5 split', () => {
+    const both = autoCompleteDraft(startDraft());
+    for (const seat of ['A', 'B'] as const) {
+      const deck = [...both.players[seat].deck, ...both.players[seat].hand];
+      expect(deck.length).toBe(DRAFT_DECK_SIZE);
+      const byR = { common: 0, uncommon: 0, rare: 0 };
+      const copies: Record<string, number> = {};
+      for (const id of deck) {
+        byR[CARDS[id].rarity]++;
+        copies[id] = (copies[id] ?? 0) + 1;
+        expect(copies[id]).toBeLessThanOrEqual(MAX_COPIES[CARDS[id].rarity]);
+      }
+      expect(byR.common).toBe(DRAFT_DECK_COMMONS);
+      expect(byR.uncommon).toBe(DRAFT_DECK_UNCOMMONS);
+      expect(byR.rare).toBe(DRAFT_DECK_RARES);
+    }
+  });
+
+  it('drafts exactly DRAFT_ROUNDS rounds worth of picks', () => {
+    const both = autoCompleteDraft(startDraft());
+    // 2 commons + 1 uncommon per round + 1 rare per even round = deck size.
+    expect(DRAFT_DECK_SIZE).toBe(DRAFT_ROUNDS * 3 + (DRAFT_ROUNDS / 2));
+    expect(both.phase).toBe('playing');
+  });
+
+  it('hides the opponent draft offers + picks in projection', () => {
+    let s = startDraft();
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id') as SDState;
+    // Bob's view: his own draft is visible, Alice's offers/picks are hidden.
+    const bobView = projectStateForViewer(s, 'bob-id');
+    expect(bobView.draft!.B.offer.common.length).toBe(5);   // own offers intact
+    expect(bobView.draft!.A.offer.common.length).toBe(0);   // opponent hidden
+    expect(bobView.draft!.A.picked.length).toBe(0);         // opponent picks hidden
+    expect(bobView.draft!.A.round).toBe(1);                 // progress still public
+  });
+
+  it('rejects draft_pick once playing', () => {
+    const both = autoCompleteDraft(startDraft());
+    const res = applyMove(both, { kind: 'draft_pick', cardId: CARDS_BY_RARITY.common[0] }, 'alice-id');
+    expect('error' in res).toBe(true);
   });
 });
 

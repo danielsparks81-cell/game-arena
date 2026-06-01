@@ -181,6 +181,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       state={state as SDState}
       currentUserId={currentUserId}
       disabled={pending || status === 'finished'}
+      onDraftPick={(cardId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'draft_pick', cardId }); })}
       onPlay={(cardIdx, targets?: SDResolvedTarget[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'play', cardIdx, targets }); })}
       onReact={(cardIdx) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'play_reaction', cardIdx }); })}
       onPassReaction={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'pass_reaction' }); })}

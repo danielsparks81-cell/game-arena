@@ -6,9 +6,11 @@ import {
   CARDS,
   MAX_MANA,
   STARTING_HP,
+  DRAFT_ROUNDS,
   eventText,
   eventSeat,
   type CardId,
+  type DraftSeatState,
   type PlayerState,
   type ResolvedTarget,
   type SDEvent,
@@ -37,11 +39,13 @@ type Floater = { key: number; seat: Seat; sign: '-' | '+'; amount: number; tone:
  * grey out immediately instead of round-tripping just to surface an error.
  */
 export default function SpellduelBoard({
-  state, currentUserId, disabled, onPlay, onReact, onPassReaction, onEndTurn,
+  state, currentUserId, disabled, onDraftPick, onPlay, onReact, onPassReaction, onEndTurn,
 }: {
   state: SDState;
   currentUserId: string;
   disabled: boolean;
+  /** Pre-duel: take an offered card into your deck. */
+  onDraftPick: (cardId: CardId) => void;
   /** Targets is omitted for cards that have no `targets[]` spec. */
   onPlay: (cardIdx: number, targets?: ResolvedTarget[]) => void;
   /** Play a reaction card (by hand index) into the open reaction window. */
@@ -53,6 +57,20 @@ export default function SpellduelBoard({
   const mySeat: Seat | null =
     state.seats.A === currentUserId ? 'A' :
     state.seats.B === currentUserId ? 'B' : null;
+
+  // Pre-duel draft screen takes over the whole board while building decks.
+  if (state.phase === 'drafting' && state.draft) {
+    const oppSeat: Seat = mySeat === 'A' ? 'B' : 'A';
+    return (
+      <DraftScreen
+        mine={mySeat ? state.draft[mySeat] : null}
+        oppProgress={state.draft[oppSeat]}
+        oppName={state.players[oppSeat]?.username ?? 'Opponent'}
+        disabled={disabled}
+        onPick={onDraftPick}
+      />
+    );
+  }
 
   // While a player is picking targets for a card we hold all of:
   //   - which hand index they clicked
@@ -677,4 +695,108 @@ function CardBack({ large = false }: { large?: boolean }) {
     ? 'h-32 w-24 rounded-lg border border-indigo-800 bg-gradient-to-br from-indigo-900 via-indigo-950 to-black'
     : 'h-10 w-7 rounded-md border border-indigo-800 bg-gradient-to-br from-indigo-900 via-indigo-950 to-black';
   return <div className={cls} aria-hidden />;
+}
+
+/** A thin progress bar showing how far a player is through the draft. */
+function DraftProgress({ label, round, done }: { label: string; round: number; done: boolean }) {
+  const pct = done ? 100 : Math.round(((round - 1) / DRAFT_ROUNDS) * 100);
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-neutral-500">
+      <span className="w-32 shrink-0 truncate">
+        {label}: {done ? 'ready ✓' : `round ${round}/${DRAFT_ROUNDS}`}
+      </span>
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-800">
+        <div className="h-full bg-emerald-500/70 transition-all" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Pre-duel draft screen. Each round the player is shown fresh offers and must
+ * pick 2 commons + 1 uncommon (+ 1 rare on even rounds), building toward a
+ * 35-card deck. Both players draft in parallel; the duel begins automatically
+ * once both finish.
+ */
+function DraftScreen({
+  mine, oppProgress, oppName, disabled, onPick,
+}: {
+  mine: DraftSeatState | null;
+  oppProgress: DraftSeatState;
+  oppName: string;
+  disabled: boolean;
+  onPick: (cardId: CardId) => void;
+}) {
+  // Spectators don't have a draft seat.
+  if (!mine) {
+    return (
+      <div className="mx-auto max-w-md p-8 text-center text-sm text-neutral-400">
+        Both players are drafting their decks…
+      </div>
+    );
+  }
+
+  if (mine.done) {
+    return (
+      <div className="mx-auto flex max-w-md flex-col items-center gap-4 p-8 text-center">
+        <div className="text-lg font-semibold text-emerald-300">Deck locked in! ✓</div>
+        <div className="text-sm text-neutral-400">Waiting for {oppName} to finish drafting…</div>
+        <div className="w-full">
+          <DraftProgress label={oppName} round={oppProgress.round} done={oppProgress.done} />
+        </div>
+      </div>
+    );
+  }
+
+  const sections = ([
+    { key: 'common',   title: 'Commons',   offer: mine.offer.common,   need: mine.need.common },
+    { key: 'uncommon', title: 'Uncommons', offer: mine.offer.uncommon, need: mine.need.uncommon },
+    { key: 'rare',     title: 'Rares',     offer: mine.offer.rare,     need: mine.need.rare },
+  ] as const).filter(s => s.offer.length > 0 || s.need > 0);
+
+  const counts = {
+    common:   mine.picked.filter(id => CARDS[id]?.rarity === 'common').length,
+    uncommon: mine.picked.filter(id => CARDS[id]?.rarity === 'uncommon').length,
+    rare:     mine.picked.filter(id => CARDS[id]?.rarity === 'rare').length,
+  };
+
+  return (
+    <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-neutral-200">
+          Draft your deck — Round {mine.round}/{DRAFT_ROUNDS}
+        </div>
+        <div className="text-xs text-neutral-500">
+          {counts.common} commons · {counts.uncommon} uncommons · {counts.rare} rares
+        </div>
+      </div>
+
+      <DraftProgress label={oppName} round={oppProgress.round} done={oppProgress.done} />
+
+      {sections.map(s => (
+        <div key={s.key} className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+          <div className="mb-2 flex items-center justify-between text-xs">
+            <span className="font-medium text-neutral-200">{s.title}</span>
+            <span className={s.need > 0 ? 'text-emerald-300' : 'text-neutral-600'}>
+              {s.need > 0 ? `pick ${s.need} more` : 'done ✓'}
+            </span>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {s.offer.length === 0 ? (
+              <span className="py-6 text-xs text-neutral-600">picked ✓</span>
+            ) : (
+              s.offer.map((cardId, i) => (
+                <Card
+                  key={`${cardId}-${i}`}
+                  cardId={cardId}
+                  disabled={disabled || s.need <= 0}
+                  onClick={() => onPick(cardId)}
+                />
+              ))
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }

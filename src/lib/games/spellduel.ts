@@ -27,7 +27,7 @@
 // them simultaneously).
 
 /** Bump and add a registry `migrateState` whenever you change this state's shape. */
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 
 /** Sentinel card-id stamped into hidden zones (opponent's hand, both decks)
  *  by projectStateForViewer. The board renders any entry that isn't a known
@@ -374,6 +374,30 @@ export const CARDS_BY_RARITY: Record<Rarity, CardId[]> = {
   rare:     (Object.values(CARDS).filter(c => c.rarity === 'rare')     as CardDef[]).map(c => c.id),
 };
 
+// =====================================================================
+// Draft configuration
+// ---------------------------------------------------------------------
+// Pre-duel draft: over DRAFT_ROUNDS rounds, each player picks 2 commons (of 5
+// shown) + 1 uncommon (of 5), and on every 2nd round 1 rare (of 3). That lands
+// every player at exactly 20 commons / 10 uncommons / 5 rares = a 35-card deck,
+// while respecting MAX_COPIES. Both players draft simultaneously and privately.
+// =====================================================================
+export const DRAFT_ROUNDS          = 10;
+export const DRAFT_COMMON_OFFER    = 5;
+export const DRAFT_COMMON_PICK     = 2;
+export const DRAFT_UNCOMMON_OFFER  = 5;
+export const DRAFT_UNCOMMON_PICK   = 1;
+export const DRAFT_RARE_OFFER      = 3;
+export const DRAFT_RARE_PICK       = 1;   // only on even rounds
+/** Rares appear for drafting on these rounds (every 2nd → 5 rares total). */
+export const isRareRound = (round: number): boolean => round % 2 === 0;
+
+/** Final deck composition each player ends up with. */
+export const DRAFT_DECK_COMMONS   = DRAFT_ROUNDS * DRAFT_COMMON_PICK;      // 20
+export const DRAFT_DECK_UNCOMMONS = DRAFT_ROUNDS * DRAFT_UNCOMMON_PICK;    // 10
+export const DRAFT_DECK_RARES     = (DRAFT_ROUNDS / 2) * DRAFT_RARE_PICK;  // 5
+export const DRAFT_DECK_SIZE      = DRAFT_DECK_COMMONS + DRAFT_DECK_UNCOMMONS + DRAFT_DECK_RARES; // 35
+
 export type PlayerState = {
   /** Profile data, copied in at join time so the board doesn't need to
       cross-reference room_players for names/colors. */
@@ -440,9 +464,22 @@ export type SDEvent =
   | { kind: 'reflected'; reactor: Seat; reactorName: string; caster: Seat; cardName: string; amount: number }
   | { kind: 'game_ended'; winner: Seat | 'draw'; winnerName?: string };
 
+/** One seat's private draft progress. Both seats draft simultaneously before
+ *  the duel begins; the engine builds each seat's deck from `picked` once both
+ *  finish all rounds. `offer` holds the cards currently on the table for this
+ *  round; the player removes cards from it as they pick. */
+export type DraftSeatState = {
+  round: number;                 // 1..DRAFT_ROUNDS (current round)
+  picked: CardId[];              // cards drafted so far (becomes the deck)
+  offer: { common: CardId[]; uncommon: CardId[]; rare: CardId[] };
+  /** Remaining picks owed this round, by rarity. */
+  need: { common: number; uncommon: number; rare: number };
+  done: boolean;                 // finished all rounds
+};
+
 export type SDState = {
   version?: number;
-  phase: 'lobby' | 'playing' | 'finished';
+  phase: 'lobby' | 'drafting' | 'playing' | 'finished';
   seats: { A?: string; B?: string };
   players: { A: PlayerState; B: PlayerState };
   currentSeat: Seat;
@@ -462,6 +499,9 @@ export type SDState = {
     cardId: CardId;
     targets: ResolvedTarget[];
   };
+  /** Present only while phase === 'drafting'. Both seats draft their deck in
+   *  parallel; the duel begins once both are `done`. */
+  draft?: { A: DraftSeatState; B: DraftSeatState };
 };
 
 /** Returns the seat the event "belongs to" for color-coding in the UI. */
@@ -543,25 +583,129 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-/** Default starter deck — used until the draft system (next increment) takes
- *  over. A 35-card mix across all three rarities that respects MAX_COPIES and
- *  showcases the new mechanics (burn, shield, silence, steal, copy, big rares). */
-function buildStarterDeck(): CardId[] {
-  const counts: Partial<Record<CardId, number>> = {
-    // commons (max 5)
-    strike: 4, arcane_bolt: 3, spark: 3, fireball: 2, mend: 3, recuperate: 2,
-    insight: 2, mana_spring: 2, counter: 2, fade: 2, blaze: 2, double_strike: 2,
-    siphon: 1, overload: 1,
-    // uncommons (max 2)
-    scorch: 1, ward: 1, drain: 1, pilfer: 1, curse: 1,
-    // rares (max 1)
-    inferno: 1, arcane_surge: 1, soul_drain: 1,
+// =====================================================================
+// Draft helpers
+// =====================================================================
+
+function copiesOf(picked: CardId[], id: CardId): number {
+  let n = 0;
+  for (const c of picked) if (c === id) n++;
+  return n;
+}
+
+/** Card ids of a rarity the player hasn't yet maxed out (respects MAX_COPIES;
+ *  rares cap at 1 so a drafted rare never reappears). */
+function draftableInRarity(picked: CardId[], rarity: Rarity): CardId[] {
+  const max = MAX_COPIES[rarity];
+  return CARDS_BY_RARITY[rarity].filter(id => copiesOf(picked, id) < max);
+}
+
+/** Up to `n` distinct random cards from `pool`. */
+function sampleN(pool: CardId[], n: number): CardId[] {
+  return shuffle([...pool]).slice(0, Math.min(n, pool.length));
+}
+
+/** The cards on the table for `round`, given what the player has already drafted. */
+function makeDraftOffer(picked: CardId[], round: number): DraftSeatState['offer'] {
+  return {
+    common:   sampleN(draftableInRarity(picked, 'common'),   DRAFT_COMMON_OFFER),
+    uncommon: sampleN(draftableInRarity(picked, 'uncommon'), DRAFT_UNCOMMON_OFFER),
+    rare:     isRareRound(round) ? sampleN(draftableInRarity(picked, 'rare'), DRAFT_RARE_OFFER) : [],
   };
-  const deck: CardId[] = [];
-  for (const [id, n] of Object.entries(counts) as [CardId, number][]) {
-    for (let i = 0; i < (n ?? 0); i++) deck.push(id);
+}
+
+/** Picks owed this round, by rarity (rares only on even rounds). */
+function makeDraftNeed(round: number): DraftSeatState['need'] {
+  return {
+    common:   DRAFT_COMMON_PICK,
+    uncommon: DRAFT_UNCOMMON_PICK,
+    rare:     isRareRound(round) ? DRAFT_RARE_PICK : 0,
+  };
+}
+
+function newDraftSeat(): DraftSeatState {
+  return { round: 1, picked: [], offer: makeDraftOffer([], 1), need: makeDraftNeed(1), done: false };
+}
+
+/** Apply one draft pick for `seat`, advancing the round (and finishing the
+ *  draft / starting the duel) as needed. Mutates and returns `next`. */
+function applyDraftPick(next: SDState, seat: Seat, cardId: CardId): SDState | { error: string } {
+  const d = next.draft;
+  if (!d) return { error: 'Not in the draft phase' };
+  const ds = d[seat];
+  if (ds.done) return { error: 'You have finished drafting.' };
+  const card = CARDS[cardId];
+  if (!card) return { error: 'Unknown card' };
+  const rarity = card.rarity;
+  if (ds.need[rarity] <= 0) return { error: `No ${rarity} picks remaining this round.` };
+  const idx = ds.offer[rarity].indexOf(cardId);
+  if (idx < 0) return { error: 'That card is not on offer.' };
+
+  // Take the card off the table and into the deck.
+  ds.offer[rarity].splice(idx, 1);
+  ds.picked.push(cardId);
+  ds.need[rarity]--;
+
+  // Round finished? Advance or finish the whole draft.
+  if (ds.need.common === 0 && ds.need.uncommon === 0 && ds.need.rare === 0) {
+    if (ds.round >= DRAFT_ROUNDS) {
+      ds.done = true;
+      ds.offer = { common: [], uncommon: [], rare: [] };
+    } else {
+      ds.round++;
+      ds.offer = makeDraftOffer(ds.picked, ds.round);
+      ds.need = makeDraftNeed(ds.round);
+    }
   }
-  return shuffle(deck);
+
+  // Both players done → build decks and begin the duel.
+  if (d.A.done && d.B.done) return finalizeDraftAndStart(next);
+  return next;
+}
+
+/** Build each seat's deck from their drafted cards, deal opening hands, pick a
+ *  random first player, and flip into the playing phase. */
+function finalizeDraftAndStart(next: SDState): SDState {
+  for (const seat of ['A', 'B'] as Seat[]) {
+    const p = next.players[seat];
+    p.deck = shuffle([...next.draft![seat].picked]);
+    p.hand = [];
+    p.discard = [];
+    drawCards(p, STARTING_HAND_SIZE);
+  }
+  next.draft = undefined;
+  next.phase = 'playing';
+  next.currentSeat = Math.random() < 0.5 ? 'A' : 'B';
+  next.players[next.currentSeat].maxMana = 1;
+  next.players[next.currentSeat].mana = 1;
+  next.log.push({ kind: 'system', text: 'Decks locked in — the duel begins!' });
+  next.log.push({
+    kind: 'turn_started',
+    seat: next.currentSeat,
+    username: next.players[next.currentSeat].username,
+  });
+  return next;
+}
+
+/** Test/fuzzer helper: auto-pick the first available card every step until the
+ *  draft completes and the duel starts. Deterministic given the RNG seed. */
+export function autoCompleteDraft(state: SDState): SDState {
+  let s = state;
+  let guard = 0;
+  while (s.phase === 'drafting' && s.draft && guard++ < 2000) {
+    const d = s.draft;
+    const seat: Seat = !d.A.done ? 'A' : 'B';
+    const ds = d[seat];
+    const rarity: Rarity =
+      ds.need.common > 0 ? 'common' : ds.need.uncommon > 0 ? 'uncommon' : 'rare';
+    const cardId = ds.offer[rarity][0];
+    const playerId = s.seats[seat];
+    if (!cardId || !playerId) break;
+    const res = applyMove(s, { kind: 'draft_pick', cardId }, playerId);
+    if ('error' in res) break;
+    s = res;
+  }
+  return s;
 }
 
 export function initialState(): SDState {
@@ -577,8 +721,8 @@ export function initialState(): SDState {
   };
 }
 
-/** Builds a state with the host seated as A + both decks pre-shuffled.
- *  The B seat is empty until joinRoom assigns it. */
+/** Builds a lobby state with the host seated as A. Decks are NOT dealt here —
+ *  both players build their decks via the draft once the second player joins. */
 export function createInitialStateForHost(host: {
   userId: string; username: string; accent_color?: string;
 }): SDState {
@@ -589,17 +733,13 @@ export function createInitialStateForHost(host: {
     playerId: host.userId,
     username: host.username,
     accent_color: host.accent_color,
-    deck: buildStarterDeck(),
   };
-  s.players.B = { ...emptyPlayer(), deck: buildStarterDeck() };
-  // Draw both opening hands now so the game is fully primed when B joins.
-  drawCards(s.players.A, STARTING_HAND_SIZE);
-  drawCards(s.players.B, STARTING_HAND_SIZE);
   return s;
 }
 
-/** Called by joinRoom when the second player joins. Fills in seat B,
- *  randomizes who starts, gives the first player 1 mana, and flips phase. */
+/** Called by joinRoom when the second player joins. Fills in seat B and opens
+ *  the pre-duel DRAFT — both players build their decks before the duel begins.
+ *  (Name kept for the actions.ts call site; it now starts the draft, not play.) */
 export function seatJoinerAndStart(
   state: SDState,
   joiner: { userId: string; username: string; accent_color?: string },
@@ -610,15 +750,9 @@ export function seatJoinerAndStart(
   next.players.B.playerId = joiner.userId;
   next.players.B.username = joiner.username;
   next.players.B.accent_color = joiner.accent_color;
-  next.phase = 'playing';
-  next.currentSeat = Math.random() < 0.5 ? 'A' : 'B';
-  next.players[next.currentSeat].maxMana = 1;
-  next.players[next.currentSeat].mana = 1;
-  next.log.push({
-    kind: 'turn_started',
-    seat: next.currentSeat,
-    username: next.players[next.currentSeat].username,
-  });
+  next.phase = 'drafting';
+  next.draft = { A: newDraftSeat(), B: newDraftSeat() };
+  next.log.push({ kind: 'system', text: 'Draft started — pick your cards to build a deck.' });
   return next;
 }
 
@@ -980,6 +1114,7 @@ function eligibleReactions(state: SDState, reactorSeat: Seat, card: CardDef): nu
 // =====================================================================
 
 export type SDAction =
+  | { kind: 'draft_pick'; cardId: CardId }       // pre-duel: take an offered card into your deck
   | { kind: 'play'; cardIdx: number; targets?: ResolvedTarget[] }   // index into the caller's hand
   | { kind: 'play_reaction'; cardIdx: number }  // respond to a pending spell with a reaction card
   | { kind: 'pass_reaction' }                   // decline to react; let the pending spell resolve
@@ -990,6 +1125,17 @@ export function applyMove(
   action: SDAction,
   playerId: string,
 ): SDState | { error: string } {
+  // Draft picks happen during the pre-duel 'drafting' phase, before the normal
+  // turn loop — handle them up front (both seats act in parallel here).
+  if (action.kind === 'draft_pick') {
+    if (state.phase !== 'drafting' || !state.draft) return { error: 'Not in the draft phase' };
+    const seat: Seat | null =
+      state.seats.A === playerId ? 'A' : state.seats.B === playerId ? 'B' : null;
+    if (!seat) return { error: 'You are not seated' };
+    const next = JSON.parse(JSON.stringify(state)) as SDState;
+    return applyDraftPick(next, seat, action.cardId);
+  }
+
   if (state.phase !== 'playing') return { error: 'Game not in progress' };
   if (state.winner) return { error: 'Match is over' };
 
@@ -1221,7 +1367,10 @@ export function migrateState(raw: unknown): SDState {
     : (s.log as SDEvent[] | undefined) ?? [];
 
   // v2 → v3: each player gained a `burns` array (DoT tracking). Ensure it exists
-  // so in-flight games don't crash when burns are read.
+  //          so in-flight games don't crash when burns are read.
+  // v3 → v4: added the optional `draft` field + 'drafting' phase. In-flight v3
+  //          games are already past the lobby (phase 'playing'), so there's
+  //          nothing to backfill — `draft` stays undefined.
   const next = { ...(s as SDState), version: STATE_VERSION, log: migratedLog };
   for (const seat of ['A', 'B'] as Seat[]) {
     if (next.players?.[seat] && !Array.isArray(next.players[seat].burns)) {
@@ -1259,6 +1408,17 @@ export function projectStateForViewer(state: SDState, viewerId: string | null): 
     // Hand contents are private from anyone who isn't this seat.
     if (mySeat !== seat) {
       p.hand = p.hand.map(() => HIDDEN_CARD as CardId);
+    }
+  }
+
+  // During the draft, hide the opponent's offers and drafted cards — only their
+  // round/done progress is public. (picked is emptied; round still conveys it.)
+  if (next.draft) {
+    for (const seat of ['A', 'B'] as Seat[]) {
+      if (mySeat !== seat) {
+        next.draft[seat].offer = { common: [], uncommon: [], rare: [] };
+        next.draft[seat].picked = [];
+      }
     }
   }
   return next;

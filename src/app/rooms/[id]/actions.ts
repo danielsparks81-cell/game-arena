@@ -63,6 +63,7 @@ import {
   trimLog as sdTrimLog,
   type SDState,
   type ResolvedTarget as SDResolvedTarget,
+  type CardId as SDCardId,
 } from '@/lib/games/spellduel';
 import {
   applyAction as applyActionLG,
@@ -624,6 +625,7 @@ export type GameAction =
   | { game: 'rps'; kind: 'move'; choice: RPSChoice }
 
   // Spellduel — interactive card game
+  | { game: 'spellduel'; kind: 'draft_pick'; cardId: SDCardId }
   | { game: 'spellduel'; kind: 'play'; cardIdx: number; targets?: SDResolvedTarget[] }
   | { game: 'spellduel'; kind: 'play_reaction'; cardIdx: number }
   | { game: 'spellduel'; kind: 'pass_reaction' }
@@ -716,6 +718,7 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'move') return makeMoveRPS(roomId, action.choice);
       break;
     case 'spellduel':
+      if (action.kind === 'draft_pick')    return makeMoveSD(roomId, { kind: 'draft_pick', cardId: action.cardId });
       if (action.kind === 'play')          return makeMoveSD(roomId, { kind: 'play', cardIdx: action.cardIdx, targets: action.targets });
       if (action.kind === 'play_reaction') return makeMoveSD(roomId, { kind: 'play_reaction', cardIdx: action.cardIdx });
       if (action.kind === 'pass_reaction') return makeMoveSD(roomId, { kind: 'pass_reaction' });
@@ -903,6 +906,7 @@ export async function makeMoveRPS(roomId: string, choice: RPSChoice) {
 export async function makeMoveSD(
   roomId: string,
   action:
+    | { kind: 'draft_pick'; cardId: SDCardId }
     | { kind: 'play'; cardIdx: number; targets?: SDResolvedTarget[] }
     | { kind: 'play_reaction'; cardIdx: number }
     | { kind: 'pass_reaction' }

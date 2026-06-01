@@ -145,11 +145,13 @@ export const GAME_GUIDES: Record<string, GameGuide> = {
     ],
   },
   spellduel: {
-    theme: 'A head-to-head wizard’s duel of spell cards, mana, and timing across 38 cards in three rarities.',
-    objective: 'Reduce your opponent’s HP to zero.',
+    theme: 'A head-to-head wizard’s duel of spell cards, mana, and timing across 40 cards in three rarities.',
+    objective: 'Draft a 35-card deck, then reduce your opponent’s HP to zero.',
     rules: [
+      'Pre-duel draft: each round pick 2 of 5 commons + 1 of 5 uncommons (a rare every 2nd round) to build a 35-card deck.',
       'Each turn you gain a mana crystal (up to 10) and refill — spend it to cast spells.',
-      'Deal damage, heal, draw, burn (damage over time), shield, silence, and steal.',
+      'Deal damage, heal, draw, burn (damage over time), shield, silence, copy, and steal.',
+      'Hold reaction cards (Counterspell / Reflect) to counter or bounce an opponent’s spell in real time.',
       'Cards come in three rarities: common, silver uncommon, and glowing gold rare.',
       'Manage your hand and tempo; drop your opponent to 0 HP to win.',
     ],
