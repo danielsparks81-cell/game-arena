@@ -554,7 +554,6 @@ export const GAMES: Record<string, GameDef> = {
     minPlayers: 2,
     maxPlayers: 2,
     addedOn: '2026-05-20',
-    beta: true,
     categories: ['strategy', 'quick'],
     initialState: sd.initialState,
     migrateState: sd.migrateState,
