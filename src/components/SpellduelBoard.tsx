@@ -257,32 +257,6 @@ export default function SpellduelBoard({
         )}
       </div>
 
-      {/* Center: shared log */}
-      <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-2">
-        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500">
-          <span>Recent</span>
-          <span>turn {state.turn}</span>
-        </div>
-        <div className="max-h-32 space-y-0.5 overflow-y-auto font-mono text-[11px] leading-snug">
-          {state.log.length === 0 ? (
-            <div className="text-neutral-600">No actions yet.</div>
-          ) : (
-            state.log.slice(-8).map((ev, i) => {
-              const s = eventSeat(ev);
-              const color =
-                s === 'system' ? 'text-neutral-500'
-                : s === meSeat  ? 'text-emerald-300'
-                : 'text-rose-300';
-              return (
-                <div key={i} className={color}>
-                  {eventText(ev, mySeat)}
-                </div>
-              );
-            })
-          )}
-        </div>
-      </div>
-
       {/* Your panel */}
       <PlayerPanel
         p={me}
@@ -341,6 +315,32 @@ export default function SpellduelBoard({
           </button>
         </div>
       )}
+
+      {/* Action log (anchored at the bottom) */}
+      <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-2">
+        <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500">
+          <span>Recent</span>
+          <span>turn {state.turn}</span>
+        </div>
+        <div className="max-h-32 space-y-0.5 overflow-y-auto font-mono text-[11px] leading-snug">
+          {state.log.length === 0 ? (
+            <div className="text-neutral-600">No actions yet.</div>
+          ) : (
+            state.log.slice(-8).map((ev, i) => {
+              const s = eventSeat(ev);
+              const color =
+                s === 'system' ? 'text-neutral-500'
+                : s === meSeat  ? 'text-emerald-300'
+                : 'text-rose-300';
+              return (
+                <div key={i} className={color}>
+                  {eventText(ev, mySeat)}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
 
       {/* Reaction overlay — shown to the reactor while a spell is paused. */}
       {reactionForMe && pr && (
