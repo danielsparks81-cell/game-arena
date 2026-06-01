@@ -69,11 +69,13 @@ export default function GeneralChat({
 
   useEffect(() => {
     const load = async () => {
+      const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
       const { data } = await supabase
         .from('general_chat_messages')
         .select('id, body, created_at, sender_id, profiles(username, accent_color)')
+        .gte('created_at', cutoff)
         .order('created_at', { ascending: true })
-        .limit(100);
+        .limit(200);
       if (data) setMessages(data as unknown as Msg[]);
     };
     load();
