@@ -12,13 +12,27 @@ type Msg = {
   profiles: { username: string; accent_color?: string | null } | null;
 };
 
+const GAP_MS = 15 * 60 * 1000; // 15 minutes
+
 function formatTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
   } catch {
     return '';
   }
+}
+
+/** Horizontal divider shown between two messages whose gap exceeds 15 minutes. */
+function TimeDivider({ iso }: { iso: string }) {
+  const label = formatTime(iso);
+  if (!label) return null;
+  return (
+    <div className="flex items-center gap-2 py-1">
+      <div className="flex-1 border-t border-neutral-800" />
+      <span className="text-[10px] tabular-nums text-neutral-600 select-none">{label}</span>
+      <div className="flex-1 border-t border-neutral-800" />
+    </div>
+  );
 }
 
 /**
@@ -123,15 +137,19 @@ export default function GeneralChat({
   };
 
   const msgList = (
-    <div ref={scrollRef} className="flex-1 space-y-1.5 overflow-y-auto px-4 py-3 text-sm">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 text-sm">
       {messages.length === 0 && <p className="text-neutral-500">No messages yet. Say hi!</p>}
-      {messages.map(m => {
+      {messages.map((m, i) => {
         const accent = safeAccent(m.profiles?.accent_color ?? (m.sender_id === currentUserId ? currentUserAccent : null));
+        const prev = messages[i - 1];
+        const showDivider = !prev || (new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() > GAP_MS);
         return (
-          <div key={m.id} className="flex items-baseline gap-1.5 min-w-0">
-            <span className="font-medium shrink-0" style={{ color: accent }}>{m.profiles?.username || '???'}:</span>
-            <span className="text-neutral-200 break-words min-w-0 flex-1">{m.body}</span>
-            <span className="ml-1 shrink-0 text-[10px] tabular-nums text-neutral-600">{formatTime(m.created_at)}</span>
+          <div key={m.id}>
+            {showDivider && <TimeDivider iso={m.created_at} />}
+            <div className="flex items-baseline gap-1.5 min-w-0 py-0.5">
+              <span className="font-medium shrink-0" style={{ color: accent }}>{m.profiles?.username || '???'}:</span>
+              <span className="text-neutral-200 break-words min-w-0">{m.body}</span>
+            </div>
           </div>
         );
       })}
