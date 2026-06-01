@@ -568,8 +568,13 @@ export const GAMES: Record<string, GameDef> = {
     // No active player while in lobby (waiting for B); during play, the seat
     // currentSeat → playerId.
     getActivePlayerId: (s) => {
-      const o = (s ?? {}) as { phase?: string; seats?: { A?: string; B?: string }; currentSeat?: 'A' | 'B'; winner?: unknown };
+      const o = (s ?? {}) as {
+        phase?: string; seats?: { A?: string; B?: string }; currentSeat?: 'A' | 'B';
+        winner?: unknown; pendingReaction?: { reactorSeat?: 'A' | 'B' };
+      };
       if (o.phase !== 'playing' || o.winner || !o.currentSeat || !o.seats) return null;
+      // During a reaction window the reactor is on the clock, not the caster.
+      if (o.pendingReaction?.reactorSeat) return o.seats[o.pendingReaction.reactorSeat] ?? null;
       return o.seats[o.currentSeat] ?? null;
     },
     getOrderedPlayerIds: (s) => {

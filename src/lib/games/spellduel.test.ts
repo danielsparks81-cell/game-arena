@@ -530,11 +530,93 @@ describe('spellduel: copy (Mirror)', () => {
 });
 
 describe('spellduel: card pool integrity', () => {
-  it('has 20 commons, 8 uncommons, 10 rares (reactions add 2 uncommons later)', () => {
+  it('has 20 commons, 10 uncommons, 10 rares', () => {
     const byR = { common: 0, uncommon: 0, rare: 0 };
     for (const c of Object.values(CARDS)) byR[c.rarity]++;
     expect(byR.common).toBe(20);
-    expect(byR.uncommon).toBe(8);
+    expect(byR.uncommon).toBe(10);
     expect(byR.rare).toBe(10);
+  });
+});
+
+describe('spellduel: reactions (Counterspell / Reflect)', () => {
+  // Put a reaction card (+ mana) into the OFF-turn player's hand so they can
+  // respond when the active player casts. Returns state with Alice (seat A) on
+  // turn holding a single damage spell, and Bob (seat B) holding the reaction.
+  function primeReactionDuel(reactionId: 'counterspell' | 'reflect', casterCard: keyof typeof CARDS = 'fireball'): SDState {
+    const s = setupDuel({ firstSeat: 'A' });
+    const next: SDState = JSON.parse(JSON.stringify(s));
+    next.players.A.hand = [casterCard];
+    next.players.A.mana = 99; next.players.A.maxMana = 99;
+    next.players.B.hand = [reactionId];
+    next.players.B.mana = 99; next.players.B.maxMana = 99;
+    return next;
+  }
+
+  it('opens a reaction window when the opponent holds an affordable counter', () => {
+    const s = primeReactionDuel('counterspell');
+    const before = s.players.B.hp;
+    const next = applyMove(s, { kind: 'play', cardIdx: 0 }, 'alice-id') as SDState;
+    expect(next.pendingReaction).toBeTruthy();
+    expect(next.pendingReaction!.reactorSeat).toBe('B');
+    expect(next.pendingReaction!.casterSeat).toBe('A');
+    // Spell paused — damage hasn't landed yet.
+    expect(next.players.B.hp).toBe(before);
+  });
+
+  it('only the reactor may act while a reaction is pending', () => {
+    const s = primeReactionDuel('counterspell');
+    const paused = applyMove(s, { kind: 'play', cardIdx: 0 }, 'alice-id') as SDState;
+    // Alice (the caster) cannot act now.
+    const blocked = applyMove(paused, { kind: 'end_turn' }, 'alice-id');
+    expect('error' in blocked).toBe(true);
+    // Bob can pass.
+    const ok = applyMove(paused, { kind: 'pass_reaction' }, 'bob-id');
+    expect('error' in ok).toBe(false);
+  });
+
+  it('Counterspell fizzles the pending spell (no damage, card spent)', () => {
+    const s = primeReactionDuel('counterspell');
+    const before = s.players.B.hp;
+    const paused = applyMove(s, { kind: 'play', cardIdx: 0 }, 'alice-id') as SDState;
+    const done = applyMove(paused, { kind: 'play_reaction', cardIdx: 0 }, 'bob-id') as SDState;
+    expect(done.pendingReaction).toBeFalsy();
+    expect(done.players.B.hp).toBe(before);               // no damage landed
+    expect(done.players.B.hand).not.toContain('counterspell'); // reaction spent
+    expect(done.players.B.discard).toContain('counterspell');
+  });
+
+  it('pass_reaction lets the spell resolve normally', () => {
+    const s = primeReactionDuel('counterspell');
+    const fireball = CARDS.fireball.effects.find(e => e.kind === 'damage')!.amount;
+    const before = s.players.B.hp;
+    const paused = applyMove(s, { kind: 'play', cardIdx: 0 }, 'alice-id') as SDState;
+    const done = applyMove(paused, { kind: 'pass_reaction' }, 'bob-id') as SDState;
+    expect(done.players.B.hp).toBe(before - fireball);
+  });
+
+  it('Reflect sends a damage spell back at its caster', () => {
+    const s = primeReactionDuel('reflect');
+    const fireball = CARDS.fireball.effects.find(e => e.kind === 'damage')!.amount;
+    const casterBefore = s.players.A.hp;
+    const targetBefore = s.players.B.hp;
+    const paused = applyMove(s, { kind: 'play', cardIdx: 0 }, 'alice-id') as SDState;
+    const done = applyMove(paused, { kind: 'play_reaction', cardIdx: 0 }, 'bob-id') as SDState;
+    expect(done.players.A.hp).toBe(casterBefore - fireball); // caster eats it
+    expect(done.players.B.hp).toBe(targetBefore);            // reactor untouched
+  });
+
+  it('does NOT open a reflect-only window for a non-damage spell', () => {
+    // Bob holds only Reflect; Alice casts a pure utility spell (Insight = draw).
+    const s = primeReactionDuel('reflect', 'insight');
+    const next = applyMove(s, { kind: 'play', cardIdx: 0 }, 'alice-id') as SDState;
+    expect(next.pendingReaction).toBeFalsy();
+  });
+
+  it('rejects playing a reaction card on your own turn', () => {
+    const s = setupDuel({ firstSeat: 'A' });
+    const primed = primeForCard(s, 'counterspell');
+    const result = applyMove(primed, { kind: 'play', cardIdx: 0 }, 'alice-id');
+    expect('error' in result).toBe(true);
   });
 });

@@ -47,9 +47,9 @@ export type CardId =
   | 'sacrifice' | 'hex' | 'spark' | 'arcane_bolt' | 'mana_spring' | 'siphon'
   | 'recuperate' | 'blaze' | 'blood_pact' | 'fade' | 'overload' | 'tome'
   | 'double_strike' | 'frostbite'
-  // Uncommons (max 2 per deck) — counterspell/reflect added with the reaction system
+  // Uncommons (max 2 per deck)
   | 'mind_pick' | 'curse' | 'ward' | 'drain' | 'mana_void' | 'mirror'
-  | 'pilfer' | 'scorch'
+  | 'pilfer' | 'scorch' | 'counterspell' | 'reflect'
   // Rares (max 1 per deck)
   | 'inferno' | 'mind_wipe' | 'time_warp' | 'arcane_surge' | 'blood_ritual'
   | 'phoenix_flame' | 'soul_drain' | 'dimensional_rift' | 'last_gasp' | 'archmages_wrath';
@@ -146,6 +146,10 @@ export type CardDef = {
   /** Targets the player must pick when playing this card. Resolved targets
    *  ride along with the action; effects reference them via targetIdx. */
   targets?: TargetSpec[];
+  /** Reaction cards are played OUT OF TURN in response to an opponent's spell,
+   *  not on your own turn. `reactionType` picks the behavior. */
+  isReaction?: boolean;
+  reactionType?: 'counter' | 'reflect';
 };
 
 export const CARDS: Record<CardId, CardDef> = {
@@ -297,6 +301,16 @@ export const CARDS: Record<CardId, CardDef> = {
     description: 'Deal 4 damage. Burn: 1 damage for 2 turns.',
     effects: [{ kind: 'damage', amount: 4 }, { kind: 'burn', amount: 1, turns: 2 }],
   },
+  counterspell: {
+    id: 'counterspell', name: 'Counterspell', cost: 1, rarity: 'uncommon',
+    description: 'Reaction: cancel the spell your opponent is casting.',
+    effects: [], isReaction: true, reactionType: 'counter',
+  },
+  reflect: {
+    id: 'reflect', name: 'Reflect', cost: 2, rarity: 'uncommon',
+    description: 'Reaction: send a damage spell back at its caster.',
+    effects: [], isReaction: true, reactionType: 'reflect',
+  },
 
   // ───────── RARES (max 1) ─────────
   inferno: {
@@ -421,6 +435,9 @@ export type SDEvent =
   | { kind: 'steal'; by: Seat; byName: string; from: Seat; amount: number }
   | { kind: 'copy_spell'; seat: Seat; username: string; cardName: string }
   | { kind: 'extra_turn'; seat: Seat; username: string }
+  | { kind: 'reaction_window'; reactor: Seat; reactorName: string; caster: Seat; cardName: string }
+  | { kind: 'countered'; reactor: Seat; reactorName: string; cardName: string }
+  | { kind: 'reflected'; reactor: Seat; reactorName: string; caster: Seat; cardName: string; amount: number }
   | { kind: 'game_ended'; winner: Seat | 'draw'; winnerName?: string };
 
 export type SDState = {
@@ -435,6 +452,16 @@ export type SDState = {
   /** The last spell each seat cast (most recent), for Mirror to copy. A spell
    *  is recorded only if it had real effects (Counter/Fade/Mirror don't count). */
   lastSpell?: { A?: CardId; B?: CardId };
+  /** Set while a spell is mid-cast and the opponent holds a playable reaction.
+   *  The game is paused: only the reactor may act (play_reaction / pass_reaction),
+   *  and the original spell resolves (or is cancelled) once they respond. The
+   *  cast card is ALREADY in the caster's discard and its cost already paid. */
+  pendingReaction?: {
+    casterSeat: Seat;
+    reactorSeat: Seat;
+    cardId: CardId;
+    targets: ResolvedTarget[];
+  };
 };
 
 /** Returns the seat the event "belongs to" for color-coding in the UI. */
@@ -452,6 +479,8 @@ export function eventSeat(ev: SDEvent): Seat | 'system' {
     case 'burn_applied': case 'shield_absorbed':
     case 'silenced':                        return ev.to;
     case 'steal':                           return ev.by;
+    case 'reaction_window': case 'countered':
+    case 'reflected':                       return ev.reactor;
   }
 }
 
@@ -480,6 +509,9 @@ export function eventText(ev: SDEvent, viewerSeat: Seat | null = null): string {
     case 'steal':             return `${youOr(ev.by, ev.byName)} stole ${ev.amount} card${ev.amount === 1 ? '' : 's'} from ${youOr(ev.from, '?')}.`;
     case 'copy_spell':        return `${youOr(ev.seat, ev.username)} copied ${ev.cardName}.`;
     case 'extra_turn':        return `${youOr(ev.seat, ev.username)} ${isMe(ev.seat) ? 'take' : 'takes'} an extra turn!`;
+    case 'reaction_window':   return `${youOr(ev.caster, '?')} ${isMe(ev.caster) ? 'are' : 'is'} casting ${ev.cardName} — ${youOr(ev.reactor, ev.reactorName)} may react.`;
+    case 'countered':         return `${youOr(ev.reactor, ev.reactorName)} countered ${ev.cardName}!`;
+    case 'reflected':         return `${youOr(ev.reactor, ev.reactorName)} reflected ${ev.cardName} — ${ev.amount} damage back at ${youOr(ev.caster, '?')}.`;
     case 'game_ended':
       return ev.winner === 'draw' ? 'Match drawn.'
         : viewerSeat === ev.winner ? 'You won the duel.'
@@ -904,12 +936,53 @@ function checkWinner(state: SDState): Seat | 'draw' | null {
   return null;
 }
 
+/** Resolve a cast spell's effects + trigger and record it as the caster's last
+ *  spell. Shared by the immediate-cast path and the pass_reaction path so a
+ *  spell resolves identically whether or not a reaction window opened first.
+ *  The card is assumed already discarded and its cost already paid. */
+function resolveCast(state: SDState, caster: Seat, cardId: CardId, targets: ResolvedTarget[]): void {
+  const card = CARDS[cardId];
+  const me = state.players[caster];
+  const effects: Effect[] = card.dynamic ? resolveDynamic(state, caster, card) : card.effects;
+  for (const eff of effects) resolveEffect(state, caster, eff, targets);
+  if (card.trigger) {
+    me.pendingTriggers.push({ ...card.trigger });
+    state.log.push({ kind: 'trigger_armed', seat: caster, username: me.username, source: card.trigger.source });
+  }
+  // Record as the caster's last spell so the opponent's Mirror can copy it —
+  // but not Mirror itself (no copy-of-a-copy) and not pure-trigger cards.
+  if (cardId !== 'mirror' && effects.length > 0) {
+    state.lastSpell = { ...(state.lastSpell ?? {}), [caster]: cardId };
+  }
+}
+
+/** Indices in `reactorSeat`'s hand of reaction cards that can legally answer
+ *  `card` cast by the opponent, given the reactor's currently-available mana.
+ *  Counterspell answers anything; Reflect answers only damage spells. The
+ *  reactor pays from leftover ("held-up") mana from their own last turn. */
+function eligibleReactions(state: SDState, reactorSeat: Seat, card: CardDef): number[] {
+  const reactor = state.players[reactorSeat];
+  const mana = effectiveMana(reactor);
+  const isDamage = cardDealsDamage(card);
+  const idxs: number[] = [];
+  reactor.hand.forEach((id, i) => {
+    const rc = CARDS[id];
+    if (!rc?.isReaction) return;
+    if (rc.cost > mana) return;
+    if (rc.reactionType === 'reflect' && !isDamage) return;
+    idxs.push(i);
+  });
+  return idxs;
+}
+
 // =====================================================================
 // Public moves
 // =====================================================================
 
 export type SDAction =
   | { kind: 'play'; cardIdx: number; targets?: ResolvedTarget[] }   // index into the caller's hand
+  | { kind: 'play_reaction'; cardIdx: number }  // respond to a pending spell with a reaction card
+  | { kind: 'pass_reaction' }                   // decline to react; let the pending spell resolve
   | { kind: 'end_turn' };
 
 export function applyMove(
@@ -924,10 +997,91 @@ export function applyMove(
     state.seats.A === playerId ? 'A'
     : state.seats.B === playerId ? 'B' : null;
   if (!seat) return { error: 'You are not seated' };
-  if (seat !== state.currentSeat) return { error: "It's not your turn" };
+
+  // Turn gate. During a reaction window only the reactor may act, and only with
+  // a reaction response; otherwise it's the current seat's turn as usual.
+  if (state.pendingReaction) {
+    if (seat !== state.pendingReaction.reactorSeat) {
+      return { error: 'Waiting for your opponent to react.' };
+    }
+    if (action.kind !== 'play_reaction' && action.kind !== 'pass_reaction') {
+      return { error: 'You must respond to the spell being cast.' };
+    }
+  } else {
+    if (seat !== state.currentSeat) return { error: "It's not your turn" };
+    if (action.kind === 'play_reaction' || action.kind === 'pass_reaction') {
+      return { error: 'There is no spell to react to.' };
+    }
+  }
 
   const next = JSON.parse(JSON.stringify(state)) as SDState;
   const me = next.players[seat];
+
+  // ---- Reaction responses (out-of-turn) ----
+  if (action.kind === 'pass_reaction') {
+    const pr = next.pendingReaction!;
+    next.pendingReaction = undefined;
+    resolveCast(next, pr.casterSeat, pr.cardId, pr.targets);
+    const winnerSeat = checkWinner(next);
+    if (winnerSeat) {
+      next.log.push({
+        kind: 'game_ended',
+        winner: winnerSeat,
+        winnerName: winnerSeat === 'draw' ? undefined : next.players[winnerSeat].username,
+      });
+    }
+    return next;
+  }
+
+  if (action.kind === 'play_reaction') {
+    const pr = next.pendingReaction!;
+    const reactor = me; // the reactor is the acting seat
+    if (action.cardIdx < 0 || action.cardIdx >= reactor.hand.length) {
+      return { error: 'No card at that index' };
+    }
+    const rId = reactor.hand[action.cardIdx];
+    const rCard = CARDS[rId];
+    if (!rCard?.isReaction) return { error: 'That card is not a reaction.' };
+    if (effectiveMana(reactor) < rCard.cost) return { error: 'Not enough mana to react.' };
+    const pendingCard = CARDS[pr.cardId];
+    if (rCard.reactionType === 'reflect' && !cardDealsDamage(pendingCard)) {
+      return { error: 'Reflect can only answer a damage spell.' };
+    }
+
+    // Pay + discard the reaction card, then close the window.
+    reactor.hand.splice(action.cardIdx, 1);
+    reactor.discard.push(rId);
+    payMana(reactor, rCard.cost);
+    next.log.push({ kind: 'card_play', seat, username: reactor.username, cardId: rId, cardName: rCard.name });
+    next.pendingReaction = undefined;
+
+    if (rCard.reactionType === 'counter') {
+      // The pending spell fizzles — it's already discarded and paid for, so
+      // nothing resolves. Its caster simply loses the card.
+      next.log.push({ kind: 'countered', reactor: seat, reactorName: reactor.username, cardName: pendingCard.name });
+    } else {
+      // Reflect: resolve the pending spell as though the reactor cast it, so
+      // its opponent-targeted damage/burn lands on the original caster instead.
+      const victim = next.players[pr.casterSeat];
+      const before = victim.hp;
+      resolveCast(next, seat, pr.cardId, pr.targets);
+      const dealt = Math.max(0, before - victim.hp);
+      next.log.push({
+        kind: 'reflected', reactor: seat, reactorName: reactor.username,
+        caster: pr.casterSeat, cardName: pendingCard.name, amount: dealt,
+      });
+    }
+
+    const winnerSeat = checkWinner(next);
+    if (winnerSeat) {
+      next.log.push({
+        kind: 'game_ended',
+        winner: winnerSeat,
+        winnerName: winnerSeat === 'draw' ? undefined : next.players[winnerSeat].username,
+      });
+    }
+    return next;
+  }
 
   if (action.kind === 'play') {
     if (action.cardIdx < 0 || action.cardIdx >= me.hand.length) {
@@ -936,6 +1090,9 @@ export function applyMove(
     const cardId = me.hand[action.cardIdx];
     const card = CARDS[cardId];
     if (!card) return { error: 'Unknown card' };
+    if (card.isReaction) {
+      return { error: 'Reaction cards can only be played in response to an opponent spell.' };
+    }
     if (effectiveMana(me) < card.cost) return { error: 'Not enough mana' };
 
     // Silence gate: a silenced player can't cast the locked-out category.
@@ -959,22 +1116,22 @@ export function applyMove(
     payMana(me, card.cost);
     next.log.push({ kind: 'card_play', seat, username: me.username, cardId, cardName: card.name });
 
-    // Resolve effects (static + dynamic).
-    const effects: Effect[] = card.dynamic ? resolveDynamic(next, seat, card) : card.effects;
-    for (const eff of effects) resolveEffect(next, seat, eff, targets);
-
-    // Plant trigger (if any) after effects resolve.
-    if (card.trigger) {
-      me.pendingTriggers.push({ ...card.trigger });
-      next.log.push({ kind: 'trigger_armed', seat, username: me.username, source: card.trigger.source });
+    // Reaction window: if the opponent holds a playable reaction, pause the
+    // spell mid-cast (card already discarded + paid) and let them respond
+    // before its effects resolve. The spell completes via pass_reaction or is
+    // cancelled/bounced via play_reaction.
+    const reactorSeat = opp(seat);
+    if (eligibleReactions(next, reactorSeat, card).length > 0) {
+      next.pendingReaction = { casterSeat: seat, reactorSeat, cardId, targets };
+      next.log.push({
+        kind: 'reaction_window', reactor: reactorSeat,
+        reactorName: next.players[reactorSeat].username, caster: seat, cardName: card.name,
+      });
+      return next;
     }
 
-    // Record this as the seat's last spell so the opponent's Mirror can copy it
-    // — but not Mirror itself (avoid copy-of-a-copy) and not pure-trigger cards
-    // (Counter/Fade have nothing to copy).
-    if (cardId !== 'mirror' && (effects.length > 0)) {
-      next.lastSpell = { ...(next.lastSpell ?? {}), [seat]: cardId };
-    }
+    // No reaction available — resolve immediately.
+    resolveCast(next, seat, cardId, targets);
 
     const winnerSeat = checkWinner(next);
     if (winnerSeat) {

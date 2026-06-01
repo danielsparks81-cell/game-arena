@@ -37,13 +37,17 @@ type Floater = { key: number; seat: Seat; sign: '-' | '+'; amount: number; tone:
  * grey out immediately instead of round-tripping just to surface an error.
  */
 export default function SpellduelBoard({
-  state, currentUserId, disabled, onPlay, onEndTurn,
+  state, currentUserId, disabled, onPlay, onReact, onPassReaction, onEndTurn,
 }: {
   state: SDState;
   currentUserId: string;
   disabled: boolean;
   /** Targets is omitted for cards that have no `targets[]` spec. */
   onPlay: (cardIdx: number, targets?: ResolvedTarget[]) => void;
+  /** Play a reaction card (by hand index) into the open reaction window. */
+  onReact: (cardIdx: number) => void;
+  /** Decline to react; let the pending spell resolve. */
+  onPassReaction: () => void;
   onEndTurn: () => void;
 }) {
   const mySeat: Seat | null =
@@ -127,6 +131,9 @@ export default function SpellduelBoard({
           hitSeats.push(ev.seat);
           break;
         case 'trigger_armed':    sounds.sdTriggerArmed();  break;
+        case 'reaction_window':  sounds.sdTriggerArmed();  break;
+        case 'countered':        sounds.sdCounter();       break;
+        case 'reflected':        sounds.sdCounter();       break;
         case 'game_ended':
           if (ev.winner === mySeat)         sounds.win();
           else if (ev.winner !== 'draw')    sounds.sdLose();
@@ -170,6 +177,26 @@ export default function SpellduelBoard({
   const isMyTurn = state.phase === 'playing' && state.currentSeat === meSeat && !!mySeat;
   const matchOver = state.phase === 'finished';
 
+  // Reaction window: the engine paused a spell mid-cast and it's my turn to
+  // respond. Compute which of my cards can legally answer it so the prompt can
+  // offer them (and grey out the rest).
+  const pr = state.pendingReaction;
+  const reactionForMe = !!pr && !!mySeat && pr.reactorSeat === mySeat;
+  const pendingCard = pr ? CARDS[pr.cardId] : null;
+  const pendingDealsDamage = pendingCard
+    ? pendingCard.effects.some(e => e.kind === 'damage' || e.kind === 'burn')
+      || pendingCard.dynamic === 'combo' || pendingCard.dynamic === 'last_gasp'
+    : false;
+  const myReactionOptions = reactionForMe
+    ? me.hand.flatMap((cardId, idx) => {
+        const c = CARDS[cardId];
+        if (!c?.isReaction) return [];
+        const affordable = (me.mana + me.manaBonusThisTurn) >= c.cost;
+        const eligible = c.reactionType !== 'reflect' || pendingDealsDamage;
+        return [{ idx, cardId, card: c, affordable, eligible }];
+      })
+    : [];
+
   let banner = '';
   if (matchOver) {
     if (state.winner === meSeat) banner = '🏆 You won the duel!';
@@ -177,6 +204,11 @@ export default function SpellduelBoard({
     else banner = 'Duel ended.';
   } else if (state.phase === 'lobby') {
     banner = 'Waiting for an opponent…';
+  } else if (pr) {
+    // A spell is paused mid-cast awaiting a reaction.
+    if (reactionForMe) banner = `${opp.username} is casting ${pendingCard?.name ?? 'a spell'} — react or let it resolve`;
+    else if (mySeat) banner = `Casting ${pendingCard?.name ?? 'your spell'} — waiting on ${opp.username}…`;
+    else banner = `${state.players[pr.casterSeat].username} casts ${pendingCard?.name ?? 'a spell'} — ${state.players[pr.reactorSeat].username} may react`;
   } else if (!mySeat) {
     banner = `Spectating — ${state.players[state.currentSeat].username}'s turn`;
   } else {
@@ -257,7 +289,7 @@ export default function SpellduelBoard({
             }
             const effMana = me.mana + me.manaBonusThisTurn;
             const canAfford = effMana >= card.cost;
-            const cardDisabled = disabled || !mySeat || !isMyTurn || !canAfford || matchOver || !!targeting;
+            const cardDisabled = disabled || !mySeat || !isMyTurn || !canAfford || matchOver || !!targeting || !!pr;
             return (
               <Card
                 key={idx}
@@ -283,12 +315,60 @@ export default function SpellduelBoard({
         <div className="flex justify-end pt-1">
           <button
             type="button"
-            disabled={disabled || !isMyTurn || !!targeting}
+            disabled={disabled || !isMyTurn || !!targeting || !!pr}
             onClick={onEndTurn}
             className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm font-medium text-neutral-200 transition hover:border-emerald-500 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             End turn
           </button>
+        </div>
+      )}
+
+      {/* Reaction overlay — shown to the reactor while a spell is paused. */}
+      {reactionForMe && pr && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-amber-500/60 bg-neutral-900 p-5 shadow-xl">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-amber-400">Reaction window</div>
+            <div className="mb-3 text-sm text-neutral-200">
+              <span className="font-medium text-rose-300">{opp.username}</span> is casting{' '}
+              <span className="font-medium text-white">{pendingCard?.name ?? 'a spell'}</span>. Respond with a
+              reaction, or let it resolve.
+            </div>
+            <div className="flex flex-col gap-2">
+              {myReactionOptions.length === 0 && (
+                <div className="text-xs text-neutral-500">No reactions in hand.</div>
+              )}
+              {myReactionOptions.map(({ idx, cardId, card, affordable, eligible }) => {
+                const usable = affordable && eligible;
+                const why = !affordable ? 'not enough mana' : !eligible ? 'needs a damage spell' : '';
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    disabled={disabled || !usable}
+                    onClick={() => onReact(idx)}
+                    className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-neutral-950 px-3 py-2 text-left text-sm transition hover:border-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span>
+                      <span className="font-medium text-amber-200">{card.name}</span>
+                      <span className="ml-1 text-xs text-neutral-500">({card.cost} mana)</span>
+                      {why && <span className="ml-1 text-[10px] text-rose-400">— {why}</span>}
+                      <span className="block text-[11px] text-neutral-400">{card.description}</span>
+                    </span>
+                    <span className="ml-2 shrink-0 text-amber-400">↩</span>
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={onPassReaction}
+                className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm font-medium text-neutral-200 transition hover:border-emerald-500 hover:text-white disabled:opacity-40"
+              >
+                Let it resolve
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

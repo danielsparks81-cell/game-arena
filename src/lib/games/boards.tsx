@@ -182,6 +182,8 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       currentUserId={currentUserId}
       disabled={pending || status === 'finished'}
       onPlay={(cardIdx, targets?: SDResolvedTarget[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'play', cardIdx, targets }); })}
+      onReact={(cardIdx) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'play_reaction', cardIdx }); })}
+      onPassReaction={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'pass_reaction' }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'spellduel', kind: 'end_turn' }); })}
     />
   ),

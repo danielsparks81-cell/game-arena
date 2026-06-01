@@ -625,6 +625,8 @@ export type GameAction =
 
   // Spellduel — interactive card game
   | { game: 'spellduel'; kind: 'play'; cardIdx: number; targets?: SDResolvedTarget[] }
+  | { game: 'spellduel'; kind: 'play_reaction'; cardIdx: number }
+  | { game: 'spellduel'; kind: 'pass_reaction' }
   | { game: 'spellduel'; kind: 'end_turn' }
 
   // Legendary — Marvel co-op deck builder
@@ -714,8 +716,10 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       if (action.kind === 'move') return makeMoveRPS(roomId, action.choice);
       break;
     case 'spellduel':
-      if (action.kind === 'play')     return makeMoveSD(roomId, { kind: 'play', cardIdx: action.cardIdx, targets: action.targets });
-      if (action.kind === 'end_turn') return makeMoveSD(roomId, { kind: 'end_turn' });
+      if (action.kind === 'play')          return makeMoveSD(roomId, { kind: 'play', cardIdx: action.cardIdx, targets: action.targets });
+      if (action.kind === 'play_reaction') return makeMoveSD(roomId, { kind: 'play_reaction', cardIdx: action.cardIdx });
+      if (action.kind === 'pass_reaction') return makeMoveSD(roomId, { kind: 'pass_reaction' });
+      if (action.kind === 'end_turn')      return makeMoveSD(roomId, { kind: 'end_turn' });
       break;
     case 'legendary':
       if (action.kind === 'startGame')        return startGameLG(roomId);
@@ -898,7 +902,11 @@ export async function makeMoveRPS(roomId: string, choice: RPSChoice) {
  */
 export async function makeMoveSD(
   roomId: string,
-  action: { kind: 'play'; cardIdx: number; targets?: SDResolvedTarget[] } | { kind: 'end_turn' },
+  action:
+    | { kind: 'play'; cardIdx: number; targets?: SDResolvedTarget[] }
+    | { kind: 'play_reaction'; cardIdx: number }
+    | { kind: 'pass_reaction' }
+    | { kind: 'end_turn' },
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
