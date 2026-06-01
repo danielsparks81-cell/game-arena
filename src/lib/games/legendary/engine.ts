@@ -2350,6 +2350,7 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
           && state.schemeTwistsRevealed >= scheme.evilWinsAfterTwists
           && !state.result && !state.pendingResult) {
         state.result = 'loss';
+        state.phase = 'finished';
         state.resultReason = `The scheme has succeeded — ${scheme.evilWinsAfterTwists} Scheme Twists revealed (Mystique).`;
         pushLog(state, { kind: 'game_ended', result: 'loss', reasonText: state.resultReason });
       }
@@ -4086,6 +4087,13 @@ function doEndTurn(state: LegendaryState): LegendaryState | { error: string } {
   for (const c of state.thisTurn.playedThisTurn) me.discard.push(c);
   for (const c of me.hand) me.discard.push(c);
   me.hand = [];
+  // Those cards now live in the discard pile — clear playedThisTurn immediately
+  // so the game-over early-returns below (win / loss / tie, which return before
+  // the normal turn-advance calls emptyTurnState) don't leave the same card
+  // instances referenced in BOTH discard and playedThisTurn. On the normal path
+  // emptyTurnState() resets thisTurn again at the advance; this is just the
+  // consistent-on-every-exit version.
+  state.thisTurn.playedThisTurn = [];
 
   // ── Pending win: finalize immediately, skip villain reveal. ───────────────
   // Per the rules: "as soon as the Mastermind has no more Tactics under them,
@@ -4662,6 +4670,15 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
   // is pushed off and escapes as normal.
   const firstEmpty = state.city.findIndex(c => !c);
 
+  // A villain's "Escape" effect can reveal MORE villain-deck cards (e.g.
+  // Mystique → Scheme Twist → Bank Robbery / Prison Breakout reveals), which
+  // re-enters enterCity. If we fired it while the escaping villain were still
+  // sitting in the city and the outer shift were still pending, the nested call
+  // would see the city full with the SAME villain at the Bridge and escape it
+  // again (double-escape / duplicated cards). So we CAPTURE the escape effect
+  // here and fire it only once the city has been fully settled below.
+  let deferredEscapeEffects: Effect[] | null = null;
+
   if (firstEmpty === -1) {
     // ── City fully occupied: Bridge villain escapes ───────────────────────
     const lastIdx = state.city.length - 1;
@@ -4778,21 +4795,11 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
           pushLog(state, { kind: 'system', text: `${aName} was KO'd along with the escaping Skrull.` });
         }
 
-        // ── Step 3: Villain's own Escape effect ───────────────────────────
+        // ── Step 3: capture the villain's own Escape effect ───────────────
+        // Fired AFTER the city is settled (see deferredEscapeEffects below) so a
+        // twist-triggered nested reveal can't re-escape this same villain.
         if (eDef.kind === 'villain' && eDef.escape) {
-          for (const eff of eDef.escape) {
-            // trigger_scheme_twist must fire exactly once (not once per player).
-            if (eff.kind === 'trigger_scheme_twist') {
-              resolveEffect(state, state.players[state.currentPlayerIdx], eff);
-            } else if (eff.kind === 'ko_heroes_from_hand_immediate') {
-              // Juggernaut Escape "Each player KOs Heroes from their hand":
-              // fire ONCE as a sequential strike (each player chooses in turn
-              // order) rather than per-player.
-              setJuggernautStrike(state, 'hand', eff.amount);
-            } else {
-              for (const p of state.players) resolveEffect(state, p, eff);
-            }
-          }
+          deferredEscapeEffects = eDef.escape;
         }
 
         state.escapedPile.push(escaped);
@@ -4826,6 +4833,25 @@ function enterCity(state: LegendaryState, card: CardInstance, def: CardDef): voi
   }
 
   state.city[0] = card;
+
+  // Now that the city is fully settled (escaped villain removed, new card at
+  // slot 0), fire the escaped villain's Escape effect. Any nested villain-deck
+  // reveal it triggers (Mystique's Scheme Twist, etc.) now operates on a
+  // consistent city and cannot re-escape the already-departed villain.
+  if (deferredEscapeEffects) {
+    for (const eff of deferredEscapeEffects) {
+      if (eff.kind === 'trigger_scheme_twist') {
+        // Fires exactly once (not once per player).
+        resolveEffect(state, state.players[state.currentPlayerIdx], eff);
+      } else if (eff.kind === 'ko_heroes_from_hand_immediate') {
+        // Juggernaut Escape — each player KOs Heroes from hand, resolved in
+        // turn order via the sequential strike (not once-per-player here).
+        setJuggernautStrike(state, 'hand', eff.amount);
+      } else {
+        for (const p of state.players) resolveEffect(state, p, eff);
+      }
+    }
+  }
 
   // Log the reveal first, THEN fire Ambush. Per the rules:
   //   • The villain must be fully in the city (slot 0) before Ambush fires.

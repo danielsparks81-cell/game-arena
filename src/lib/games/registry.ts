@@ -601,7 +601,8 @@ export const GAMES: Record<string, GameDef> = {
     minPlayers: 1,
     maxPlayers: 5,
     addedOn: '2026-05-20',
-    beta: true,
+    // Graduated from Beta after the headless fuzzer hardened the engine across
+    // the full Mastermind × Scheme × player-count space (see engine.fuzz.test.ts).
     categories: ['strategy', 'party'],
     initialState: lg.initialState,
     createInitialStateForHost: (h) =>
