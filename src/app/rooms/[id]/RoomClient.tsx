@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { GAMES, displayName as gameDisplayName } from '@/lib/games/registry';
+import { GAMES, GAME_GUIDES, displayName as gameDisplayName } from '@/lib/games/registry';
 import { sounds } from '@/lib/sounds';
 import MembersPanel from '@/components/MembersPanel';
 import GeneralChat from '@/components/GeneralChat';
@@ -228,13 +228,16 @@ export default function RoomClient({
             owns the turn-order display, so showing the seats too is redundant.
             Applies to every game; new games inherit this for free. */}
         {room.status === 'waiting' && (
-          <Seats
-            room={room}
-            currentUserId={currentUserId}
-            onKick={room.host_id === currentUserId
-              ? (pid) => startTransition(() => { kickPlayer(roomId, pid); })
-              : undefined}
-          />
+          <>
+            <Seats
+              room={room}
+              currentUserId={currentUserId}
+              onKick={room.host_id === currentUserId
+                ? (pid) => startTransition(() => { kickPlayer(roomId, pid); })
+                : undefined}
+            />
+            <GameGuidePanel gameId={room.game_type} gameName={gameName} />
+          </>
         )}
 
         {/* All per-game board rendering happens via the BOARD_RENDERERS map
@@ -398,6 +401,36 @@ function Seats({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** "How to play" panel shown in a room's waiting lobby — theme → objective →
+ *  rules for the room's game. Mirrors the lobby tile's hover guide so players
+ *  can read the rules while waiting for the game to start. */
+function GameGuidePanel({ gameId, gameName }: { gameId: string; gameName: string }) {
+  const guide = GAME_GUIDES[gameId];
+  if (!guide) return null;
+  return (
+    <div className="mb-4 rounded-xl border border-neutral-800 bg-neutral-900/60 p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-400">How to play</span>
+        <span className="text-sm font-semibold text-neutral-200">{gameName}</span>
+      </div>
+      <p className="mb-3 text-sm leading-snug text-neutral-300">{guide.theme}</p>
+
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Objective</div>
+      <p className="mb-3 text-sm leading-snug text-neutral-300">{guide.objective}</p>
+
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-400">Rules</div>
+      <ul className="space-y-1.5">
+        {guide.rules.map((r, i) => (
+          <li key={i} className="flex gap-2 text-sm leading-snug text-neutral-300">
+            <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-neutral-600" />
+            <span>{r}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
