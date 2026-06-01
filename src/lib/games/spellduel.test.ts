@@ -407,3 +407,134 @@ describe('spellduel: state integrity', () => {
     expect(JSON.stringify(host)).toBe(snapshot);
   });
 });
+
+// ── New mechanics (expansion) ────────────────────────────────────────────────
+
+/** Helper: play the active player's only card (index 0) with optional targets. */
+function playOnly(state: SDState, targets?: { kind: 'player'; seat: 'A' | 'B' }[]): SDState {
+  const me = state.seats[state.currentSeat]!;
+  const r = applyMove(state, { kind: 'play', cardIdx: 0, targets }, me);
+  if ('error' in r) throw new Error(r.error);
+  return r;
+}
+function endTurn(state: SDState): SDState {
+  const me = state.seats[state.currentSeat]!;
+  const r = applyMove(state, { kind: 'end_turn' }, me);
+  if ('error' in r) throw new Error(r.error);
+  return r;
+}
+
+describe('spellduel: shield trigger (absorb N total)', () => {
+  it('Ward absorbs 8 damage across multiple instances, then breaks', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s = primeForCard(s, 'ward');                 // A plays Ward (shield 8)
+    s = playOnly(s);
+    s = endTurn(s);                              // B's turn
+    // B hits A with two 6-damage Overloads (12 total). Shield absorbs 8; 4 lands.
+    s = primeForCard(s, 'overload', 99);
+    s.players.B.hand = ['overload', 'overload'];
+    let r = applyMove(s, { kind: 'play', cardIdx: 0 }, 'bob-id'); if ('error' in r) throw new Error(r.error); s = r;
+    r = applyMove(s, { kind: 'play', cardIdx: 0 }, 'bob-id'); if ('error' in r) throw new Error(r.error); s = r;
+    expect(s.players.A.hp).toBe(STARTING_HP - 4); // 12 dmg − 8 shield = 4
+    expect(s.players.A.pendingTriggers.length).toBe(0); // shield depleted
+  });
+});
+
+describe('spellduel: burn (damage over time)', () => {
+  it('Curse ticks 2 damage at the start of each of the target\'s next 2 turns', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s = primeForCard(s, 'curse');                // A curses B (2 dmg × 2 turns)
+    s = playOnly(s);
+    expect(s.players.B.burns.length).toBe(1);
+    const bStart = s.players.B.hp;
+    s = endTurn(s);                              // B's turn begins → tick 1
+    expect(s.players.B.hp).toBe(bStart - 2);
+    s = endTurn(s);                              // back to A, no tick on A
+    s = endTurn(s);                              // B's turn begins → tick 2
+    expect(s.players.B.hp).toBe(bStart - 4);
+    expect(s.players.B.burns.length).toBe(0);    // burn expired
+  });
+});
+
+describe('spellduel: silence', () => {
+  it('Frostbite stops the opponent casting damage spells next turn', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s = primeForCard(s, 'frostbite');            // A: 3 dmg + silence-damage on B
+    s = playOnly(s);
+    s = endTurn(s);                              // B's turn, silenced (damage)
+    expect(s.players.B.silencedDamage).toBe(true);
+    s.players.B.hand = ['strike', 'mend'];
+    s.players.B.mana = 9;
+    const blocked = applyMove(s, { kind: 'play', cardIdx: 0 }, 'bob-id'); // Strike = damage
+    expect('error' in blocked).toBe(true);
+    const ok = applyMove(s, { kind: 'play', cardIdx: 1 }, 'bob-id');      // Mend = utility
+    expect('error' in ok).toBe(false);
+  });
+});
+
+describe('spellduel: steal', () => {
+  it('Pilfer moves a card from the opponent\'s hand to yours', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s.players.B.hand = ['strike'];
+    s = primeForCard(s, 'pilfer');
+    const aHandBefore = s.players.A.hand.length; // 1 (just Pilfer)
+    s = playOnly(s);
+    expect(s.players.B.hand.length).toBe(0);
+    expect(s.players.A.hand).toContain('strike');
+    expect(s.players.A.hand.length).toBe(aHandBefore - 1 + 1); // -Pilfer +Strike
+  });
+});
+
+describe('spellduel: extra turn (Time Warp)', () => {
+  it('the same player takes another turn instead of passing', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s = primeForCard(s, 'time_warp', 99);
+    s = playOnly(s);
+    expect(s.players.A.extraTurn).toBe(true);
+    s = endTurn(s);
+    expect(s.currentSeat).toBe('A');            // still A's turn
+    expect(s.players.A.extraTurn).toBeFalsy();  // consumed
+  });
+});
+
+describe('spellduel: dynamic rares', () => {
+  it('Last Gasp deals damage equal to missing HP', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s.players.A.hp = 5;                          // missing 15
+    s = primeForCard(s, 'last_gasp', 0);
+    s = playOnly(s);
+    expect(s.players.B.hp).toBe(STARTING_HP - 15);
+  });
+  it('Blood Ritual loses half HP and grants that much mana', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s.players.A.hp = 10;
+    s = primeForCard(s, 'blood_ritual', 0);
+    s = playOnly(s);
+    expect(s.players.A.hp).toBe(5);             // lost 5
+    expect(s.players.A.manaBonusThisTurn).toBe(5);
+  });
+});
+
+describe('spellduel: copy (Mirror)', () => {
+  it('Mirror re-casts the opponent\'s last spell', () => {
+    let s = setupDuel({ firstSeat: 'A' });
+    s = primeForCard(s, 'fireball', 99);         // A casts Fireball (4 dmg) → recorded
+    s = playOnly(s);
+    expect(s.lastSpell?.A).toBe('fireball');
+    s = endTurn(s);                              // B's turn
+    const aHp = s.players.A.hp;
+    s = primeForCard(s, 'mirror', 99);           // B mirrors A's Fireball → 4 dmg to A
+    s = playOnly(s);
+    expect(s.players.A.hp).toBe(aHp - 4);
+  });
+});
+
+describe('spellduel: card pool integrity', () => {
+  it('has 20 commons, 8 uncommons, 10 rares (reactions add 2 uncommons later)', () => {
+    const byR = { common: 0, uncommon: 0, rare: 0 };
+    for (const c of Object.values(CARDS)) byR[c.rarity]++;
+    expect(byR.common).toBe(20);
+    expect(byR.uncommon).toBe(8);
+    expect(byR.rare).toBe(10);
+  });
+});

@@ -27,7 +27,7 @@
 // them simultaneously).
 
 /** Bump and add a registry `migrateState` whenever you change this state's shape. */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 
 /** Sentinel card-id stamped into hidden zones (opponent's hand, both decks)
  *  by projectStateForViewer. The board renders any entry that isn't a known
@@ -42,17 +42,37 @@ export const MAX_MANA           = 10;
 export type Seat = 'A' | 'B';
 
 export type CardId =
-  | 'strike' | 'mend' | 'insight' | 'fireball'
-  | 'counter' | 'combo' | 'sacrifice' | 'mind_pick'
-  | 'hex';
+  // Commons (max 5 per deck)
+  | 'strike' | 'mend' | 'insight' | 'fireball' | 'counter' | 'combo'
+  | 'sacrifice' | 'hex' | 'spark' | 'arcane_bolt' | 'mana_spring' | 'siphon'
+  | 'recuperate' | 'blaze' | 'blood_pact' | 'fade' | 'overload' | 'tome'
+  | 'double_strike' | 'frostbite'
+  // Uncommons (max 2 per deck) — counterspell/reflect added with the reaction system
+  | 'mind_pick' | 'curse' | 'ward' | 'drain' | 'mana_void' | 'mirror'
+  | 'pilfer' | 'scorch'
+  // Rares (max 1 per deck)
+  | 'inferno' | 'mind_wipe' | 'time_warp' | 'arcane_surge' | 'blood_ritual'
+  | 'phoenix_flame' | 'soul_drain' | 'dimensional_rift' | 'last_gasp' | 'archmages_wrath';
+
+export type Rarity = 'common' | 'uncommon' | 'rare';
+
+/** Max copies of a card allowed in a single deck, by rarity. */
+export const MAX_COPIES: Record<Rarity, number> = { common: 5, uncommon: 2, rare: 1 };
 
 export type EffectKind =
-  | 'damage'        // opponent loses HP (checked against prevent_damage triggers)
-  | 'heal'          // self heals (capped at STARTING_HP)
+  | 'damage'        // target loses HP (checked against prevent_damage / shield triggers)
+  | 'heal'          // target heals (capped at STARTING_HP)
   | 'draw'          // self draws N
   | 'force_discard' // opponent discards N random
   | 'gain_mana'     // self gains N mana THIS TURN (manaBonus)
-  | 'lose_hp';      // self pays N HP (not damage, can't be prevented)
+  | 'lose_hp'       // self pays N HP (not damage, can't be prevented)
+  | 'burn'          // apply a damage-over-time to the target (amount/turn for `turns`)
+  | 'silence'       // opponent can't cast a category of spell next turn (mode)
+  | 'copy_last_spell' // re-cast the opponent's last spell as your own
+  | 'steal'         // take N random cards from opponent's hand into yours
+  | 'discard_hand'  // target discards their ENTIRE hand
+  | 'opponent_draw' // opponent draws N
+  | 'extra_turn';   // take another turn immediately after this one
 
 export type Effect = {
   kind: EffectKind;
@@ -60,14 +80,21 @@ export type Effect = {
   /**
    * If set, the effect's target is the resolved-target at this index in the
    * card's `targets[]` (e.g. Hex picks ANY player). Omit for implicit-target
-   * effects — damage/force_discard default to opponent, heal/draw/gain_mana/
-   * lose_hp default to self.
+   * effects — damage/force_discard/burn/silence/discard_hand default to opponent,
+   * heal/draw/gain_mana/lose_hp default to self.
    */
   targetIdx?: number;
+  /** burn: how many of the target's upcoming turns it ticks for. */
+  turns?: number;
+  /** silence: which category of spell is locked out next turn. */
+  mode?: 'damage' | 'utility';
+  /** Override an implicit-opponent effect (discard_hand) to hit the caster instead. */
+  selfTarget?: boolean;
 };
 
 export type TriggerKind =
-  | 'prevent_damage'; // next damage taken this game is reduced by `amount`
+  | 'prevent_damage' // fully prevents the NEXT damage instance, then is consumed
+  | 'shield';        // absorbs up to `amount` total damage across instances, then breaks
 
 /**
  * Targeting infrastructure (Phase 2 foundation).
@@ -106,6 +133,7 @@ export type CardDef = {
   id: CardId;
   name: string;
   cost: number;
+  rarity: Rarity;
   description: string;
   /** Static effects fire on play, top to bottom. */
   effects: Effect[];
@@ -114,66 +142,222 @@ export type CardDef = {
   /** Some cards override their effects based on game state (e.g. Combo
    *  swaps in a different damage amount once cardsPlayedThisTurn >= 3).
    *  Branchy logic lives in resolveDynamic() keyed by this string. */
-  dynamic?: 'combo';
+  dynamic?: 'combo' | 'last_gasp' | 'blood_ritual';
   /** Targets the player must pick when playing this card. Resolved targets
    *  ride along with the action; effects reference them via targetIdx. */
   targets?: TargetSpec[];
 };
 
 export const CARDS: Record<CardId, CardDef> = {
+  // ───────── COMMONS (max 5) ─────────
   strike: {
-    id: 'strike', name: 'Strike', cost: 1,
+    id: 'strike', name: 'Strike', cost: 1, rarity: 'common',
     description: 'Deal 2 damage.',
     effects: [{ kind: 'damage', amount: 2 }],
   },
   mend: {
-    id: 'mend', name: 'Mend', cost: 1,
+    id: 'mend', name: 'Mend', cost: 1, rarity: 'common',
     description: 'Heal 3 HP.',
     effects: [{ kind: 'heal', amount: 3 }],
   },
   insight: {
-    id: 'insight', name: 'Insight', cost: 1,
+    id: 'insight', name: 'Insight', cost: 1, rarity: 'common',
     description: 'Draw 2 cards.',
     effects: [{ kind: 'draw', amount: 2 }],
   },
   fireball: {
-    id: 'fireball', name: 'Fireball', cost: 3,
+    id: 'fireball', name: 'Fireball', cost: 3, rarity: 'common',
     description: 'Deal 4 damage.',
     effects: [{ kind: 'damage', amount: 4 }],
   },
   counter: {
-    id: 'counter', name: 'Counter', cost: 1,
+    id: 'counter', name: 'Counter', cost: 1, rarity: 'common',
     description: 'Prevent the next damage you take.',
     effects: [],
     trigger: { kind: 'prevent_damage', amount: 99, source: 'Counter' },
   },
   combo: {
-    id: 'combo', name: 'Combo', cost: 2,
+    id: 'combo', name: 'Combo', cost: 2, rarity: 'common',
     description: 'Deal 1 damage. If you played 3+ cards this turn, deal 5 instead.',
     effects: [],
     dynamic: 'combo',
   },
   sacrifice: {
-    id: 'sacrifice', name: 'Sacrifice', cost: 0,
+    id: 'sacrifice', name: 'Sacrifice', cost: 0, rarity: 'common',
     description: 'Lose 1 HP. Gain 2 mana this turn.',
-    effects: [
-      { kind: 'lose_hp', amount: 1 },
-      { kind: 'gain_mana', amount: 2 },
-    ],
+    effects: [{ kind: 'lose_hp', amount: 1 }, { kind: 'gain_mana', amount: 2 }],
   },
-  mind_pick: {
-    id: 'mind_pick', name: 'Mind Pick', cost: 2,
-    description: 'Opponent discards 1 random card.',
-    effects: [{ kind: 'force_discard', amount: 1 }],
-  },
-  // First targeted card. Shows off the picker UI in the simplest possible way
-  // — "deal X to any player" — without inventing creature mechanics yet.
   hex: {
-    id: 'hex', name: 'Hex', cost: 2,
+    id: 'hex', name: 'Hex', cost: 2, rarity: 'common',
     description: 'Deal 3 damage to any player (including yourself).',
     effects: [{ kind: 'damage', amount: 3, targetIdx: 0 }],
     targets: [{ kind: 'any_player', prompt: 'Hex who?' }],
   },
+  spark: {
+    id: 'spark', name: 'Spark', cost: 1, rarity: 'common',
+    description: 'Deal 1 damage. Draw 1 card.',
+    effects: [{ kind: 'damage', amount: 1 }, { kind: 'draw', amount: 1 }],
+  },
+  arcane_bolt: {
+    id: 'arcane_bolt', name: 'Arcane Bolt', cost: 2, rarity: 'common',
+    description: 'Deal 3 damage.',
+    effects: [{ kind: 'damage', amount: 3 }],
+  },
+  mana_spring: {
+    id: 'mana_spring', name: 'Mana Spring', cost: 1, rarity: 'common',
+    description: 'Gain 2 mana this turn.',
+    effects: [{ kind: 'gain_mana', amount: 2 }],
+  },
+  siphon: {
+    id: 'siphon', name: 'Siphon', cost: 2, rarity: 'common',
+    description: 'Deal 2 damage. Heal 2 HP.',
+    effects: [{ kind: 'damage', amount: 2 }, { kind: 'heal', amount: 2 }],
+  },
+  recuperate: {
+    id: 'recuperate', name: 'Recuperate', cost: 2, rarity: 'common',
+    description: 'Heal 5 HP.',
+    effects: [{ kind: 'heal', amount: 5 }],
+  },
+  blaze: {
+    id: 'blaze', name: 'Blaze', cost: 2, rarity: 'common',
+    description: 'Deal 2 damage. Burn: 1 damage next turn.',
+    effects: [{ kind: 'damage', amount: 2 }, { kind: 'burn', amount: 1, turns: 1 }],
+  },
+  blood_pact: {
+    id: 'blood_pact', name: 'Blood Pact', cost: 0, rarity: 'common',
+    description: 'Lose 2 HP. Draw 3 cards.',
+    effects: [{ kind: 'lose_hp', amount: 2 }, { kind: 'draw', amount: 3 }],
+  },
+  fade: {
+    id: 'fade', name: 'Fade', cost: 1, rarity: 'common',
+    description: 'Shield: absorb the next 3 damage.',
+    effects: [],
+    trigger: { kind: 'shield', amount: 3, source: 'Fade' },
+  },
+  overload: {
+    id: 'overload', name: 'Overload', cost: 4, rarity: 'common',
+    description: 'Deal 6 damage.',
+    effects: [{ kind: 'damage', amount: 6 }],
+  },
+  tome: {
+    id: 'tome', name: 'Tome', cost: 3, rarity: 'common',
+    description: 'Draw 4 cards.',
+    effects: [{ kind: 'draw', amount: 4 }],
+  },
+  double_strike: {
+    id: 'double_strike', name: 'Double Strike', cost: 3, rarity: 'common',
+    description: 'Deal 2 damage twice.',
+    effects: [{ kind: 'damage', amount: 2 }, { kind: 'damage', amount: 2 }],
+  },
+  frostbite: {
+    id: 'frostbite', name: 'Frostbite', cost: 3, rarity: 'common',
+    description: "Deal 3 damage. Opponent can't cast damage spells next turn.",
+    effects: [{ kind: 'damage', amount: 3 }, { kind: 'silence', amount: 1, mode: 'damage' }],
+  },
+
+  // ───────── UNCOMMONS (max 2) ─────────
+  mind_pick: {
+    id: 'mind_pick', name: 'Mind Pick', cost: 2, rarity: 'uncommon',
+    description: 'Opponent discards 1 random card.',
+    effects: [{ kind: 'force_discard', amount: 1 }],
+  },
+  curse: {
+    id: 'curse', name: 'Curse', cost: 3, rarity: 'uncommon',
+    description: 'Burn: 2 damage for 2 turns.',
+    effects: [{ kind: 'burn', amount: 2, turns: 2 }],
+  },
+  ward: {
+    id: 'ward', name: 'Ward', cost: 3, rarity: 'uncommon',
+    description: 'Shield: absorb the next 8 damage.',
+    effects: [],
+    trigger: { kind: 'shield', amount: 8, source: 'Ward' },
+  },
+  drain: {
+    id: 'drain', name: 'Drain', cost: 3, rarity: 'uncommon',
+    description: 'Deal 3 damage. Opponent discards 2 cards.',
+    effects: [{ kind: 'damage', amount: 3 }, { kind: 'force_discard', amount: 2 }],
+  },
+  mana_void: {
+    id: 'mana_void', name: 'Mana Void', cost: 3, rarity: 'uncommon',
+    description: "Opponent can't cast non-damage spells next turn.",
+    effects: [{ kind: 'silence', amount: 1, mode: 'utility' }],
+  },
+  mirror: {
+    id: 'mirror', name: 'Mirror', cost: 4, rarity: 'uncommon',
+    description: 'Copy the last spell the opponent played.',
+    effects: [{ kind: 'copy_last_spell', amount: 1 }],
+  },
+  pilfer: {
+    id: 'pilfer', name: 'Pilfer', cost: 2, rarity: 'uncommon',
+    description: 'Steal a random card from the opponent’s hand.',
+    effects: [{ kind: 'steal', amount: 1 }],
+  },
+  scorch: {
+    id: 'scorch', name: 'Scorch', cost: 3, rarity: 'uncommon',
+    description: 'Deal 4 damage. Burn: 1 damage for 2 turns.',
+    effects: [{ kind: 'damage', amount: 4 }, { kind: 'burn', amount: 1, turns: 2 }],
+  },
+
+  // ───────── RARES (max 1) ─────────
+  inferno: {
+    id: 'inferno', name: 'Inferno', cost: 5, rarity: 'rare',
+    description: 'Deal 8 damage. Burn: 3 damage for 3 turns.',
+    effects: [{ kind: 'damage', amount: 8 }, { kind: 'burn', amount: 3, turns: 3 }],
+  },
+  mind_wipe: {
+    id: 'mind_wipe', name: 'Mind Wipe', cost: 4, rarity: 'rare',
+    description: 'Opponent discards their entire hand, then draws 2.',
+    effects: [{ kind: 'discard_hand', amount: 0 }, { kind: 'opponent_draw', amount: 2 }],
+  },
+  time_warp: {
+    id: 'time_warp', name: 'Time Warp', cost: 6, rarity: 'rare',
+    description: 'Take an extra turn immediately after this one.',
+    effects: [{ kind: 'extra_turn', amount: 1 }],
+  },
+  arcane_surge: {
+    id: 'arcane_surge', name: 'Arcane Surge', cost: 3, rarity: 'rare',
+    description: 'Deal 4 damage. Draw 3 cards. Gain 2 mana this turn.',
+    effects: [{ kind: 'damage', amount: 4 }, { kind: 'draw', amount: 3 }, { kind: 'gain_mana', amount: 2 }],
+  },
+  blood_ritual: {
+    id: 'blood_ritual', name: 'Blood Ritual', cost: 0, rarity: 'rare',
+    description: 'Lose half your current HP. Gain that much mana this turn.',
+    effects: [],
+    dynamic: 'blood_ritual',
+  },
+  phoenix_flame: {
+    id: 'phoenix_flame', name: 'Phoenix Flame', cost: 5, rarity: 'rare',
+    description: 'Heal 10 HP. Burn: 2 damage for 3 turns.',
+    effects: [{ kind: 'heal', amount: 10 }, { kind: 'burn', amount: 2, turns: 3 }],
+  },
+  soul_drain: {
+    id: 'soul_drain', name: 'Soul Drain', cost: 4, rarity: 'rare',
+    description: 'Deal 5 damage. Steal 2 random cards from the opponent.',
+    effects: [{ kind: 'damage', amount: 5 }, { kind: 'steal', amount: 2 }],
+  },
+  dimensional_rift: {
+    id: 'dimensional_rift', name: 'Dimensional Rift', cost: 3, rarity: 'rare',
+    description: 'Discard your hand. Draw 6 cards.',
+    effects: [{ kind: 'discard_hand', amount: 0, selfTarget: true }, { kind: 'draw', amount: 6 }],
+  },
+  last_gasp: {
+    id: 'last_gasp', name: 'Last Gasp', cost: 0, rarity: 'rare',
+    description: 'Deal damage equal to your missing HP.',
+    effects: [],
+    dynamic: 'last_gasp',
+  },
+  archmages_wrath: {
+    id: 'archmages_wrath', name: "Archmage's Wrath", cost: 7, rarity: 'rare',
+    description: 'Deal 12 damage.',
+    effects: [{ kind: 'damage', amount: 12 }],
+  },
+};
+
+/** All card ids grouped by rarity — used by the draft + deck validation. */
+export const CARDS_BY_RARITY: Record<Rarity, CardId[]> = {
+  common:   (Object.values(CARDS).filter(c => c.rarity === 'common')   as CardDef[]).map(c => c.id),
+  uncommon: (Object.values(CARDS).filter(c => c.rarity === 'uncommon') as CardDef[]).map(c => c.id),
+  rare:     (Object.values(CARDS).filter(c => c.rarity === 'rare')     as CardDef[]).map(c => c.id),
 };
 
 export type PlayerState = {
@@ -195,6 +379,16 @@ export type PlayerState = {
 
   cardsPlayedThisTurn: number;
   pendingTriggers: Trigger[];
+
+  /** Active damage-over-time effects. Each ticks at the START of this player's
+   *  turn for `amount` damage, then `turns` decrements; removed at 0. */
+  burns: { amount: number; turns: number; source: string }[];
+  /** Set when an opponent silences this player; cleared at the end of this
+   *  player's next turn. While true, the listed category can't be cast. */
+  silencedDamage?: boolean;
+  silencedUtility?: boolean;
+  /** Time Warp: this player takes another turn instead of passing. */
+  extraTurn?: boolean;
 };
 
 /**
@@ -220,6 +414,13 @@ export type SDEvent =
   | { kind: 'gain_mana'; seat: Seat; username: string; amount: number }
   | { kind: 'pay_hp'; seat: Seat; username: string; amount: number }
   | { kind: 'trigger_armed'; seat: Seat; username: string; source: string }
+  | { kind: 'burn_applied'; to: Seat; toName: string; amount: number; turns: number }
+  | { kind: 'burn_tick'; seat: Seat; username: string; amount: number }
+  | { kind: 'shield_absorbed'; to: Seat; toName: string; amount: number; source: string }
+  | { kind: 'silenced'; to: Seat; toName: string; mode: 'damage' | 'utility' }
+  | { kind: 'steal'; by: Seat; byName: string; from: Seat; amount: number }
+  | { kind: 'copy_spell'; seat: Seat; username: string; cardName: string }
+  | { kind: 'extra_turn'; seat: Seat; username: string }
   | { kind: 'game_ended'; winner: Seat | 'draw'; winnerName?: string };
 
 export type SDState = {
@@ -231,6 +432,9 @@ export type SDState = {
   turn: number;
   log: SDEvent[];
   winner: Seat | 'draw' | null;
+  /** The last spell each seat cast (most recent), for Mirror to copy. A spell
+   *  is recorded only if it had real effects (Counter/Fade/Mirror don't count). */
+  lastSpell?: { A?: CardId; B?: CardId };
 };
 
 /** Returns the seat the event "belongs to" for color-coding in the UI. */
@@ -241,8 +445,13 @@ export function eventSeat(ev: SDEvent): Seat | 'system' {
     case 'damage':                          return ev.from;
     case 'damage_prevented':                return ev.to;
     case 'heal': case 'draw': case 'gain_mana':
-    case 'pay_hp': case 'trigger_armed':    return ev.seat;
+    case 'pay_hp': case 'trigger_armed':
+    case 'burn_tick': case 'copy_spell':
+    case 'extra_turn':                      return ev.seat;
     case 'force_discard':                   return ev.by;
+    case 'burn_applied': case 'shield_absorbed':
+    case 'silenced':                        return ev.to;
+    case 'steal':                           return ev.by;
   }
 }
 
@@ -264,6 +473,13 @@ export function eventText(ev: SDEvent, viewerSeat: Seat | null = null): string {
     case 'gain_mana':         return `${youOr(ev.seat, ev.username)} gained ${ev.amount} mana (this turn).`;
     case 'pay_hp':            return `${youOr(ev.seat, ev.username)} paid ${ev.amount} HP.`;
     case 'trigger_armed':     return `${youOr(ev.seat, ev.username)} armed ${ev.source}.`;
+    case 'burn_applied':      return `${yourOr(ev.to, ev.toName)} burning — ${ev.amount}/turn for ${ev.turns} turn${ev.turns === 1 ? '' : 's'}.`;
+    case 'burn_tick':         return `${youOr(ev.seat, ev.username)} took ${ev.amount} burn damage.`;
+    case 'shield_absorbed':   return `${ev.source} absorbed ${ev.amount} damage on ${youOr(ev.to, ev.toName)}.`;
+    case 'silenced':          return `${youOr(ev.to, ev.toName)} ${isMe(ev.to) ? 'are' : 'is'} silenced (${ev.mode === 'damage' ? 'no damage spells' : 'no utility spells'} next turn).`;
+    case 'steal':             return `${youOr(ev.by, ev.byName)} stole ${ev.amount} card${ev.amount === 1 ? '' : 's'} from ${youOr(ev.from, '?')}.`;
+    case 'copy_spell':        return `${youOr(ev.seat, ev.username)} copied ${ev.cardName}.`;
+    case 'extra_turn':        return `${youOr(ev.seat, ev.username)} ${isMe(ev.seat) ? 'take' : 'takes'} an extra turn!`;
     case 'game_ended':
       return ev.winner === 'draw' ? 'Match drawn.'
         : viewerSeat === ev.winner ? 'You won the duel.'
@@ -282,6 +498,7 @@ function emptyPlayer(): PlayerState {
     hp: STARTING_HP, mana: 0, maxMana: 0, manaBonusThisTurn: 0,
     deck: [], hand: [], discard: [],
     cardsPlayedThisTurn: 0, pendingTriggers: [],
+    burns: [],
   };
 }
 
@@ -294,16 +511,23 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-/** Default starter deck for v1 — same composition for both players. */
+/** Default starter deck — used until the draft system (next increment) takes
+ *  over. A 35-card mix across all three rarities that respects MAX_COPIES and
+ *  showcases the new mechanics (burn, shield, silence, steal, copy, big rares). */
 function buildStarterDeck(): CardId[] {
-  const counts: Record<CardId, number> = {
-    strike: 3, mend: 3, insight: 2, fireball: 2,
-    counter: 2, combo: 3, sacrifice: 3, mind_pick: 2,
-    hex: 2,
+  const counts: Partial<Record<CardId, number>> = {
+    // commons (max 5)
+    strike: 4, arcane_bolt: 3, spark: 3, fireball: 2, mend: 3, recuperate: 2,
+    insight: 2, mana_spring: 2, counter: 2, fade: 2, blaze: 2, double_strike: 2,
+    siphon: 1, overload: 1,
+    // uncommons (max 2)
+    scorch: 1, ward: 1, drain: 1, pilfer: 1, curse: 1,
+    // rares (max 1)
+    inferno: 1, arcane_surge: 1, soul_drain: 1,
   };
   const deck: CardId[] = [];
   for (const [id, n] of Object.entries(counts) as [CardId, number][]) {
-    for (let i = 0; i < n; i++) deck.push(id);
+    for (let i = 0; i < (n ?? 0); i++) deck.push(id);
   }
   return shuffle(deck);
 }
@@ -428,6 +652,49 @@ function resolveTargetSeat(
   return t.seat;
 }
 
+/** Deal `amount` damage to `targetSeat` from `caster`, applying the target's
+ *  defensive triggers in FIFO order: `prevent_damage` (Counter — fully blocks
+ *  one instance, then consumed) and `shield` (absorbs up to its pool across
+ *  instances, breaking only when depleted). Logs what actually lands. */
+function dealDamage(state: SDState, caster: Seat, targetSeat: Seat, amount: number): void {
+  const target = state.players[targetSeat];
+  let remaining = amount;
+  for (let i = 0; i < target.pendingTriggers.length && remaining > 0; i++) {
+    const t = target.pendingTriggers[i];
+    if (t.kind === 'prevent_damage') {
+      const prevented = Math.min(remaining, t.amount);
+      remaining -= prevented;
+      target.pendingTriggers.splice(i, 1); i--;
+      state.log.push({ kind: 'damage_prevented', to: targetSeat, toName: target.username, amount: prevented, source: t.source });
+    } else if (t.kind === 'shield') {
+      const absorbed = Math.min(remaining, t.amount);
+      remaining -= absorbed;
+      t.amount -= absorbed;
+      state.log.push({ kind: 'shield_absorbed', to: targetSeat, toName: target.username, amount: absorbed, source: t.source });
+      if (t.amount <= 0) { target.pendingTriggers.splice(i, 1); i--; }
+    }
+  }
+  if (remaining > 0) {
+    target.hp -= remaining;
+    state.log.push({ kind: 'damage', from: caster, to: targetSeat, toName: target.username, amount: remaining });
+  }
+}
+
+/** Tick all active burns on `seat` (fires at the start of their turn). Burn
+ *  damage is unpreventable (DoT ignores shields/counters). Returns nothing;
+ *  caller checks the winner afterward (a burn can be lethal). */
+function tickBurns(state: SDState, seat: Seat): void {
+  const p = state.players[seat];
+  if (p.burns.length === 0) return;
+  let total = 0;
+  for (const b of p.burns) { total += b.amount; b.turns -= 1; }
+  p.burns = p.burns.filter(b => b.turns > 0);
+  if (total > 0) {
+    p.hp -= total;
+    state.log.push({ kind: 'burn_tick', seat, username: p.username, amount: total });
+  }
+}
+
 /** Apply ONE effect, mutating `state` in place. `caster` is the seat that
  *  played the card; `targets` are the player-picked targets from the action. */
 function resolveEffect(
@@ -439,28 +706,79 @@ function resolveEffect(
   switch (effect.kind) {
     case 'damage': {
       const targetSeat = resolveTargetSeat(caster, opp(caster), effect, targets);
+      dealDamage(state, caster, targetSeat, effect.amount);
+      break;
+    }
+    case 'burn': {
+      const targetSeat = resolveTargetSeat(caster, opp(caster), effect, targets);
       const target = state.players[targetSeat];
-      // Check the target's pendingTriggers for prevent_damage. Triggers fire
-      // in FIFO order and are consumed when used.
-      let remaining = effect.amount;
-      for (let i = 0; i < target.pendingTriggers.length && remaining > 0; i++) {
-        const t = target.pendingTriggers[i];
-        if (t.kind === 'prevent_damage') {
-          const prevented = Math.min(remaining, t.amount);
-          remaining -= prevented;
-          target.pendingTriggers.splice(i, 1); i--;
-          state.log.push({
-            kind: 'damage_prevented',
-            to: targetSeat, toName: target.username, amount: prevented, source: t.source,
-          });
+      const turns = effect.turns ?? 1;
+      target.burns.push({ amount: effect.amount, turns, source: 'Burn' });
+      state.log.push({ kind: 'burn_applied', to: targetSeat, toName: target.username, amount: effect.amount, turns });
+      break;
+    }
+    case 'silence': {
+      const targetSeat = resolveTargetSeat(caster, opp(caster), effect, targets);
+      const target = state.players[targetSeat];
+      if (effect.mode === 'damage') target.silencedDamage = true;
+      else target.silencedUtility = true;
+      state.log.push({ kind: 'silenced', to: targetSeat, toName: target.username, mode: effect.mode ?? 'damage' });
+      break;
+    }
+    case 'steal': {
+      const fromSeat = opp(caster);
+      const from = state.players[fromSeat];
+      const me = state.players[caster];
+      let stolen = 0;
+      for (let i = 0; i < effect.amount && from.hand.length > 0; i++) {
+        const idx = Math.floor(Math.random() * from.hand.length);
+        me.hand.push(from.hand.splice(idx, 1)[0]);
+        stolen++;
+      }
+      if (stolen > 0) {
+        state.log.push({ kind: 'steal', by: caster, byName: me.username, from: fromSeat, amount: stolen });
+      }
+      break;
+    }
+    case 'discard_hand': {
+      const targetSeat = effect.selfTarget ? caster : opp(caster);
+      const target = state.players[targetSeat];
+      const n = target.hand.length;
+      if (n > 0) {
+        target.discard.push(...target.hand);
+        target.hand = [];
+        state.log.push({ kind: 'force_discard', from: targetSeat, fromName: target.username, by: caster, amount: n });
+      }
+      break;
+    }
+    case 'opponent_draw': {
+      const targetSeat = opp(caster);
+      const target = state.players[targetSeat];
+      const before = target.hand.length;
+      drawCards(target, effect.amount);
+      const drew = target.hand.length - before;
+      if (drew > 0) state.log.push({ kind: 'draw', seat: targetSeat, username: target.username, amount: drew });
+      break;
+    }
+    case 'copy_last_spell': {
+      const last = state.lastSpell?.[opp(caster)];
+      if (last && CARDS[last]) {
+        const copied = CARDS[last];
+        state.log.push({ kind: 'copy_spell', seat: caster, username: state.players[caster].username, cardName: copied.name });
+        const copiedEffects = copied.dynamic ? resolveDynamic(state, caster, copied) : copied.effects;
+        // Copying ignores the copied card's own targets (re-targeting is
+        // ambiguous); only fire its non-targeted effects. Targeted-only cards
+        // (e.g. Hex) thus fizzle when copied — acceptable for v1.
+        for (const e of copiedEffects) {
+          if (e.targetIdx === undefined) resolveEffect(state, caster, e, []);
         }
+      } else {
+        state.log.push({ kind: 'system', text: `${state.players[caster].username}: Mirror fizzled — no spell to copy.` });
       }
-      if (remaining > 0) {
-        target.hp -= remaining;
-        state.log.push({
-          kind: 'damage', from: caster, to: targetSeat, toName: target.username, amount: remaining,
-        });
-      }
+      break;
+    }
+    case 'extra_turn': {
+      state.players[caster].extraTurn = true;
       break;
     }
     case 'heal': {
@@ -538,14 +856,30 @@ function validateTargets(card: CardDef, targets: ResolvedTarget[]): string | nul
 
 /** Some cards build their effects dynamically from state at play time. */
 function resolveDynamic(state: SDState, caster: Seat, card: CardDef): Effect[] {
+  const me = state.players[caster];
   if (card.dynamic === 'combo') {
-    const me = state.players[caster];
     // cardsPlayedThisTurn already incremented before resolution; so 3+ means
     // THIS is the 3rd or later card played this turn.
     const amount = me.cardsPlayedThisTurn >= 3 ? 5 : 1;
     return [{ kind: 'damage', amount }];
   }
+  if (card.dynamic === 'last_gasp') {
+    // Deal damage equal to your missing HP (more desperate = more powerful).
+    const missing = Math.max(0, STARTING_HP - me.hp);
+    return [{ kind: 'damage', amount: missing }];
+  }
+  if (card.dynamic === 'blood_ritual') {
+    // Lose half your CURRENT HP (rounded down), gain that much mana this turn.
+    const half = Math.floor(me.hp / 2);
+    return [{ kind: 'lose_hp', amount: half }, { kind: 'gain_mana', amount: half }];
+  }
   return [];
+}
+
+/** True if a card counts as a "damage spell" for silence purposes. */
+function cardDealsDamage(card: CardDef): boolean {
+  if (card.effects.some(e => e.kind === 'damage' || e.kind === 'burn')) return true;
+  return card.dynamic === 'combo' || card.dynamic === 'last_gasp';
 }
 
 /** Returns the winning seat ('A' | 'B' | 'draw') if this move ended the
@@ -604,9 +938,15 @@ export function applyMove(
     if (!card) return { error: 'Unknown card' };
     if (effectiveMana(me) < card.cost) return { error: 'Not enough mana' };
 
+    // Silence gate: a silenced player can't cast the locked-out category.
+    if (cardDealsDamage(card) && me.silencedDamage) {
+      return { error: "You're silenced — can't cast damage spells this turn." };
+    }
+    if (!cardDealsDamage(card) && me.silencedUtility) {
+      return { error: "You're silenced — can't cast non-damage spells this turn." };
+    }
+
     // Validate the player's picked targets against the card's TargetSpec.
-    // Bad-faith clients that try to play a targeted card with no targets
-    // (or wrong-shaped targets) get rejected here before any state mutates.
     const targets = action.targets ?? [];
     const tErr = validateTargets(card, targets);
     if (tErr) return { error: tErr };
@@ -617,25 +957,23 @@ export function applyMove(
     me.discard.push(cardId);
     me.cardsPlayedThisTurn++;
     payMana(me, card.cost);
-    next.log.push({
-      kind: 'card_play', seat, username: me.username, cardId, cardName: card.name,
-    });
+    next.log.push({ kind: 'card_play', seat, username: me.username, cardId, cardName: card.name });
 
-    // Resolve effects (static + dynamic). Targets flow through both paths so
-    // future dynamic cards can read what the player picked.
-    const effects: Effect[] = card.dynamic
-      ? resolveDynamic(next, seat, card)
-      : card.effects;
-    for (const eff of effects) {
-      resolveEffect(next, seat, eff, targets);
-    }
+    // Resolve effects (static + dynamic).
+    const effects: Effect[] = card.dynamic ? resolveDynamic(next, seat, card) : card.effects;
+    for (const eff of effects) resolveEffect(next, seat, eff, targets);
 
-    // Plant trigger (if any) after effects resolve
+    // Plant trigger (if any) after effects resolve.
     if (card.trigger) {
       me.pendingTriggers.push({ ...card.trigger });
-      next.log.push({
-        kind: 'trigger_armed', seat, username: me.username, source: card.trigger.source,
-      });
+      next.log.push({ kind: 'trigger_armed', seat, username: me.username, source: card.trigger.source });
+    }
+
+    // Record this as the seat's last spell so the opponent's Mirror can copy it
+    // — but not Mirror itself (avoid copy-of-a-copy) and not pure-trigger cards
+    // (Counter/Fade have nothing to copy).
+    if (cardId !== 'mirror' && (effects.length > 0)) {
+      next.lastSpell = { ...(next.lastSpell ?? {}), [seat]: cardId };
     }
 
     const winnerSeat = checkWinner(next);
@@ -650,20 +988,48 @@ export function applyMove(
   }
 
   if (action.kind === 'end_turn') {
-    const nextSeat = opp(seat);
-    const them = next.players[nextSeat];
-    next.currentSeat = nextSeat;
-    next.turn++;
+    // The ending player's per-turn state resets and their silence clears.
     me.manaBonusThisTurn = 0;
     me.cardsPlayedThisTurn = 0;
-    them.maxMana = Math.min(MAX_MANA, them.maxMana + 1);
-    them.mana = them.maxMana;
-    drawCards(them, 1);
-    next.log.push({ kind: 'turn_started', seat: nextSeat, username: them.username });
+    me.silencedDamage = false;
+    me.silencedUtility = false;
+
+    // Time Warp: take another turn instead of passing.
+    if (me.extraTurn) {
+      me.extraTurn = false;
+      next.log.push({ kind: 'extra_turn', seat, username: me.username });
+      beginTurn(next, seat);
+    } else {
+      beginTurn(next, opp(seat));
+    }
+
+    // A start-of-turn burn can be lethal — resolve the win if so.
+    const winnerSeat = checkWinner(next);
+    if (winnerSeat) {
+      next.log.push({
+        kind: 'game_ended',
+        winner: winnerSeat,
+        winnerName: winnerSeat === 'draw' ? undefined : next.players[winnerSeat].username,
+      });
+    }
     return next;
   }
 
   return { error: 'Unknown action' };
+}
+
+/** Begin `seat`'s turn: ramp + refill mana, draw 1, tick any burns, announce.
+ *  Burns tick at the very start (upkeep) and can be lethal — the caller checks
+ *  the winner afterward. */
+function beginTurn(state: SDState, seat: Seat): void {
+  const p = state.players[seat];
+  state.currentSeat = seat;
+  state.turn++;
+  p.maxMana = Math.min(MAX_MANA, p.maxMana + 1);
+  p.mana = p.maxMana;
+  drawCards(p, 1);
+  tickBurns(state, seat);
+  state.log.push({ kind: 'turn_started', seat, username: p.username });
 }
 
 // =====================================================================
@@ -692,13 +1058,20 @@ export function migrateState(raw: unknown): SDState {
   const migratedLog: SDEvent[] = Array.isArray(s.log)
     ? s.log.map((entry) => {
         const e = entry as { kind?: string; seat?: unknown; text?: string };
-        // If it's already a structured event (defensive), pass through.
         if (e && typeof e === 'object' && typeof e.kind === 'string') return entry as SDEvent;
-        // Otherwise it's the old { seat, text } shape — collapse to a system message.
         return { kind: 'system', text: e?.text ?? '' };
       })
-    : [];
-  return { ...(s as SDState), version: STATE_VERSION, log: migratedLog };
+    : (s.log as SDEvent[] | undefined) ?? [];
+
+  // v2 → v3: each player gained a `burns` array (DoT tracking). Ensure it exists
+  // so in-flight games don't crash when burns are read.
+  const next = { ...(s as SDState), version: STATE_VERSION, log: migratedLog };
+  for (const seat of ['A', 'B'] as Seat[]) {
+    if (next.players?.[seat] && !Array.isArray(next.players[seat].burns)) {
+      next.players[seat].burns = [];
+    }
+  }
+  return next;
 }
 
 // =====================================================================

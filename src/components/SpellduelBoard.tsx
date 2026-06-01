@@ -516,6 +516,38 @@ function PlayerPanel({
   );
 }
 
+/** Per-rarity visual treatment. Common = base indigo; Uncommon = silver;
+ *  Rare = glowing gold (animated). Returns body bg, border, name color, and an
+ *  optional always-on glow class for rares. */
+function rarityStyle(rarity: 'common' | 'uncommon' | 'rare') {
+  switch (rarity) {
+    case 'uncommon':
+      return {
+        body: 'bg-gradient-to-br from-slate-700/70 to-neutral-900',
+        border: 'border-slate-300/70',
+        hoverBorder: 'hover:border-slate-100',
+        name: 'text-slate-100',
+        glow: '',
+      };
+    case 'rare':
+      return {
+        body: 'bg-gradient-to-br from-amber-900/70 to-neutral-900',
+        border: 'border-amber-400/80',
+        hoverBorder: 'hover:border-amber-200',
+        name: 'text-amber-200',
+        glow: 'animate-sd-rare-glow',
+      };
+    default:
+      return {
+        body: 'bg-gradient-to-br from-indigo-950 to-neutral-900',
+        border: 'border-indigo-700',
+        hoverBorder: 'hover:border-emerald-400',
+        name: 'text-neutral-100',
+        glow: '',
+      };
+  }
+}
+
 function Card({
   cardId, disabled, onClick,
 }: {
@@ -524,20 +556,21 @@ function Card({
   onClick: () => void;
 }) {
   const card = CARDS[cardId];
+  const rs = rarityStyle(card.rarity);
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`group relative flex h-32 w-24 flex-col items-stretch rounded-lg border bg-gradient-to-br from-indigo-950 to-neutral-900 p-1.5 text-left transition ${
+      className={`group relative flex h-32 w-24 flex-col items-stretch rounded-lg border ${rs.body} p-1.5 text-left transition ${
         disabled
           ? 'border-neutral-800 opacity-40'
-          : 'border-indigo-700 hover:-translate-y-1 hover:border-emerald-400 hover:shadow-lg'
+          : `${rs.border} ${rs.hoverBorder} ${rs.glow} hover:-translate-y-1 hover:shadow-lg`
       }`}
-      title={card.description}
+      title={`${card.name} (${card.rarity}) — ${card.description}`}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="truncate text-[11px] font-semibold text-neutral-100">{card.name}</span>
+        <span className={`truncate text-[11px] font-semibold ${rs.name}`}>{card.name}</span>
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-sky-500 font-mono text-[10px] font-bold text-white">
           {card.cost}
         </span>
@@ -545,8 +578,11 @@ function Card({
       <div className="my-1 flex-1 leading-tight text-[10px] text-neutral-300">
         {card.description}
       </div>
-      <div className="text-[9px] uppercase tracking-wider text-neutral-500">
-        {card.trigger ? 'Trigger' : card.dynamic ? 'Dynamic' : 'Spell'}
+      <div className="flex items-center justify-between text-[9px] uppercase tracking-wider text-neutral-500">
+        <span>{card.trigger ? 'Trigger' : card.dynamic ? 'Dynamic' : 'Spell'}</span>
+        <span className={card.rarity === 'rare' ? 'text-amber-400' : card.rarity === 'uncommon' ? 'text-slate-300' : 'text-neutral-600'}>
+          {card.rarity === 'rare' ? '◆' : card.rarity === 'uncommon' ? '◈' : '◇'}
+        </span>
       </div>
     </button>
   );

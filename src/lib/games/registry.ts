@@ -145,13 +145,13 @@ export const GAME_GUIDES: Record<string, GameGuide> = {
     ],
   },
   spellduel: {
-    theme: 'A head-to-head wizard’s duel of spell cards, mana, and timing.',
+    theme: 'A head-to-head wizard’s duel of spell cards, mana, and timing across 38 cards in three rarities.',
     objective: 'Reduce your opponent’s HP to zero.',
     rules: [
-      'Each turn, play cards from your hand to attack, defend, and trigger effects.',
-      'Spells cost resources — manage your hand and energy to set up bigger turns.',
-      'Effects resolve immediately and can chain, so order and timing matter.',
-      'Drop your opponent to 0 HP to win the duel.',
+      'Each turn you gain a mana crystal (up to 10) and refill — spend it to cast spells.',
+      'Deal damage, heal, draw, burn (damage over time), shield, silence, and steal.',
+      'Cards come in three rarities: common, silver uncommon, and glowing gold rare.',
+      'Manage your hand and tempo; drop your opponent to 0 HP to win.',
     ],
   },
   legendary: {
@@ -548,7 +548,7 @@ export const GAMES: Record<string, GameDef> = {
   spellduel: {
     id: 'spellduel',
     name: 'Spellduel',
-    description: '2-player interactive card duel. 8 starter cards with effects, triggers, and combos.',
+    description: '2-player spell-slinging card duel. Burn, shields, silence, steal, and powerful rares.',
     minPlayers: 2,
     maxPlayers: 2,
     addedOn: '2026-05-20',
