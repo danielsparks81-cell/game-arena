@@ -12,6 +12,8 @@ import {
   DRAFT_DECK_COMMONS,
   DRAFT_DECK_UNCOMMONS,
   DRAFT_DECK_RARES,
+  DRAFTED_CARDS,
+  STARTER_DECK_SIZE,
   applyMove,
   autoCompleteDraft,
   createInitialStateForHost,
@@ -87,7 +89,7 @@ describe('spellduel: construction', () => {
     expect(drafting.draft!.B.round).toBe(1);
   });
 
-  it('autoCompleteDraft builds two legal 35-card decks and starts the duel', () => {
+  it('autoCompleteDraft builds two legal 36-card decks and starts the duel', () => {
     const host = createInitialStateForHost({ userId: 'alice-id', username: 'Alice' });
     const drafting = seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob' });
     const both = autoCompleteDraft(drafting);
@@ -97,7 +99,7 @@ describe('spellduel: construction', () => {
     expect(both.players[both.currentSeat].maxMana).toBe(1);
     for (const seat of ['A', 'B'] as const) {
       const p = both.players[seat];
-      // deck + hand together = the full 35 drafted cards.
+      // deck + hand together = the full 36-card deck (24 starter + 12 drafted).
       expect(p.deck.length + p.hand.length).toBe(DRAFT_DECK_SIZE);
       expect(p.hand.length).toBe(STARTING_HAND_SIZE);
     }
@@ -569,24 +571,25 @@ describe('spellduel: draft', () => {
     return seatJoinerAndStart(host, { userId: 'bob-id', username: 'Bob' });
   }
 
-  it('round 1 offers 5 commons + 5 uncommons and no rares (odd round)', () => {
+  it('round 1 offers 5 commons + 4 uncommons + 3 rares', () => {
     const s = startDraft();
     const a = s.draft!.A;
     expect(a.offer.common.length).toBe(5);
-    expect(a.offer.uncommon.length).toBe(5);
-    expect(a.offer.rare.length).toBe(0);
-    expect(a.need).toEqual({ common: 2, uncommon: 1, rare: 0 });
+    expect(a.offer.uncommon.length).toBe(4);
+    expect(a.offer.rare.length).toBe(3);
+    expect(a.need).toEqual({ common: 2, uncommon: 1, rare: 1 });
   });
 
-  it('advances to round 2 only after both required picks are made, then offers rares', () => {
+  it('advances to round 2 only after all four required picks are made', () => {
     let s = startDraft();
-    const first = s.draft!.A.offer.common[0];
-    s = applyMove(s, { kind: 'draft_pick', cardId: first }, 'alice-id') as SDState;
-    expect(s.draft!.A.round).toBe(1);              // still round 1 (need 1 common + 1 uncommon)
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id') as SDState;
+    expect(s.draft!.A.round).toBe(1);              // still need 1 common + 1 uncommon + 1 rare
     s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.common[0] }, 'alice-id') as SDState;
     s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.uncommon[0] }, 'alice-id') as SDState;
+    expect(s.draft!.A.round).toBe(1);              // still need the rare
+    s = applyMove(s, { kind: 'draft_pick', cardId: s.draft!.A.offer.rare[0] }, 'alice-id') as SDState;
     expect(s.draft!.A.round).toBe(2);              // round complete
-    expect(s.draft!.A.offer.rare.length).toBe(3);  // even round → rares appear
+    expect(s.draft!.A.offer.rare.length).toBe(3);  // rares every round
     expect(s.draft!.A.need.rare).toBe(1);
   });
 
@@ -613,7 +616,7 @@ describe('spellduel: draft', () => {
     expect('error' in bPick).toBe(false);
   });
 
-  it('final decks respect MAX_COPIES and the 20/10/5 split', () => {
+  it('final decks respect MAX_COPIES and the 22/11/3 split', () => {
     const both = autoCompleteDraft(startDraft());
     for (const seat of ['A', 'B'] as const) {
       const deck = [...both.players[seat].deck, ...both.players[seat].hand];
@@ -631,10 +634,11 @@ describe('spellduel: draft', () => {
     }
   });
 
-  it('drafts exactly DRAFT_ROUNDS rounds worth of picks', () => {
+  it('drafts exactly 12 cards on top of the 24-card starter', () => {
     const both = autoCompleteDraft(startDraft());
-    // 2 commons + 1 uncommon per round + 1 rare per even round = deck size.
-    expect(DRAFT_DECK_SIZE).toBe(DRAFT_ROUNDS * 3 + (DRAFT_ROUNDS / 2));
+    // 2 commons + 1 uncommon + 1 rare per round × 3 rounds = 12 drafted.
+    expect(DRAFTED_CARDS).toBe(DRAFT_ROUNDS * 4);
+    expect(DRAFT_DECK_SIZE).toBe(STARTER_DECK_SIZE + DRAFTED_CARDS);
     expect(both.phase).toBe('playing');
   });
 

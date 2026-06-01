@@ -234,7 +234,7 @@ export default function SpellduelBoard({
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-3">
+    <div className="mx-auto flex max-w-5xl flex-col gap-3">
       {/* Banner */}
       <div className="text-center text-sm text-neutral-300">{banner}</div>
 
@@ -660,7 +660,7 @@ function Card({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`group relative flex h-32 w-24 flex-col items-stretch rounded-lg border ${rs.body} p-1.5 text-left transition ${
+      className={`group relative flex h-44 w-32 flex-col items-stretch rounded-lg border ${rs.body} p-2 text-left transition ${
         disabled
           ? 'border-neutral-800 opacity-40'
           : `${rs.border} ${rs.hoverBorder} ${rs.glow} hover:-translate-y-1 hover:shadow-lg`
@@ -668,15 +668,15 @@ function Card({
       title={`${card.name} (${card.rarity}) — ${card.description}`}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className={`truncate text-[11px] font-semibold ${rs.name}`}>{card.name}</span>
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-sky-500 font-mono text-[10px] font-bold text-white">
+        <span className={`truncate text-sm font-semibold ${rs.name}`}>{card.name}</span>
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-sky-500 font-mono text-xs font-bold text-white">
           {card.cost}
         </span>
       </div>
-      <div className="my-1 flex-1 leading-tight text-[10px] text-neutral-300">
+      <div className="my-1.5 flex-1 leading-snug text-[11px] text-neutral-200">
         {card.description}
       </div>
-      <div className="flex items-center justify-between text-[9px] uppercase tracking-wider text-neutral-500">
+      <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500">
         <span>{card.trigger ? 'Trigger' : card.dynamic ? 'Dynamic' : 'Spell'}</span>
         <span className={card.rarity === 'rare' ? 'text-amber-400' : card.rarity === 'uncommon' ? 'text-slate-300' : 'text-neutral-600'}>
           {card.rarity === 'rare' ? '◆' : card.rarity === 'uncommon' ? '◈' : '◇'}
@@ -692,7 +692,7 @@ function CardBack({ large = false }: { large?: boolean }) {
   //         (spectator view, or a defensive fallback for any HIDDEN_CARD that
   //         slipped into a player's hand somehow).
   const cls = large
-    ? 'h-32 w-24 rounded-lg border border-indigo-800 bg-gradient-to-br from-indigo-900 via-indigo-950 to-black'
+    ? 'h-44 w-32 rounded-lg border border-indigo-800 bg-gradient-to-br from-indigo-900 via-indigo-950 to-black'
     : 'h-10 w-7 rounded-md border border-indigo-800 bg-gradient-to-br from-indigo-900 via-indigo-950 to-black';
   return <div className={cls} aria-hidden />;
 }
@@ -761,13 +761,13 @@ function DraftScreen({
   };
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-4">
+    <div className="mx-auto flex max-w-5xl flex-col gap-4">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-neutral-200">
           Draft your deck — Round {mine.round}/{DRAFT_ROUNDS}
         </div>
         <div className="text-xs text-neutral-500">
-          {counts.common} commons · {counts.uncommon} uncommons · {counts.rare} rares
+          Deck: {counts.common} commons · {counts.uncommon} uncommons · {counts.rare} rares
         </div>
       </div>
 

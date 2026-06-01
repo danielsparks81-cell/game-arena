@@ -377,26 +377,52 @@ export const CARDS_BY_RARITY: Record<Rarity, CardId[]> = {
 // =====================================================================
 // Draft configuration
 // ---------------------------------------------------------------------
-// Pre-duel draft: over DRAFT_ROUNDS rounds, each player picks 2 commons (of 5
-// shown) + 1 uncommon (of 5), and on every 2nd round 1 rare (of 3). That lands
-// every player at exactly 20 commons / 10 uncommons / 5 rares = a 35-card deck,
-// while respecting MAX_COPIES. Both players draft simultaneously and privately.
+// Every player starts with the same fixed, balanced 24-card STARTER_DECK
+// (16 commons + 8 uncommons, no rares). On top of that, a short 3-round draft
+// adds 12 cards: each round the player picks 2 commons (of 5), 1 uncommon
+// (of 4), and 1 rare (of 3). Final deck = 24 starter + 12 drafted = 36 cards
+// (22 commons / 11 uncommons / 3 rares), all respecting MAX_COPIES. Both
+// players draft simultaneously and privately.
 // =====================================================================
-export const DRAFT_ROUNDS          = 10;
+export const DRAFT_ROUNDS          = 3;
 export const DRAFT_COMMON_OFFER    = 5;
 export const DRAFT_COMMON_PICK     = 2;
-export const DRAFT_UNCOMMON_OFFER  = 5;
+export const DRAFT_UNCOMMON_OFFER  = 4;
 export const DRAFT_UNCOMMON_PICK   = 1;
 export const DRAFT_RARE_OFFER      = 3;
-export const DRAFT_RARE_PICK       = 1;   // only on even rounds
-/** Rares appear for drafting on these rounds (every 2nd → 5 rares total). */
-export const isRareRound = (round: number): boolean => round % 2 === 0;
+export const DRAFT_RARE_PICK       = 1;   // every round
+/** Rares are offered every draft round now (3 rounds → 3 rares). */
+export const isRareRound = (round: number): boolean => round >= 1;
 
-/** Final deck composition each player ends up with. */
-export const DRAFT_DECK_COMMONS   = DRAFT_ROUNDS * DRAFT_COMMON_PICK;      // 20
-export const DRAFT_DECK_UNCOMMONS = DRAFT_ROUNDS * DRAFT_UNCOMMON_PICK;    // 10
-export const DRAFT_DECK_RARES     = (DRAFT_ROUNDS / 2) * DRAFT_RARE_PICK;  // 5
-export const DRAFT_DECK_SIZE      = DRAFT_DECK_COMMONS + DRAFT_DECK_UNCOMMONS + DRAFT_DECK_RARES; // 35
+/** The fixed base deck (counts) every player begins the draft holding. */
+export const STARTER_DECK_COMMONS   = 16;
+export const STARTER_DECK_UNCOMMONS = 8;
+export const STARTER_DECK_SIZE      = STARTER_DECK_COMMONS + STARTER_DECK_UNCOMMONS; // 24
+
+/** Cards added on top of the starter via the draft. */
+export const DRAFTED_COMMONS   = DRAFT_ROUNDS * DRAFT_COMMON_PICK;   // 6
+export const DRAFTED_UNCOMMONS = DRAFT_ROUNDS * DRAFT_UNCOMMON_PICK; // 3
+export const DRAFTED_RARES     = DRAFT_ROUNDS * DRAFT_RARE_PICK;     // 3
+export const DRAFTED_CARDS     = DRAFTED_COMMONS + DRAFTED_UNCOMMONS + DRAFTED_RARES; // 12
+
+/** Final deck composition each player ends up with (starter + drafted). */
+export const DRAFT_DECK_COMMONS   = STARTER_DECK_COMMONS + DRAFTED_COMMONS;     // 22
+export const DRAFT_DECK_UNCOMMONS = STARTER_DECK_UNCOMMONS + DRAFTED_UNCOMMONS; // 11
+export const DRAFT_DECK_RARES     = DRAFTED_RARES;                              // 3
+export const DRAFT_DECK_SIZE      = DRAFT_DECK_COMMONS + DRAFT_DECK_UNCOMMONS + DRAFT_DECK_RARES; // 36
+
+/** Fixed, balanced 24-card base every player starts the draft holding: a spread
+ *  of damage / heal / draw / mana / defense commons plus 8 uncommons (including
+ *  both reactions). Drafted picks are added on top of these. */
+export const STARTER_DECK: CardId[] = [
+  // 16 commons
+  'strike', 'fireball', 'spark', 'arcane_bolt', 'blaze', 'double_strike',
+  'mend', 'recuperate', 'insight', 'tome', 'mana_spring', 'counter',
+  'fade', 'combo', 'siphon', 'frostbite',
+  // 8 uncommons (curse/scorch = burn, ward = shield, drain, mirror = copy,
+  // pilfer = steal, counterspell + reflect = reactions)
+  'curse', 'ward', 'drain', 'mirror', 'pilfer', 'scorch', 'counterspell', 'reflect',
+];
 
 export type PlayerState = {
   /** Profile data, copied in at join time so the board doesn't need to
@@ -624,7 +650,10 @@ function makeDraftNeed(round: number): DraftSeatState['need'] {
 }
 
 function newDraftSeat(): DraftSeatState {
-  return { round: 1, picked: [], offer: makeDraftOffer([], 1), need: makeDraftNeed(1), done: false };
+  // Seed with the fixed starter deck so MAX_COPIES counting + the final deck
+  // both account for it; the draft adds 12 more cards on top.
+  const picked = [...STARTER_DECK];
+  return { round: 1, picked, offer: makeDraftOffer(picked, 1), need: makeDraftNeed(1), done: false };
 }
 
 /** Apply one draft pick for `seat`, advancing the round (and finishing the
