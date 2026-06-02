@@ -19,7 +19,7 @@ export default function GameViewport({
   designWidth,
   minScale = 0.35,
   maxScale = 2.2,
-  heightCss = 'calc(100dvh - 6.5rem)',
+  heightCss = 'calc(100dvh - 7.5rem)',
 }: {
   children: ReactNode;
   designWidth?: number;
@@ -42,9 +42,15 @@ export default function GameViewport({
         // affect them), so this never feeds back on itself.
         const cw = designWidth ?? inner.offsetWidth;
         const ch = inner.offsetHeight;
-        const aw = outer.clientWidth, ah = outer.clientHeight;
-        if (!cw || !ch || !aw || !ah) return;
-        const s = Math.max(minScale, Math.min(maxScale, Math.min(aw / cw, ah / ch)));
+        // Leave a little breathing room so the default state never quite fills
+        // the area (no rounding-overflow scrollbar / edge clipping).
+        const PAD = 14;
+        const aw = outer.clientWidth - PAD, ah = outer.clientHeight - PAD;
+        if (!cw || !ch || aw <= 0 || ah <= 0) return;
+        let s = Math.max(minScale, Math.min(maxScale, Math.min(aw / cw, ah / ch)));
+        // Snap near-1 scales to exactly 1 so games that roughly fit natively
+        // render crisp (no transform) instead of softly at ~1.04x.
+        if (Math.abs(s - 1) < 0.06) s = 1;
         setBox(prev => (Math.abs(prev.scale - s) > 0.004 || prev.w !== cw || prev.h !== ch ? { scale: s, w: cw, h: ch } : prev));
       });
     };
@@ -59,7 +65,10 @@ export default function GameViewport({
   return (
     <div
       ref={outerRef}
-      style={{ width: '100%', height: heightCss, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      // `safe center` keeps it centered when it fits but falls back to the
+      // start edge when it overflows (e.g. Recent Actions expanded), so the
+      // content is never clipped and stays scroll-reachable.
+      style={{ width: '100%', height: heightCss, overflow: 'auto', display: 'flex', alignItems: 'safe center', justifyContent: 'safe center' }}
     >
       {/* Sizer reserves the SCALED footprint so the transformed game centers and
           the scroll area is correct. */}
