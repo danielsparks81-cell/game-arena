@@ -384,30 +384,28 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
   if (!hero.hasRolled) return err('Roll movement first.');
   if (hero.moveLeft <= 0) return err('No movement left.');
   if (hero.inPit) return err('You are in a pit — climb out first.');
-  // Allow moving onto an immediately adjacent revealed floor or open-door tile.
-  // For simplicity, step-by-step movement: the UI sends one cell per move_to.
-  const dx = Math.abs(dest.x - hero.at.x);
-  const dy = Math.abs(dest.y - hero.at.y);
-  if (dx + dy !== 1) return err('Must move one orthogonal square at a time.');
   if (!inBounds(state, dest)) return err('Off the board.');
-  const tile = state.tiles[dest.y][dest.x];
-  // Pass Through Rock lets the hero ignore wall / furniture / closed-door
-  // blockers; otherwise the square must be passable and any door must be open.
-  if (!hero.phaseWalls) {
-    if (!isPassable(state, dest, /*forHero*/ true)) return err('That square is blocked.');
-    if (tile.kind === 'door') {
-      const door = state.doors.find(d => sameCell(d, dest));
-      if (door && !door.open) return err('That door is closed — open it first.');
-    }
-  }
-  // Occupied check — heroes and monsters still block the square even when phasing.
+  if (dest.x === hero.at.x && dest.y === hero.at.y) return err('You are already there.');
+  // You may move THROUGH friendly heroes, but you can't END your move on a
+  // square occupied by another figure (hero or monster).
   if (cellOccupied(state, dest, /*ignoreHeroPassthrough*/ false)) return err('That square is occupied.');
+  // Pass Through Rock lets the hero ignore wall / furniture / closed-door
+  // blockers; otherwise the destination square must be standable.
+  const tile = state.tiles[dest.y][dest.x];
+  if (!hero.phaseWalls && !isPassable(state, dest, /*forHero*/ true)) {
+    return err('That square is blocked.');
+  }
+  // Shortest path length (passing through friendly heroes) must fit in the
+  // remaining movement allowance.
+  const steps = pathDistance(state, hero, dest);
+  if (steps < 0) return err('There is no clear path to that square.');
+  if (steps > hero.moveLeft) return err('That square is out of reach.');
 
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   h.at = { ...dest };
-  h.moveLeft -= 1;
-  // Reveal LOS as the hero moves.
+  h.moveLeft -= steps;
+  // Reveal LOS from the destination.
   revealLineOfSightForHero(s, h);
   // If the hero stepped onto a known pit, they fall in (in v1, automatic).
   const trap = s.traps.find(t => sameCell({ a: t.at, b: t.at }, dest));
@@ -1132,6 +1130,38 @@ function adjacentCells(c: Coord): Coord[] {
     { x: c.x + 1, y: c.y }, { x: c.x - 1, y: c.y },
     { x: c.x, y: c.y + 1 }, { x: c.x, y: c.y - 1 },
   ];
+}
+
+/** Shortest orthogonal path length from the hero to `dest`. Friendly heroes
+ *  may be passed THROUGH (they don't block transit); monsters, walls, blocked
+ *  tiles, move-blocking furniture, and closed doors DO block — unless the hero
+ *  is phasing (Pass Through Rock), which ignores wall/furniture/door blockers.
+ *  Returns -1 if unreachable within the open board. Destination occupancy is
+ *  the caller's concern (you can pass through a friend but not stop on them). */
+function pathDistance(s: HQState, hero: Hero, dest: Coord): number {
+  const startKey = `${hero.at.x},${hero.at.y}`;
+  const destKey = `${dest.x},${dest.y}`;
+  if (startKey === destKey) return 0;
+  const dist = new Map<string, number>([[startKey, 0]]);
+  const queue: Coord[] = [{ ...hero.at }];
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    const d = dist.get(`${cur.x},${cur.y}`)!;
+    for (const n of adjacentCells(cur)) {
+      const key = `${n.x},${n.y}`;
+      if (dist.has(key)) continue;
+      if (!inBounds(s, n)) continue;
+      // Walls / furniture / closed doors block unless phasing.
+      if (!hero.phaseWalls && !isPassable(s, n, /*forHero*/ true)) continue;
+      // Monsters always block movement; friendly heroes are transparent to it.
+      if (s.monsters.some(m => m.at.x === n.x && m.at.y === n.y)) continue;
+      const nd = d + 1;
+      if (key === destKey) return nd;   // BFS → first arrival is the shortest
+      dist.set(key, nd);
+      queue.push(n);
+    }
+  }
+  return -1;
 }
 
 // Bresenham line; returns true if every cell on the line (excluding endpoints)

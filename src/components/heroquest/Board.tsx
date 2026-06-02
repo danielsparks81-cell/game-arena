@@ -78,26 +78,45 @@ export default function HeroQuestBoardCanvas({
     return map;
   }, [state.furniture]);
 
-  // ---- Movement highlight (one-step reachable cells from the active hero) ----
+  // ---- Movement highlight: every cell reachable within the movement roll. ----
+  // BFS that passes THROUGH friendly heroes (transit) but is blocked by
+  // monsters, walls, move-blocking furniture, and closed doors. A friendly
+  // hero's own square is reachable-for-transit but not a valid stopping cell,
+  // so it isn't highlighted. Pass Through Rock ignores wall/furniture blockers.
   const reachable = useMemo(() => {
     const out = new Set<string>();
     if (!isMyTurn || !myHero) return out;
     if (myHero.moveLeft <= 0 || myHero.inPit) return out;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = myHero.at.x + dx, ny = myHero.at.y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      const t = state.tiles[ny][nx];
-      if (t.kind === 'wall' || t.kind === 'blocked') continue;
-      if (t.kind === 'door') {
-        const d = doorByCell.get(`${nx},${ny}`);
-        if (!d || !d.open) continue;
+    const phaseWalls = !!myHero.phaseWalls;
+    const startKey = `${myHero.at.x},${myHero.at.y}`;
+    const dist = new Map<string, number>([[startKey, 0]]);
+    const queue: Coord[] = [{ ...myHero.at }];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      const d = dist.get(`${cur.x},${cur.y}`)!;
+      if (d >= myHero.moveLeft) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = cur.x + dx, ny = cur.y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const key = `${nx},${ny}`;
+        if (dist.has(key)) continue;
+        const t = state.tiles[ny][nx];
+        if (!phaseWalls) {
+          if (t.kind === 'wall' || t.kind === 'blocked') continue;
+          if (t.kind === 'door') {
+            const dr = doorByCell.get(key);
+            if (!dr || !dr.open) continue;
+          }
+          if (furnByCell.get(key)?.blocksMove) continue;
+        }
+        if (monsterByCell.has(key)) continue;       // monsters block
+        dist.set(key, d + 1);
+        queue.push({ x: nx, y: ny });
+        if (!heroByCell.has(key)) out.add(key);      // can only STOP on an empty cell
       }
-      if (monsterByCell.has(`${nx},${ny}`)) continue;
-      if (heroByCell.has(`${nx},${ny}`)) continue;
-      out.add(`${nx},${ny}`);
     }
     return out;
-  }, [isMyTurn, myHero, state.tiles, doorByCell, monsterByCell, heroByCell, W, H]);
+  }, [isMyTurn, myHero, state.tiles, doorByCell, monsterByCell, heroByCell, furnByCell, W, H]);
 
   // ---- Adjacent closed doors (clickable to open) ----
   const adjacentDoor = useMemo(() => {
