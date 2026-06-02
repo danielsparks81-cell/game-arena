@@ -851,14 +851,16 @@ export default function LegendaryBoard({
                   {renderIdx < 4 && (
                     /* CSS border-triangle separator pointing left (villains escape
                        left). Top/bottom use the board bg so the card's accent
-                       border above doesn't bleed through; the right border takes
-                       the tint of the space it points out of. */
+                       border above doesn't bleed through. The arrow points OUT of
+                       the space to its right, so it takes that next space's tint
+                       (slot - 1 in the 4..0 render order) — e.g. the Bank|Sewers
+                       chevron is green (Sewers), not amber (Bank). */
                     <div style={{
                       width: 0,
                       height: 0,
                       borderTop: '10px solid #09090b',
                       borderBottom: '10px solid #09090b',
-                      borderRight: `8px solid ${CITY_STRIP[slot].sep}`,
+                      borderRight: `8px solid ${CITY_STRIP[slot - 1].sep}`,
                       flexShrink: 0,
                       alignSelf: 'center',
                     }} />
