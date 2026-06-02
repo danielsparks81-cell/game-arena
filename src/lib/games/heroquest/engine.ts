@@ -408,7 +408,7 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
   // Reveal LOS from the destination.
   revealLineOfSightForHero(s, h);
   // If the hero stepped onto a known pit, they fall in (in v1, automatic).
-  const trap = s.traps.find(t => sameCell({ a: t.at, b: t.at }, dest));
+  const trap = s.traps.find(t => t.at.x === dest.x && t.at.y === dest.y);
   if (trap && trap.kind === 'pit' && !trap.triggered) {
     trap.triggered = true;
     trap.revealed = true;
@@ -429,22 +429,23 @@ function doOpenDoor(state: HQState, hero: Hero, doorId: string): ApplyResult {
   if (!door) return err('Door not found.');
   if (door.open) return err('Already open.');
   if (door.secret && !door.found) return err('There is no visible door there.');
-  // Must be adjacent to the door tile.
-  const doorTile = findDoorTile(state, door);
-  if (!doorTile) return err('Door has no tile (bug).');
-  if (Math.abs(hero.at.x - doorTile.x) + Math.abs(hero.at.y - doorTile.y) !== 1) {
-    return err('You must be adjacent to the door to open it.');
-  }
+  // The hero must be standing on one of the door's cells (i.e. right at the
+  // doorway, on either side of the opening).
+  const doorCells = door.crossings.flatMap(c => [c.a, c.b]);
+  const atDoorway = doorCells.some(c => c.x === hero.at.x && c.y === hero.at.y);
+  if (!atDoorway) return err('You must be in the doorway to open it.');
+
   const s = clone(state);
   const d = s.doors.find(dx => dx.id === doorId)!;
   d.open = true;
-  // Reveal the entire room on the far side.
-  const targetRegion = s.tiles[d.a.y][d.a.x].region === s.tiles[hero.at.y][hero.at.x].region
-    ? s.tiles[d.b.y][d.b.x].region
-    : s.tiles[d.a.y][d.a.x].region;
-  revealRegion(s, targetRegion);
-  // Instantiate any monsters belonging to that room (lazy spawn).
-  spawnRoomMonsters(s, targetRegion);
+  // Reveal the room(s) the door opens into, spawning their monsters.
+  for (const c of d.crossings) {
+    for (const cell of [c.a, c.b]) {
+      const r = s.tiles[cell.y]?.[cell.x]?.region ?? '';
+      if (r.startsWith('room_')) { revealRegion(s, r); spawnRoomMonsters(s, r); }
+    }
+  }
+  revealLineOfSightForHero(s, s.heroes[s.turnIndex]);
   pushLog(s, 'reveal', `${hero.username} opens a door — the chamber beyond is revealed!`);
   return ok(s);
 }
@@ -574,9 +575,11 @@ function doSearchSecrets(state: HQState, hero: Hero): ApplyResult {
   let found = 0;
   for (const d of s.doors) {
     if (!d.secret || d.found) continue;
-    const tile = findDoorTile(s, d);
-    if (!tile) continue;
-    if (s.tiles[tile.y][tile.x].region === region) { d.found = true; found += 1; }
+    // A secret door is found if either side of any of its crossings is in the
+    // searched region.
+    const inRegion = d.crossings.some(c =>
+      regionOf(s, c.a) === region || regionOf(s, c.b) === region);
+    if (inRegion) { d.found = true; found += 1; }
   }
   pushLog(s, 'search', found > 0
     ? `${h.username} discovers ${found} secret door${found > 1 ? 's' : ''}!`
@@ -884,6 +887,7 @@ function runMonster(s: HQState, m: Monster): void {
       const nx = m.at.x + sx, ny = m.at.y + sy;
       if (!inBounds(s, { x: nx, y: ny })) continue;
       if (!isPassable(s, { x: nx, y: ny }, /*forHero*/ false)) continue;
+      if (edgeBlocksMove(s, m.at, { x: nx, y: ny }, /*phaseWalls*/ false)) continue;
       if (cellOccupied(s, { x: nx, y: ny }, /*ignoreHeroPassthrough*/ false)) continue;
       m.at = { x: nx, y: ny };
       moved = true;
@@ -1063,12 +1067,6 @@ function inBounds(s: HQState, c: Coord): boolean {
 function isPassable(s: HQState, c: Coord, forHero: boolean): boolean {
   const t = s.tiles[c.y][c.x];
   if (t.kind === 'wall' || t.kind === 'blocked') return false;
-  if (t.kind === 'door') {
-    const d = s.doors.find(dx => sameCell(dx, c));
-    if (!d) return false;
-    if (!d.open) return false;
-    return true;
-  }
   // Furniture that blocks movement (e.g. tomb).
   const furn = s.furniture.find(f => f.blocksMove && f.cells.some(x => x.x === c.x && x.y === c.y));
   if (furn) return false;
@@ -1083,46 +1081,6 @@ function cellOccupied(s: HQState, c: Coord, _ignoreHeroPassthrough: boolean): bo
   return false;
 }
 
-function sameCell(d: { a: Coord; b: Coord }, c: Coord): boolean {
-  // Used to find the door TILE — but doors don't store the tile coord
-  // directly; the tile we placed is whichever cell sits between a and b.
-  // For our buildQuest1, we put doors AT the wall cell between a and b, and
-  // the door tile is exactly that wall cell. We stored that as
-  // `findDoorTile`. This helper covers the common "is the door at this
-  // cell" check by checking adjacency-of-cell to either side.
-  return (
-    (d.a.x === c.x && d.a.y === c.y) ||
-    (d.b.x === c.x && d.b.y === c.y) ||
-    // Or the tile between a and b (door's actual cell).
-    isBetween(d.a, d.b, c)
-  );
-}
-
-function isBetween(a: Coord, b: Coord, c: Coord): boolean {
-  // True if c is the cell strictly between adjacent neighbors a and b
-  // (i.e. our door tile setup where a/b are the two adjacent regions).
-  if (Math.abs(a.x - b.x) + Math.abs(a.y - b.y) !== 2) return false;
-  const mx = Math.round((a.x + b.x) / 2);
-  const my = Math.round((a.y + b.y) / 2);
-  return mx === c.x && my === c.y;
-}
-
-function findDoorTile(s: HQState, d: Door): Coord | null {
-  // The door's tile is whichever 'door' kind cell sits between a and b.
-  const mx = Math.round((d.a.x + d.b.x) / 2);
-  const my = Math.round((d.a.y + d.b.y) / 2);
-  if (s.tiles[my]?.[mx]?.kind === 'door') return { x: mx, y: my };
-  // Fallback: scan all door tiles and pick the closest to a.
-  for (let y = 0; y < s.tiles.length; y++) {
-    for (let x = 0; x < s.tiles[0].length; x++) {
-      if (s.tiles[y][x].kind === 'door' && Math.abs(x - d.a.x) + Math.abs(y - d.a.y) === 1) {
-        return { x, y };
-      }
-    }
-  }
-  return null;
-}
-
 function chebyshev(a: Coord, b: Coord): number {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 }
@@ -1132,6 +1090,62 @@ function adjacentCells(c: Coord): Coord[] {
     { x: c.x + 1, y: c.y }, { x: c.x - 1, y: c.y },
     { x: c.x, y: c.y + 1 }, { x: c.x, y: c.y - 1 },
   ];
+}
+
+// ============================================================================
+// Edge-based walls & doors
+// ----------------------------------------------------------------------------
+// Walls and doors live on the LINES between cells, not in cells. The wall
+// between two adjacent cells exists wherever "the colour changes" — i.e. their
+// regions differ and at least one is a room. A door is an opening cut into such
+// a wall: passable (and see-through) when open, solid when closed.
+// ============================================================================
+
+function regionOf(s: HQState, c: Coord): string {
+  return s.tiles[c.y]?.[c.x]?.region ?? '';
+}
+
+/** Undirected key for the edge between two orthogonally-adjacent cells. */
+function edgeKey(p: Coord, q: Coord): string {
+  return (p.y < q.y || (p.y === q.y && p.x < q.x))
+    ? `${p.x},${p.y}|${q.x},${q.y}`
+    : `${q.x},${q.y}|${p.x},${p.y}`;
+}
+
+/** True if a wall sits on the edge between p and q (room boundary / colour
+ *  change). Same region, or two non-room areas (corridor↔stairway), are open. */
+function isWallEdge(s: HQState, p: Coord, q: Coord): boolean {
+  const rp = regionOf(s, p), rq = regionOf(s, q);
+  if (rp === rq) return false;
+  return rp.startsWith('room_') || rq.startsWith('room_');
+}
+
+/** The door (if any) sitting on the edge between p and q. */
+function doorOnEdge(s: HQState, p: Coord, q: Coord): Door | undefined {
+  const key = edgeKey(p, q);
+  for (const d of s.doors) {
+    for (const c of d.crossings) {
+      if (edgeKey(c.a, c.b) === key) return d;
+    }
+  }
+  return undefined;
+}
+
+/** Can a figure NOT cross the edge from p to q? (Wall, or a closed/secret door.) */
+function edgeBlocksMove(s: HQState, p: Coord, q: Coord, phaseWalls: boolean): boolean {
+  if (phaseWalls) return false;
+  if (!isWallEdge(s, p, q)) return false;
+  const d = doorOnEdge(s, p, q);
+  if (d) return (d.secret && !d.found) ? true : !d.open;
+  return true; // solid wall
+}
+
+/** Does the edge from p to q block line of sight? (Wall or closed/secret door.) */
+function edgeBlocksSight(s: HQState, p: Coord, q: Coord): boolean {
+  if (!isWallEdge(s, p, q)) return false;
+  const d = doorOnEdge(s, p, q);
+  if (d) return (d.secret && !d.found) ? true : !d.open;
+  return true;
 }
 
 /** Shortest orthogonal path length from the hero to `dest`. Friendly heroes
@@ -1153,8 +1167,10 @@ function pathDistance(s: HQState, hero: Hero, dest: Coord): number {
       const key = `${n.x},${n.y}`;
       if (dist.has(key)) continue;
       if (!inBounds(s, n)) continue;
-      // Walls / furniture / closed doors block unless phasing.
+      // Rock / move-blocking furniture block unless phasing.
       if (!hero.phaseWalls && !isPassable(s, n, /*forHero*/ true)) continue;
+      // Room-boundary walls + closed doors block the crossing (unless phasing).
+      if (edgeBlocksMove(s, cur, n, !!hero.phaseWalls)) continue;
       // Monsters always block movement; friendly heroes are transparent to it.
       if (s.monsters.some(m => m.at.x === n.x && m.at.y === n.y)) continue;
       const nd = d + 1;
@@ -1166,23 +1182,31 @@ function pathDistance(s: HQState, hero: Hero, dest: Coord): number {
   return -1;
 }
 
-// Bresenham line; returns true if every cell on the line (excluding endpoints)
-// is "see-through" (floor / open door / stairs).
+// Bresenham line. Sight is blocked by a rock cell or LOS-blocking furniture on
+// an intermediate cell, by a figure standing on an intermediate cell, OR by a
+// wall / closed door on any edge the ray crosses.
 function hasLineOfSight(s: HQState, a: Coord, b: Coord): boolean {
   const cells = bresenham(a, b);
-  for (let i = 1; i < cells.length - 1; i++) {
-    const c = cells[i];
-    if (!inBounds(s, c)) return false;
-    const t = s.tiles[c.y][c.x];
-    if (t.kind === 'wall' || t.kind === 'blocked') return false;
-    if (t.kind === 'door') {
-      const d = s.doors.find(dx => sameCell(dx, c));
-      if (!d || !d.open) return false;
+  for (let i = 1; i < cells.length; i++) {
+    const prev = cells[i - 1], c = cells[i];
+    // Edge crossing prev→c. Orthogonal steps check the single shared wall;
+    // diagonal steps are blocked only if BOTH corner edges are blocked.
+    const ortho = Math.abs(prev.x - c.x) + Math.abs(prev.y - c.y) === 1;
+    if (ortho) {
+      if (edgeBlocksSight(s, prev, c)) return false;
+    } else {
+      const e1 = edgeBlocksSight(s, prev, { x: c.x, y: prev.y });
+      const e2 = edgeBlocksSight(s, prev, { x: prev.x, y: c.y });
+      if (e1 && e2) return false;
     }
-    // Furniture that blocks LOS.
-    if (s.furniture.some(f => f.blocksLos && f.cells.some(x => x.x === c.x && x.y === c.y))) return false;
-    // Other figures block LOS.
-    if (cellOccupied(s, c, false)) return false;
+    // Intermediate cells (not the endpoints) block on rock / LOS furniture / figures.
+    if (i < cells.length - 1) {
+      if (!inBounds(s, c)) return false;
+      const t = s.tiles[c.y][c.x];
+      if (t.kind === 'wall' || t.kind === 'blocked') return false;
+      if (s.furniture.some(f => f.blocksLos && f.cells.some(x => x.x === c.x && x.y === c.y))) return false;
+      if (cellOccupied(s, c, false)) return false;
+    }
   }
   return true;
 }

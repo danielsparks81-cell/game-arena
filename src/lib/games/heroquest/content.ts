@@ -13,7 +13,7 @@ import type {
   Spell,
   TreasureCard,
 } from './types';
-import { BASE_BOARD } from './board';
+import { BASE_BOARD, generateConnectingDoors } from './board';
 
 // ============================================================================
 // Hero class defaults
@@ -223,7 +223,9 @@ function makeQuest1(): QuestDef {
     height: BASE_BOARD.height,
     tiles: BASE_BOARD.tiles,
     regions: BASE_BOARD.regions,
-    doors: [],
+    // Auto-placed doors connect every walled room back to the corridors; refine
+    // per-quest later (or in the sandbox).
+    doors: generateConnectingDoors(),
     furniture,
     traps: [],
     monsters,

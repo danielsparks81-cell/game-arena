@@ -30,15 +30,15 @@ export type Tile = {
   revealed: boolean;
 };
 
-/** A door's open/closed state lives separately so doors can flip without
-    rewriting the whole tile. */
+/** A door is an opening in a wall — it lives ON the line between cells, not in
+ *  a cell, so nothing ever stands "in" a doorway. Each `crossings` entry is a
+ *  pair of orthogonally-adjacent cells on opposite sides of the wall; a 2-wide
+ *  doorway has two parallel crossings (up to 4 squares touch it). */
 export type Door = {
   id: string;
-  /** Two adjacent cells the door connects (one in corridor, one in room). */
-  a: Coord;
-  b: Coord;
+  crossings: { a: Coord; b: Coord }[];
   open: boolean;
-  /** Hidden until searched. Treated as wall for LOS/movement until found. */
+  /** Hidden until searched. Treated as solid wall for LOS/movement until found. */
   secret: boolean;
   found: boolean;
 };

@@ -3,7 +3,7 @@
 // HeroQuest board canvas — stone tiles, torchlit fog of war, hero/monster
 // tokens rendered as SVG portraits, click-to-move highlights.
 
-import { useMemo } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import {
   type HQState,
   type Hero,
@@ -13,7 +13,7 @@ import {
   type Furniture as HQFurniture,
 } from '@/lib/games/heroquest';
 import {
-  WallTile, FloorTile, DoorTile, StairsTile,
+  WallTile, FloorTile, StairsTile,
   HeroToken, MonsterToken, FurnitureToken,
   HQ_COLORS,
 } from './Art';
@@ -49,17 +49,30 @@ export default function HeroQuestBoardCanvas({
   const isMyTurn = activeHero?.playerId === currentUserId;
   const myHero = isMyTurn && activeHero?.body > 0 ? activeHero : undefined;
 
-  // ---- Indexes ----
-  const doorByCell = useMemo(() => {
-    const map = new Map<string, HQDoor>();
-    for (const d of state.doors) {
-      const mx = Math.round((d.a.x + d.b.x) / 2);
-      const my = Math.round((d.a.y + d.b.y) / 2);
-      map.set(`${mx},${my}`, d);
-    }
-    return map;
+  // ---- Edge helpers: walls & doors live on the LINES between cells ----
+  const regionAt = (x: number, y: number) => state.tiles[y]?.[x]?.region ?? '';
+  const isWallEdge = (ax: number, ay: number, bx: number, by: number) => {
+    const ra = regionAt(ax, ay), rb = regionAt(bx, by);
+    if (ra === rb) return false;
+    return ra.startsWith('room_') || rb.startsWith('room_');
+  };
+  const eKey = (ax: number, ay: number, bx: number, by: number) =>
+    (ay < by || (ay === by && ax < bx)) ? `${ax},${ay}|${bx},${by}` : `${bx},${by}|${ax},${ay}`;
+  const doorByEdge = useMemo(() => {
+    const m = new Map<string, HQDoor>();
+    for (const d of state.doors) for (const c of d.crossings) m.set(eKey(c.a.x, c.a.y, c.b.x, c.b.y), d);
+    return m;
   }, [state.doors]);
+  const doorAtEdge = (ax: number, ay: number, bx: number, by: number) => doorByEdge.get(eKey(ax, ay, bx, by));
+  const edgeBlocksMove = (ax: number, ay: number, bx: number, by: number, phaseWalls: boolean) => {
+    if (phaseWalls) return false;
+    if (!isWallEdge(ax, ay, bx, by)) return false;
+    const d = doorAtEdge(ax, ay, bx, by);
+    if (d) return (d.secret && !d.found) ? true : !d.open;
+    return true;
+  };
 
+  // ---- Indexes ----
   const monsterByCell = useMemo(() => {
     const map = new Map<string, Monster>();
     for (const m of state.monsters) map.set(`${m.at.x},${m.at.y}`, m);
@@ -103,12 +116,9 @@ export default function HeroQuestBoardCanvas({
         const t = state.tiles[ny][nx];
         if (!phaseWalls) {
           if (t.kind === 'wall' || t.kind === 'blocked') continue;
-          if (t.kind === 'door') {
-            const dr = doorByCell.get(key);
-            if (!dr || !dr.open) continue;
-          }
           if (furnByCell.get(key)?.blocksMove) continue;
         }
+        if (edgeBlocksMove(cur.x, cur.y, nx, ny, phaseWalls)) continue;  // walls / closed doors
         if (monsterByCell.has(key)) continue;       // monsters block
         dist.set(key, d + 1);
         queue.push({ x: nx, y: ny });
@@ -116,34 +126,27 @@ export default function HeroQuestBoardCanvas({
       }
     }
     return out;
-  }, [isMyTurn, myHero, state.tiles, doorByCell, monsterByCell, heroByCell, furnByCell, W, H]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMyTurn, myHero, state.tiles, doorByEdge, monsterByCell, heroByCell, furnByCell, W, H]);
 
-  // ---- Adjacent closed doors (clickable to open) ----
-  const adjacentDoor = useMemo(() => {
-    const out: Array<{ door: HQDoor; cell: Coord }> = [];
+  // ---- Doors the active hero can open: a closed, visible door with the hero
+  // standing on one of its squares (the doorway). ----
+  const openableDoors = useMemo(() => {
+    const out: HQDoor[] = [];
     if (!isMyTurn || !myHero) return out;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      const nx = myHero.at.x + dx, ny = myHero.at.y + dy;
-      const d = doorByCell.get(`${nx},${ny}`);
-      if (d && !d.open && (d.found || !d.secret)) out.push({ door: d, cell: { x: nx, y: ny } });
+    for (const d of state.doors) {
+      if (d.open || (d.secret && !d.found)) continue;
+      const onDoorway = d.crossings.some(c =>
+        (c.a.x === myHero.at.x && c.a.y === myHero.at.y) ||
+        (c.b.x === myHero.at.x && c.b.y === myHero.at.y));
+      if (onDoorway) out.push(d);
     }
     return out;
-  }, [isMyTurn, myHero, doorByCell]);
-
-  const adjacentDoorSet = useMemo(
-    () => new Set(adjacentDoor.map(d => `${d.cell.x},${d.cell.y}`)),
-    [adjacentDoor],
-  );
+  }, [isMyTurn, myHero, state.doors]);
 
   // ---- Tile variant stable per cell (so the floor doesn't shimmer on rerender) ----
   function floorVariant(x: number, y: number) {
     return (x * 7 + y * 13) % 3;
-  }
-
-  // ---- Determine door orientation (horizontal/vertical plank). ----
-  function doorOrientation(d: HQDoor): boolean {
-    // If the two regions a/b differ in y, the door is on a horizontal wall.
-    return d.a.y !== d.b.y;
   }
 
   // ---- Torchlight: which cells are *currently* lit (within Chebyshev 5 of
@@ -183,17 +186,14 @@ export default function HeroQuestBoardCanvas({
         {state.tiles.flatMap((row, y) =>
           row.map((tile, x) => {
             const key = `${x},${y}`;
-            const door = doorByCell.get(key);
             const level = lightLevel(x, y);
             const isReach = reachable.has(key);
-            const isAdjDoor = adjacentDoorSet.has(key);
-            const isClickable = isReach || isAdjDoor;
-            // Render the appropriate sub-tile.
+            const isClickable = isReach;
+            // Render the appropriate sub-tile (doors/walls are drawn as an
+            // overlay on the cell boundaries, not as tiles).
             let tileArt: React.ReactNode = null;
             if (tile.kind === 'wall' || tile.kind === 'blocked') {
               tileArt = <WallTile size={TILE_PX} />;
-            } else if (tile.kind === 'door') {
-              tileArt = <DoorTile size={TILE_PX} open={!!door?.open} horizontal={door ? doorOrientation(door) : true} />;
             } else if (tile.kind === 'stairs') {
               tileArt = <StairsTile size={TILE_PX} />;
             } else {
@@ -213,17 +213,9 @@ export default function HeroQuestBoardCanvas({
                 }}
                 onClick={() => {
                   if (disabled) return;
-                  if (isReach)    onMoveTo({ x, y });
-                  else if (isAdjDoor) {
-                    const d = doorByCell.get(key);
-                    if (d) onOpenDoor(d.id);
-                  }
+                  if (isReach) onMoveTo({ x, y });
                 }}
-                title={
-                  tile.revealed
-                    ? `${tile.region} (${x},${y})${door ? door.open ? ' • open door' : ' • closed door' : ''}`
-                    : 'Unexplored'
-                }
+                title={tile.revealed ? `${tile.region} (${x},${y})` : 'Unexplored'}
               >
                 {tileArt}
                 {/* Lighting overlay */}
@@ -242,20 +234,20 @@ export default function HeroQuestBoardCanvas({
                     }}
                   />
                 )}
-                {/* Amber ring on an adjacent door */}
-                {isAdjDoor && (
-                  <div
-                    className="pointer-events-none absolute inset-0"
-                    style={{
-                      boxShadow: 'inset 0 0 0 2px rgba(255,150,30,0.85)',
-                      animation: 'hq-pulse 1.5s ease-in-out infinite',
-                    }}
-                  />
-                )}
               </div>
             );
           }),
         )}
+
+        {/* Wall + door overlay — drawn on the LINES between cells. */}
+        <WallDoorOverlay
+          state={state}
+          isWallEdge={isWallEdge}
+          doorAtEdge={doorAtEdge}
+          openable={openableDoors}
+          disabled={disabled}
+          onOpenDoor={onOpenDoor}
+        />
 
         {/* Furniture layer */}
         {state.furniture.map(f =>
@@ -420,5 +412,85 @@ export default function HeroQuestBoardCanvas({
         }
       `}</style>
     </div>
+  );
+}
+
+// ============================================================================
+// Wall + door overlay — walls and doors live on the LINES between cells.
+// ============================================================================
+
+function WallDoorOverlay({
+  state, isWallEdge, doorAtEdge, openable, disabled, onOpenDoor,
+}: {
+  state: HQState;
+  isWallEdge: (ax: number, ay: number, bx: number, by: number) => boolean;
+  doorAtEdge: (ax: number, ay: number, bx: number, by: number) => HQDoor | undefined;
+  openable: HQDoor[];
+  disabled: boolean;
+  onOpenDoor: (id: string) => void;
+}) {
+  const W = state.quest.width, H = state.quest.height;
+  const openableIds = new Set(openable.map(d => d.id));
+  const revealed = (x: number, y: number) => !!state.tiles[y]?.[x]?.revealed;
+  const T = 3; // wall thickness (px)
+  const segments: React.ReactNode[] = [];
+
+  const wall = (key: string, style: CSSProperties) =>
+    segments.push(<div key={key} className="pointer-events-none absolute" style={{ ...style, background: '#2a1410', zIndex: 2 }} />);
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      // East edge: between (x,y) and (x+1,y) — a vertical line.
+      if (x + 1 < W && (revealed(x, y) || revealed(x + 1, y))) {
+        const door = doorAtEdge(x, y, x + 1, y);
+        const hidden = door?.secret && !door.found;
+        if (door && !hidden) {
+          segments.push(<DoorSeg key={`d-e-${x}-${y}`} vertical left={(x + 1) * TILE_PX} top={y * TILE_PX}
+            open={door.open} openable={openableIds.has(door.id)} disabled={disabled} onOpen={() => onOpenDoor(door.id)} />);
+        } else if (isWallEdge(x, y, x + 1, y)) {
+          wall(`w-e-${x}-${y}`, { left: (x + 1) * TILE_PX - T / 2, top: y * TILE_PX, width: T, height: TILE_PX });
+        }
+      }
+      // South edge: between (x,y) and (x,y+1) — a horizontal line.
+      if (y + 1 < H && (revealed(x, y) || revealed(x, y + 1))) {
+        const door = doorAtEdge(x, y, x, y + 1);
+        const hidden = door?.secret && !door.found;
+        if (door && !hidden) {
+          segments.push(<DoorSeg key={`d-s-${x}-${y}`} left={x * TILE_PX} top={(y + 1) * TILE_PX}
+            open={door.open} openable={openableIds.has(door.id)} disabled={disabled} onOpen={() => onOpenDoor(door.id)} />);
+        } else if (isWallEdge(x, y, x, y + 1)) {
+          wall(`w-s-${x}-${y}`, { left: x * TILE_PX, top: (y + 1) * TILE_PX - T / 2, width: TILE_PX, height: T });
+        }
+      }
+    }
+  }
+  return <>{segments}</>;
+}
+
+function DoorSeg({
+  left, top, vertical = false, open, openable, disabled, onOpen,
+}: {
+  left: number; top: number; vertical?: boolean; open: boolean;
+  openable: boolean; disabled: boolean; onOpen: () => void;
+}) {
+  const len = TILE_PX, thick = 8;
+  const box: CSSProperties = vertical
+    ? { left: left - thick / 2, top, width: thick, height: len }
+    : { left, top: top - thick / 2, width: len, height: thick };
+  return (
+    <div
+      className="absolute"
+      style={{
+        ...box,
+        zIndex: 4,
+        borderRadius: 2,
+        background: open ? 'rgba(120,90,40,0.25)' : '#9a4a18',
+        border: open ? '1px dashed rgba(180,140,80,0.6)' : '1.5px solid #4a2008',
+        boxShadow: openable && !open ? '0 0 8px 2px rgba(255,160,40,0.9)' : undefined,
+        cursor: openable && !disabled ? 'pointer' : 'default',
+      }}
+      onClick={() => { if (openable && !disabled) onOpen(); }}
+      title={open ? 'Open doorway' : openable ? 'Closed door — click to open' : 'Closed door'}
+    />
   );
 }

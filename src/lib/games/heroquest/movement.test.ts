@@ -85,6 +85,38 @@ describe('heroquest movement: pass through friendly figures', () => {
   });
 });
 
+describe('heroquest doors: edge doors block until opened', () => {
+  it('a closed door blocks the crossing; opening it from the doorway lets you through', () => {
+    let s = startedGame();
+    const door = QUEST1.doors[0];
+    const cross = door.crossings[0];
+    s = JSON.parse(JSON.stringify(s));
+    // Park other heroes; stand hero 0 on the corridor side of the door.
+    s.heroes[1].at = { x: 28, y: 1 };
+    s.heroes[2].at = { x: 29, y: 1 };
+    s.heroes[3].at = { x: 30, y: 1 };
+    s.heroes[0].at = { ...cross.b };
+    s.heroes[0].hasRolled = true;
+    s.heroes[0].moveLeft = 6;
+    s.turnIndex = 0;
+
+    // Closed door → the room cell across the wall is unreachable.
+    const blocked = applyAction(s, 'p1', { kind: 'move_to', at: { ...cross.a } });
+    expect(blocked.ok).toBe(false);
+
+    // Open it (the hero is standing in the doorway).
+    s = unwrap(applyAction(s, 'p1', { kind: 'open_door', doorId: door.id }));
+    expect(s.doors.find(d => d.id === door.id)!.open).toBe(true);
+
+    // Clear any monsters the reveal spawned, then cross the now-open doorway.
+    s.monsters = [];
+    s.heroes[0].hasRolled = true;
+    s.heroes[0].moveLeft = 6;
+    const ok = applyAction(s, 'p1', { kind: 'move_to', at: { ...cross.a } });
+    expect(ok.ok).toBe(true);
+  });
+});
+
 describe('heroquest: monsters spawn when a room is revealed', () => {
   it("spawns a room's monsters the moment a hero first sees into it", () => {
     let s = startedGame();

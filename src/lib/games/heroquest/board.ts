@@ -10,7 +10,7 @@
 //         distinct room (room_1, room_2, …). Repeated colours in different
 //         places are different rooms.
 
-import type { TileKind } from './types';
+import type { TileKind, Coord } from './types';
 
 export const BOARD_W = 32;
 export const BOARD_H = 23;
@@ -107,4 +107,47 @@ export const BASE_BOARD: BaseBoard = buildBaseBoard();
 /** Region id at a board cell (room_N, 'corridor', 'stairway', or ''). */
 export function boardRegionAt(x: number, y: number): string {
   return BASE_BOARD.regions[y]?.[x] ?? '';
+}
+
+/** Auto-place a minimal set of doors that connect every room back to the
+ *  corridors — a spanning tree over the region graph. Each room gets ONE door
+ *  (2-wide where the shared wall allows) to an already-connected region, so the
+ *  whole dungeon is reachable from the entrance. Returns door specs ready for a
+ *  QuestDef (engine fills open/found). Quests can use these or hand-author. */
+export function generateConnectingDoors(): { id: string; crossings: { a: Coord; b: Coord }[]; secret: boolean }[] {
+  const { width: W, height: H, regions } = BASE_BOARD;
+  const at = (x: number, y: number) => (x >= 0 && y >= 0 && x < W && y < H ? regions[y][x] : '');
+  const isRoom = (r: string) => r.startsWith('room_');
+  const connected = new Set<string>(['corridor', 'stairway']);
+  const doors: { id: string; crossings: { a: Coord; b: Coord }[]; secret: boolean }[] = [];
+  let did = 0;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const r = at(x, y);
+        if (!isRoom(r) || connected.has(r)) continue;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nr = at(x + dx, y + dy);
+          if (!nr || nr === r || !connected.has(nr)) continue;
+          // Primary crossing; widen to 2 cells along the wall if possible.
+          const crossings: { a: Coord; b: Coord }[] = [{ a: { x, y }, b: { x: x + dx, y: y + dy } }];
+          const perp = dx !== 0 ? [{ x: 0, y: 1 }, { x: 0, y: -1 }] : [{ x: 1, y: 0 }, { x: -1, y: 0 }];
+          for (const p of perp) {
+            const ax = x + p.x, ay = y + p.y, bx = x + dx + p.x, by = y + dy + p.y;
+            if (at(ax, ay) === r && at(bx, by) === nr) {
+              crossings.push({ a: { x: ax, y: ay }, b: { x: bx, y: by } });
+              break;
+            }
+          }
+          doors.push({ id: `door_${++did}`, crossings, secret: false });
+          connected.add(r);
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+  return doors;
 }
