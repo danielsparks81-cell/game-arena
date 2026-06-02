@@ -17,9 +17,14 @@ import { BOARD_RENDERERS } from '@/lib/games/boards';
 // available area at this design width (keeping aspect). Full-width / flexible
 // games NEED a value; tune as games are designed ~16:9. HeroQuest is omitted
 // (it has its own board zoom).
+//
+// Pick a width close to the widest common play area (≈ a 1080p/1440p viewport
+// with the chat hidden) so text-heavy boards render near 1× there — scaling UP
+// past the design width softens text (upscaling can't add detail), while
+// scaling DOWN with the chat open stays crisp.
 const GAME_DESIGN_WIDTH: Record<string, number> = {
-  legendary: 1440,
-  longshot: 1440,
+  legendary: 1800,
+  longshot: 1800,
   spellduel: 1100,
   battleship: 960,
   yahtzee: 980,
