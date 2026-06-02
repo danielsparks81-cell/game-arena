@@ -206,7 +206,7 @@ export default function RoomClient({
           />
         ) : undefined}
       />
-    <main className={`mx-auto grid w-full max-w-[1800px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 ${sidebarCollapsed ? '' : 'lg:grid-cols-[1fr_320px]'}`}>
+    <main className={`mx-auto grid w-full max-w-[2400px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 ${sidebarCollapsed ? '' : 'lg:grid-cols-[1fr_320px]'}`}>
       {/* Sidebar collapse toggle — always visible at top-right of the viewport
           on desktop. Hidden on mobile (where the sidebar already stacks below). */}
       <button
@@ -220,10 +220,10 @@ export default function RoomClient({
       </button>
       <section>
         {/* Shared frame — every game board renders inside this so the template
-            size is consistent across PC / tablet / phone. Cap matches Long
-            Shot's natural max so it doesn't shrink; smaller games (TTT, C4,
-            Checkers, Battleship) just center within it at their own sizes. */}
-        <div className="mx-auto w-full max-w-[1440px]">
+            size is consistent across PC / tablet / phone. Wide cap so big
+            screens / hidden-chat fill out; smaller games just center within it
+            at their own sizes. */}
+        <div className="mx-auto w-full max-w-[2100px]">
         {/* Seats grid is only useful while waiting for players to fill the lobby.
             Once the game starts, MembersPanel's "In game" section on the right
             owns the turn-order display, so showing the seats too is redundant.
