@@ -10,8 +10,25 @@ import GeneralChat from '@/components/GeneralChat';
 import TopBar from '@/components/TopBar';
 import RoomTopBarActions from '@/components/RoomTopBarActions';
 import RematchToast from '@/components/RematchToast';
-import FitToScreen from '@/components/FitToScreen';
+import GameViewport from '@/components/GameViewport';
 import { BOARD_RENDERERS } from '@/lib/games/boards';
+
+// Per-game logical canvas width. The GameViewport scales each game to fit the
+// available area at this design width (keeping aspect). Full-width / flexible
+// games NEED a value; tune as games are designed ~16:9. HeroQuest is omitted
+// (it has its own board zoom).
+const GAME_DESIGN_WIDTH: Record<string, number> = {
+  legendary: 1440,
+  longshot: 1440,
+  spellduel: 1100,
+  battleship: 960,
+  yahtzee: 980,
+  checkers: 680,
+  liarsdice: 820,
+  boggle: 720,
+  tictactoe: 560,
+  rps: 600,
+};
 import { getTurnInfo } from '@/lib/games/turnOrder';
 import { useTurnNotification } from '@/lib/useTurnNotification';
 import { safeAccent } from '@/lib/accentColors';
@@ -206,7 +223,7 @@ export default function RoomClient({
           />
         ) : undefined}
       />
-    <main className={`mx-auto grid w-full max-w-[1800px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 ${sidebarCollapsed ? '' : 'lg:grid-cols-[1fr_320px]'}`}>
+    <main className={`mx-auto grid w-full max-w-[2200px] flex-1 grid-cols-1 gap-4 p-4 sm:gap-6 sm:p-6 ${sidebarCollapsed ? '' : 'lg:grid-cols-[1fr_320px]'}`}>
       {/* Sidebar collapse toggle — always visible at top-right of the viewport
           on desktop. Hidden on mobile (where the sidebar already stacks below). */}
       <button
@@ -218,18 +235,11 @@ export default function RoomClient({
       >
         {sidebarCollapsed ? '◀' : '▶'}
       </button>
-      <section>
-        {/* Shared frame — every game board renders inside this so the template
-            size is consistent across PC / tablet / phone. Cap matches Long
-            Shot's natural max so it doesn't shrink; smaller games (TTT, C4,
-            Checkers, Battleship) just center within it at their own sizes. */}
-        <div className="mx-auto w-full max-w-[1440px]">
-        {/* Seats grid is only useful while waiting for players to fill the lobby.
-            Once the game starts, MembersPanel's "In game" section on the right
-            owns the turn-order display, so showing the seats too is redundant.
-            Applies to every game; new games inherit this for free. */}
+      <section className="min-w-0">
+        {/* Lobby content (seats + how-to-play) lives in a centered frame while
+            waiting for players. */}
         {room.status === 'waiting' && (
-          <>
+          <div className="mx-auto w-full max-w-[1440px]">
             <Seats
               room={room}
               currentUserId={currentUserId}
@@ -238,14 +248,14 @@ export default function RoomClient({
                 : undefined}
             />
             <GameGuidePanel gameId={room.game_type} gameName={gameName} />
-          </>
+          </div>
         )}
 
-        {/* All per-game board rendering happens via the BOARD_RENDERERS map
-            in src/lib/games/boards.tsx — adding a new game means adding one
-            entry there, not patching this file. While playing, the board is
-            wrapped in FitToScreen so it scales up to fill the screen (great in
-            fullscreen). HeroQuest is excluded — it has its own board zoom. */}
+        {/* Per-game board via the BOARD_RENDERERS map (adding a game = one entry
+            there). While playing, every game (except HeroQuest, which has its own
+            board zoom) routes through GameViewport, which scales it to fit the
+            available space — keeping aspect and letterboxing the spare dimension
+            — so we design ~16:9 and fill whatever the device gives us. */}
         {(() => {
           const board = BOARD_RENDERERS[room.game_type]?.({
             roomId,
@@ -258,19 +268,11 @@ export default function RoomClient({
             pending,
             startTransition,
           });
-          // HeroQuest has its own board zoom; Legendary reflows to fill space
-          // natively (full-width, responsive heights) — both opt out of the
-          // generic scale-up.
-          const noFit = new Set(['heroquest', 'legendary']);
-          const fit = room.status === 'playing' && !noFit.has(room.game_type);
-          return fit ? <FitToScreen>{board}</FitToScreen> : board;
+          if (room.status !== 'playing' || room.game_type === 'heroquest') {
+            return <div className="mx-auto w-full max-w-[1440px]">{board}</div>;
+          }
+          return <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type]}>{board}</GameViewport>;
         })()}
-
-        {/* Rematch now surfaces as a floating top-of-screen toast (mirrors the
-            invite-toast pattern) instead of an inline panel under the board.
-            Rendered once at the bottom of this component so it overlays everything. */}
-
-        </div>
       </section>
 
       <div className={`space-y-4 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
