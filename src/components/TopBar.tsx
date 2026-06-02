@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import BugInbox from './BugInbox';
 import ReportErrorButton from './ReportErrorButton';
+import FullscreenButton from './FullscreenButton';
 
 export default function TopBar({
   username,
@@ -39,6 +40,8 @@ export default function TopBar({
         >
           🛠 Sandbox
         </Link>
+        {/* Maximize screen space (works in any browser tab). */}
+        <FullscreenButton />
         {/* Bug-report button for everyone; admin-only bug-inbox alongside */}
         <ReportErrorButton />
         <BugInbox />

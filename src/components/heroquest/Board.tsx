@@ -3,7 +3,7 @@
 // HeroQuest board canvas — stone tiles, torchlit fog of war, hero/monster
 // tokens rendered as SVG portraits, click-to-move highlights.
 
-import { useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   MONSTER_STATS,
   type HQState,
@@ -165,22 +165,58 @@ export default function HeroQuestBoardCanvas({
     return 'dim';
   }
 
+  // ---- Zoom / fit-to-screen ----
+  // The board can be large (e.g. 32×23). Default to a "fit" zoom that shows the
+  // whole board with no scrolling; the +/− buttons let you zoom in to inspect.
+  const boardW = W * TILE_PX, boardH = H * TILE_PX;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [fitZoom, setFitZoom] = useState(1);
+  const [userZoom, setUserZoom] = useState<number | null>(null); // null = follow fit
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const compute = () => {
+      const availW = el.clientWidth - 12;
+      const availH = el.clientHeight - 12;
+      setFitZoom(Math.max(0.2, Math.min(availW / boardW, availH / boardH, 1.4)));
+    };
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [boardW, boardH]);
+  const zoom = userZoom ?? fitZoom;
+  const fitMode = userZoom === null;
+  const stepZoom = (factor: number) => setUserZoom(z => Math.max(0.25, Math.min(2.5, (z ?? fitZoom) * factor)));
+
   return (
     <div
+      ref={containerRef}
       className="relative overflow-auto rounded-xl border-2 border-amber-900/70 bg-black p-3"
       style={{
         maxWidth: '100%',
-        maxHeight: '78vh',
+        height: '80vh',
         background: 'radial-gradient(ellipse at center, #0a0805 0%, #000 100%)',
         boxShadow: 'inset 0 0 80px rgba(0,0,0,0.95)',
       }}
     >
+      {/* Zoom controls (sticky to the top of the scroll area) */}
+      <div className="sticky top-0 z-20 mb-1 flex justify-end gap-1">
+        <ZoomBtn onClick={() => stepZoom(1 / 1.2)} title="Zoom out">−</ZoomBtn>
+        <ZoomBtn onClick={() => setUserZoom(null)} title="Fit to screen" active={fitMode}>⤢</ZoomBtn>
+        <ZoomBtn onClick={() => stepZoom(1.2)} title="Zoom in">+</ZoomBtn>
+      </div>
+
+      {/* Size-reserving wrapper so the scroll area matches the scaled board. */}
+      <div style={{ width: boardW * zoom, height: boardH * zoom }}>
       <div
         className="relative"
         style={{
           width: W * TILE_PX,
           height: H * TILE_PX,
           imageRendering: 'pixelated',
+          transform: `scale(${zoom})`,
+          transformOrigin: 'top left',
         }}
       >
         {/* Tile layer */}
@@ -404,6 +440,7 @@ export default function HeroQuestBoardCanvas({
           />
         ))}
       </div>
+      </div>
 
       {/* Inline keyframes — kept here so the board chunk owns its CSS. */}
       <style>{`
@@ -413,6 +450,23 @@ export default function HeroQuestBoardCanvas({
         }
       `}</style>
     </div>
+  );
+}
+
+function ZoomBtn({ onClick, title, active, children }: {
+  onClick: () => void; title: string; active?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`flex h-7 w-7 items-center justify-center rounded border text-sm font-bold transition ${
+        active
+          ? 'border-amber-400 bg-amber-500/30 text-amber-100'
+          : 'border-amber-900/70 bg-black/70 text-amber-200 hover:border-amber-400 hover:bg-amber-500/20'
+      }`}
+    >{children}</button>
   );
 }
 

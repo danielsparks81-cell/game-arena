@@ -4,6 +4,9 @@ import './globals.css';
 export const metadata: Metadata = {
   title: 'Game Arena',
   description: 'Play turn-based games with friends, anywhere.',
+  // Installable PWA — opens in a standalone, chrome-free window for max space.
+  applicationName: 'Game Arena',
+  appleWebApp: { capable: true, statusBarStyle: 'black-translucent', title: 'Game Arena' },
 };
 
 export const viewport: Viewport = {
