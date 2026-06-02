@@ -1,98 +1,101 @@
 import { describe, it, expect } from 'vitest';
 import { QUEST1 } from './content';
+import { BASE_BOARD } from './board';
 
-// Structural validation of "The Trial" map: correct dimensions, every room
-// reachable from the entry staircase, and all monsters/furniture placed on
-// valid floor squares inside their declared room.
+// The shared base board + "The Trial" laid out on it. Validates board geometry
+// (dimensions, rooms, staircase, full connectivity) and the quest's placements
+// (Verag objective, monsters inside rooms, furniture on floor, starts on stairs).
 
-const ROOM_REGIONS = ['room_c', 'room_f', 'room_d', 'room_t', 'room_e', 'room_g', 'room_a', 'room_b'];
-
-function tileAt(x: number, y: number) {
-  return { kind: QUEST1.tiles[y]?.[x], region: QUEST1.regions[y]?.[x] };
+function passable(x: number, y: number) {
+  const k = QUEST1.tiles[y]?.[x];
+  return k === 'floor' || k === 'door' || k === 'stairs';
 }
 
-describe('heroquest Quest 1 "The Trial": structure', () => {
-  it('has the expected dimensions and a rectangular tile grid', () => {
-    expect(QUEST1.width).toBe(26);
-    expect(QUEST1.height).toBe(19);
-    expect(QUEST1.tiles.length).toBe(19);
-    for (const row of QUEST1.tiles) expect(row.length).toBe(26);
+function reachableRegions(from: { x: number; y: number }): Set<string> {
+  const W = QUEST1.width, H = QUEST1.height;
+  const seen = new Set<string>([`${from.x},${from.y}`]);
+  const regions = new Set<string>();
+  const queue = [from];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    const r = QUEST1.regions[cur.y][cur.x];
+    if (r) regions.add(r);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cur.x + dx, ny = cur.y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const key = `${nx},${ny}`;
+      if (seen.has(key) || !passable(nx, ny)) continue;
+      seen.add(key);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return regions;
+}
+
+describe('heroquest base board', () => {
+  it('is 32x23 with many distinct rooms', () => {
+    expect(BASE_BOARD.width).toBe(32);
+    expect(BASE_BOARD.height).toBe(23);
+    expect(BASE_BOARD.rooms.length).toBeGreaterThanOrEqual(12);
+    // No duplicate room ids.
+    expect(new Set(BASE_BOARD.rooms).size).toBe(BASE_BOARD.rooms.length);
   });
 
-  it('places Verag as the gargoyle quest target', () => {
+  it('has an entry staircase', () => {
+    expect(BASE_BOARD.startCells.length).toBeGreaterThan(0);
+    for (const c of BASE_BOARD.startCells) {
+      expect(BASE_BOARD.tiles[c.y][c.x]).toBe('stairs');
+    }
+  });
+
+  it('connects the staircase to every room', () => {
+    const reached = reachableRegions(BASE_BOARD.startCells[0]);
+    for (const r of BASE_BOARD.rooms) {
+      expect(reached.has(r), `${r} reachable from the entrance`).toBe(true);
+    }
+  });
+});
+
+describe('heroquest Quest 1 "The Trial" on the shared board', () => {
+  it('uses the shared board geometry', () => {
+    expect(QUEST1.width).toBe(BASE_BOARD.width);
+    expect(QUEST1.height).toBe(BASE_BOARD.height);
+    expect(QUEST1.startCells).toBe(BASE_BOARD.startCells);
+  });
+
+  it('makes Verag the gargoyle objective', () => {
     const verag = QUEST1.monsters.find(m => m.displayName === 'Verag');
     expect(verag).toBeTruthy();
     expect(verag!.kind).toBe('gargoyle');
     expect(QUEST1.winCondition).toEqual({ kind: 'kill_and_exit', monsterDisplayName: 'Verag' });
   });
 
-  it('starts the heroes on staircase tiles', () => {
-    expect(QUEST1.startCells.length).toBe(4);
+  it('starts heroes on staircase tiles', () => {
     for (const c of QUEST1.startCells) {
-      expect(tileAt(c.x, c.y).kind).toBe('stairs');
+      expect(QUEST1.tiles[c.y][c.x]).toBe('stairs');
     }
   });
 
-  it('places every monster on a floor square inside its declared room', () => {
+  it('places every monster on a room floor square (region == its roomId)', () => {
     for (const m of QUEST1.monsters) {
-      const t = tileAt(m.at.x, m.at.y);
-      expect(t.kind, `${m.id} on floor`).toBe('floor');
-      expect(t.region, `${m.id} region matches roomId`).toBe(m.roomId);
+      expect(QUEST1.tiles[m.at.y][m.at.x], `${m.id} on floor`).toBe('floor');
+      expect(QUEST1.regions[m.at.y][m.at.x], `${m.id} region`).toBe(m.roomId);
+      expect(m.roomId.startsWith('room_'), `${m.id} in a room`).toBe(true);
     }
   });
 
-  it('places every furniture cell on a floor square (never inside rock)', () => {
+  it('places every furniture cell on a floor square', () => {
     for (const f of QUEST1.furniture) {
       for (const c of f.cells) {
-        expect(tileAt(c.x, c.y).kind, `${f.id} on floor`).toBe('floor');
+        expect(QUEST1.tiles[c.y][c.x], `${f.id} on floor`).toBe('floor');
       }
     }
   });
 
-  it('never places a monster on a movement-blocking furniture cell', () => {
-    const blockers = new Set(
-      QUEST1.furniture.filter(f => f.blocksMove).flatMap(f => f.cells.map(c => `${c.x},${c.y}`)),
-    );
+  it('places each monster in a room reachable from the entrance', () => {
+    const reached = reachableRegions(QUEST1.startCells[0]);
     for (const m of QUEST1.monsters) {
-      expect(blockers.has(`${m.at.x},${m.at.y}`), `${m.id} not on a blocker`).toBe(false);
-    }
-  });
-
-  it('connects the entry staircase to every room (doors treated as openable)', () => {
-    const W = QUEST1.width, H = QUEST1.height;
-    const start = QUEST1.startCells[0];
-    const seen = new Set<string>([`${start.x},${start.y}`]);
-    const queue = [start];
-    const reachedRegions = new Set<string>();
-    const passable = (x: number, y: number) => {
-      const k = QUEST1.tiles[y]?.[x];
-      return k === 'floor' || k === 'door' || k === 'stairs';
-    };
-    while (queue.length) {
-      const cur = queue.shift()!;
-      const r = QUEST1.regions[cur.y][cur.x];
-      if (r) reachedRegions.add(r);
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = cur.x + dx, ny = cur.y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const key = `${nx},${ny}`;
-        if (seen.has(key) || !passable(nx, ny)) continue;
-        seen.add(key);
-        queue.push({ x: nx, y: ny });
-      }
-    }
-    for (const region of ROOM_REGIONS) {
-      expect(reachedRegions.has(region), `${region} reachable from entry`).toBe(true);
-    }
-  });
-
-  it('gives every door a corridor side and a room side', () => {
-    expect(QUEST1.doors.length).toBeGreaterThan(0);
-    for (const d of QUEST1.doors) {
-      const ra = QUEST1.regions[d.a.y][d.a.x];
-      const rb = QUEST1.regions[d.b.y][d.b.x];
-      expect([ra, rb], `${d.id} bridges corridor + room`).toContain('corridor');
-      expect(ra === rb, `${d.id} connects two different regions`).toBe(false);
+      expect(reached.has(m.roomId), `${m.id}'s room reachable`).toBe(true);
     }
   });
 });

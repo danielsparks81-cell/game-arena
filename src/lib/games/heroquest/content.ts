@@ -11,9 +11,9 @@ import type {
   MonsterKind,
   QuestDef,
   Spell,
-  TileKind,
   TreasureCard,
 } from './types';
+import { BASE_BOARD } from './board';
 
 // ============================================================================
 // Hero class defaults
@@ -164,130 +164,14 @@ export function buildTreasureDeck(): TreasureCard[] {
 }
 
 // ============================================================================
-// Quest 1 — "The Trial" (built programmatically; faithful to the rulebook map)
-//
-// Layout (25 wide × 17 tall):
-//
-//   - Entry stairway 'S' on the west edge, mid-height (row 8).
-//   - Wide central corridor (rows 7–9) running east-west.
-//   - 6 rooms branching off the corridor (3 north, 3 south), each accessible
-//     by a single door, matching the rulebook's room cluster.
-//
-//   Room placements (with rulebook letters in parens):
-//     room_a (NW)  goblin pack  — 3 goblins
-//     room_b (N)   orc + goblin
-//     room_c (NE)  mummy guardian + tomb (Quest 1 'C')
-//     room_d (SW)  fimir + goblin
-//     room_e (S)   weapons rack 'A' (broken) + chest 'D' (84 gold)
-//     room_f (SE)  Verag's lair (gargoyle) + chest 'E' (120 gold) + tomb
-//
-//   Per the Zargon notes, Quest 1 has NO traps and NO secret doors.
-//   Wandering monster: Orc.
-//
-// Programmatic construction guarantees consistent row widths and lets us
-// place doors precisely on the boundary between corridor and room cells.
+// Quest 1 — "The Trial", laid out on the shared BASE_BOARD. Every quest reuses
+// the same fixed board (rooms + double-wide halls + entry staircase); a quest
+// just drops in its monsters, furniture, traps, and objective. Building quest
+// #2, #3, … is then a short list of placements, not a whole new map.
 // ============================================================================
 
-const QUEST1_W = 26;
-const QUEST1_H = 19;
-
-// "The Trial" authored as an ASCII map, following the official quest-book
-// layout: rooms C/F/D across the top, a throne room (T) and Verag's chamber (E)
-// plus an east room (G) across the middle, and rooms A/B with the entry
-// staircase along the bottom — all linked by corridors. Legend:
-//   #  solid rock        .  corridor floor       S  entry staircase
-//   +  door              c f d t e g a b  room floor (region room_<letter>)
-const QUEST1_MAP: string[] = [
-  '##########################', // 0
-  '#cccccc#ffff#ddddd########', // 1
-  '#cccccc#ffff#ddddd########', // 2
-  '#cccccc#ffff#ddddd########', // 3
-  '#cccccc#ffff#ddddd########', // 4
-  '###+#####+#####+##########', // 5
-  '#....................#####', // 6
-  '###+###.###+######+#######', // 7
-  '#ttttt#.#eeeeee#gggggg####', // 8
-  '#ttttt#.#eeeeee#gggggg####', // 9
-  '#ttttt#.#eeeeee#gggggg####', // 10
-  '#ttttt#.#eeeeee#gggggg####', // 11
-  '#######.##################', // 12
-  '#....................#####', // 13
-  '#...#####+#######+########', // 14  (staircase opens into the corridor)
-  '#SSS###aaaaaa##bbbbbb#####', // 15
-  '#SSS###aaaaaa##bbbbbb#####', // 16
-  '#SSS###aaaaaa##bbbbbb#####', // 17
-  '##########################', // 18
-];
-
-/** Map a room glyph to its region id. */
-const QUEST1_REGION: Record<string, string> = {
-  c: 'room_c', f: 'room_f', d: 'room_d', t: 'room_t',
-  e: 'room_e', g: 'room_g', a: 'room_a', b: 'room_b',
-};
-
-// Room interior rectangles (inclusive), for reference when placing furniture
-// and monsters below:
-//   room_c x1-6  y1-4    room_f x8-11 y1-4    room_d x13-17 y1-4
-//   room_t x1-5  y8-11   room_e x9-14 y8-11   room_g x16-21 y8-11
-//   room_a x7-12 y15-17  room_b x15-20 y15-17  stairway x1-3 y15-17
-
-function buildQuest1Map(): {
-  tiles: TileKind[][]; regions: string[][];
-  doorAts: Array<{ x: number; y: number }>; stairsAt: { x: number; y: number };
-} {
-  const W = QUEST1_W, H = QUEST1_H;
-  const tiles: TileKind[][] = Array.from({ length: H }, () => new Array<TileKind>(W).fill('wall'));
-  const regions: string[][] = Array.from({ length: H }, () => new Array<string>(W).fill(''));
-  const doorAts: Array<{ x: number; y: number }> = [];
-  let stairsAt = { x: 1, y: 16 };
-
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const ch = QUEST1_MAP[y][x];
-      if (ch === '#') continue;                                  // solid rock (default)
-      if (ch === '.') { tiles[y][x] = 'floor'; regions[y][x] = 'corridor'; }
-      else if (ch === 'S') { tiles[y][x] = 'stairs'; regions[y][x] = 'stairway'; stairsAt = { x, y }; }
-      else if (ch === '+') { tiles[y][x] = 'door'; regions[y][x] = 'corridor'; doorAts.push({ x, y }); }
-      else {
-        const r = QUEST1_REGION[ch];
-        if (r) { tiles[y][x] = 'floor'; regions[y][x] = r; }
-      }
-    }
-  }
-
-  // Give each door the region of the room it opens into (its non-corridor side).
-  for (const at of doorAts) {
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const nx = at.x + dx, ny = at.y + dy;
-      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-      const r = regions[ny][nx];
-      if (r && r !== 'corridor') { regions[at.y][at.x] = r; break; }
-    }
-  }
-
-  return { tiles, regions, doorAts, stairsAt };
-}
-
 function makeQuest1(): QuestDef {
-  const { tiles, regions, doorAts } = buildQuest1Map();
-
-  // Build door objects — each door bridges its corridor side (a) and room
-  // side (b), with the door tile sitting on the wall between them.
-  const doors: QuestDef['doors'] = doorAts.map((at, i) => {
-    let corridor: { x: number; y: number } | null = null;
-    let room: { x: number; y: number } | null = null;
-    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-      const nx = at.x + dx, ny = at.y + dy;
-      if (nx < 0 || ny < 0 || nx >= QUEST1_W || ny >= QUEST1_H) continue;
-      const k = tiles[ny][nx], r = regions[ny][nx];
-      if (k === 'wall' || k === 'door') continue;
-      if (r === 'corridor') corridor = { x: nx, y: ny };
-      else if (r) room = { x: nx, y: ny };
-    }
-    return { id: `door_${i + 1}`, a: corridor ?? at, b: room ?? at, secret: false };
-  });
-
-  // ---- Furniture ----
+  // ---- Furniture (placed on board room cells) ----
   const furniture: QuestDef['furniture'] = [];
   let fn = 0;
   const furn = (
@@ -297,25 +181,19 @@ function makeQuest1(): QuestDef {
   ) => {
     furniture.push({ id: `furn_${++fn}`, kind, cells: [{ x, y }], blocksMove, blocksLos, fixedContent });
   };
-  furn('fireplace', 8, 1, true, true);                                                     // room F
-  furn('throne', 1, 8, true, true);                                                        // room T
-  furn('bookshelf', 9, 8, false, true);                                                    // room E
-  furn('table', 13, 11, false, false);                                                     // room E
-  furn('chest', 14, 11, false, false, { kind: 'gold', amount: 100 });                      // Verag's hoard
-  furn('chest', 6, 4, false, false, { kind: 'gold', amount: 50 });                         // room C
-  furn('cupboard', 13, 1, false, true, { kind: 'nothing', flavor: 'Empty but for cobwebs.' }); // room D
-  furn('table', 16, 4, false, false);                                                      // room D
-  furn('cupboard', 21, 8, false, true, { kind: 'nothing', flavor: 'Bare wooden shelves.' });    // room G
-  furn('table', 18, 11, false, false);                                                     // room G
-  furn('rack', 7, 17, false, true, { kind: 'nothing', flavor: 'Only chipped, rusted weapons remain.' }); // room A
-  furn('table', 10, 15, false, false);                                                     // room A
-  furn('table', 18, 15, false, false);                                                     // room B
+  furn('chest', 18, 11, false, false, { kind: 'gold', amount: 100 }); // central room — Verag's hoard
+  furn('chest', 9, 3, false, false, { kind: 'gold', amount: 50 });
+  furn('throne', 5, 4, true, true);
+  furn('fireplace', 27, 5, true, true);
+  furn('bookshelf', 5, 9, false, true);
+  furn('table', 13, 4, false, false);
 
-  // ---- Monsters (lazy-spawn when their room is first revealed). ----
+  // ---- Monsters (spawn when their room is first revealed). roomId is read
+  //      straight from the shared board so placements just need a cell. ----
   const monsters: QuestDef['monsters'] = [];
   let mn = 0;
   const mob = (
-    kind: MonsterKind, x: number, y: number, roomId: string,
+    kind: MonsterKind, x: number, y: number,
     opts?: { displayName?: string; bodyMax?: number; attack?: number },
   ) => {
     const st = MONSTER_STATS[kind];
@@ -324,32 +202,16 @@ function makeQuest1(): QuestDef {
       bodyMax: opts?.bodyMax ?? st.bodyMax,
       attack: opts?.attack ?? st.attack,
       defense: st.defense, move: st.move,
-      displayName: opts?.displayName, gold: st.gold, roomId,
+      displayName: opts?.displayName, gold: st.gold,
+      roomId: BASE_BOARD.regions[y][x],
     });
   };
-  // Room C — a goblin pack.
-  mob('goblin', 2, 1, 'room_c'); mob('goblin', 4, 1, 'room_c');
-  mob('goblin', 2, 3, 'room_c'); mob('goblin', 5, 3, 'room_c');
-  // Room F (fireplace chamber).
-  mob('goblin', 10, 2, 'room_f'); mob('goblin', 11, 3, 'room_f');
-  // Room D.
-  mob('goblin', 15, 2, 'room_d');
-  // Room T (throne room).
-  mob('goblin', 3, 9, 'room_t'); mob('goblin', 4, 10, 'room_t');
-  // Room E — Verag (the quest target) and a goblin guard.
-  mob('gargoyle', 11, 9, 'room_e', { displayName: 'Verag' });
-  mob('goblin', 12, 10, 'room_e');
-  // Room G (east chamber).
-  mob('goblin', 17, 9, 'room_g'); mob('goblin', 20, 10, 'room_g');
-  // Room A.
-  mob('goblin', 9, 16, 'room_a'); mob('goblin', 11, 16, 'room_a');
-  // Room B.
-  mob('goblin', 16, 16, 'room_b'); mob('goblin', 19, 16, 'room_b');
-
-  // Heroes begin on the entry staircase (bottom-left).
-  const startCells: { x: number; y: number }[] = [
-    { x: 1, y: 15 }, { x: 2, y: 15 }, { x: 3, y: 15 }, { x: 2, y: 16 },
-  ];
+  // A goblin pack spread across the dungeon, with Verag in the central chamber.
+  mob('goblin', 5, 3); mob('goblin', 13, 3); mob('goblin', 27, 3);
+  mob('goblin', 5, 8); mob('goblin', 23, 8);
+  mob('gargoyle', 16, 11, { displayName: 'Verag' });
+  mob('goblin', 17, 12);
+  mob('goblin', 5, 18); mob('goblin', 13, 18); mob('goblin', 20, 18); mob('goblin', 27, 18);
 
   return {
     id: 'the_trial',
@@ -357,15 +219,15 @@ function makeQuest1(): QuestDef {
     briefing:
       'Mentor: "Welcome, brave heroes. Your first trial is to descend into the catacombs ' +
       'and destroy Verag, a Chaos gargoyle that has nested below. Return alive to the stairway."',
-    width: QUEST1_W,
-    height: QUEST1_H,
-    tiles,
-    regions,
-    doors,
+    width: BASE_BOARD.width,
+    height: BASE_BOARD.height,
+    tiles: BASE_BOARD.tiles,
+    regions: BASE_BOARD.regions,
+    doors: [],
     furniture,
     traps: [],
     monsters,
-    startCells,
+    startCells: BASE_BOARD.startCells,
     wanderingMonster: 'goblin',
     winCondition: { kind: 'kill_and_exit', monsterDisplayName: 'Verag' },
   };

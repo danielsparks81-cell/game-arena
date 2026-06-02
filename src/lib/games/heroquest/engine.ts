@@ -1262,4 +1262,20 @@ function revealLineOfSightForHero(s: HQState, h: Hero): void {
       if (hasLineOfSight(s, h.at, { x, y })) t.revealed = true;
     }
   }
+  // On this open-room board, monsters guard rooms that have no doors — so a
+  // room's monsters appear the moment a hero first sees into it.
+  spawnRevealedRooms(s);
+}
+
+/** Instantiate the monsters of every room that has become visible. Idempotent
+ *  (spawnRoomMonsters skips rooms whose monsters are already on the board). */
+function spawnRevealedRooms(s: HQState): void {
+  const seen = new Set<string>();
+  for (let y = 0; y < s.tiles.length; y++) {
+    for (let x = 0; x < s.tiles[0].length; x++) {
+      const t = s.tiles[y][x];
+      if (t.revealed && t.region.startsWith('room_')) seen.add(t.region);
+    }
+  }
+  for (const r of seen) spawnRoomMonsters(s, r);
 }

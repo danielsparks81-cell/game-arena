@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { initialState, addPlayer, applyAction } from './engine';
+import { QUEST1 } from './content';
 import type { HQState } from './types';
+
+const QUEST1_STAIRS = QUEST1.startCells;
 
 // Movement is path-based: a hero may move to any square within their movement
 // roll, passing THROUGH friendly heroes but never ending on an occupied square.
@@ -21,6 +24,9 @@ function startedGame(): HQState {
  *  hero 0 (active) is boxed in behind hero 1. */
 function corridorSetup(): HQState {
   const s: HQState = JSON.parse(JSON.stringify(startedGame()));
+  // Clear the quest's furniture/monsters so the hand-built test corridor is empty.
+  s.furniture = [];
+  s.monsters = [];
   const y = 4;
   // A one-tile-wide corridor walled off above and below + capped at both ends,
   // so the only route between its cells runs straight along row y.
@@ -79,15 +85,38 @@ describe('heroquest movement: pass through friendly figures', () => {
   });
 });
 
+describe('heroquest: monsters spawn when a room is revealed', () => {
+  it("spawns a room's monsters the moment a hero first sees into it", () => {
+    let s = startedGame();
+    // Verag is far from the entry, so he isn't on the board yet.
+    expect(s.monsters.some(m => m.displayName === 'Verag')).toBe(false);
+    // Drop hero 0 into Verag's central chamber and take one step so LOS reveals it.
+    s = JSON.parse(JSON.stringify(s));
+    s.heroes[1].at = { x: 28, y: 1 };
+    s.heroes[2].at = { x: 29, y: 1 };
+    s.heroes[3].at = { x: 30, y: 1 };
+    s.heroes[0].at = { x: 14, y: 11 };
+    s.heroes[0].hasRolled = true;
+    s.heroes[0].moveLeft = 6;
+    s.turnIndex = 0;
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 15, y: 11 } }));
+    expect(s.monsters.some(m => m.displayName === 'Verag')).toBe(true);
+  });
+});
+
 describe('heroquest win condition: kill-and-exit gating', () => {
+  // Two adjacent staircase tiles from the live board.
+  const STAIR_A = QUEST1_STAIRS[0];
+  const STAIR_B = QUEST1_STAIRS.find(c => Math.abs(c.x - STAIR_A.x) + Math.abs(c.y - STAIR_A.y) === 1)!;
+
   // Move the three non-test heroes off the staircase so hero 0 can step
   // between stair tiles without colliding with a teammate.
   function soloOnStairs(objectiveDefeated: boolean): HQState {
     const s: HQState = JSON.parse(JSON.stringify(startedGame()));
-    s.heroes[1].at = { x: 24, y: 1 };
-    s.heroes[2].at = { x: 24, y: 2 };
-    s.heroes[3].at = { x: 24, y: 3 };
-    s.heroes[0].at = { x: 1, y: 15 };  // a staircase tile
+    s.heroes[1].at = { x: 28, y: 1 };
+    s.heroes[2].at = { x: 29, y: 1 };
+    s.heroes[3].at = { x: 30, y: 1 };
+    s.heroes[0].at = { ...STAIR_A };
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;
@@ -100,14 +129,14 @@ describe('heroquest win condition: kill-and-exit gating', () => {
     // onto a stair tile must NOT be mistaken for a completed quest.
     const s = soloOnStairs(false);
     expect(s.objectiveDefeated).toBeFalsy();
-    const next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 2, y: 15 } }));
+    const next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { ...STAIR_B } }));
     expect(next.phase).toBe('heroes');
     expect(next.winner).toBeNull();
   });
 
   it('wins once the objective is defeated and a hero reaches the stairs', () => {
     const s = soloOnStairs(true);
-    const next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 2, y: 15 } }));
+    const next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { ...STAIR_B } }));
     expect(next.phase).toBe('finished');
     expect(next.winner).toBe('heroes');
   });
