@@ -89,8 +89,12 @@ export type Spell = {
   id: string;
   name: string;
   element: 'air' | 'water' | 'fire' | 'earth';
-  /** v1: human-readable; effects are TODO and resolved by the engine via id. */
+  /** Human-readable effect summary, shown on the spell card. */
   text: string;
+  /** Who the spell targets — drives the cast UI:
+   *  'monster' → pick a visible monster, 'hero' → pick a living hero (self or
+   *  ally), 'area' → resolves immediately with no pick (e.g. Tempest). */
+  target: 'monster' | 'hero' | 'area';
 };
 
 /** Inventory item — kept simple for v1 (weapons grant attack dice, armor
@@ -154,6 +158,19 @@ export type Hero = {
   searchedSecrets: string[];
   /** True if currently sitting in a pit (must spend movement to climb out). */
   inPit: boolean;
+
+  // --- Spell buffs ---------------------------------------------------------
+  // Per-turn buffs are cleared at the end of the hero's own turn. Rock Skin's
+  // defenseBonus is the exception: it lasts "until your next turn" so it
+  // survives the intervening Zargon turn and clears when the hero acts again.
+  /** Courage: extra attack dice applied to the hero's next attack. */
+  attackBonus?: number;
+  /** Courage: lets the hero make one attack even after using their action. */
+  extraAttack?: boolean;
+  /** Rock Skin: extra defense dice until the hero's next turn. */
+  defenseBonus?: number;
+  /** Pass Through Rock: movement ignores wall / furniture blockers this turn. */
+  phaseWalls?: boolean;
 };
 
 // ============================================================================
@@ -181,6 +198,8 @@ export type Monster = {
   gold?: number;
   /** Room this monster was placed in. Used for "wakes when room revealed". */
   roomId: string;
+  /** Tempest: the monster loses its next Zargon turn (flag cleared when skipped). */
+  stunned?: boolean;
 };
 
 // ============================================================================

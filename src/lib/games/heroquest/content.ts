@@ -84,21 +84,21 @@ export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
 
 export const SPELLS: Spell[] = [
   // Air
-  { id: 'genie',       name: 'Genie',         element: 'air',   text: 'Choose: attack a monster for 1 BP, OR open a door, OR move the caster.' },
-  { id: 'tempest',     name: 'Tempest',       element: 'air',   text: 'Chosen monster skips its next turn.' },
-  { id: 'swift_wind',  name: 'Swift Wind',    element: 'air',   text: 'Target hero gets +3 squares of movement this turn.' },
+  { id: 'genie',       name: 'Genie',         element: 'air',   target: 'monster', text: 'Summon a genie to strike a monster you can see (4 attack dice).' },
+  { id: 'tempest',     name: 'Tempest',       element: 'air',   target: 'area',    text: 'Up to 2 monsters next to you lose their next turn.' },
+  { id: 'swift_wind',  name: 'Swift Wind',    element: 'air',   target: 'hero',    text: 'Target hero moves with double movement this turn.' },
   // Water
-  { id: 'veil_of_mist', name: 'Veil of Mist', element: 'water', text: 'Caster teleports to any other hero\'s square.' },
-  { id: 'heal_body_w', name: 'Heal Body',     element: 'water', text: 'Restore up to 4 BP to target.' },
-  { id: 'water_heal',  name: 'Water of Healing', element: 'water', text: 'Restore up to 2 BP to target.' },
+  { id: 'veil_of_mist', name: 'Veil of Mist', element: 'water', target: 'hero',    text: 'Target hero gains +10 squares of movement to slip away.' },
+  { id: 'heal_body_w', name: 'Heal Body',     element: 'water', target: 'hero',    text: 'Restore up to 4 BP to target.' },
+  { id: 'water_heal',  name: 'Water of Healing', element: 'water', target: 'hero', text: 'Restore up to 2 BP to target.' },
   // Fire
-  { id: 'ball_of_flame', name: 'Ball of Flame', element: 'fire', text: 'Ranged 2-die attack on any LOS target.' },
-  { id: 'courage',     name: 'Courage',       element: 'fire',  text: 'Target hero rolls 2 extra attack dice on next attack.' },
-  { id: 'fire_of_wrath', name: 'Fire of Wrath', element: 'fire', text: 'Adjacent target takes 1 BP. No defense allowed.' },
+  { id: 'ball_of_flame', name: 'Ball of Flame', element: 'fire', target: 'monster', text: 'Ranged 2-die attack on any LOS target.' },
+  { id: 'courage',     name: 'Courage',       element: 'fire',  target: 'hero',    text: 'Target hero strikes at once with +2 attack dice.' },
+  { id: 'fire_of_wrath', name: 'Fire of Wrath', element: 'fire', target: 'monster', text: 'Adjacent target takes 1 BP. No defense allowed.' },
   // Earth
-  { id: 'pass_rock',   name: 'Pass Through Rock', element: 'earth', text: 'Caster moves through walls this turn.' },
-  { id: 'heal_body_e', name: 'Heal Body',     element: 'earth', text: 'Restore up to 4 BP to target.' },
-  { id: 'rock_skin',   name: 'Rock Skin',     element: 'earth', text: 'Target hero rolls 2 extra defense dice on next defense.' },
+  { id: 'pass_rock',   name: 'Pass Through Rock', element: 'earth', target: 'hero', text: 'Target hero moves through walls & furniture this turn.' },
+  { id: 'heal_body_e', name: 'Heal Body',     element: 'earth', target: 'hero',    text: 'Restore up to 4 BP to target.' },
+  { id: 'rock_skin',   name: 'Rock Skin',     element: 'earth', target: 'hero',    text: 'Target hero gains +2 defense dice until their next turn.' },
 ];
 
 /** Per-element spell groups (3 each). */

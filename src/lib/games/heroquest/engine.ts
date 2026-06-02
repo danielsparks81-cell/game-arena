@@ -391,12 +391,16 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
   if (dx + dy !== 1) return err('Must move one orthogonal square at a time.');
   if (!inBounds(state, dest)) return err('Off the board.');
   const tile = state.tiles[dest.y][dest.x];
-  if (!isPassable(state, dest, /*forHero*/ true)) return err('That square is blocked.');
-  if (tile.kind === 'door') {
-    const door = state.doors.find(d => sameCell(d, dest));
-    if (door && !door.open) return err('That door is closed — open it first.');
+  // Pass Through Rock lets the hero ignore wall / furniture / closed-door
+  // blockers; otherwise the square must be passable and any door must be open.
+  if (!hero.phaseWalls) {
+    if (!isPassable(state, dest, /*forHero*/ true)) return err('That square is blocked.');
+    if (tile.kind === 'door') {
+      const door = state.doors.find(d => sameCell(d, dest));
+      if (door && !door.open) return err('That door is closed — open it first.');
+    }
   }
-  // Occupied check.
+  // Occupied check — heroes and monsters still block the square even when phasing.
   if (cellOccupied(state, dest, /*ignoreHeroPassthrough*/ false)) return err('That square is occupied.');
 
   const s = clone(state);
@@ -448,7 +452,9 @@ function doOpenDoor(state: HQState, hero: Hero, doorId: string): ApplyResult {
 }
 
 function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
-  if (hero.hasActed) return err('You have already taken your action this turn.');
+  // Courage grants one bonus attack even after the action is spent.
+  const usingExtraAttack = hero.hasActed && !!hero.extraAttack;
+  if (hero.hasActed && !usingExtraAttack) return err('You have already taken your action this turn.');
   const mon = state.monsters.find(m => m.id === monsterId);
   if (!mon) return err('Target not found.');
   // Adjacency / range check (v1: simple adjacency; diagonal allowed if any
@@ -464,15 +470,17 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   const m = s.monsters.find(mm => mm.id === monsterId)!;
-  // Attack roll.
-  const atk = rollDice(h.attack, 'hero');
+  // Attack roll — Courage adds bonus dice to this strike.
+  const bonus = h.attackBonus ?? 0;
+  const atk = rollDice(h.attack + bonus, 'hero');
   s.lastRoll = atk;
   // Defense roll.
   const def = rollDice(m.defense, 'monster');
   const damage = Math.max(0, atk.skulls - def.blocks);
   m.body -= damage;
   pushLog(s, 'combat',
-    `${h.username} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks. ` +
+    `${h.username} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
+    (bonus > 0 ? ` (Courage +${bonus} dice)` : '') + '. ' +
     (damage > 0 ? `${monsterDisplay(m)} takes ${damage} BP.` : 'No damage.'),
   );
   if (m.body <= 0) {
@@ -483,7 +491,11 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
     }
     s.monsters = s.monsters.filter(mm => mm.id !== m.id);
   }
-  h.hasActed = true;
+  // The attack-die bonus is spent on this strike. If this was the free Courage
+  // attack, consume that too; otherwise it's the hero's normal action.
+  h.attackBonus = 0;
+  if (usingExtraAttack) h.extraAttack = false;
+  else h.hasActed = true;
   // Check win condition (kill the named monster).
   maybeFinishOnKill(s, m);
   return ok(s);
@@ -683,9 +695,101 @@ function doCastSpell(
       }
       return ok(s);
     }
+
+    // --- Air ----------------------------------------------------------------
+    case 'genie': {
+      // A summoned genie does your bidding — modelled as a powerful 4-dice
+      // magical strike against a monster you can see.
+      const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
+      if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
+      if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. The genie returns to its lamp.`); return ok(s); }
+      const roll = rollDice(4, 'hero');
+      s.lastRoll = roll;
+      const def = rollDice(m.defense, 'monster');
+      const damage = Math.max(0, roll.skulls - def.blocks);
+      m.body -= damage;
+      pushLog(s, 'spell', `The genie strikes ${monsterDisplay(m)} for ${damage} BP!`);
+      if (m.body <= 0) {
+        pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+        s.monsters = s.monsters.filter(mm => mm.id !== m.id);
+        maybeFinishOnKill(s, m);
+      }
+      return ok(s);
+    }
+    case 'tempest': {
+      // Up to two monsters on squares adjacent to the caster are robbed of
+      // their next turn.
+      const adjacent = s.monsters
+        .filter(mm => chebyshev(mm.at, h.at) === 1)
+        .slice(0, 2);
+      if (adjacent.length === 0) { pushLog(s, 'spell', `…but no monsters stand close enough. The tempest howls in vain.`); return ok(s); }
+      for (const mm of adjacent) {
+        mm.stunned = true;
+        pushLog(s, 'spell', `${monsterDisplay(mm)} is caught in the tempest and will lose its next turn!`);
+      }
+      return ok(s);
+    }
+    case 'swift_wind': {
+      // The target may move with double its normal movement this turn.
+      const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
+      if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target is no longer able to move.`); return ok(s); }
+      if (!target.hasRolled) {
+        const r = (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6));
+        target.moveRolled = r;
+        target.moveLeft = r;
+        target.hasRolled = true;
+      }
+      target.moveLeft += target.moveRolled;
+      pushLog(s, 'spell', `${target.username} is swept along by a swift wind — movement doubled (${target.moveLeft} squares left)!`);
+      return ok(s);
+    }
+
+    // --- Water --------------------------------------------------------------
+    case 'veil_of_mist': {
+      // The target slips away in a veil of mist — a free burst of movement to
+      // reposition or escape, even if they had not rolled yet.
+      const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
+      if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target is no longer able to move.`); return ok(s); }
+      target.hasRolled = true;
+      target.moveLeft += 10;
+      pushLog(s, 'spell', `${target.username} vanishes into a veil of mist — +10 squares of movement to slip away.`);
+      return ok(s);
+    }
+
+    // --- Fire ---------------------------------------------------------------
+    case 'courage': {
+      // The target gains +2 attack dice and may make one attack even though
+      // the caster's action was spent on the spell.
+      const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
+      if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
+      target.attackBonus = (target.attackBonus ?? 0) + 2;
+      target.extraAttack = true;
+      pushLog(s, 'spell', `${target.username} is emboldened — +2 attack dice and may strike at once!`);
+      return ok(s);
+    }
+
+    // --- Earth --------------------------------------------------------------
+    case 'pass_rock': {
+      // The target may move through walls and furniture this turn.
+      const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
+      if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
+      target.phaseWalls = true;
+      pushLog(s, 'spell', `${target.username} can pass through solid rock until the end of their turn.`);
+      return ok(s);
+    }
+    case 'rock_skin': {
+      // The target gains +2 defense dice until their next turn (survives the
+      // upcoming Zargon turn).
+      const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
+      if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
+      target.defenseBonus = (target.defenseBonus ?? 0) + 2;
+      pushLog(s, 'spell', `${target.username}'s skin turns to stone — +2 defense dice until their next turn.`);
+      return ok(s);
+    }
+
     default:
-      // v1 stub: spell logged but no engine effect yet.
-      pushLog(s, 'spell', `(${spell.name} has no implemented effect yet in v1.)`);
+      // Any spell without an implemented effect still consumes the action.
+      pushLog(s, 'spell', `(${spell.name} shimmers, but nothing happens.)`);
       return ok(s);
   }
 }
@@ -712,6 +816,12 @@ function endHeroTurn(s: HQState): void {
   h.moveRolled = 0;
   h.hasRolled = false;
   h.hasActed = false;
+  // Single-turn spell buffs expire with the turn that used them. (Rock Skin's
+  // defenseBonus is intentionally NOT cleared here — it lasts through the
+  // upcoming Zargon turn and clears when its bearer's next turn begins.)
+  h.attackBonus = 0;
+  h.extraAttack = false;
+  h.phaseWalls = false;
   // Advance to next hero, skipping dead heroes.
   let next = s.turnIndex;
   for (let i = 0; i < s.heroes.length; i++) {
@@ -719,6 +829,8 @@ function endHeroTurn(s: HQState): void {
     if (s.heroes[next].body > 0) break;
   }
   s.turnIndex = next;
+  // Rock Skin lasts "until your next turn" — clear it as that hero begins.
+  s.heroes[next].defenseBonus = 0;
 }
 
 // ============================================================================
@@ -745,6 +857,12 @@ function runZargonTurn(s: HQState): void {
 }
 
 function runMonster(s: HQState, m: Monster): void {
+  // Tempest: a stunned monster loses this turn (the flag clears as it's spent).
+  if (m.stunned) {
+    m.stunned = false;
+    pushLog(s, 'zargon', `${monsterDisplay(m)} is dazed by the tempest and cannot act.`);
+    return;
+  }
   // Find the nearest LIVING hero by Chebyshev distance (not strict pathfinding
   // — v1 keeps it simple). Then walk toward them up to `m.move` steps,
   // attacking if adjacent at the end.
@@ -782,11 +900,14 @@ function runMonster(s: HQState, m: Monster): void {
   if (chebyshev(m.at, target.at) === 1) {
     const atk = rollDice(m.attack, 'monster');
     s.lastRoll = atk;
-    const def = rollDice(target.defense, 'hero');
+    // Rock Skin adds bonus defense dice to the hero's block.
+    const defBonus = target.defenseBonus ?? 0;
+    const def = rollDice(target.defense + defBonus, 'hero');
     const damage = Math.max(0, atk.skulls - def.blocks);
     target.body = Math.max(0, target.body - damage);
     pushLog(s, 'combat',
-      `${monsterDisplay(m)} attacks ${target.username} — ${atk.skulls} skulls vs ${def.blocks} blocks. ` +
+      `${monsterDisplay(m)} attacks ${target.username} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
+      (defBonus > 0 ? ` (Rock Skin +${defBonus} dice)` : '') + '. ' +
       (damage > 0 ? `${target.username} loses ${damage} BP.` : 'No damage.'),
     );
     checkHeroDeath(s, target);

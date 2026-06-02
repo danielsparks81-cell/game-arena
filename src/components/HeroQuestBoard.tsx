@@ -101,9 +101,61 @@ function PlayingView({
   const isMyTurn = active?.playerId === currentUserId;
   const focusHero = active;
 
+  // Spell targeting: clicking a spell that needs a target parks it here until
+  // the player picks a monster (on the board) or a hero (from the picker bar).
+  // 'area' spells resolve immediately with no pick.
+  const [pendingSpell, setPendingSpell] = useState<{ id: string; name: string; target: 'monster' | 'hero' } | null>(null);
+
+  // Drop any pending target selection the moment it's no longer actionable
+  // (turn passed, hero already acted, etc.).
+  useEffect(() => {
+    if (pendingSpell && (!isMyTurn || !focusHero || focusHero.hasActed)) setPendingSpell(null);
+  }, [pendingSpell, isMyTurn, focusHero]);
+
+  const handleSpellClick = (spellId: string) => {
+    const spell = focusHero?.spells.find(s => s.id === spellId);
+    if (!spell) return;
+    if (spell.target === 'area') { onCastSpell(spellId); return; }
+    setPendingSpell({ id: spell.id, name: spell.name, target: spell.target });
+  };
+
+  const livingHeroes = state.heroes
+    .map((h, idx) => ({ h, idx }))
+    .filter(({ h }) => h.body > 0);
+
   return (
     <div className="space-y-3">
       <TurnBanner state={state} currentUserId={currentUserId} onShowBriefing={onShowBriefing} />
+
+      {pendingSpell && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-500/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+          <span className="font-semibold">Casting {pendingSpell.name}:</span>
+          {pendingSpell.target === 'monster' ? (
+            <span className="text-amber-200/90">click a monster on the board to target it.</span>
+          ) : (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-amber-200/90">choose a hero —</span>
+              {livingHeroes.map(({ h, idx }) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => { onCastSpell(pendingSpell.id, { targetHeroIdx: idx }); setPendingSpell(null); }}
+                  className="rounded border border-amber-400/60 bg-neutral-900/60 px-2 py-0.5 text-xs font-medium text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20"
+                >
+                  {h.playerId === currentUserId && h.seat === focusHero?.seat ? `${h.username} (self)` : h.username}
+                </button>
+              ))}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => setPendingSpell(null)}
+            className="ml-auto rounded border border-neutral-600 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-rose-400 hover:text-rose-300"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       <div className="grid gap-3 lg:grid-cols-[1fr,20rem]">
         <div className="space-y-3">
@@ -114,6 +166,8 @@ function PlayingView({
             onMoveTo={onMoveTo}
             onOpenDoor={onOpenDoor}
             onAttack={onAttack}
+            spellTargetMonsters={pendingSpell?.target === 'monster'}
+            onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
           />
 
           {/* Action ribbon underneath the board */}
@@ -142,7 +196,7 @@ function PlayingView({
               isActive
               isMyTurn={isMyTurn}
               isMine={focusHero.playerId === currentUserId}
-              onCastSpell={onCastSpell}
+              onCastSpell={handleSpellClick}
             />
           )}
           <PartyRoster state={state} currentUserId={currentUserId} />

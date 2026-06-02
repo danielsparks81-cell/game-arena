@@ -28,10 +28,15 @@ export type BoardCanvasProps = {
   onMoveTo: (at: Coord) => void;
   onOpenDoor: (doorId: string) => void;
   onAttack: (monsterId: string) => void;
+  /** When true, the board is in spell-targeting mode: every visible monster is
+   *  clickable and routes to onPickMonster instead of the normal attack flow. */
+  spellTargetMonsters?: boolean;
+  onPickMonster?: (monsterId: string) => void;
 };
 
 export default function HeroQuestBoardCanvas({
   state, currentUserId, disabled, onMoveTo, onOpenDoor, onAttack,
+  spellTargetMonsters = false, onPickMonster,
 }: BoardCanvasProps) {
   const W = state.quest.width;
   const H = state.quest.height;
@@ -279,7 +284,10 @@ export default function HeroQuestBoardCanvas({
           if (!tile?.revealed) return null;
           const level = lightLevel(m.at.x, m.at.y);
           const adj = myHero && Math.abs(myHero.at.x - m.at.x) + Math.abs(myHero.at.y - m.at.y) === 1;
-          const targetable = isMyTurn && myHero && !myHero.hasActed && adj;
+          // In spell-targeting mode every visible monster is selectable;
+          // otherwise only an adjacent monster is attackable.
+          const spellPick = spellTargetMonsters && isMyTurn && !!myHero;
+          const targetable = spellPick || (isMyTurn && myHero && !myHero.hasActed && adj);
           return (
             <div
               key={m.id}
@@ -294,7 +302,11 @@ export default function HeroQuestBoardCanvas({
                 filter: level === 'dim' ? 'brightness(0.6)' : undefined,
                 transition: 'left 0.25s ease-out, top 0.25s ease-out',
               }}
-              onClick={() => { if (targetable && !disabled) onAttack(m.id); }}
+              onClick={() => {
+                if (!targetable || disabled) return;
+                if (spellPick) onPickMonster?.(m.id);
+                else onAttack(m.id);
+              }}
               title={`${m.displayName ?? m.kind} — BP ${m.body}/${m.bodyMax}, Atk ${m.attack}, Def ${m.defense}`}
             >
               <MonsterToken kind={m.kind} size={TILE_PX} />
