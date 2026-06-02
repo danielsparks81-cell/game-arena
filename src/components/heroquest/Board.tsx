@@ -176,9 +176,11 @@ export default function HeroQuestBoardCanvas({
     const el = containerRef.current;
     if (!el) return;
     const compute = () => {
-      const availW = el.clientWidth - 12;
-      const availH = el.clientHeight - 12;
-      setFitZoom(Math.max(0.2, Math.min(availW / boardW, availH / boardH, 1.4)));
+      // Subtract the container padding (p-3 = 12px each side) so the fully-laid
+      // board fits inside without triggering the scrollbar.
+      const availW = el.clientWidth - 24;
+      const availH = el.clientHeight - 24;
+      setFitZoom(Math.max(0.2, Math.min(availW / boardW, availH / boardH, 2.5)));
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -195,13 +197,16 @@ export default function HeroQuestBoardCanvas({
       className="relative overflow-auto rounded-xl border-2 border-amber-900/70 bg-black p-3"
       style={{
         maxWidth: '100%',
-        height: '80vh',
+        // Fill the window below the top bar so the whole board can be shown at
+        // its largest (the fit-to-window zoom sizes the board to this area).
+        height: 'calc(100dvh - 7rem)',
         background: 'radial-gradient(ellipse at center, #0a0805 0%, #000 100%)',
         boxShadow: 'inset 0 0 80px rgba(0,0,0,0.95)',
       }}
     >
-      {/* Zoom controls (sticky to the top of the scroll area) */}
-      <div className="sticky top-0 z-20 mb-1 flex justify-end gap-1">
+      {/* Zoom controls — absolutely positioned so they overlay the board corner
+          instead of consuming board height. */}
+      <div className="absolute top-2 right-2 z-20 flex gap-1">
         <ZoomBtn onClick={() => stepZoom(1 / 1.2)} title="Zoom out">−</ZoomBtn>
         <ZoomBtn onClick={() => setUserZoom(null)} title="Fit to screen" active={fitMode}>⤢</ZoomBtn>
         <ZoomBtn onClick={() => stepZoom(1.2)} title="Zoom in">+</ZoomBtn>

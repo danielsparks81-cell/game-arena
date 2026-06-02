@@ -294,7 +294,9 @@ export default function RoomClient({
           }
 
           if (room.game_type === 'heroquest') {
-            return <div className="mx-auto w-full max-w-[1440px]">{board}</div>;
+            // Full-width: the board's own fit-to-window logic sizes the 32x23
+            // grid to the available area, so don't cap it at 1440.
+            return <div className="w-full">{board}</div>;
           }
           // Legendary renders at native size (NO transform scaling): it's a
           // fluid grid that fills the column width crisply at a locked font
