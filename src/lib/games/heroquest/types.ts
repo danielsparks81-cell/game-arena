@@ -321,6 +321,10 @@ export type HQState = {
       Zargon-as-engine, in our case it's always the active hero) to make a
       choice that can't be auto-resolved. v1 keeps this small. */
   pendingPrompt: PendingPrompt | null;
+  /** True once the quest's named target (e.g. Verag) has been killed. Gates the
+      "reach the stairway to escape" win — without it, monsters lazy-spawn so an
+      unspawned target would look "absent" and let heroes win instantly. */
+  objectiveDefeated?: boolean;
   /** Final result. */
   winner: Winner;
 };

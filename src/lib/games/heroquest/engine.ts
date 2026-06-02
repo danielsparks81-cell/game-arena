@@ -930,6 +930,7 @@ function checkHeroDeath(s: HQState, h: Hero): void {
 function maybeFinishOnKill(s: HQState, killed: Monster): void {
   const wc = s.quest.winCondition;
   if (wc.kind === 'kill_and_exit' && killed.displayName === wc.monsterDisplayName) {
+    s.objectiveDefeated = true;
     pushLog(s, 'system', `${wc.monsterDisplayName} has been slain! Return to the stairway to escape.`);
   }
   if (wc.kind === 'kill_all' && s.monsters.length === 0) {
@@ -942,8 +943,9 @@ function maybeFinishOnKill(s: HQState, killed: Monster): void {
 function maybeFinishOnExit(s: HQState): void {
   const wc = s.quest.winCondition;
   if (wc.kind !== 'kill_and_exit') return;
-  // Verag must be dead.
-  if (s.monsters.some(m => m.displayName === wc.monsterDisplayName)) return;
+  // The objective must have been killed first. (Monsters lazy-spawn, so we
+  // track an explicit flag rather than inferring "dead" from absence.)
+  if (!s.objectiveDefeated) return;
   s.phase = 'finished';
   s.winner = 'heroes';
   pushLog(s, 'system', `Heroes escape the dungeon — quest complete!`);

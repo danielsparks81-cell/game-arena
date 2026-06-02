@@ -78,3 +78,37 @@ describe('heroquest movement: pass through friendly figures', () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe('heroquest win condition: kill-and-exit gating', () => {
+  // Move the three non-test heroes off the staircase so hero 0 can step
+  // between stair tiles without colliding with a teammate.
+  function soloOnStairs(objectiveDefeated: boolean): HQState {
+    const s: HQState = JSON.parse(JSON.stringify(startedGame()));
+    s.heroes[1].at = { x: 24, y: 1 };
+    s.heroes[2].at = { x: 24, y: 2 };
+    s.heroes[3].at = { x: 24, y: 3 };
+    s.heroes[0].at = { x: 1, y: 15 };  // a staircase tile
+    s.heroes[0].hasRolled = true;
+    s.heroes[0].moveLeft = 6;
+    s.turnIndex = 0;
+    if (objectiveDefeated) s.objectiveDefeated = true;
+    return s;
+  }
+
+  it('does NOT win when a hero moves on the staircase before Verag is slain', () => {
+    // Verag lazy-spawns later (absent from state.monsters at start), so moving
+    // onto a stair tile must NOT be mistaken for a completed quest.
+    const s = soloOnStairs(false);
+    expect(s.objectiveDefeated).toBeFalsy();
+    const next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 2, y: 15 } }));
+    expect(next.phase).toBe('heroes');
+    expect(next.winner).toBeNull();
+  });
+
+  it('wins once the objective is defeated and a hero reaches the stairs', () => {
+    const s = soloOnStairs(true);
+    const next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 2, y: 15 } }));
+    expect(next.phase).toBe('finished');
+    expect(next.winner).toBe('heroes');
+  });
+});
