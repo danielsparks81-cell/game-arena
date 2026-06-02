@@ -645,7 +645,7 @@ export default function LegendaryBoard({
              col-span-1 right = Wounds + Bystanders ---- */}
         <div className="grid grid-cols-12 gap-2">
           {/* KO pile — cards removed from the game (master strikes, KO'd player cards) */}
-          <div className="group relative col-span-1 flex h-44 flex-col">
+          <div className="group relative col-span-1 flex h-52 flex-col">
             <PileDisplay
               label="KO"
               count={koCards.length}
@@ -657,7 +657,7 @@ export default function LegendaryBoard({
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
-            <div className="group relative col-span-1 flex h-44 flex-col">
+            <div className="group relative col-span-1 flex h-52 flex-col">
               <PileDisplay
                 label="Escape"
                 count={state.escapedPile.length}
@@ -668,11 +668,11 @@ export default function LegendaryBoard({
               <HoverCardList cards={state.escapedPile} heading="Escaped" placement="below" />
             </div>
             {/* Scheme — spans 2 city-slot widths. ref used for animation targeting. */}
-            <div className="col-span-2 h-44" ref={schemeRef}>
+            <div className="col-span-2 h-52" ref={schemeRef}>
               <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} twistsTotal={state.schemeTwistsTotal ?? undefined} />
             </div>
             {/* Mastermind — spans 2 city-slot widths */}
-            <div className="col-span-2 h-44" ref={mastermindRef}>
+            <div className="col-span-2 h-52" ref={mastermindRef}>
               <MastermindZone
                 mmDef={mmDef}
                 tacticsLeft={state.mastermind.tactics?.length ?? 0}
@@ -690,14 +690,15 @@ export default function LegendaryBoard({
             </div>
           </div>
           {/* Wounds + Bystanders — right of Mastermind, aligned with Villain/Hero Deck column */}
-          <div className="col-span-1 flex h-44 flex-col gap-1">
-            {/* Each pile takes an equal half (flex-1 + min-h-0) so Wounds and
-                Bystanders are always the same height. */}
-            <div ref={woundsRef} className="min-h-0 flex-1">
+          <div className="col-span-1 flex h-52 flex-col gap-1">
+            {/* Each pile takes an equal half. The wrappers must be `flex` so the
+                PileDisplay's own `flex-1` (from `fill`) has a flex parent to grow
+                into — otherwise the piles collapse to content height. */}
+            <div ref={woundsRef} className="flex min-h-0 flex-1">
               <PileDisplay label="Wounds"     count={state.woundDeck.length}      tone="neutral" fill
                 pileStyle={{ borderColor: '#7a3030', background: 'linear-gradient(135deg,rgba(107,37,37,.45),rgba(90,30,30,.45))' }} />
             </div>
-            <div className="min-h-0 flex-1">
+            <div className="flex min-h-0 flex-1">
               <PileDisplay label="Bystanders" count={totalBystanders} tone="amber" fill infinite
                 pileStyle={{ borderColor: '#c4a800', background: 'linear-gradient(135deg,rgba(196,168,0,.3),rgba(160,134,0,.3))' }} />
             </div>
@@ -827,22 +828,21 @@ export default function LegendaryBoard({
                 <React.Fragment key={slot}>
                   <div
                     className="flex flex-1 items-center justify-center text-[8px] font-semibold uppercase tracking-widest"
-                    style={{ background: CITY_CHEVRON_COLORS[slot], color: '#9a9a9a' }}
+                    style={{ background: CITY_STRIP[slot].bg, color: CITY_STRIP[slot].text }}
                   >
                     {CITY_LOCATIONS[slot]}
                   </div>
                   {renderIdx < 4 && (
-                    /* CSS border-triangle separator pointing left (villains escape left).
-                       Top/bottom use the board bg (#09090b) instead of transparent so
-                       the active card's accent border above doesn't bleed through.
-                       Uses a single neutral colour so the separators stay uniform
-                       instead of inheriting each slot's tint. */
+                    /* CSS border-triangle separator pointing left (villains escape
+                       left). Top/bottom use the board bg so the card's accent
+                       border above doesn't bleed through; the right border takes
+                       the tint of the space it points out of. */
                     <div style={{
                       width: 0,
                       height: 0,
                       borderTop: '10px solid #09090b',
                       borderBottom: '10px solid #09090b',
-                      borderRight: '8px solid #1a1a1a',
+                      borderRight: `8px solid ${CITY_STRIP[slot].sep}`,
                       flexShrink: 0,
                       alignSelf: 'center',
                     }} />
@@ -1300,7 +1300,7 @@ export default function LegendaryBoard({
           justifyContent: 'center',
         };
         return (
-          <div className="mx-auto w-full min-h-[140px]" style={gridStyle}>
+          <div className="mx-auto w-full min-h-[165px]" style={gridStyle}>
             {me ? (
               me.hand.length === 0 ? (
                 <div className="text-xs text-neutral-600">empty hand</div>
@@ -1717,15 +1717,18 @@ const CITY_EMPTY_STYLES: Record<number, { bg: string; border: string }> = {
 /** Diagonal noise texture layered over atmospheric slot backgrounds. */
 const CITY_TEXTURE = 'repeating-linear-gradient(135deg,rgba(255,255,255,0.025) 0 1px,transparent 1px 12px)';
 
-/** Per-slot fill color for the chevron location strip below the city grid.
- *  All five slots use the same neutral so the strip reads as one continuous
- *  divider instead of five differently-tinted segments stitched together. */
-const CITY_CHEVRON_COLORS: Record<number, string> = {
-  0: '#1a1a1a', // Sewers
-  1: '#1a1a1a', // Bank
-  2: '#1a1a1a', // Rooftops
-  3: '#1a1a1a', // Streets
-  4: '#1a1a1a', // Bridge
+/** Per-slot styling for the chevron location strip below the city grid. Each
+ *  segment is tinted + lettered to match the atmospheric color of the city
+ *  space directly above it (Sewers green, Bank amber, Rooftops navy, Streets
+ *  concrete, Bridge steel-blue), so the strip reads as a continuation of the
+ *  spaces rather than a flat grey divider. `sep` colors the triangle pointing
+ *  left out of that space. */
+const CITY_STRIP: Record<number, { bg: string; text: string; sep: string }> = {
+  0: { bg: '#0e2016', text: '#5fbf86', sep: '#1c3a28' }, // Sewers — murky green
+  1: { bg: '#201907', text: '#d4a948', sep: '#3a2e0a' }, // Bank — warm amber
+  2: { bg: '#0f1230', text: '#828fe6', sep: '#1d2150' }, // Rooftops — night navy
+  3: { bg: '#1c1c22', text: '#b6b6c4', sep: '#33333e' }, // Streets — concrete
+  4: { bg: '#0f1a2a', text: '#79a0d0', sep: '#1d3048' }, // Bridge — steel blue
 };
 
 // ---------------------------------------------------------------------------
