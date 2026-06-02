@@ -645,7 +645,7 @@ export default function LegendaryBoard({
              col-span-1 right = Wounds + Bystanders ---- */}
         <div className="grid grid-cols-12 gap-2">
           {/* KO pile — cards removed from the game (master strikes, KO'd player cards) */}
-          <div className="group relative col-span-1 flex h-36 flex-col">
+          <div className="group relative col-span-1 flex h-44 flex-col">
             <PileDisplay
               label="KO"
               count={koCards.length}
@@ -657,7 +657,7 @@ export default function LegendaryBoard({
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
-            <div className="group relative col-span-1 flex h-36 flex-col">
+            <div className="group relative col-span-1 flex h-44 flex-col">
               <PileDisplay
                 label="Escape"
                 count={state.escapedPile.length}
@@ -668,11 +668,11 @@ export default function LegendaryBoard({
               <HoverCardList cards={state.escapedPile} heading="Escaped" placement="below" />
             </div>
             {/* Scheme — spans 2 city-slot widths. ref used for animation targeting. */}
-            <div className="col-span-2 h-36" ref={schemeRef}>
+            <div className="col-span-2 h-44" ref={schemeRef}>
               <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} twistsTotal={state.schemeTwistsTotal ?? undefined} />
             </div>
             {/* Mastermind — spans 2 city-slot widths */}
-            <div className="col-span-2 h-36" ref={mastermindRef}>
+            <div className="col-span-2 h-44" ref={mastermindRef}>
               <MastermindZone
                 mmDef={mmDef}
                 tacticsLeft={state.mastermind.tactics?.length ?? 0}
@@ -690,7 +690,7 @@ export default function LegendaryBoard({
             </div>
           </div>
           {/* Wounds + Bystanders — right of Mastermind, aligned with Villain/Hero Deck column */}
-          <div className="col-span-1 flex h-36 flex-col gap-1">
+          <div className="col-span-1 flex h-44 flex-col gap-1">
             {/* Each pile takes an equal half (flex-1 + min-h-0) so Wounds and
                 Bystanders are always the same height. */}
             <div ref={woundsRef} className="min-h-0 flex-1">
@@ -708,7 +708,7 @@ export default function LegendaryBoard({
         {/* Left col: Twists + Strikes stacked. City renders slot4→0 (escape on left,
             entry on right next to Villain Deck). Villain Deck is full card height. */}
         <div className="grid grid-cols-12 gap-2">
-          <div className="col-span-1 flex h-36 flex-col gap-1">
+          <div className="col-span-1 flex h-44 flex-col gap-1">
             <PileDisplay
               label="Twists"
               count={state.schemeTwistsRevealed}
@@ -852,7 +852,7 @@ export default function LegendaryBoard({
             </div>
           </div>
           {/* Villain Deck — matches city slot height */}
-          <div className="col-span-1 flex h-36 flex-col" ref={villainDeckRef}>
+          <div className="col-span-1 flex h-44 flex-col" ref={villainDeckRef}>
             <PileDisplay label="Villain Deck" count={state.villainDeck.length} tone="rose" backFace fill />
           </div>
         </div>
@@ -866,7 +866,7 @@ export default function LegendaryBoard({
               transform creates its own stacking context, trapping z-index inside it.
               A sibling div with z-[500] participates in the root stacking context and
               reliably paints above the HQ card transforms. */}
-          <div className="col-span-1 flex h-36 flex-col gap-1">
+          <div className="col-span-1 flex h-44 flex-col gap-1">
             {/* Sidekick pile */}
             <div className="group relative flex flex-col flex-1 min-h-0">
               <PileDisplay label={SIDEKICK.cardName} count={state.sidekickPoolCount} tone="neutral" fill cost={SIDEKICK.cost}
@@ -931,7 +931,7 @@ export default function LegendaryBoard({
             </div>
           </div>
           {/* Hero Deck — matches HQ card height */}
-          <div className="col-span-1 flex h-36 flex-col" ref={heroDeckRef}>
+          <div className="col-span-1 flex h-44 flex-col" ref={heroDeckRef}>
             <PileDisplay label="Hero Deck" count={state.heroDeck.length} tone="emerald" backFace fill />
           </div>
         </div>
@@ -1974,7 +1974,7 @@ function CitySlot({
       <button
         type="button"
         onClick={onMoveDest}
-        className="block w-full h-36 rounded-lg border-2 border-dashed border-sky-500 bg-sky-950/20 transition hover:bg-sky-900/30"
+        className="block w-full h-44 rounded-lg border-2 border-dashed border-sky-500 bg-sky-950/20 transition hover:bg-sky-900/30"
       >
         {inner}
       </button>
@@ -1985,7 +1985,7 @@ function CitySlot({
     const emptyStyle = CITY_EMPTY_STYLES[slot] ?? { bg: '#111', border: '#333' };
     return (
       <div
-        className="relative flex h-36 flex-col items-end justify-end rounded-lg p-2"
+        className="relative flex h-44 flex-col items-end justify-end rounded-lg p-2"
         style={{
           background: `${CITY_TEXTURE}, ${emptyStyle.bg}`,
           border: hasPortal ? '1px solid #a855f7' : `1px solid ${emptyStyle.border}`,
@@ -2021,7 +2021,7 @@ function CitySlot({
           canFight ? '-translate-y-3 shadow-lg ring-2 ring-rose-500 hover:-translate-y-4 hover:shadow-xl' : 'ring-2 ring-rose-900/60'
         }`}
       >
-        <HeroCardArt def={def} wide height="h-36" />
+        <HeroCardArt def={def} wide height="h-44" />
         {/* SKRULL ribbon */}
         <div
           className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest"
@@ -2039,7 +2039,7 @@ function CitySlot({
   }
 
   if (def.kind !== 'villain' && def.kind !== 'henchman') {
-    return <div className="h-36 rounded-lg bg-neutral-900" />;
+    return <div className="h-44 rounded-lg bg-neutral-900" />;
   }
 
   // Deadpool "Here, Hold This" — highlight this villain as a bystander-capture target.
@@ -2158,13 +2158,13 @@ function HQSlot({
 }) {
   if (!card) {
     return (
-      <div className="flex h-36 items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
+      <div className="flex h-44 items-center justify-center rounded-lg border border-dashed border-neutral-800 text-[11px] text-neutral-600">
         empty
       </div>
     );
   }
   const def = getCard(card.cardId);
-  if (def.kind !== 'hero') return <div className="h-40 rounded-lg bg-neutral-900" />;
+  if (def.kind !== 'hero') return <div className="h-44 rounded-lg bg-neutral-900" />;
   const copies = CARD_COPIES[card.cardId];
 
   // ── Dark Technology free-recruit mode ──────────────────────────────────────
@@ -2183,7 +2183,7 @@ function HQSlot({
             : 'opacity-40',
         ].join(' ')}
       >
-        <HeroCardArt def={def} wide height="h-36" copies={copies} />
+        <HeroCardArt def={def} wide height="h-44" copies={copies} />
         <span className="sr-only">Recruit {def.cardName} for free</span>
       </button>
     );
@@ -2201,7 +2201,7 @@ function HQSlot({
           '-translate-y-3 shadow-lg ring-2 ring-green-400 hover:-translate-y-4 hover:shadow-xl hover:ring-green-300',
         ].join(' ')}
       >
-        <HeroCardArt def={def} wide height="h-36" copies={copies} />
+        <HeroCardArt def={def} wide height="h-44" copies={copies} />
         <span className="sr-only">Give {def.cardName} to the current player (Paibok)</span>
       </button>
     );
@@ -2223,7 +2223,7 @@ function HQSlot({
             : 'opacity-40',
         ].join(' ')}
       >
-        <HeroCardArt def={def} wide height="h-36" copies={copies} />
+        <HeroCardArt def={def} wide height="h-44" copies={copies} />
         <span className="sr-only">Recruit {def.cardName} for free (X-Men)</span>
       </button>
     );
@@ -2245,7 +2245,7 @@ function HQSlot({
             : 'opacity-40',
         ].join(' ')}
       >
-        <HeroCardArt def={def} wide height="h-36" copies={copies} />
+        <HeroCardArt def={def} wide height="h-44" copies={copies} />
         <span className="sr-only">Tuck {def.cardName} to bottom of Hero Deck</span>
       </button>
     );
@@ -2265,7 +2265,7 @@ function HQSlot({
           '-translate-y-3 shadow-lg ring-2 ring-rose-500 hover:-translate-y-4 hover:shadow-xl hover:ring-rose-300',
         ].join(' ')}
       >
-        <HeroCardArt def={def} wide height="h-36" copies={copies} />
+        <HeroCardArt def={def} wide height="h-44" copies={copies} />
         <span className="sr-only">KO {def.cardName} from the HQ</span>
       </button>
     );
@@ -2283,7 +2283,7 @@ function HQSlot({
         canAfford ? '-translate-y-3 shadow-lg hover:-translate-y-4 hover:shadow-xl' : 'opacity-60',
       ].join(' ')}
     >
-      <HeroCardArt def={def} wide height="h-36" copies={copies} />
+      <HeroCardArt def={def} wide height="h-44" copies={copies} />
       <span className="sr-only">Slot {slot}</span>
     </button>
   );
@@ -2590,8 +2590,11 @@ function SchemeZone({
   twistsTotal?: number;
 }) {
   // Hooks must run unconditionally — call before any early return.
+  // 12px ceiling matches the villain/henchman card body so the board reads at a
+  // uniform size; the taller card now has room to stay there instead of
+  // shrinking. 10px floor keeps it legible if a scheme has unusually long text.
   const textRef = useAutoFitFontSize(
-    11, 8,
+    12, 10,
     [schemeDef.kind === 'scheme' ? schemeDef.text : '', schemeDef.cardId],
   );
 
@@ -2688,7 +2691,7 @@ function MastermindZone({
         Mastermind
       </div>
       {/* Always Leads */}
-      <div className="mt-0.5 text-[11px]">
+      <div className="mt-0.5 text-[12px]">
         <span className="font-semibold" style={{ color: '#DC143C' }}>Always Leads: </span>
         <span className="font-bold text-white">{teamDisplayName(mmDef.alwaysLeads)}</span>
       </div>
@@ -2698,7 +2701,7 @@ function MastermindZone({
         const label = colonIdx > 0 ? mmDef.text!.slice(0, colonIdx + 1) : '';
         const body  = colonIdx > 0 ? mmDef.text!.slice(colonIdx + 1).trim() : mmDef.text!;
         return (
-          <div className="mt-1 line-clamp-2 pr-7 text-[11px] leading-snug">
+          <div className="mt-1 line-clamp-3 pr-7 text-[12px] leading-snug">
             {label && <span className="font-bold" style={{ color: '#DC143C' }}>{label} </span>}
             <span className="text-white"><CardText text={body} /></span>
           </div>

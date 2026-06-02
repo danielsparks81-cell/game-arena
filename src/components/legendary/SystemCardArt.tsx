@@ -89,7 +89,7 @@ export function VillainCardArt({
 }) {
   const borderColor = '#ef4444'; // covert red — villains have no team color
   const widthClass  = wide ? 'w-full'  : 'w-[220px]';
-  const heightClass = wide ? 'h-36'    : 'h-40';
+  const heightClass = wide ? 'h-44'    : 'h-40';
   const hasAttachedHero = attachedHeroName !== undefined && attachedHeroCost !== undefined;
   const isKillbotWithStrike = def.cardId === 'killbot' && killbotStrike !== undefined;
   // Display strike priority:
@@ -246,7 +246,7 @@ export function HenchmanCardArt({
   bystanderStrikeBonus?: number;
 }) {
   const widthClass  = wide ? 'w-full'  : 'w-[230px]';
-  const heightClass = wide ? 'h-36'    : 'h-[165px]';
+  const heightClass = wide ? 'h-44'    : 'h-[165px]';
 
   return (
     <div
