@@ -5,6 +5,7 @@
 
 import { useMemo, type CSSProperties } from 'react';
 import {
+  MONSTER_STATS,
   type HQState,
   type Hero,
   type Monster,
@@ -318,7 +319,7 @@ export default function HeroQuestBoardCanvas({
                 if (spellPick) onPickMonster?.(m.id);
                 else onAttack(m.id);
               }}
-              title={`${m.displayName ?? m.kind} — BP ${m.body}/${m.bodyMax}, Atk ${m.attack}, Def ${m.defense}`}
+              title={`${m.displayName ?? MONSTER_STATS[m.kind]?.displayName ?? m.kind} — BP ${m.body}/${m.bodyMax}, Atk ${m.attack}, Def ${m.defense}, Move ${MONSTER_STATS[m.kind]?.move ?? m.move}, Mind ${MONSTER_STATS[m.kind]?.mind ?? 0}`}
             >
               <MonsterToken kind={m.kind} size={TILE_PX} />
               {targetable && (

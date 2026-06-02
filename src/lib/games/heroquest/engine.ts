@@ -1237,7 +1237,7 @@ function rollDice(n: number, who: 'hero' | 'monster'): DiceRoll {
 }
 
 function monsterDisplay(m: Monster): string {
-  return m.displayName ?? capitalize(m.kind.replace('_', ' '));
+  return m.displayName ?? MONSTER_STATS[m.kind]?.displayName ?? capitalize(m.kind.replace('_', ' '));
 }
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);

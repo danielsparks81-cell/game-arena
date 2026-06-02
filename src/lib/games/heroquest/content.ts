@@ -119,18 +119,30 @@ export type MonsterStats = {
   attack: number;
   defense: number;
   move: number;
+  /** Mind Points (per the Monster Chart). Not yet used by the engine. */
+  mind: number;
   gold: number;
 };
 
+// Base stats from the official Monster Chart
+//                            Move  Atk  Def  Body  Mind
+//   Goblin                    10    2    1    1     1
+//   Orc                        8    3    2    1     2
+//   Skeleton                   6    2    2    1     0
+//   Zombie                     5    2    3    1     0
+//   Abomination (fimir slot)   6    3    3    2     3
+//   Mummy                      4    3    4    2     0
+//   Dread Warrior (chaos slot) 4    4    4    3     3
+//   Gargoyle                   6    4    5    3     4
 export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
-  goblin:         { kind: 'goblin',         displayName: 'Goblin',         bodyMax: 1, attack: 2, defense: 1, move: 10, gold: 5 },
-  orc:            { kind: 'orc',            displayName: 'Orc',            bodyMax: 1, attack: 3, defense: 2, move: 8,  gold: 10 },
-  fimir:          { kind: 'fimir',          displayName: 'Fimir',          bodyMax: 2, attack: 3, defense: 3, move: 6,  gold: 20 },
-  skeleton:       { kind: 'skeleton',       displayName: 'Skeleton',       bodyMax: 1, attack: 2, defense: 2, move: 6,  gold: 15 },
-  zombie:         { kind: 'zombie',         displayName: 'Zombie',         bodyMax: 1, attack: 2, defense: 3, move: 4,  gold: 20 },
-  mummy:          { kind: 'mummy',          displayName: 'Mummy',          bodyMax: 2, attack: 3, defense: 4, move: 4,  gold: 25 },
-  chaos_warrior:  { kind: 'chaos_warrior',  displayName: 'Chaos Warrior',  bodyMax: 3, attack: 3, defense: 3, move: 6,  gold: 35 },
-  gargoyle:       { kind: 'gargoyle',       displayName: 'Gargoyle',       bodyMax: 3, attack: 4, defense: 4, move: 6,  gold: 75 },
+  goblin:         { kind: 'goblin',         displayName: 'Goblin',         move: 10, attack: 2, defense: 1, bodyMax: 1, mind: 1, gold: 5 },
+  orc:            { kind: 'orc',            displayName: 'Orc',            move: 8,  attack: 3, defense: 2, bodyMax: 1, mind: 2, gold: 10 },
+  skeleton:       { kind: 'skeleton',       displayName: 'Skeleton',       move: 6,  attack: 2, defense: 2, bodyMax: 1, mind: 0, gold: 15 },
+  zombie:         { kind: 'zombie',         displayName: 'Zombie',         move: 5,  attack: 2, defense: 3, bodyMax: 1, mind: 0, gold: 20 },
+  fimir:          { kind: 'fimir',          displayName: 'Abomination',    move: 6,  attack: 3, defense: 3, bodyMax: 2, mind: 3, gold: 20 },
+  mummy:          { kind: 'mummy',          displayName: 'Mummy',          move: 4,  attack: 3, defense: 4, bodyMax: 2, mind: 0, gold: 25 },
+  chaos_warrior:  { kind: 'chaos_warrior',  displayName: 'Dread Warrior',  move: 4,  attack: 4, defense: 4, bodyMax: 3, mind: 3, gold: 35 },
+  gargoyle:       { kind: 'gargoyle',       displayName: 'Gargoyle',       move: 6,  attack: 4, defense: 5, bodyMax: 3, mind: 4, gold: 75 },
 };
 
 // ============================================================================
