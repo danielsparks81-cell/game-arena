@@ -236,26 +236,12 @@ export default function RoomClient({
         {sidebarCollapsed ? '◀' : '▶'}
       </button>
       <section className="min-w-0">
-        {/* Lobby content (seats + how-to-play) lives in a centered frame while
-            waiting for players. */}
-        {room.status === 'waiting' && (
-          <div className="mx-auto w-full max-w-[1440px]">
-            <Seats
-              room={room}
-              currentUserId={currentUserId}
-              onKick={room.host_id === currentUserId
-                ? (pid) => startTransition(() => { kickPlayer(roomId, pid); })
-                : undefined}
-            />
-            <GameGuidePanel gameId={room.game_type} gameName={gameName} />
-          </div>
-        )}
-
         {/* Per-game board via the BOARD_RENDERERS map (adding a game = one entry
-            there). While playing, every game (except HeroQuest, which has its own
-            board zoom) routes through GameViewport, which scales it to fit the
-            available space — keeping aspect and letterboxing the spare dimension
-            — so we design ~16:9 and fill whatever the device gives us. */}
+            there). Both the waiting lobby (seats + setup) and the live board
+            route through GameViewport, which scales them to fit the screen —
+            keeping aspect and letterboxing the spare dimension. HeroQuest's live
+            board is the exception (it has its own zoom). The How-to-play guide
+            sits at the very bottom of the window while waiting. */}
         {(() => {
           const board = BOARD_RENDERERS[room.game_type]?.({
             roomId,
@@ -268,7 +254,30 @@ export default function RoomClient({
             pending,
             startTransition,
           });
-          if (room.status !== 'playing' || room.game_type === 'heroquest') {
+
+          if (room.status === 'waiting') {
+            return (
+              <>
+                <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type] ?? 1200}>
+                  <div className="w-full">
+                    <Seats
+                      room={room}
+                      currentUserId={currentUserId}
+                      onKick={room.host_id === currentUserId
+                        ? (pid) => startTransition(() => { kickPlayer(roomId, pid); })
+                        : undefined}
+                    />
+                    {board}
+                  </div>
+                </GameViewport>
+                <div className="mx-auto mt-3 w-full max-w-[1440px]">
+                  <GameGuidePanel gameId={room.game_type} gameName={gameName} />
+                </div>
+              </>
+            );
+          }
+
+          if (room.game_type === 'heroquest') {
             return <div className="mx-auto w-full max-w-[1440px]">{board}</div>;
           }
           return <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type]}>{board}</GameViewport>;
