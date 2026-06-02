@@ -296,6 +296,14 @@ export default function RoomClient({
           if (room.game_type === 'heroquest') {
             return <div className="mx-auto w-full max-w-[1440px]">{board}</div>;
           }
+          // Legendary renders at native size (NO transform scaling): it's a
+          // fluid grid that fills the column width crisply at a locked font
+          // size, and any trigger/prompt extends BELOW the board and scrolls
+          // rather than rescaling the whole board. Scaling-to-fit is wrong here
+          // because a prompt appearing would shrink the entire board.
+          if (room.game_type === 'legendary') {
+            return <div className="w-full">{board}</div>;
+          }
           return <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type]} maxScale={GAME_MAX_SCALE[room.game_type]}>{board}</GameViewport>;
         })()}
       </section>

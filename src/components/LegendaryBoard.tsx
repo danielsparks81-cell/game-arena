@@ -51,7 +51,6 @@ import {
   ClassChips,
   CostBadge,
   CardText,
-  useAutoFitFontSize,
   HeroCardArt,
   TeamChip,
   classBorderStyle,
@@ -645,7 +644,7 @@ export default function LegendaryBoard({
              col-span-1 right = Wounds + Bystanders ---- */}
         <div className="grid grid-cols-12 gap-2">
           {/* KO pile — cards removed from the game (master strikes, KO'd player cards) */}
-          <div className="group relative col-span-1 flex h-52 flex-col">
+          <div className="group relative col-span-1 flex h-48 flex-col">
             <PileDisplay
               label="KO"
               count={koCards.length}
@@ -657,7 +656,7 @@ export default function LegendaryBoard({
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
-            <div className="group relative col-span-1 flex h-52 flex-col">
+            <div className="group relative col-span-1 flex h-48 flex-col">
               <PileDisplay
                 label="Escape"
                 count={state.escapedPile.length}
@@ -668,11 +667,11 @@ export default function LegendaryBoard({
               <HoverCardList cards={state.escapedPile} heading="Escaped" placement="below" />
             </div>
             {/* Scheme — spans 2 city-slot widths. ref used for animation targeting. */}
-            <div className="col-span-2 h-52" ref={schemeRef}>
+            <div className="col-span-2 h-48" ref={schemeRef}>
               <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} twistsTotal={state.schemeTwistsTotal ?? undefined} />
             </div>
             {/* Mastermind — spans 2 city-slot widths */}
-            <div className="col-span-2 h-52" ref={mastermindRef}>
+            <div className="col-span-2 h-48" ref={mastermindRef}>
               <MastermindZone
                 mmDef={mmDef}
                 tacticsLeft={state.mastermind.tactics?.length ?? 0}
@@ -690,7 +689,7 @@ export default function LegendaryBoard({
             </div>
           </div>
           {/* Wounds + Bystanders — right of Mastermind, aligned with Villain/Hero Deck column */}
-          <div className="col-span-1 flex h-52 flex-col gap-1">
+          <div className="col-span-1 flex h-48 flex-col gap-1">
             {/* Each pile takes an equal half. The wrappers must be `flex` so the
                 PileDisplay's own `flex-1` (from `fill`) has a flex parent to grow
                 into — otherwise the piles collapse to content height. */}
@@ -2592,15 +2591,6 @@ function SchemeZone({
   /** Effective total twists for this game (player-count override aware). */
   twistsTotal?: number;
 }) {
-  // Hooks must run unconditionally — call before any early return.
-  // 12px ceiling matches the villain/henchman card body so the board reads at a
-  // uniform size; the taller card now has room to stay there instead of
-  // shrinking. 10px floor keeps it legible if a scheme has unusually long text.
-  const textRef = useAutoFitFontSize(
-    12, 10,
-    [schemeDef.kind === 'scheme' ? schemeDef.text : '', schemeDef.cardId],
-  );
-
   if (schemeDef.kind !== 'scheme') {
     return <div className="h-full rounded-lg border border-dashed border-neutral-800" />;
   }
@@ -2613,7 +2603,7 @@ function SchemeZone({
       <span className="truncate text-[14px] font-bold text-white leading-tight">{schemeDef.name}</span>
       <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: labelColor }}>Scheme</span>
       {schemeDef.text && (
-        <div ref={textRef} className="mt-1 flex-1 overflow-hidden leading-tight">
+        <div className="mt-1 flex-1 overflow-hidden text-[12px] leading-snug">
           {schemeDef.text.split('\n').map((segment, i) => {
             const colonIdx = segment.indexOf(':');
             if (colonIdx > 0) {
