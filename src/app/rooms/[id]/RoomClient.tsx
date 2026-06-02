@@ -34,6 +34,17 @@ const GAME_DESIGN_WIDTH: Record<string, number> = {
   tictactoe: 560,
   rps: 600,
 };
+
+// Crispness-first: GameViewport never upscales past native by default (maxScale
+// 1) so text stays sharp — extra room is letterboxed. Only small, pure-shape
+// games (no dense text to soften) opt into scaling UP to fill the screen; their
+// vector boards scale crisply. Anything text/card/dice-heavy stays at 1.
+const GAME_MAX_SCALE: Record<string, number> = {
+  tictactoe: 1.9,
+  rps: 1.9,
+  checkers: 1.7,
+  battleship: 1.4,
+};
 import { getTurnInfo } from '@/lib/games/turnOrder';
 import { useTurnNotification } from '@/lib/useTurnNotification';
 import { safeAccent } from '@/lib/accentColors';
@@ -285,7 +296,7 @@ export default function RoomClient({
           if (room.game_type === 'heroquest') {
             return <div className="mx-auto w-full max-w-[1440px]">{board}</div>;
           }
-          return <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type]}>{board}</GameViewport>;
+          return <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type]} maxScale={GAME_MAX_SCALE[room.game_type]}>{board}</GameViewport>;
         })()}
       </section>
 

@@ -12,13 +12,18 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 // - Bounded by [minScale, maxScale] so tiny games don't become billboards and
 //   text never shrinks to unreadable; below the floor it scrolls instead.
 //
-// Pure visual transform — layout and click targets are unaffected. (Crispness:
-// scaling up softens text slightly; per-game rem layouts can opt out later.)
+// Pure visual transform — layout and click targets are unaffected.
+//
+// Crispness: downscaling re-rasterizes sharp, but UPSCALING past native can't
+// add detail and softens text — so maxScale defaults to 1 (render at native or
+// smaller, letterbox the spare room). Reading the cards/rules matters more than
+// filling every pixel. Pure-shape games with no dense text can opt into a higher
+// maxScale to fill space (their vectors scale crisply).
 export default function GameViewport({
   children,
   designWidth,
   minScale = 0.35,
-  maxScale = 2.2,
+  maxScale = 1,
   heightCss = 'calc(100dvh - 7.5rem)',
 }: {
   children: ReactNode;
