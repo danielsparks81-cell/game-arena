@@ -40,8 +40,6 @@ export default function TopBar({
         >
           🛠 Sandbox
         </Link>
-        {/* Maximize screen space (works in any browser tab). */}
-        <FullscreenButton />
         {/* Bug-report button for everyone; admin-only bug-inbox alongside */}
         <ReportErrorButton />
         <BugInbox />
@@ -49,7 +47,6 @@ export default function TopBar({
           href="/profile"
           className="min-w-0 truncate text-sm text-neutral-400 transition hover:text-emerald-400"
         >
-          <span className="hidden sm:inline">Signed in as </span>
           <span className="truncate font-medium text-neutral-100">
             {username}
           </span>
@@ -59,6 +56,8 @@ export default function TopBar({
             Log out
           </button>
         </form>
+        {/* Fullscreen toggle — rightmost, after Log out. */}
+        <FullscreenButton />
       </div>
     </header>
   );
