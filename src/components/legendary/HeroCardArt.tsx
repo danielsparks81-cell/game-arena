@@ -547,8 +547,8 @@ export function HeroCardArt({
    *  Rare (1 copy) = sharp corners; common/uncommon = rounded. Omit to default
    *  to rounded (safe for unknown / draft cards). */
   copies?: number;
-  /** Card height override. Default h-36; pass h-40 for extra-tall slots. */
-  height?: 'h-28' | 'h-32' | 'h-36' | 'h-40' | 'h-[165px]';
+  /** Card-height Tailwind class (e.g. h-36, or a responsive h-[clamp(...)]). */
+  height?: string;
   className?: string;
   /** Optional style overrides — use `background` to tint the card body. */
   style?: React.CSSProperties;

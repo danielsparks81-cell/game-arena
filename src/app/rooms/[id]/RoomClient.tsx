@@ -258,7 +258,11 @@ export default function RoomClient({
             pending,
             startTransition,
           });
-          const fit = room.status === 'playing' && room.game_type !== 'heroquest';
+          // HeroQuest has its own board zoom; Legendary reflows to fill space
+          // natively (full-width, responsive heights) — both opt out of the
+          // generic scale-up.
+          const noFit = new Set(['heroquest', 'legendary']);
+          const fit = room.status === 'playing' && !noFit.has(room.game_type);
           return fit ? <FitToScreen>{board}</FitToScreen> : board;
         })()}
 
