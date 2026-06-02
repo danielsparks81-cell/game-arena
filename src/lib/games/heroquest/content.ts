@@ -212,7 +212,7 @@ const QUEST1_MAP: string[] = [
   '#ttttt#.#eeeeee#gggggg####', // 11
   '#######.##################', // 12
   '#....................#####', // 13
-  '##+######+#######+########', // 14
+  '#...#####+#######+########', // 14  (staircase opens into the corridor)
   '#SSS###aaaaaa##bbbbbb#####', // 15
   '#SSS###aaaaaa##bbbbbb#####', // 16
   '#SSS###aaaaaa##bbbbbb#####', // 17
