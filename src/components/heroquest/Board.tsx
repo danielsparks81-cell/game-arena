@@ -150,11 +150,16 @@ export default function HeroQuestBoardCanvas({
     return (x * 7 + y * 13) % 3;
   }
 
+  // Debug: illuminate the whole map (ignores fog + torchlight) so the full
+  // layout is visible while building/testing. Toggled by the ☀ button.
+  const [litAll, setLitAll] = useState(false);
+
   // ---- Torchlight: which cells are *currently* lit (within Chebyshev 5 of
   // ANY living hero) vs revealed-but-dim vs unrevealed. Using "any hero" so
   // the whole party emits light — important for multi-hero parties where
   // someone's always close to the action. ----
   function lightLevel(x: number, y: number): 'lit' | 'dim' | 'fog' {
+    if (litAll) return 'lit';
     const tile = state.tiles[y][x];
     if (!tile.revealed) return 'fog';
     for (const h of state.heroes) {
@@ -210,6 +215,7 @@ export default function HeroQuestBoardCanvas({
         <ZoomBtn onClick={() => stepZoom(1 / 1.2)} title="Zoom out">−</ZoomBtn>
         <ZoomBtn onClick={() => setUserZoom(null)} title="Fit to screen" active={fitMode}>⤢</ZoomBtn>
         <ZoomBtn onClick={() => stepZoom(1.2)} title="Zoom in">+</ZoomBtn>
+        <ZoomBtn onClick={() => setLitAll(v => !v)} title="Illuminate entire map (debug)" active={litAll}>☀</ZoomBtn>
       </div>
 
       {/* Size-reserving wrapper so the scroll area matches the scaled board. */}
