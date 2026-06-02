@@ -79,7 +79,11 @@ export default function GameViewport({
             width: designWidth ?? 'max-content',
             transform: `scale(${box.scale})`,
             transformOrigin: 'top left',
-            willChange: 'transform',
+            // NOTE: deliberately no `will-change: transform`. That hint promotes
+            // the board to a composited layer that's rasterized once at native
+            // size then bitmap-downscaled (blurry at scale < 1). Our transform is
+            // static (recomputed only on resize, never animated), so omitting it
+            // lets the browser re-rasterize crisply at the effective scale.
           }}
         >
           {children}

@@ -691,12 +691,16 @@ export default function LegendaryBoard({
           </div>
           {/* Wounds + Bystanders — right of Mastermind, aligned with Villain/Hero Deck column */}
           <div className="col-span-1 flex h-36 flex-col gap-1">
-            <div ref={woundsRef}>
+            {/* Each pile takes an equal half (flex-1 + min-h-0) so Wounds and
+                Bystanders are always the same height. */}
+            <div ref={woundsRef} className="min-h-0 flex-1">
               <PileDisplay label="Wounds"     count={state.woundDeck.length}      tone="neutral" fill
                 pileStyle={{ borderColor: '#7a3030', background: 'linear-gradient(135deg,rgba(107,37,37,.45),rgba(90,30,30,.45))' }} />
             </div>
-            <PileDisplay label="Bystanders" count={totalBystanders} tone="amber" fill infinite
-              pileStyle={{ borderColor: '#c4a800', background: 'linear-gradient(135deg,rgba(196,168,0,.3),rgba(160,134,0,.3))' }} />
+            <div className="min-h-0 flex-1">
+              <PileDisplay label="Bystanders" count={totalBystanders} tone="amber" fill infinite
+                pileStyle={{ borderColor: '#c4a800', background: 'linear-gradient(135deg,rgba(196,168,0,.3),rgba(160,134,0,.3))' }} />
+            </div>
           </div>
         </div>
 

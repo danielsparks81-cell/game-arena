@@ -163,13 +163,15 @@ export function VillainCardArt({
       <div className="flex items-center gap-1 min-w-0">
         <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
       </div>
-      {/* Type label — "Villain - Brotherhood" etc. */}
-      <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
+      {/* Type label — "Villain - Brotherhood" etc. Sized to match the henchman
+          card's type row so the body text below starts at the same height. */}
+      <div className="text-[12px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
         Villain - {teamLabel(def.team)}
       </div>
-      {/* Card text — pr-8 clears the VP badge; CardText renders inline tokens */}
+      {/* Card text — pr-8 clears the VP badge; CardText renders inline tokens.
+          pt-3 mirrors the henchman card so villain/henchman body text aligns. */}
       {def.text && (
-        <div className="my-1 flex-1 pl-3 pr-8 text-[11px] leading-snug text-neutral-300">
+        <div className="mb-1 flex-1 pl-3 pr-8 pt-3 text-[11px] leading-snug text-neutral-300">
           <CardText text={def.text} />
         </div>
       )}
