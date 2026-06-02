@@ -541,6 +541,10 @@ export default function LegendaryBoard({
   // `animatingHqSlots` is the set of slot indices currently mid-animation.
   const lastHqRefillIdx = useRef(state.log.length);
   const [animatingHqSlots, setAnimatingHqSlots] = useState<Set<number>>(new Set());
+  // Slots whose freshly-drawn card should stay HIDDEN until its reveal overlay
+  // finishes and the card flips into the slot — otherwise the replenished card
+  // pops in the instant you recruit, before its reveal plays.
+  const [pendingRefillSlots, setPendingRefillSlots] = useState<Set<number>>(new Set());
   useEffect(() => {
     const start = lastHqRefillIdx.current;
     if (state.log.length <= start) {
@@ -554,12 +558,25 @@ export default function LegendaryBoard({
       if (ev.kind === 'hq_refilled') refillSlots.push(ev.slot);
     }
     if (refillSlots.length === 0) return;
+    // Hide the new card immediately so it isn't visible while its reveal overlay
+    // plays; it un-hides + flips into the slot when the overlay lands (2500ms).
+    setPendingRefillSlots(prev => {
+      const next = new Set(prev);
+      for (const s of refillSlots) next.add(s);
+      return next;
+    });
     // Delay the slot flip-in to match the reveal overlay exit (2500ms) so the
     // hero card appears to "land" in the HQ slot as the overlay shrinks toward it.
     window.setTimeout(() => {
       setAnimatingHqSlots(prev => {
         const next = new Set(prev);
         for (const s of refillSlots) next.add(s);
+        return next;
+      });
+      // Reveal the card now — it flips in as the overlay shrinks toward the slot.
+      setPendingRefillSlots(prev => {
+        const next = new Set(prev);
+        for (const s of refillSlots) next.delete(s);
         return next;
       });
       window.setTimeout(() => {
@@ -898,7 +915,10 @@ export default function LegendaryBoard({
                   revealAnim.kind === 'hero' &&
                   revealAnim.phase !== 'exiting' &&
                   revealAnim.hqSlot === slot;
-                const visibleCard = hidingNewHero ? null : card;
+                // Hide the card while a hero-reveal overlay is mid-play for this
+                // slot OR while the slot is waiting for its post-recruit refill
+                // reveal to land — so the new card never pops in early.
+                const visibleCard = (hidingNewHero || pendingRefillSlots.has(slot)) ? null : card;
                 return (
                   <div key={slot} ref={el => { hqSlotRefs.current[slot] = el; }}>
                     <HQSlot
@@ -2414,7 +2434,7 @@ function PlayerBox({
           style={{ background: 'repeating-linear-gradient(45deg, rgba(255,255,255,0.07) 0 4px, transparent 4px 8px)' }}
         />
       )}
-      <span className="relative z-10 text-[9px] uppercase tracking-wider text-white">{label}</span>
+      <span className="relative z-10 text-[13px] font-semibold uppercase leading-none tracking-tight text-white">{label}</span>
       <span className={`relative z-10 font-sans tabular-nums text-lg font-bold ${num}`}>{value}</span>
     </div>
   );
@@ -2424,7 +2444,7 @@ function ResourcePip({ label, value, color }: { label: string; value: number; co
   const cls = color === 'rose' ? 'text-rose-400' : color === 'emerald' ? 'text-emerald-400' : 'text-neutral-300';
   return (
     <div className="flex items-baseline gap-1.5">
-      <span className="text-[10px] uppercase tracking-wider text-neutral-500">{label}</span>
+      <span className="text-[13px] font-semibold uppercase tracking-tight text-neutral-400">{label}</span>
       <span className={`font-sans tabular-nums text-xl font-bold ${cls}`}>{value}</span>
     </div>
   );
@@ -2557,8 +2577,8 @@ function PileDisplay({
         />
       )}
       <div className={`relative z-10 flex flex-col items-center transition-opacity duration-150 ${dimContent ? 'opacity-60' : ''}`}>
-        <span className="text-[9px] uppercase tracking-wider text-white">{label}</span>
-        <span className="font-sans tabular-nums text-base font-bold text-neutral-200">
+        <span className="text-center text-[13px] font-semibold uppercase leading-none tracking-tight text-white">{label}</span>
+        <span className="mt-0.5 font-sans tabular-nums text-lg font-bold text-neutral-200">
           {infinite ? '∞' : count}{total !== undefined ? `/${total}` : ''}
         </span>
         {topCardLabel && !compact && (
@@ -2798,71 +2818,82 @@ function StartAckOverlay({ onAck }: { onAck: () => void }) {
 
 /** Inner card art for the reveal overlay — dispatches to the right card type. */
 function RevealCardContent({ anim }: { anim: RevealAnim }) {
-  if (anim.kind === 'villain' || anim.kind === 'henchman') {
-    const def = getCard(anim.cardId);
-    if (def.kind === 'villain')   return <VillainCardArt   def={def} />;
-    if (def.kind === 'henchman')  return <HenchmanCardArt  def={def} />;
-    return null;
-  }
-  if (anim.kind === 'hero' || anim.kind === 'hero_recruited') {
-    const def = getCard(anim.cardId);
-    if (def.kind === 'hero') return <HeroCardArt def={def} copies={CARD_COPIES[anim.cardId]} />;
-    return null;
-  }
-  if (anim.kind === 'master_strike') {
-    return (
-      <SystemCardArt
-        name="Master Strike"
-        borderColor="#c45000"
-        bg="linear-gradient(135deg, #8a3800, #6a2c00)"
-        text={anim.strikeText}
-        typeLabel={anim.typeLabel}
-      />
-    );
-  }
-  if (anim.kind === 'bystander') {
-    return (
-      <SystemCardArt
-        name="Bystander"
-        borderColor="#c4a800"
-        bg="linear-gradient(135deg, #c4a800, #a08600)"
-        vp={1}
-      />
-    );
-  }
-  if (anim.kind === 'wound') {
-    return (
-      <SystemCardArt
-        name="Wound"
-        borderColor="#7a3030"
-        bg="linear-gradient(135deg, #6b2525, #5a1e1e)"
-        text="Healing: If you don't recruit or fight anything on your turn, you may KO all the Wounds from your hand."
-      />
-    );
-  }
-  if (anim.kind === 'tactic') {
-    const tacticDef = getCard(anim.cardId);
-    if (tacticDef?.kind === 'tactic') {
-      return <TacticCardArt def={tacticDef} mastermindName={anim.typeLabel} />;
+  // Render the revealed card at the SAME size/shape as a card on the field
+  // (wide, fixed width) so it doesn't look smaller than the card the player
+  // just interacted with. The overlay's scale handles the dramatic emphasis.
+  const inner = (() => {
+    if (anim.kind === 'villain' || anim.kind === 'henchman') {
+      const def = getCard(anim.cardId);
+      if (def.kind === 'villain')   return <VillainCardArt   def={def} wide />;
+      if (def.kind === 'henchman')  return <HenchmanCardArt  def={def} wide />;
+      return null;
     }
-    // Fallback: render a system card with the tactic text if lookup fails
+    if (anim.kind === 'hero' || anim.kind === 'hero_recruited') {
+      const def = getCard(anim.cardId);
+      if (def.kind === 'hero') return <HeroCardArt def={def} copies={CARD_COPIES[anim.cardId]} wide />;
+      return null;
+    }
+    if (anim.kind === 'master_strike') {
+      return (
+        <SystemCardArt
+          name="Master Strike"
+          borderColor="#c45000"
+          bg="linear-gradient(135deg, #8a3800, #6a2c00)"
+          text={anim.strikeText}
+          typeLabel={anim.typeLabel}
+          wide
+        />
+      );
+    }
+    if (anim.kind === 'bystander') {
+      return (
+        <SystemCardArt
+          name="Bystander"
+          borderColor="#c4a800"
+          bg="linear-gradient(135deg, #c4a800, #a08600)"
+          vp={1}
+          wide
+        />
+      );
+    }
+    if (anim.kind === 'wound') {
+      return (
+        <SystemCardArt
+          name="Wound"
+          borderColor="#7a3030"
+          bg="linear-gradient(135deg, #6b2525, #5a1e1e)"
+          text="Healing: If you don't recruit or fight anything on your turn, you may KO all the Wounds from your hand."
+          wide
+        />
+      );
+    }
+    if (anim.kind === 'tactic') {
+      const tacticDef = getCard(anim.cardId);
+      if (tacticDef?.kind === 'tactic') {
+        return <TacticCardArt def={tacticDef} mastermindName={anim.typeLabel} wide />;
+      }
+      // Fallback: render a system card with the tactic text if lookup fails
+      return (
+        <SystemCardArt
+          name={anim.typeLabel ?? 'Tactic'}
+          borderColor="#DC143C"
+          bg="linear-gradient(135deg, #7a0a1e, #5a0614)"
+          text={anim.strikeText}
+          typeLabel={anim.typeLabel ? `Mastermind Tactic - ${anim.typeLabel}` : 'Mastermind Tactic'}
+          wide
+        />
+      );
+    }
     return (
       <SystemCardArt
-        name={anim.typeLabel ?? 'Tactic'}
-        borderColor="#DC143C"
-        bg="linear-gradient(135deg, #7a0a1e, #5a0614)"
-        text={anim.strikeText}
-        typeLabel={anim.typeLabel ? `Mastermind Tactic - ${anim.typeLabel}` : 'Mastermind Tactic'}
+        name="Scheme Twist"
+        borderColor="#4a2880"
+        bg="linear-gradient(135deg, #3a2068, #2e1854)"
+        wide
       />
     );
-  }
-  return (
-    <SystemCardArt
-      name="Scheme Twist"
-      borderColor="#4a2880"
-      bg="linear-gradient(135deg, #3a2068, #2e1854)"
-    />
-  );
+  })();
+  return <div className="w-[260px]">{inner}</div>;
 }
 
 /**
