@@ -563,7 +563,7 @@ export function HeroCardArt({
   // don't get clipped by the fixed card height. Steps 12px → 10px so even the
   // worst cards stay legible; the tightened body padding below gives the
   // average card enough room to render at the full 12px.
-  const textFitRef = useAutoFitFontSize(12, 10, [def.text, height, wide]);
+  const textFitRef = useAutoFitFontSize(14, 11, [def.text, height, wide]);
 
   return (
     <div

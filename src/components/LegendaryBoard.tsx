@@ -644,7 +644,7 @@ export default function LegendaryBoard({
              col-span-1 right = Wounds + Bystanders ---- */}
         <div className="grid grid-cols-12 gap-2">
           {/* KO pile — cards removed from the game (master strikes, KO'd player cards) */}
-          <div className="group relative col-span-1 flex h-48 flex-col">
+          <div className="group relative col-span-1 flex h-52 flex-col">
             <PileDisplay
               label="KO"
               count={koCards.length}
@@ -656,7 +656,7 @@ export default function LegendaryBoard({
           </div>
           <div className="col-span-10 grid grid-cols-5 gap-2">
             {/* Escape — directly above Bridge city slot */}
-            <div className="group relative col-span-1 flex h-48 flex-col">
+            <div className="group relative col-span-1 flex h-52 flex-col">
               <PileDisplay
                 label="Escape"
                 count={state.escapedPile.length}
@@ -667,11 +667,11 @@ export default function LegendaryBoard({
               <HoverCardList cards={state.escapedPile} heading="Escaped" placement="below" />
             </div>
             {/* Scheme — spans 2 city-slot widths. ref used for animation targeting. */}
-            <div className="col-span-2 h-48" ref={schemeRef}>
+            <div className="col-span-2 h-52" ref={schemeRef}>
               <SchemeZone schemeDef={schemeDef} twistsRevealed={state.schemeTwistsRevealed} twistsTotal={state.schemeTwistsTotal ?? undefined} />
             </div>
             {/* Mastermind — spans 2 city-slot widths */}
-            <div className="col-span-2 h-48" ref={mastermindRef}>
+            <div className="col-span-2 h-52" ref={mastermindRef}>
               <MastermindZone
                 mmDef={mmDef}
                 tacticsLeft={state.mastermind.tactics?.length ?? 0}
@@ -689,7 +689,7 @@ export default function LegendaryBoard({
             </div>
           </div>
           {/* Wounds + Bystanders — right of Mastermind, aligned with Villain/Hero Deck column */}
-          <div className="col-span-1 flex h-48 flex-col gap-1">
+          <div className="col-span-1 flex h-52 flex-col gap-1">
             {/* Each pile takes an equal half. The wrappers must be `flex` so the
                 PileDisplay's own `flex-1` (from `fill`) has a flex parent to grow
                 into — otherwise the piles collapse to content height. */}
@@ -2603,7 +2603,7 @@ function SchemeZone({
       <span className="truncate text-[14px] font-bold text-white leading-tight">{schemeDef.name}</span>
       <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: labelColor }}>Scheme</span>
       {schemeDef.text && (
-        <div className="mt-1 flex-1 overflow-hidden text-[12px] leading-snug">
+        <div className="mt-1 flex-1 overflow-hidden text-[14px] leading-snug">
           {schemeDef.text.split('\n').map((segment, i) => {
             const colonIdx = segment.indexOf(':');
             if (colonIdx > 0) {
@@ -2684,7 +2684,7 @@ function MastermindZone({
         Mastermind
       </div>
       {/* Always Leads */}
-      <div className="mt-0.5 text-[12px]">
+      <div className="mt-0.5 text-[14px]">
         <span className="font-semibold" style={{ color: '#DC143C' }}>Always Leads: </span>
         <span className="font-bold text-white">{teamDisplayName(mmDef.alwaysLeads)}</span>
       </div>
@@ -2694,7 +2694,7 @@ function MastermindZone({
         const label = colonIdx > 0 ? mmDef.text!.slice(0, colonIdx + 1) : '';
         const body  = colonIdx > 0 ? mmDef.text!.slice(colonIdx + 1).trim() : mmDef.text!;
         return (
-          <div className="mt-1 line-clamp-3 pr-7 text-[12px] leading-snug">
+          <div className="mt-1 line-clamp-3 pr-7 text-[14px] leading-snug">
             {label && <span className="font-bold" style={{ color: '#DC143C' }}>{label} </span>}
             <span className="text-white"><CardText text={body} /></span>
           </div>

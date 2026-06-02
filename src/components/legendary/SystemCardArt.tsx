@@ -161,7 +161,7 @@ export function VillainCardArt({
       )}
       {/* Name row */}
       <div className="flex items-center gap-1 min-w-0">
-        <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
+        <span className="truncate text-[14px] font-bold leading-tight text-neutral-100">{def.name}</span>
       </div>
       {/* Type label — "Villain - Brotherhood" etc. Sized to match the henchman
           card's type row so the body text below starts at the same height. */}
@@ -171,7 +171,7 @@ export function VillainCardArt({
       {/* Card text — pr-8 clears the VP badge; CardText renders inline tokens.
           pt-3 mirrors the henchman card so villain/henchman body text aligns. */}
       {def.text && (
-        <div className="mb-1 flex-1 pl-3 pr-8 pt-3 text-[11px] leading-snug text-neutral-300">
+        <div className="mb-1 flex-1 pl-3 pr-8 pt-3 text-[14px] leading-snug text-neutral-300">
           <CardText text={def.text} />
         </div>
       )}
@@ -279,7 +279,7 @@ export function HenchmanCardArt({
 
       {/* Line 1: card name — mirrors hero card layout */}
       <div className="flex items-center gap-1 min-w-0">
-        <span className="min-w-0 flex-1 truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
+        <span className="min-w-0 flex-1 truncate text-[14px] font-bold leading-tight text-neutral-100">{def.name}</span>
       </div>
 
       {/* Line 2: type label */}
@@ -291,7 +291,7 @@ export function HenchmanCardArt({
 
       {/* Card text — pr-8 keeps text clear of the VP badge on the right edge */}
       {def.text && (
-        <div className="mb-1 flex-1 pl-3 pr-8 pt-3 text-[12px] leading-snug text-neutral-300">
+        <div className="mb-1 flex-1 pl-3 pr-8 pt-3 text-[14px] leading-snug text-neutral-300">
           <CardText text={def.text} />
         </div>
       )}
@@ -340,13 +340,13 @@ export function TacticCardArt({
       className={`relative flex h-40 ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
     >
       <div className="flex items-center gap-1 min-w-0">
-        <span className="truncate text-[12px] font-bold leading-tight text-neutral-100">{def.name}</span>
+        <span className="truncate text-[14px] font-bold leading-tight text-neutral-100">{def.name}</span>
       </div>
       <div className="truncate text-[9px] font-semibold uppercase tracking-wider" style={{ color: borderColor }}>
         {typeLabel}
       </div>
       {def.text && (
-        <div className="mt-3 mb-1 flex-1 pr-7 text-[11px] leading-snug text-neutral-300">
+        <div className="mt-3 mb-1 flex-1 pr-7 text-[14px] leading-snug text-neutral-300">
           <CardText text={def.text} />
         </div>
       )}
@@ -398,7 +398,7 @@ export function SystemCardArt({
         className={`relative flex ${height} ${widthClass} flex-col rounded-lg bg-gradient-to-br from-neutral-900 to-neutral-950 p-2`}
       >
         {/* Row 1 — card name */}
-        <span className="text-[12px] font-bold leading-tight text-neutral-100">{name}</span>
+        <span className="text-[14px] font-bold leading-tight text-neutral-100">{name}</span>
         {/* Row 2 — type label (mirrors hero card's class-name row). Transparent when absent
              so it still takes up space and keeps the ability text at a consistent height. */}
         <div
@@ -408,7 +408,7 @@ export function SystemCardArt({
           {typeLabel ?? ' '}
         </div>
         {/* Ability text — pt-3 + text-[12px] matches hero card text start position */}
-        <div className="mb-1 flex-1 pr-2 pt-3 text-[12px] leading-snug text-neutral-300">
+        <div className="mb-1 flex-1 pr-2 pt-3 text-[14px] leading-snug text-neutral-300">
           <CardText text={text} />
         </div>
         {vp !== undefined && <VpBadge vp={vp} />}
