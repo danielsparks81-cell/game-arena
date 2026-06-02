@@ -964,7 +964,7 @@ export default function LegendaryBoard({
           ============================================================ */}
 
       {/* Resource bar + action buttons */}
-      <div className="rounded-xl border border-neutral-800 bg-neutral-950 px-4 py-2 text-sm">
+      <div className="rounded-xl border border-neutral-800 bg-neutral-950 px-5 py-3 text-sm">
         <div className="flex items-start justify-between gap-3">
           {/* Left: player info boxes + Strike/Recruit pips + played chips (wraps to 2nd row) */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -996,7 +996,7 @@ export default function LegendaryBoard({
               return (
                 <div key={c.instanceId + i} className="group relative">
                   <div
-                    className="h-5 cursor-default select-none rounded bg-neutral-800 px-1.5 text-[10px] leading-5 font-medium"
+                    className="h-7 cursor-default select-none rounded bg-neutral-800 px-2.5 text-[13px] leading-7 font-medium"
                     style={{ color: chipColor }}
                   >
                     {labelOf(c)}
