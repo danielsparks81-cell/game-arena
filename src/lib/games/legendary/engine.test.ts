@@ -523,6 +523,29 @@ describe('legendary: Sidekick return replenishes the stack', () => {
   });
 });
 
+describe('legendary: Steal Abilities reveals Copy Powers', () => {
+  it('offers the copy_played_hero choice even when Steal Abilities is the only hero played', () => {
+    // Regression: copy_played_hero used to slice off the LAST played card,
+    // assuming it was the just-played Copy Powers. But when Copy Powers is
+    // revealed by Steal Abilities it is never added to playedThisTurn, so the
+    // slice wrongly dropped the real last hero (Steal Abilities itself) and the
+    // copy prompt silently never appeared.
+    const s = freshSinglePlayerGame();
+    const me = s.players[0];
+    me.hand = [{ instanceId: 'steal-1', cardId: 'rogue_steal_abilities' }];
+    // Copy Powers sits on top of the deck so Steal Abilities reveals it.
+    me.deck = [{ instanceId: 'cp-1', cardId: 'rogue_copy_powers' }, ...me.deck];
+
+    const r = applyAction(s, 'alice', { kind: 'play_card', instanceId: 'steal-1' });
+    if ('error' in r) throw new Error(String(r.error));
+    const ns = r as LegendaryState;
+
+    // The revealed Copy Powers' ability fires and prompts to copy a played Hero;
+    // Steal Abilities (a Hero played this turn) is the eligible target.
+    expect(ns.thisTurn.pendingChoice?.kind).toBe('copy_played_hero');
+  });
+});
+
 describe('legendary: Random Acts of Unkindness — each player chooses', () => {
   it('every player picks a card to pass left (sequential), not an auto-pass', () => {
     let s = createInitialStateForHost({ userId: 'alice', username: 'Alice' });

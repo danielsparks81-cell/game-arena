@@ -1351,9 +1351,13 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
 
     // ── Rogue-specific effects ────────────────────────────────────────────
     case 'copy_played_hero': {
-      // Offer a choice only if there are other heroes in playedThisTurn.
-      // The Rogue card itself is the last entry — exclude it and any other copy cards.
-      const eligible = state.thisTurn.playedThisTurn.slice(0, -1).filter(c => {
+      // Offer a choice if there is any other Hero played this turn to copy.
+      // Exclude Copy Powers cards by id (you can't copy another Copy Powers).
+      // NOTE: do NOT slice off the last entry — that only happens to be this
+      // card when it's played directly. When Copy Powers is revealed/copied by
+      // Steal Abilities it's never added to playedThisTurn, so slicing would
+      // wrongly drop a real hero and silently skip the copy.
+      const eligible = state.thisTurn.playedThisTurn.filter(c => {
         const d = getCard(c.cardId);
         return d.kind === 'hero' && c.cardId !== 'rogue_copy_powers';
       });
