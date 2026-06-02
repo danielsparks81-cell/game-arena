@@ -10,6 +10,7 @@ import GeneralChat from '@/components/GeneralChat';
 import TopBar from '@/components/TopBar';
 import RoomTopBarActions from '@/components/RoomTopBarActions';
 import RematchToast from '@/components/RematchToast';
+import FitToScreen from '@/components/FitToScreen';
 import { BOARD_RENDERERS } from '@/lib/games/boards';
 import { getTurnInfo } from '@/lib/games/turnOrder';
 import { useTurnNotification } from '@/lib/useTurnNotification';
@@ -242,18 +243,24 @@ export default function RoomClient({
 
         {/* All per-game board rendering happens via the BOARD_RENDERERS map
             in src/lib/games/boards.tsx — adding a new game means adding one
-            entry there, not patching this file. */}
-        {BOARD_RENDERERS[room.game_type]?.({
-          roomId,
-          currentUserId,
-          isHost: room.host_id === currentUserId,
-          status: room.status,
-          state: room.state,
-          maxPlayers: room.max_players,
-          playerCount: room.room_players.length,
-          pending,
-          startTransition,
-        })}
+            entry there, not patching this file. While playing, the board is
+            wrapped in FitToScreen so it scales up to fill the screen (great in
+            fullscreen). HeroQuest is excluded — it has its own board zoom. */}
+        {(() => {
+          const board = BOARD_RENDERERS[room.game_type]?.({
+            roomId,
+            currentUserId,
+            isHost: room.host_id === currentUserId,
+            status: room.status,
+            state: room.state,
+            maxPlayers: room.max_players,
+            playerCount: room.room_players.length,
+            pending,
+            startTransition,
+          });
+          const fit = room.status === 'playing' && room.game_type !== 'heroquest';
+          return fit ? <FitToScreen>{board}</FitToScreen> : board;
+        })()}
 
         {/* Rematch now surfaces as a floating top-of-screen toast (mirrors the
             invite-toast pattern) instead of an inline panel under the board.
