@@ -220,7 +220,7 @@ Exact prices vary slightly between printings — verify against the armory card 
   - **E** — First hero searching this treasure chest finds **120 gold**.
 - **No traps and no secret doors** are placed in this quest (per the Zargon note).
 - **Wandering Monster:** Orc.
-- **Standard monster placements** (per map icons): goblins and orcs distributed in 4–5 rooms; one fimir/abomination in a side chamber; one mummy as guardian; **Verag the Chaos Gargoyle** in the far chamber.
+- **Standard monster placements** (per map icons): goblins and orcs distributed in 4–5 rooms; one abomination in a side chamber; one mummy as guardian; **Verag the Chaos Gargoyle** in the far chamber.
 
 **Starting position:** All heroes start in the stairway room (left edge) on or adjacent to the staircase tile.
 

@@ -20,8 +20,8 @@ type FurnKind =
   | 'chest' | 'table' | 'cupboard' | 'rack' | 'bookshelf'
   | 'throne' | 'tomb' | 'altar' | 'bench' | 'fireplace';
 type MonKind =
-  | 'goblin' | 'orc' | 'fimir' | 'skeleton' | 'zombie' | 'mummy'
-  | 'chaos_warrior' | 'gargoyle';
+  | 'goblin' | 'orc' | 'abomination' | 'skeleton' | 'zombie' | 'mummy'
+  | 'dread_warrior' | 'gargoyle';
 type Furn = { kind: FurnKind; x: number; y: number; gold?: number };
 type Mon = { kind: MonKind; x: number; y: number; named?: boolean };
 
@@ -34,7 +34,7 @@ type Tool =
 
 const ROOM_LETTERS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const FURN_KINDS: FurnKind[] = ['chest', 'table', 'cupboard', 'rack', 'bookshelf', 'throne', 'tomb', 'altar', 'bench', 'fireplace'];
-const MON_KINDS: MonKind[] = ['goblin', 'orc', 'fimir', 'skeleton', 'zombie', 'mummy', 'chaos_warrior', 'gargoyle'];
+const MON_KINDS: MonKind[] = ['goblin', 'orc', 'abomination', 'skeleton', 'zombie', 'mummy', 'dread_warrior', 'gargoyle'];
 
 /** Furniture default [blocksMove, blocksLos] for export. */
 const FURN_BLOCK: Record<FurnKind, [boolean, boolean]> = {
@@ -52,8 +52,8 @@ const FURN_ICON: Record<FurnKind, string> = {
   throne: '🪑', tomb: '⚰️', altar: '🔯', bench: '🛋️', fireplace: '🔥',
 };
 const MON_ICON: Record<MonKind, string> = {
-  goblin: '👺', orc: '👹', fimir: '🦎', skeleton: '💀', zombie: '🧟',
-  mummy: '🧻', chaos_warrior: '🛡️', gargoyle: '😈',
+  goblin: '👺', orc: '👹', abomination: '🦎', skeleton: '💀', zombie: '🧟',
+  mummy: '🧻', dread_warrior: '🛡️', gargoyle: '😈',
 };
 
 const CELL = 24;

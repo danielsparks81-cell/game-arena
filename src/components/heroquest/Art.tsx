@@ -445,25 +445,33 @@ const OrcArt = () => (
   </g>
 );
 
-const FimirArt = () => (
+const AbominationArt = () => (
   <g>
-    {/* Reptilian body */}
-    <ellipse cx="20" cy="22" rx="11" ry="11" fill="#3a5a4a" stroke="#0a1a14" strokeWidth="0.8" />
-    {/* Single Cyclops eye */}
-    <circle cx="20" cy="20" r="3.5" fill="#ffd84d" stroke="#000" strokeWidth="0.5" />
-    <ellipse cx="20" cy="20" rx="1.3" ry="2.5" fill="#000" />
-    {/* Crocodile-like jaw */}
-    <path d="M 12,28 L 28,28 L 26,32 L 14,32 Z" fill="#2a4a3a" stroke="#0a1a08" strokeWidth="0.6" />
-    <g stroke="#fff" strokeWidth="0.6">
-      <line x1="14" y1="30" x2="14" y2="32" />
-      <line x1="17" y1="30" x2="17" y2="32" />
-      <line x1="20" y1="30" x2="20" y2="32" />
-      <line x1="23" y1="30" x2="23" y2="32" />
-      <line x1="26" y1="30" x2="26" y2="32" />
+    {/* Hulking sickly-green mutant body, asymmetric and lumpy */}
+    <path
+      d="M 9,24 Q 7,12 16,10 Q 21,8 26,11 Q 33,14 31,25 Q 30,34 20,34 Q 11,34 9,24 Z"
+      fill="#6a8a3a"
+      stroke="#27370f"
+      strokeWidth="0.9"
+    />
+    {/* Lumpy growths / tumorous nodules */}
+    <circle cx="13" cy="15" r="2.4" fill="#7d9c4a" stroke="#27370f" strokeWidth="0.4" />
+    <circle cx="29" cy="20" r="2.8" fill="#5c7a30" stroke="#27370f" strokeWidth="0.4" />
+    <circle cx="25" cy="31" r="2" fill="#7d9c4a" stroke="#27370f" strokeWidth="0.4" />
+    {/* Asymmetric eyes — one large, one small, sickly yellow */}
+    <circle cx="16" cy="19" r="3" fill="#f2e85a" stroke="#000" strokeWidth="0.5" />
+    <circle cx="16" cy="19" r="1.1" fill="#000" />
+    <circle cx="25" cy="21" r="1.7" fill="#f2e85a" stroke="#000" strokeWidth="0.5" />
+    <circle cx="25" cy="21" r="0.7" fill="#000" />
+    {/* Gaping fanged maw */}
+    <path d="M 13,27 Q 20,33 28,27 Q 24,31 20,31 Q 16,31 13,27 Z" fill="#1a1006" />
+    <g fill="#e8e0c0" stroke="#000" strokeWidth="0.2">
+      <path d="M 15,27.5 L 16.5,30 L 17.5,27.6 Z" />
+      <path d="M 19,28.4 L 20.5,31 L 21.5,28.4 Z" />
+      <path d="M 23.5,27.8 L 25,30 L 26,27.6 Z" />
     </g>
-    {/* Horns */}
-    <path d="M 12,16 L 10,10 L 14,14 Z" fill="#2a3a2a" />
-    <path d="M 28,16 L 30,10 L 26,14 Z" fill="#2a3a2a" />
+    {/* Clawed arm reaching out */}
+    <path d="M 31,24 L 36,22 M 34,21 L 37,20 M 34,23 L 37,24" stroke="#5c7a30" strokeWidth="1.1" strokeLinecap="round" />
   </g>
 );
 
@@ -516,24 +524,27 @@ const MummyArt = () => (
   </g>
 );
 
-const ChaosWarriorArt = () => (
+const DreadWarriorArt = () => (
   <g>
-    {/* Dark armored figure */}
-    <ellipse cx="20" cy="22" rx="11" ry="11" fill="#1a1a2a" stroke="#0a0a14" strokeWidth="0.8" />
-    {/* Spiked helm */}
-    <path d="M 10,18 L 14,8 L 16,14 L 20,4 L 24,14 L 26,8 L 30,18 Z" fill="#2a2a3a" stroke="#0a0a14" strokeWidth="0.6" />
-    {/* Skull face mask */}
-    <ellipse cx="20" cy="22" rx="5" ry="5" fill="#dac8a8" />
-    <circle cx="17" cy="22" r="1.5" fill="#000" />
-    <circle cx="23" cy="22" r="1.5" fill="#000" />
-    <path d="M 18,26 L 20,28 L 22,26 Z" fill="#000" />
-    {/* Chaos star */}
-    <g stroke="#d61010" strokeWidth="0.6" fill="none">
-      <line x1="20" y1="32" x2="20" y2="36" />
-      <line x1="18" y1="34" x2="22" y2="34" />
-      <line x1="18" y1="32" x2="22" y2="36" />
-      <line x1="22" y1="32" x2="18" y2="36" />
-    </g>
+    {/* Dark plate-armored shoulders / pauldrons */}
+    <path d="M 7,32 Q 8,22 14,21 L 26,21 Q 32,22 33,32 Z" fill="#23232f" stroke="#0a0a12" strokeWidth="0.8" />
+    <ellipse cx="10" cy="25" rx="3.5" ry="3" fill="#2e2e3e" stroke="#0a0a12" strokeWidth="0.6" />
+    <ellipse cx="30" cy="25" rx="3.5" ry="3" fill="#2e2e3e" stroke="#0a0a12" strokeWidth="0.6" />
+    {/* Dark plate helm */}
+    <path d="M 12,20 Q 12,9 20,8 Q 28,9 28,20 Q 28,24 20,25 Q 12,24 12,20 Z" fill="#1c1c28" stroke="#0a0a12" strokeWidth="0.8" />
+    {/* Curved horns */}
+    <path d="M 12,15 Q 6,12 5,5 Q 10,9 13,11 Z" fill="#15151e" stroke="#000" strokeWidth="0.4" />
+    <path d="M 28,15 Q 34,12 35,5 Q 30,9 27,11 Z" fill="#15151e" stroke="#000" strokeWidth="0.4" />
+    {/* Helm crest ridge */}
+    <path d="M 20,8 L 20,25" stroke="#2e2e3e" strokeWidth="1" />
+    {/* Visor slit with red glowing eyes */}
+    <rect x="14" y="16" width="12" height="3" rx="1" fill="#000" />
+    <circle cx="17" cy="17.5" r="1.4" fill="#e01818" />
+    <circle cx="23" cy="17.5" r="1.4" fill="#e01818" />
+    <circle cx="17" cy="17.5" r="0.5" fill="#ffcaca" />
+    <circle cx="23" cy="17.5" r="0.5" fill="#ffcaca" />
+    {/* Breastplate emblem */}
+    <path d="M 20,27 L 22,30 L 20,33 L 18,30 Z" fill="#3a3a4c" stroke="#0a0a12" strokeWidth="0.4" />
   </g>
 );
 
@@ -560,11 +571,11 @@ const GargoyleArt = () => (
 const MONSTER_RENDERERS: Record<MonsterKind, () => React.ReactElement> = {
   goblin:        GoblinArt,
   orc:           OrcArt,
-  fimir:         FimirArt,
+  abomination:   AbominationArt,
   skeleton:      SkeletonArt,
   zombie:        ZombieArt,
   mummy:         MummyArt,
-  chaos_warrior: ChaosWarriorArt,
+  dread_warrior: DreadWarriorArt,
   gargoyle:      GargoyleArt,
 };
 

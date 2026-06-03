@@ -178,8 +178,8 @@ export type Hero = {
 // ============================================================================
 
 export type MonsterKind =
-  | 'goblin' | 'orc' | 'fimir' | 'skeleton' | 'zombie' | 'mummy'
-  | 'chaos_warrior' | 'gargoyle';
+  | 'goblin' | 'orc' | 'abomination' | 'skeleton' | 'zombie' | 'mummy'
+  | 'dread_warrior' | 'gargoyle';
 
 export type Monster = {
   id: string;
