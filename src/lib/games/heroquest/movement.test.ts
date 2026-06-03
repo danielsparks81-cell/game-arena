@@ -249,6 +249,59 @@ describe('heroquest disarm: faithful odds (rulebook pp.19–20)', () => {
   });
 });
 
+describe('heroquest monsters: orthogonal attacks only (rulebook p.20)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const forceShields = () => vi.spyOn(Math, 'random').mockReturnValue(0.9);
+
+  /** Open floor room x∈[3,7], y∈[2,6]; only hero 0 alive so one end_turn runs
+   *  Zargon. Returns state with hero 0 placed by the caller. */
+  function zargonSetup(): HQState {
+    const s: HQState = JSON.parse(JSON.stringify(startedGame()));
+    s.furniture = [];
+    s.monsters = [];
+    for (const row of s.tiles) for (const t of row) t.revealed = false;
+    for (let y = 2; y <= 6; y++) for (let x = 3; x <= 7; x++) {
+      s.tiles[y][x] = { kind: 'floor', region: 'corridor', revealed: true };
+    }
+    // Only hero 0 lives → ending its turn wraps to Zargon immediately.
+    s.heroes[1].body = 0; s.heroes[1].at = { x: 0, y: 0 };
+    s.heroes[2].body = 0; s.heroes[2].at = { x: 0, y: 1 };
+    s.heroes[3].body = 0; s.heroes[3].at = { x: 0, y: 2 };
+    s.turnIndex = 0;
+    return s;
+  }
+
+  it('a monster already orthogonally adjacent strikes from its square', () => {
+    const s = zargonSetup();
+    s.heroes[0].at = { x: 5, y: 4 };
+    s.monsters = [{
+      id: 'm', kind: 'orc', at: { x: 4, y: 4 }, body: 1, bodyMax: 1,
+      attack: 3, defense: 2, move: 6, roomId: 'corridor',
+    }];
+    forceShields();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    expect(out.monsters[0].at).toEqual({ x: 4, y: 4 }); // did NOT dance to a diagonal
+    expect(out.lastRoll?.rolledBy).toBe('monster');      // it attacked
+    expect(out.lastRoll?.faces.length).toBe(3);          // m.attack dice
+  });
+
+  it('a monster diagonal to a hero with no orthogonal approach cannot attack', () => {
+    const s = zargonSetup();
+    s.heroes[0].at = { x: 5, y: 4 };
+    // Wall off the two squares that would let the monster reach orthogonal range.
+    s.tiles[3][5] = { kind: 'wall', region: 'corridor', revealed: true };
+    s.tiles[4][4] = { kind: 'wall', region: 'corridor', revealed: true };
+    s.monsters = [{
+      id: 'm', kind: 'orc', at: { x: 4, y: 3 }, body: 1, bodyMax: 1,
+      attack: 3, defense: 2, move: 6, roomId: 'corridor',
+    }];
+    forceShields();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    expect(out.monsters[0].at).toEqual({ x: 4, y: 3 }); // stuck diagonal, couldn't close in
+    expect(out.heroes[0].body).toBe(8);                 // no diagonal attack landed
+  });
+});
+
 describe('heroquest: move-then-act vs act-then-move rule', () => {
   it('move-then-act forfeits the remaining movement', () => {
     const s = corridorSetup();

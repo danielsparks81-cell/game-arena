@@ -678,7 +678,12 @@ function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
   const room = state.tiles[hero.at.y][hero.at.x].region;
   if (!room.startsWith('room_')) return err('You can only search for treasure while inside a room.');
   if (hero.searchedRooms.includes(room)) return err('You have already searched this room for treasure.');
-  if (monstersVisibleToHero(state, hero).length > 0) return err('You cannot search while monsters are in sight.');
+  // Treasure can only be searched in a room with no monsters IN it (rulebook
+  // p.15) — unlike trap/secret-door searches, monsters merely visible down a
+  // corridor don't block looting a cleared room.
+  if (state.monsters.some(m => state.tiles[m.at.y]?.[m.at.x]?.region === room)) {
+    return err('You cannot search a room for treasure while monsters are in it.');
+  }
 
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
@@ -1069,13 +1074,17 @@ function runMonster(s: HQState, m: Monster): void {
     || a.body - b.body,
   );
   const target = livingHeroes[0];
-  // Walk toward target.
+  // Walk toward target. Monsters move orthogonally only and stop the moment
+  // they are orthogonally adjacent — they cannot move OR attack diagonally
+  // (rulebook p.20). Checking adjacency at the top of the loop also means a
+  // monster that starts in melee range strikes from where it stands instead of
+  // shuffling to a diagonal first.
   let steps = m.move;
-  while (steps > 0) {
-    // Prefer the axis with greatest distance.
+  while (steps > 0 && !orthoAdjacent(m.at, target.at)) {
     const dx = Math.sign(target.at.x - m.at.x);
     const dy = Math.sign(target.at.y - m.at.y);
-    // Try x first, then y.
+    // Try the toward-target axes first, then perpendicular fallbacks to round a
+    // corner. Every candidate is a single orthogonal step (one component zero).
     let moved = false;
     for (const [sx, sy] of [[dx, 0], [0, dy], [0, dx], [dy, 0]]) {
       if (sx === 0 && sy === 0) continue;
@@ -1090,11 +1099,9 @@ function runMonster(s: HQState, m: Monster): void {
       break;
     }
     if (!moved) break;
-    // If adjacent to target now, stop and attack.
-    if (chebyshev(m.at, target.at) === 1) break;
   }
-  // Attack if adjacent.
-  if (chebyshev(m.at, target.at) === 1) {
+  // Attack only if orthogonally adjacent.
+  if (orthoAdjacent(m.at, target.at)) {
     const atk = rollDice(m.attack, 'monster');
     s.lastRoll = atk;
     s.lastMoveRoll = null;
@@ -1281,6 +1288,12 @@ function cellOccupied(s: HQState, c: Coord, _ignoreHeroPassthrough: boolean): bo
 
 function chebyshev(a: Coord, b: Coord): number {
   return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+/** Orthogonally adjacent (side/front/rear) — the only way monsters may attack
+ *  (rulebook p.20: monsters may not move or attack diagonally). */
+function orthoAdjacent(a: Coord, b: Coord): boolean {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
 }
 
 function adjacentCells(c: Coord): Coord[] {
