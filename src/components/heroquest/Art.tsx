@@ -83,8 +83,9 @@ export function WallTile({ size }: { size: number }) {
   );
 }
 
-/** Floor flagstone tile. */
-export function FloorTile({ size, variant = 0 }: { size: number; variant?: number }) {
+/** Floor flagstone tile. `tl`/`br` override the gradient colors (used to give
+ *  corridors a light slate and each room its own shade). */
+export function FloorTile({ size, variant = 0, tl, br }: { size: number; variant?: number; tl?: string; br?: string }) {
   // Three subtle variants so a tiled floor isn't a flat repeat.
   const variants = [
     { tl: HQ_COLORS.floorLight, br: HQ_COLORS.floorDark },
@@ -92,15 +93,18 @@ export function FloorTile({ size, variant = 0 }: { size: number; variant?: numbe
     { tl: HQ_COLORS.floorMid,   br: HQ_COLORS.floorMid },
   ];
   const v = variants[variant % variants.length];
+  const top = tl ?? v.tl, bot = br ?? v.br;
+  // Unique gradient id per color pair so different room shades don't collide.
+  const gid = `fl_${top}_${bot}_${variant}`.replace(/[^a-zA-Z0-9_]/g, '');
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" style={{ display: 'block' }} aria-hidden>
       <defs>
-        <linearGradient id={`fl${variant}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor={v.tl} />
-          <stop offset="1" stopColor={v.br} />
+        <linearGradient id={gid} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor={top} />
+          <stop offset="1" stopColor={bot} />
         </linearGradient>
       </defs>
-      <rect width="40" height="40" fill={`url(#fl${variant})`} />
+      <rect width="40" height="40" fill={`url(#${gid})`} />
       {/* Flagstone cracks — a single L-shape */}
       <g stroke={HQ_COLORS.wallDark} strokeWidth="0.6" fill="none" opacity="0.6">
         <line x1="0"  y1="20" x2="20" y2="20" />

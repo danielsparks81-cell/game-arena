@@ -125,8 +125,6 @@ function PlayingView({
 
   return (
     <div className="space-y-3">
-      <TurnBanner state={state} currentUserId={currentUserId} onShowBriefing={onShowBriefing} />
-
       {pendingSpell && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-500/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
           <span className="font-semibold">Casting {pendingSpell.name}:</span>

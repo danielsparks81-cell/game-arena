@@ -14,7 +14,7 @@ import {
   type Furniture as HQFurniture,
 } from '@/lib/games/heroquest';
 import {
-  WallTile, FloorTile, StairsTile,
+  FloorTile, StairsTile,
   HeroToken, MonsterToken, FurnitureToken,
   HQ_COLORS,
 } from './Art';
@@ -22,10 +22,21 @@ import { safeAccent } from '@/lib/accentColors';
 
 export const TILE_PX = 36;
 
-// Distinct room tints for the debug "blueprint" view (cycled by room number).
-const ROOM_TINTS = [
-  '#3b82f6', '#ef4444', '#22c55e', '#eab308', '#a855f7', '#ec4899',
-  '#14b8a6', '#f97316', '#8b5cf6', '#06b6d4', '#84cc16', '#f43f5e',
+// Light grey "broken slate" flooring for the hallways/corridors.
+const CORRIDOR_FLOOR = { tl: '#9c9c98', br: '#6c6c68' };
+// Distinct muted stone shades for rooms. A greedy graph-coloring assigns these
+// so that no two touching rooms share a shade.
+const ROOM_FLOOR_PALETTE: { tl: string; br: string }[] = [
+  { tl: '#6f5c44', br: '#4c3f2c' }, // warm tan
+  { tl: '#48586a', br: '#2e3b47' }, // slate blue
+  { tl: '#56684a', br: '#384630' }, // moss green
+  { tl: '#6c4848', br: '#472e2e' }, // dusty red
+  { tl: '#5d4a6b', br: '#3c2f48' }, // muted purple
+  { tl: '#6b6450', br: '#474230' }, // olive
+  { tl: '#486b64', br: '#2e4844' }, // teal
+  { tl: '#6b5650', br: '#473934' }, // brown-rose
+  { tl: '#4f566b', br: '#333848' }, // indigo grey
+  { tl: '#656b48', br: '#42472e' }, // yellow-green
 ];
 
 export type BoardCanvasProps = {
@@ -156,14 +167,33 @@ export default function HeroQuestBoardCanvas({
     return (x * 7 + y * 13) % 3;
   }
 
-  // ---- Debug blueprint: a distinct translucent tint per room region so the
-  // board layout is easy to differentiate while building/testing. ----
-  function regionTint(region: string): string | null {
-    if (!region || !region.startsWith('room_')) return null;
-    const n = parseInt(region.slice('room_'.length), 10);
-    if (Number.isNaN(n)) return null;
-    return ROOM_TINTS[n % ROOM_TINTS.length];
-  }
+  // ---- Per-room flooring: greedy graph-coloring so that no two rooms that
+  // touch (orthogonally or diagonally) share the same shade. ----
+  const roomColorIdx = useMemo(() => {
+    const reg = (x: number, y: number) => state.tiles[y]?.[x]?.region ?? '';
+    const adj = new Map<string, Set<string>>();
+    const rooms = new Set<string>();
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const r = reg(x, y);
+      if (!r.startsWith('room_')) continue;
+      rooms.add(r);
+      if (!adj.has(r)) adj.set(r, new Set());
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const nr = reg(x + dx, y + dy);
+        if (nr.startsWith('room_') && nr !== r) adj.get(r)!.add(nr);
+      }
+    }
+    const num = (r: string) => parseInt(r.slice('room_'.length), 10) || 0;
+    const order = [...rooms].sort((a, b) => num(a) - num(b));
+    const color = new Map<string, number>();
+    for (const r of order) {
+      const used = new Set<number>();
+      for (const nb of adj.get(r) ?? []) { const c = color.get(nb); if (c !== undefined) used.add(c); }
+      let c = 0; while (used.has(c)) c++;
+      color.set(r, c);
+    }
+    return color;
+  }, [state.tiles, W, H]);
 
   // Debug: illuminate the whole map (ignores fog + torchlight) so the full
   // layout is visible while building/testing. Toggled by the ☀ button.
@@ -196,10 +226,10 @@ export default function HeroQuestBoardCanvas({
     const el = containerRef.current;
     if (!el) return;
     const compute = () => {
-      // Subtract the container padding (p-3 = 12px each side) so the fully-laid
+      // Subtract the container padding (p-1 = 4px each side) so the fully-laid
       // board fits inside without triggering the scrollbar.
-      const availW = el.clientWidth - 24;
-      const availH = el.clientHeight - 24;
+      const availW = el.clientWidth - 8;
+      const availH = el.clientHeight - 8;
       setFitZoom(Math.max(0.2, Math.min(availW / boardW, availH / boardH, 2.5)));
     };
     compute();
@@ -214,7 +244,7 @@ export default function HeroQuestBoardCanvas({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-auto rounded-xl border-2 border-amber-900/70 bg-black p-3"
+      className="relative overflow-auto bg-black p-1"
       style={{
         maxWidth: '100%',
         // Fill the window below the top bar so the whole board can be shown at
@@ -256,11 +286,18 @@ export default function HeroQuestBoardCanvas({
             // overlay on the cell boundaries, not as tiles).
             let tileArt: React.ReactNode = null;
             if (tile.kind === 'wall' || tile.kind === 'blocked') {
-              tileArt = <WallTile size={TILE_PX} />;
+              // Solid rock renders as nothing (the dark board shows through), so
+              // the hallways form the outer border — no surrounding brick.
+              tileArt = null;
             } else if (tile.kind === 'stairs') {
               tileArt = <StairsTile size={TILE_PX} />;
+            } else if (tile.region.startsWith('room_')) {
+              // Each room a distinct shade (graph-colored so neighbors differ).
+              const pal = ROOM_FLOOR_PALETTE[(roomColorIdx.get(tile.region) ?? 0) % ROOM_FLOOR_PALETTE.length];
+              tileArt = <FloorTile size={TILE_PX} variant={floorVariant(x, y)} tl={pal.tl} br={pal.br} />;
             } else {
-              tileArt = <FloorTile size={TILE_PX} variant={floorVariant(x, y)} />;
+              // Corridors / stairway floor → light grey broken slate.
+              tileArt = <FloorTile size={TILE_PX} variant={floorVariant(x, y)} tl={CORRIDOR_FLOOR.tl} br={CORRIDOR_FLOOR.br} />;
             }
             return (
               <div
@@ -281,11 +318,6 @@ export default function HeroQuestBoardCanvas({
                 title={tile.revealed ? `${tile.region} (${x},${y})` : 'Unexplored'}
               >
                 {tileArt}
-                {/* Debug blueprint: distinct per-room color wash. */}
-                {litAll && (() => {
-                  const t = regionTint(tile.region);
-                  return t ? <div className="pointer-events-none absolute inset-0" style={{ background: t, opacity: 0.32 }} /> : null;
-                })()}
                 {/* Lighting overlay */}
                 {level === 'fog' && (
                   <div className="absolute inset-0" style={{ background: HQ_COLORS.fog }} />
