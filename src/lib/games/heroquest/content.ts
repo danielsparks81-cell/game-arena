@@ -34,6 +34,8 @@ const BROADSWORD: Item = { id: 'broadsword', name: 'Broadsword', kind: 'weapon',
 const SHORT_SWORD: Item = { id: 'short_sword', name: 'Short Sword', kind: 'weapon', attack: 2, description: 'A reliable blade.' };
 const DAGGER: Item = { id: 'dagger', name: 'Dagger', kind: 'weapon', attack: 1, description: 'Light, easy to wield.' };
 const STAFF: Item = { id: 'staff', name: 'Staff', kind: 'weapon', attack: 1, diagonal: true, description: 'Can attack diagonally.' };
+/** Lets non-Dwarf heroes attempt to disarm traps (the Dwarf needs no kit). */
+export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', description: 'Lets any hero attempt to disarm traps. The Dwarf never needs one.' };
 
 export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
   barbarian: {

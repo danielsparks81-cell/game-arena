@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { initialState, addPlayer, applyAction } from './engine';
-import { QUEST1 } from './content';
+import { QUEST1, TOOL_KIT } from './content';
 import type { HQState } from './types';
 
 const QUEST1_STAIRS = QUEST1.startCells;
@@ -126,6 +126,126 @@ describe('heroquest: drag movement (move_path)', () => {
     expect(out.heroes[0].at).toEqual({ x: 4, y: 4 }); // stopped on the pit
     expect(out.heroes[0].inPit).toBe(true);
     expect(out.heroes[0].moveLeft).toBe(0);
+  });
+});
+
+describe('heroquest traps: faithful spring effects (rulebook pp.17–18)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  // DIE_FACES = [skull,skull,skull,white_shield,white_shield,black_shield].
+  // Math.random→0 picks index 0 (skull); →0.9 picks index 5 (black_shield).
+  const forceSkulls = () => vi.spyOn(Math, 'random').mockReturnValue(0);
+  const forceShields = () => vi.spyOn(Math, 'random').mockReturnValue(0.9);
+
+  it('falling block seals the square forever and bounces the hero back', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    s.traps = [{ id: 'fb', kind: 'falling_block', at: { x: 4, y: 4 }, triggered: false, revealed: false }];
+    forceShields(); // 0 skulls → no damage, clean position assertions
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 6, y: 4 } }));
+    expect(out.heroes[0].at).toEqual({ x: 3, y: 4 });  // fell back to the square before the trap
+    expect(out.tiles[4][4].kind).toBe('blocked');      // permanent wall
+    expect(out.heroes[0].body).toBe(8);                // no skulls rolled
+    expect(out.heroes[0].moveLeft).toBe(0);            // turn ends
+  });
+
+  it('falling block deals 1 BP per skull (3 dice, no defence)', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    s.traps = [{ id: 'fb', kind: 'falling_block', at: { x: 4, y: 4 }, triggered: false, revealed: false }];
+    forceSkulls(); // 3 skulls → -3 BP
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 6, y: 4 } }));
+    expect(out.heroes[0].body).toBe(5);
+    expect(out.tiles[4][4].kind).toBe('blocked');
+  });
+
+  it('a dodged spear deals no damage and the hero keeps moving', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    s.traps = [{ id: 'sp', kind: 'spear', at: { x: 4, y: 4 }, triggered: false, revealed: false }];
+    forceShields(); // shield → dodge
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 6, y: 4 } }));
+    expect(out.heroes[0].at).toEqual({ x: 6, y: 4 }); // continued to the destination
+    expect(out.heroes[0].body).toBe(8);               // unharmed
+    expect(out.traps[0].triggered).toBe(true);        // the spear is spent
+  });
+
+  it('a struck spear deals 1 BP and ends the move on the trap square', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    s.traps = [{ id: 'sp', kind: 'spear', at: { x: 4, y: 4 }, triggered: false, revealed: false }];
+    forceSkulls(); // skull → struck
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 6, y: 4 } }));
+    expect(out.heroes[0].at).toEqual({ x: 4, y: 4 });
+    expect(out.heroes[0].body).toBe(7);
+    expect(out.heroes[0].moveLeft).toBe(0);
+  });
+
+  it('fighting from a pit rolls one fewer attack die (min 1)', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    s.heroes[0].inPit = true;
+    s.monsters = [{
+      id: 'm', kind: 'orc', at: { x: 3, y: 4 }, body: 1, bodyMax: 1,
+      attack: 3, defense: 2, move: 6, roomId: 'corridor',
+    }];
+    forceShields();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'attack', monsterId: 'm' }));
+    expect(out.lastRoll?.faces.length).toBe(2); // barbarian attack 3 − 1 (in pit)
+  });
+});
+
+describe('heroquest disarm: faithful odds (rulebook pp.19–20)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const forceSkulls = () => vi.spyOn(Math, 'random').mockReturnValue(0);
+  const forceBlackShield = () => vi.spyOn(Math, 'random').mockReturnValue(0.9);
+
+  /** Active `seat` hero stands at (4,4) next to a revealed trap at (5,4). */
+  function disarmSetup(seat: number): HQState {
+    const s = corridorSetup();
+    s.heroes.forEach((h, i) => { if (i !== seat) h.at = { x: i, y: 0 }; });
+    s.turnIndex = seat;
+    s.heroes[seat].at = { x: 4, y: 4 };
+    s.heroes[seat].hasActed = false;
+    s.traps = [{ id: 't', kind: 'pit', at: { x: 5, y: 4 }, triggered: false, revealed: true }];
+    return s;
+  }
+
+  it('the Dwarf disarms on a skull (only a black shield springs it)', () => {
+    const s = disarmSetup(1); // seat 1 = dwarf, body 7
+    forceSkulls();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'disarm_trap', trapId: 't' }));
+    expect(out.traps[0].triggered).toBe(true);
+    expect(out.heroes[1].body).toBe(7); // disarmed, unharmed
+  });
+
+  it('the Dwarf springs the trap only on a black shield', () => {
+    const s = disarmSetup(1);
+    forceBlackShield();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'disarm_trap', trapId: 't' }));
+    expect(out.heroes[1].body).toBe(6); // -1 BP
+  });
+
+  it('a non-Dwarf without a Tool Kit cannot disarm', () => {
+    const s = disarmSetup(0); // seat 0 = barbarian, no kit
+    const res = applyAction(s, 'p1', { kind: 'disarm_trap', trapId: 't' });
+    expect(res.ok).toBe(false);
+  });
+
+  it('a non-Dwarf with a Tool Kit disarms on a shield', () => {
+    const s = disarmSetup(0);
+    s.heroes[0].items.push({ ...TOOL_KIT });
+    forceBlackShield(); // shield → success for non-dwarf
+    const out = unwrap(applyAction(s, 'p1', { kind: 'disarm_trap', trapId: 't' }));
+    expect(out.traps[0].triggered).toBe(true);
+    expect(out.heroes[0].body).toBe(8); // unharmed
+  });
+
+  it('a non-Dwarf with a Tool Kit springs the trap on a skull', () => {
+    const s = disarmSetup(0);
+    s.heroes[0].items.push({ ...TOOL_KIT });
+    forceSkulls();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'disarm_trap', trapId: 't' }));
+    expect(out.heroes[0].body).toBe(7); // -1 BP
   });
 });
 

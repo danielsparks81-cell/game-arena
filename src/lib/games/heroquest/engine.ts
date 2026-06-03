@@ -443,30 +443,64 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
 
     const roomsBefore = revealedRoomRegions(s);
     const monstersBefore = s.monsters.length;
+    const cameFrom: Coord = { ...from };
     h.at = { ...sq };
     h.moveLeft -= 1;
     from = { ...sq };
     spentSinceSafe += 1;
 
-    // Trap on entry → springs and stops the hero on that square.
+    // Trap on entry → resolve by kind (rulebook pp.17–18). Most outcomes stop the
+    // hero; a *dodged* spear lets the walk continue (falls through below).
     const trap = s.traps.find(t => !t.triggered && t.at.x === sq.x && t.at.y === sq.y);
     if (trap) {
       trap.triggered = true;
       trap.revealed = true;
-      h.body = Math.max(0, h.body - 1);
-      h.moveLeft = 0;
+
       if (trap.kind === 'pit') {
+        // Stumble in: -1 BP, the turn ends, the hero is now in the pit.
         h.inPit = true;
-        pushLog(s, 'trap', `${h.username} falls into a pit trap! (-1 BP)`);
-      } else if (trap.kind === 'spear') {
-        pushLog(s, 'trap', `${h.username} springs a spear trap! (-1 BP)`);
-      } else {
-        pushLog(s, 'trap', `${h.username} triggers a falling block! (-1 BP)`);
+        h.body = Math.max(0, h.body - 1);
+        h.moveLeft = 0;
+        pushLog(s, 'trap', `${h.username} stumbles into a pit trap! (-1 BP)`);
+        checkHeroDeath(s, h);
+        revealLineOfSightForHero(s, h);
+        settle();
+        return;
       }
-      checkHeroDeath(s, h);
-      revealLineOfSightForHero(s, h);
-      settle();
-      return;
+
+      if (trap.kind === 'falling_block') {
+        // Roll 3 dice, -1 BP per skull, NO defence; the square is sealed forever
+        // (a permanent wall) and the hero does not end on it — they fall back.
+        const roll = rollDice(3, 'hero');
+        s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
+        h.body = Math.max(0, h.body - roll.skulls);
+        s.tiles[sq.y][sq.x] = { ...s.tiles[sq.y][sq.x], kind: 'blocked', revealed: true };
+        h.at = { ...cameFrom };
+        h.moveLeft = 0;
+        pushLog(s, 'trap',
+          `${h.username} springs a falling block! The ceiling caves in` +
+          (roll.skulls > 0 ? ` (-${roll.skulls} BP)` : ' (no damage)') +
+          ' — the square is sealed.');
+        checkHeroDeath(s, h);
+        revealLineOfSightForHero(s, h);
+        return;
+      }
+
+      // Spear: roll 1 die. Any shield = dodge (no damage, keep moving); a skull =
+      // struck (-1 BP, turn ends). One-time either way (already marked triggered).
+      const roll = rollDice(1, 'hero');
+      s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
+      if (roll.faces[0] === 'skull') {
+        h.body = Math.max(0, h.body - 1);
+        h.moveLeft = 0;
+        pushLog(s, 'trap', `${h.username} is struck by a spear trap! (-1 BP)`);
+        checkHeroDeath(s, h);
+        revealLineOfSightForHero(s, h);
+        settle();
+        return;
+      }
+      pushLog(s, 'trap', `${h.username} dodges a spear trap — it snaps shut, harmless.`);
+      // fall through: the dodge counts as a normal step and the walk continues.
     }
 
     // Look from the new square.
@@ -605,9 +639,10 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   const m = s.monsters.find(mm => mm.id === monsterId)!;
-  // Attack roll — Courage adds bonus dice to this strike.
+  // Attack roll — Courage adds bonus dice; fighting from a pit costs one die
+  // (min 1, rulebook p.17).
   const bonus = h.attackBonus ?? 0;
-  const atk = rollDice(h.attack + bonus, 'hero');
+  const atk = rollDice(Math.max(1, h.attack + bonus - (h.inPit ? 1 : 0)), 'hero');
   s.lastRoll = atk;
   s.lastMoveRoll = null;
   // Defense roll.
@@ -740,20 +775,22 @@ function doDisarmTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   markActed(h);
-  // Roll one die — fail on a skull.
-  const roll = rollDice(1, hero.klass === 'dwarf' ? 'hero' : 'monster');
+  // Roll one die (rulebook pp.19–20). The Dwarf is far better: only a black
+  // shield springs the trap (~83% success). Everyone else needs a Tool Kit and
+  // succeeds on a shield, failing on a skull (~50%).
+  const roll = rollDice(1, 'hero');
   s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
-  if (roll.faces[0] === 'skull') {
-    // Trap triggers on the disarmer.
-    const t = s.traps.find(tt => tt.id === trapId)!;
-    t.triggered = true;
+  const sprung = h.klass === 'dwarf'
+    ? roll.faces[0] === 'black_shield'
+    : roll.faces[0] === 'skull';
+  const t = s.traps.find(tt => tt.id === trapId)!;
+  t.triggered = true;
+  if (sprung) {
     h.body = Math.max(0, h.body - 1);
-    pushLog(s, 'trap', `${h.username} fumbles the disarm! The ${t.kind} trap triggers (-1 BP).`);
+    pushLog(s, 'trap', `${h.username} fumbles the disarm — the ${t.kind} trap triggers! (-1 BP)`);
     checkHeroDeath(s, h);
   } else {
-    const t = s.traps.find(tt => tt.id === trapId)!;
-    t.triggered = true;
-    pushLog(s, 'trap', `${h.username} successfully disarms the ${t.kind} trap.`);
+    pushLog(s, 'trap', `${h.username} carefully disarms the ${t.kind} trap.`);
   }
   return ok(s);
 }
@@ -1061,9 +1098,10 @@ function runMonster(s: HQState, m: Monster): void {
     const atk = rollDice(m.attack, 'monster');
     s.lastRoll = atk;
     s.lastMoveRoll = null;
-    // Rock Skin adds bonus defense dice to the hero's block.
+    // Rock Skin adds bonus defense dice; defending from a pit costs one die
+    // (min 1, rulebook p.17).
     const defBonus = target.defenseBonus ?? 0;
-    const def = rollDice(target.defense + defBonus, 'hero');
+    const def = rollDice(Math.max(1, target.defense + defBonus - (target.inPit ? 1 : 0)), 'hero');
     s.lastDefenseRoll = def;
     const damage = Math.max(0, atk.skulls - def.blocks);
     target.body = Math.max(0, target.body - damage);
