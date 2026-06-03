@@ -258,9 +258,9 @@ export default function HeroQuestBoardCanvas({
       className="relative overflow-auto bg-black p-1"
       style={{
         maxWidth: '100%',
-        // Leave room below the board for the action ribbon + dice so they aren't
-        // pushed off-screen (the fit-to-window zoom sizes the board to this area).
-        height: 'calc(100dvh - 15rem)',
+        // Fills its grid column (one screen tall). Actions/character panels live
+        // in the right column now, so nothing sits below the board to scroll.
+        height: '100%',
         background: 'radial-gradient(ellipse at center, #0a0805 0%, #000 100%)',
         boxShadow: 'inset 0 0 80px rgba(0,0,0,0.95)',
         // Center the board in the area (with the *0.96 fit it has a small border);

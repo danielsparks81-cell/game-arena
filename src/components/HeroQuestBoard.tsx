@@ -123,82 +123,91 @@ function PlayingView({
     .map((h, idx) => ({ h, idx }))
     .filter(({ h }) => h.body > 0);
 
+  // First monster orthogonally adjacent to the active hero — the Attack button's
+  // target (you can still click any monster on the board directly).
+  const adjacentMonsterId = (() => {
+    if (!focusHero || focusHero.body <= 0) return null;
+    const m = state.monsters.find(mo => mo.body > 0 &&
+      Math.abs(mo.at.x - focusHero.at.x) + Math.abs(mo.at.y - focusHero.at.y) === 1);
+    return m?.id ?? null;
+  })();
+
   return (
-    <div className="space-y-3">
-      {pendingSpell && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-500/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-          <span className="font-semibold">Casting {pendingSpell.name}:</span>
-          {pendingSpell.target === 'monster' ? (
-            <span className="text-amber-200/90">click a monster on the board to target it.</span>
-          ) : (
-            <span className="flex flex-wrap items-center gap-1.5">
-              <span className="text-amber-200/90">choose a hero —</span>
-              {livingHeroes.map(({ h, idx }) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => { onCastSpell(pendingSpell.id, { targetHeroIdx: idx }); setPendingSpell(null); }}
-                  className="rounded border border-amber-400/60 bg-neutral-900/60 px-2 py-0.5 text-xs font-medium text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20"
-                >
-                  {h.playerId === currentUserId && h.seat === focusHero?.seat ? `${h.username} (self)` : h.username}
-                </button>
-              ))}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => setPendingSpell(null)}
-            className="ml-auto rounded border border-neutral-600 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-rose-400 hover:text-rose-300"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+    // Map on the left, a single scrolling column of actions + character panels
+    // on the right. The whole thing is exactly one screen tall so nothing below
+    // the board forces the page to scroll.
+    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr),21rem]" style={{ height: 'calc(100dvh - 7rem)' }}>
+      <div className="min-h-0 min-w-0">
+        <HeroQuestBoardCanvas
+          state={state}
+          currentUserId={currentUserId}
+          disabled={disabled || !isMyTurn}
+          onMoveTo={onMoveTo}
+          onOpenDoor={onOpenDoor}
+          onAttack={onAttack}
+          spellTargetMonsters={pendingSpell?.target === 'monster'}
+          onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
+        />
+      </div>
 
-      <div className="grid gap-3 lg:grid-cols-[1fr,20rem]">
-        <div className="space-y-3">
-          <HeroQuestBoardCanvas
-            state={state}
-            currentUserId={currentUserId}
-            disabled={disabled || !isMyTurn}
-            onMoveTo={onMoveTo}
-            onOpenDoor={onOpenDoor}
-            onAttack={onAttack}
-            spellTargetMonsters={pendingSpell?.target === 'monster'}
-            onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
-          />
+      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+        {pendingSpell && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-500/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+            <span className="font-semibold">Casting {pendingSpell.name}:</span>
+            {pendingSpell.target === 'monster' ? (
+              <span className="text-amber-200/90">click a monster on the board to target it.</span>
+            ) : (
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span className="text-amber-200/90">choose a hero —</span>
+                {livingHeroes.map(({ h, idx }) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => { onCastSpell(pendingSpell.id, { targetHeroIdx: idx }); setPendingSpell(null); }}
+                    className="rounded border border-amber-400/60 bg-neutral-900/60 px-2 py-0.5 text-xs font-medium text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20"
+                  >
+                    {h.playerId === currentUserId && h.seat === focusHero?.seat ? `${h.username} (self)` : h.username}
+                  </button>
+                ))}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => setPendingSpell(null)}
+              className="ml-auto rounded border border-neutral-600 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-rose-400 hover:text-rose-300"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
 
-          {/* Action ribbon underneath the board */}
-          <ActionRibbon
-            state={state}
+        <ActionPanel
+          isMyTurn={isMyTurn}
+          myHero={focusHero}
+          disabled={disabled}
+          onRollMove={onRollMove}
+          onSearchTreasure={onSearchTreasure}
+          onSearchTraps={onSearchTraps}
+          onSearchSecrets={onSearchSecrets}
+          onClimbPit={onClimbPit}
+          onEndTurn={onEndTurn}
+          adjacentMonsterId={adjacentMonsterId}
+          onAttack={onAttack}
+          onCastSpellClick={handleSpellClick}
+        />
+
+        {focusHero && (
+          <CharacterSheet
+            hero={focusHero}
+            isActive
             isMyTurn={isMyTurn}
-            myHero={focusHero}
-            disabled={disabled}
-            onRollMove={onRollMove}
-            onSearchTreasure={onSearchTreasure}
-            onSearchTraps={onSearchTraps}
-            onSearchSecrets={onSearchSecrets}
-            onClimbPit={onClimbPit}
-            onEndTurn={onEndTurn}
+            isMine={focusHero.playerId === currentUserId}
+            onCastSpell={handleSpellClick}
           />
-
-          <DicePanel roll={state.lastRoll} />
-
-          <LogView state={state} />
-        </div>
-
-        <div className="space-y-3">
-          {focusHero && (
-            <CharacterSheet
-              hero={focusHero}
-              isActive
-              isMyTurn={isMyTurn}
-              isMine={focusHero.playerId === currentUserId}
-              onCastSpell={handleSpellClick}
-            />
-          )}
-          <PartyRoster state={state} currentUserId={currentUserId} />
-        </div>
+        )}
+        <PartyRoster state={state} currentUserId={currentUserId} />
+        <DicePanel roll={state.lastRoll} />
+        <LogView state={state} />
       </div>
     </div>
   );
@@ -249,14 +258,14 @@ function TurnBanner({
 }
 
 // ============================================================================
-// Action ribbon (under the board)
+// Action panel (right column) — all 6 hero actions + End Turn
 // ============================================================================
 
-function ActionRibbon({
-  state, isMyTurn, myHero, disabled,
+function ActionPanel({
+  isMyTurn, myHero, disabled,
   onRollMove, onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onEndTurn,
+  adjacentMonsterId, onAttack, onCastSpellClick,
 }: {
-  state: HQState;
   isMyTurn: boolean;
   myHero: ReturnType<HQState['heroes']['find']>;
   disabled: boolean;
@@ -266,7 +275,13 @@ function ActionRibbon({
   onSearchSecrets: () => void;
   onClimbPit: () => void;
   onEndTurn: () => void;
+  /** Monster the Attack button targets (null = nothing adjacent). */
+  adjacentMonsterId: string | null;
+  onAttack: (monsterId: string) => void;
+  onCastSpellClick: (spellId: string) => void;
 }) {
+  const [spellMenu, setSpellMenu] = useState(false);
+
   // For spectators / between-turns, render a quieter status line.
   if (!myHero) {
     return (
@@ -276,56 +291,44 @@ function ActionRibbon({
     );
   }
 
-  const canAct = isMyTurn && !disabled;
-  const moveText = myHero.hasRolled ? `${myHero.moveLeft}/${myHero.moveRolled} squares` : 'Roll movement';
+  const canAct = isMyTurn && !disabled && myHero.body > 0;
+  const acted = myHero.hasActed;
+  const moveText = myHero.hasRolled ? `Move ${myHero.moveLeft}/${myHero.moveRolled}` : 'Roll movement';
+  const spells = myHero.spells ?? [];
+
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-      <ActionButton
-        label={moveText}
-        icon="🎲"
-        onClick={onRollMove}
-        disabled={!canAct || myHero.hasRolled || myHero.inPit}
-        flavor="amber"
-      />
-      <ActionButton
-        label="Search treasure"
-        icon="💰"
-        onClick={onSearchTreasure}
-        disabled={!canAct || myHero.hasActed}
-        flavor="emerald"
-      />
-      <ActionButton
-        label="Search traps"
-        icon="🪤"
-        onClick={onSearchTraps}
-        disabled={!canAct || myHero.hasActed}
-        flavor="rose"
-      />
-      <ActionButton
-        label="Secret doors"
-        icon="🚪"
-        onClick={onSearchSecrets}
-        disabled={!canAct || myHero.hasActed}
-        flavor="indigo"
-      />
-      {myHero.inPit ? (
-        <ActionButton
-          label="Climb out (-2)"
-          icon="⬆️"
-          onClick={onClimbPit}
-          disabled={!canAct || myHero.moveLeft < 2}
-          flavor="orange"
-        />
-      ) : (
-        <div /> /* spacer */
-      )}
-      <ActionButton
-        label="End turn"
-        icon="▶"
-        onClick={onEndTurn}
-        disabled={!canAct}
-        flavor="slate"
-      />
+    <div className="rounded-lg border border-amber-900/50 bg-neutral-900/70 p-2">
+      <div className="grid grid-cols-2 gap-2">
+        <ActionButton label={moveText} icon="🎲" onClick={onRollMove} disabled={!canAct || myHero.hasRolled || myHero.inPit} flavor="amber" />
+        <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && onAttack(adjacentMonsterId)} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose" />
+        <ActionButton label="Search treasure" icon="💰" onClick={onSearchTreasure} disabled={!canAct || acted} flavor="emerald" />
+        <ActionButton label="Search traps" icon="🪤" onClick={onSearchTraps} disabled={!canAct || acted} flavor="orange" />
+        <ActionButton label="Secret doors" icon="🚪" onClick={onSearchSecrets} disabled={!canAct || acted} flavor="indigo" />
+        <div className="relative">
+          <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo" />
+          {spellMenu && spells.length > 0 && (
+            <div className="absolute right-0 z-30 mt-1 w-52 rounded-md border border-amber-700/60 bg-neutral-900 p-1 shadow-xl">
+              {spells.map(s => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => { onCastSpellClick(s.id); setSpellMenu(false); }}
+                  className="block w-full rounded px-2 py-1 text-left text-xs text-amber-100 transition hover:bg-amber-800/40"
+                >
+                  <span className="font-semibold">{s.name}</span>
+                  <span className="ml-1 text-[10px] uppercase tracking-wide text-amber-300/70">{s.element}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        {myHero.inPit
+          ? <ActionButton label="Climb out (-2)" icon="⬆️" onClick={onClimbPit} disabled={!canAct || myHero.moveLeft < 2} flavor="orange" />
+          : <div />}
+        <ActionButton label="End turn" icon="▶" onClick={onEndTurn} disabled={!canAct} flavor="slate" />
+      </div>
     </div>
   );
 }
