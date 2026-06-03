@@ -36,9 +36,8 @@
 - A defending hero rolls **2 Defend dice** by default. Each **white shield blocks 1 hit**.
   ✓
 - Modifiers: **fewer** dice in a pit (−1, min 1) or under certain spells; **more** after
-  buying armor. ◑ Armor/spell modifiers depend on equipment/spell cards (roadmap); the
-  **−1-in-a-pit** rule is currently **not** applied (see [section 5](./05-traps.md) and
-  open questions).
+  buying armor. ✓ The **−1-in-a-pit** rule is implemented (attack & defend). ◑ Armor/spell
+  modifiers depend on equipment/spell cards (awaiting scans).
 - A monster defends with its **Defend dice**, counting **black shields**. ✓
 
 ## Weapons: ranged & diagonal (p14)

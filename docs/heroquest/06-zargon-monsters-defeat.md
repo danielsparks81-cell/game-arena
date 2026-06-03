@@ -14,9 +14,11 @@
 ### Monsters may NOT (p20) ◑
 
 - Search for treasure or secret doors.
-- **Move or attack diagonally.** ✓
-- **Pass over heroes.** ◑ Confirm monster pathing forbids passing heroes (heroes may pass
-  heroes, but monsters may **not** pass heroes).
+- **Move or attack diagonally.** ✓ Movement steps are orthogonal, and a monster now stops
+  and attacks only from an **orthogonally adjacent** square (fixed the chebyshev bug
+  2026-06-03).
+- **Pass over heroes.** ✓ Monster pathing is single-step and rejects occupied cells, so a
+  monster can never pass through a hero (heroes may pass heroes; monsters may not).
 - Move through walls / blocked squares. ✓
 - **Open or close doors.** ✓ → monsters are effectively **contained** behind closed doors
   until a hero opens them. (Important for automated Zargon.)

@@ -6,6 +6,27 @@ Grouped by priority. Each item: 📖 what the rulebook says · 💻 what we do n
 
 ---
 
+## ✅ Shipped (2026-06-03) — first fidelity passes
+
+These were decided "full fidelity / apply all" and are now in the engine + tested:
+
+- **Trap spring effects** — pit / spear / falling-block each behave distinctly; falling
+  block rolls 3 dice and seals the square to a permanent wall. (Q1, part)
+- **In-pit −1 combat die** penalty (attack & defend, min 1). (Q4)
+- **Disarm odds** — Dwarf ~83% (springs only on a black shield); others need a Tool Kit,
+  ~50%. Added the Tool Kit item. (Q2, part)
+- **Trap-jumping** — leap a discovered trap (≥2 movement + clear landing; shield clears /
+  skull springs); not an action; "Jump trap" button. (Q2, part)
+- **Monsters attack orthogonally only** — fixed the chebyshev (diagonal) adjacency bug;
+  a monster in melee range now strikes where it stands. (was a separate bug)
+- **Treasure search** now gates on "no monsters **in the room**" (not "visible"). (Q4)
+
+**Still open below:** chest/furniture traps (Q's C), the treasure-deck wandering-monster /
+hazard split (Q3), the 0-BP death-save (Q4 remainder), and everything blocked on the
+incoming scans (Q5–Q7). The card/quest material is the gate for those.
+
+---
+
 ## A. Conflicts where the engine diverges from the rulebook
 
 ### Q1 — Trap fidelity (biggest gap) ⚠

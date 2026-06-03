@@ -1,7 +1,9 @@
 # 5. Traps (Actions 5–6)
 
-*Rulebook pages 16–19. This is where our engine **diverges most** from the rulebook —
-all three implemented traps are currently a flat −1 BP. See [open questions](./99-open-questions.md) Q3.*
+*Rulebook pages 16–19. **Status:** pit / spear / falling-block spring effects, the in-pit
+penalty, faithful disarm odds, and trap-jumping are all **shipped** (2026-06-03). Still
+pending: **chest/furniture traps** (need quest-notes data). See
+[open questions](./99-open-questions.md).*
 
 ## General trap rules
 
@@ -32,19 +34,20 @@ all three implemented traps are currently a flat −1 BP. See [open questions](.
 | **Spear** | Roll **1 combat die**: **shield = dodge** (no damage, **continue moving**); **skull = hit** (damage, turn ends). One-time. | **No tile** — square is safe afterward | ✅ if unsprung | ✅ if unsprung |
 | **Chest/furniture** | Effect per **quest notes** (poison gas, poison needle, explosive latch, shooting dart, …); **turn ends** | — | n/a | ✅ if unsprung |
 
-> ⚠ **Current engine:** pit, spear, and falling-block all just deduct **−1 BP**. Faithful
-> behaviour differs significantly — especially **falling block** (3-dice damage **and a
-> permanent wall** that reshapes the map) and **spear** (a dodge roll, often no damage).
-> Pit is closest but is missing the in-pit combat penalty.
+> ✓ **Implemented** in `walkPath` / `doJumpTrap` (2026-06-03): pit (−1 BP + enter pit),
+> spear (1-die dodge), falling block (3-dice damage **and** a permanent `blocked` wall +
+> bounce-back), and the in-pit −1 combat die. Chest/furniture traps are the remaining
+> kind (quest-notes-driven — pending).
 
-### In a pit (p17) ◑
+### In a pit (p17) ✓
 
 - While in a pit you may **search it** (treasure / secret doors) as if it were its own
   room; you may **attack and defend** but roll **one fewer combat die** (this applies to
   monsters in pits too), with a **minimum of 1 die**. You **climb out** on a later turn.
-  ◑ `inPit` + `climb_pit` exist; the **−1-die penalty** is **not** applied.
+  ✓ `inPit` + `climb_pit` + the **−1-die penalty** are implemented (climbing costs 2
+  movement — a house value; the rulebook just says "next turn").
 
-## Jumping a trap (p19) ⚠ (not implemented)
+## Jumping a trap (p19) ✓ (`doJumpTrap`)
 
 If a trap blocks your path you may try to jump over it:
 
@@ -74,6 +77,7 @@ kit** (bought at the armory) **or be the Dwarf**.
 - A **disarmed** trap is gone and not placed on the board; a disarmed **pit** becomes a
   normal square.
 
-> ⚠ **Current engine:** disarm only requires being **adjacent** to the trap (not moving
-> **onto** it), rolls 1 die and fails on a skull, and does **not** distinguish
-> dwarf-vs-tool-kit odds or require a tool kit for non-dwarves.
+> ✓ **Implemented** (2026-06-03): faithful **odds** (Dwarf springs only on a black shield
+> ~83%; others need a Tool Kit and fail on a skull, ~50%) and the **tool-kit / Dwarf
+> requirement**. ◑ Remaining nuance: we disarm from an **adjacent** square rather than by
+> **moving onto** the trap square — a positional refinement deferred (low impact).
