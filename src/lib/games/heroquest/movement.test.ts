@@ -302,6 +302,61 @@ describe('heroquest monsters: orthogonal attacks only (rulebook p.20)', () => {
   });
 });
 
+describe('heroquest: jumping a discovered trap (rulebook p.19)', () => {
+  afterEach(() => vi.restoreAllMocks());
+  const forceSkulls = () => vi.spyOn(Math, 'random').mockReturnValue(0);
+  const forceShields = () => vi.spyOn(Math, 'random').mockReturnValue(0.9);
+
+  /** Hero 0 at (3,4) next to a revealed trap at (4,4), landing clear at (5,4). */
+  function jumpSetup(): HQState {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    s.heroes[0].at = { x: 3, y: 4 };
+    s.traps = [{ id: 't', kind: 'pit', at: { x: 4, y: 4 }, triggered: false, revealed: true }];
+    return s;
+  }
+
+  it('a shield clears the trap: land beyond, spend 2 squares, no action used', () => {
+    const s = jumpSetup();
+    forceShields();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'jump_trap', trapId: 't' }));
+    expect(out.heroes[0].at).toEqual({ x: 5, y: 4 }); // landed past the trap
+    expect(out.heroes[0].moveLeft).toBe(4);            // 6 − 2
+    expect(out.traps[0].triggered).toBe(false);        // jumped over, still armed
+    expect(out.heroes[0].hasActed).toBe(false);        // jumping is movement, not an action
+    expect(out.heroes[0].body).toBe(8);
+  });
+
+  it('a skull springs the trap mid-leap', () => {
+    const s = jumpSetup();
+    forceSkulls();
+    const out = unwrap(applyAction(s, 'p1', { kind: 'jump_trap', trapId: 't' }));
+    expect(out.heroes[0].at).toEqual({ x: 4, y: 4 }); // dropped into the pit
+    expect(out.heroes[0].inPit).toBe(true);
+    expect(out.heroes[0].body).toBe(7);
+    expect(out.heroes[0].moveLeft).toBe(0);
+    expect(out.traps[0].triggered).toBe(true);
+  });
+
+  it('needs at least 2 squares of movement', () => {
+    const s = jumpSetup();
+    s.heroes[0].moveLeft = 1;
+    expect(applyAction(s, 'p1', { kind: 'jump_trap', trapId: 't' }).ok).toBe(false);
+  });
+
+  it('cannot jump when the landing square is a wall', () => {
+    const s = jumpSetup();
+    s.tiles[4][5] = { kind: 'wall', region: 'corridor', revealed: true };
+    expect(applyAction(s, 'p1', { kind: 'jump_trap', trapId: 't' }).ok).toBe(false);
+  });
+
+  it('cannot jump a trap that has not been discovered', () => {
+    const s = jumpSetup();
+    s.traps[0].revealed = false;
+    expect(applyAction(s, 'p1', { kind: 'jump_trap', trapId: 't' }).ok).toBe(false);
+  });
+});
+
 describe('heroquest: move-then-act vs act-then-move rule', () => {
   it('move-then-act forfeits the remaining movement', () => {
     const s = corridorSetup();

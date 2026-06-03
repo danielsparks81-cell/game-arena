@@ -691,6 +691,7 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'search_traps' }
   | { game: 'heroquest'; kind: 'search_secrets' }
   | { game: 'heroquest'; kind: 'disarm_trap'; trapId: string }
+  | { game: 'heroquest'; kind: 'jump_trap'; trapId: string }
   | { game: 'heroquest'; kind: 'climb_pit' }
   | { game: 'heroquest'; kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
   | { game: 'heroquest'; kind: 'end_turn' };

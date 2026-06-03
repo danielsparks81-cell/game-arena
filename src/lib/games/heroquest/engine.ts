@@ -338,6 +338,7 @@ export function applyAction(
   if (action.kind === 'search_traps')    return doSearchTraps(state, hero);
   if (action.kind === 'search_secrets')  return doSearchSecrets(state, hero);
   if (action.kind === 'disarm_trap')     return doDisarmTrap(state, hero, action.trapId);
+  if (action.kind === 'jump_trap')       return doJumpTrap(state, hero, action.trapId);
   if (action.kind === 'climb_pit')       return doClimbPit(state, hero);
   if (action.kind === 'cast_spell')      return doCastSpell(state, hero, action);
   if (action.kind === 'end_turn')        return doEndTurn(state, hero);
@@ -797,6 +798,80 @@ function doDisarmTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
   } else {
     pushLog(s, 'trap', `${h.username} carefully disarms the ${t.kind} trap.`);
   }
+  return ok(s);
+}
+
+/** Jump over a discovered trap (rulebook p.19). Part of movement — NOT one of
+ *  the six actions, so it never marks the hero as having acted. Needs >=2
+ *  movement and a clear landing square directly beyond the trap. Roll 1 die: a
+ *  shield clears it (spend 2 squares, the trap stays for later); a skull springs
+ *  it. A sprung PIT can still be jumped; a sprung falling block cannot. */
+function doJumpTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
+  if (!hero.hasRolled) return err('Roll movement first.');
+  if (hero.inPit) return err('You are in a pit — climb out first.');
+  if (hero.moveLeft < 2) return err('Jumping a trap needs at least 2 squares of movement.');
+  const trap = state.traps.find(t => t.id === trapId);
+  if (!trap) return err('Trap not found.');
+  if (!trap.revealed) return err('You can only jump a trap you have discovered.');
+  if (trap.triggered && trap.kind !== 'pit') return err('That trap can no longer be jumped.');
+  // Must stand orthogonally next to the trap; the landing is the square directly
+  // beyond it, in line.
+  const dx = trap.at.x - hero.at.x, dy = trap.at.y - hero.at.y;
+  if (Math.abs(dx) + Math.abs(dy) !== 1) return err('You must be next to the trap to jump it.');
+  const land: Coord = { x: trap.at.x + dx, y: trap.at.y + dy };
+  if (!inBounds(state, land)) return err('There is nowhere to land beyond the trap.');
+  if (!isPassable(state, land, /*forHero*/ true)) return err('The landing square is blocked.');
+  if (edgeBlocksMove(state, hero.at, trap.at, false) || edgeBlocksMove(state, trap.at, land, false)) {
+    return err('A wall blocks the jump.');
+  }
+  if (state.monsters.some(m => m.at.x === land.x && m.at.y === land.y)) {
+    return err('A monster occupies the landing square.');
+  }
+  const landIsStairs = state.tiles[land.y][land.x].kind === 'stairs';
+  if (!landIsStairs && state.heroes.some(o => o !== hero && o.body > 0 && o.at.x === land.x && o.at.y === land.y)) {
+    return err('A hero occupies the landing square.');
+  }
+
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  const t = s.traps.find(tt => tt.id === trapId)!;
+  const cameFrom: Coord = { ...h.at };
+  const kindName = t.kind.replace('_', ' ');
+  // Roll one die — a shield clears it, a skull springs it.
+  const roll = rollDice(1, 'hero');
+  s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
+  if (roll.faces[0] !== 'skull') {
+    h.at = { ...land };
+    h.moveLeft -= 2;
+    pushLog(s, 'trap', `${h.username} leaps clear over the ${kindName} trap!`);
+    revealLineOfSightForHero(s, h);
+    if (s.tiles[h.at.y][h.at.x].kind === 'stairs') maybeFinishOnExit(s);
+    return ok(s);
+  }
+  // Failed leap → the trap springs.
+  t.triggered = true;
+  t.revealed = true;
+  if (t.kind === 'pit') {
+    h.at = { ...t.at };
+    h.inPit = true;
+    h.body = Math.max(0, h.body - 1);
+    pushLog(s, 'trap', `${h.username} misjudges the leap and drops into the pit! (-1 BP)`);
+  } else if (t.kind === 'falling_block') {
+    const fb = rollDice(3, 'hero');
+    h.body = Math.max(0, h.body - fb.skulls);
+    s.tiles[t.at.y][t.at.x] = { ...s.tiles[t.at.y][t.at.x], kind: 'blocked', revealed: true };
+    h.at = { ...cameFrom };
+    pushLog(s, 'trap',
+      `${h.username} triggers the falling block mid-leap!` +
+      (fb.skulls > 0 ? ` (-${fb.skulls} BP)` : ' (no damage)') + ' The square is sealed.');
+  } else {
+    h.at = { ...t.at };
+    h.body = Math.max(0, h.body - 1);
+    pushLog(s, 'trap', `${h.username} is struck by the spear mid-leap! (-1 BP)`);
+  }
+  h.moveLeft = 0;
+  checkHeroDeath(s, h);
+  revealLineOfSightForHero(s, h);
   return ok(s);
 }
 

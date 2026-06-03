@@ -41,6 +41,7 @@ export type HeroQuestBoardProps = {
   onSearchTraps: () => void;
   onSearchSecrets: () => void;
   onDisarmTrap: (trapId: string) => void;
+  onJumpTrap: (trapId: string) => void;
   onClimbPit: () => void;
   onCastSpell: (spellId: string, opts?: { targetMonsterId?: string; targetHeroIdx?: number }) => void;
   onEndTurn: () => void;
@@ -93,7 +94,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
 function PlayingView({
   state, currentUserId, disabled,
   onRollMove, onMoveTo, onMovePath, onOpenDoor, onAttack,
-  onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onClimbPit, onCastSpell, onEndTurn,
+  onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onJumpTrap, onClimbPit, onCastSpell, onEndTurn,
   onShowBriefing,
 }: HeroQuestBoardProps & { onShowBriefing: () => void }) {
   // The sheet always shows the ACTIVE hero (whoever's up). Since players
@@ -151,6 +152,27 @@ function PlayingView({
     return t?.id ?? null;
   })();
 
+  // Jump target: a revealed trap orthogonally adjacent to the hero with a clear
+  // landing square directly beyond it, given >=2 movement left. Jumping is part
+  // of movement (not an action), so it isn't gated by hasActed. The engine is
+  // authoritative; this is just whether to light up the button.
+  const jumpableTrapId = (() => {
+    if (!focusHero || !isMyTurn || focusHero.inPit || !focusHero.hasRolled || focusHero.moveLeft < 2) return null;
+    for (const tr of state.traps) {
+      if (!tr.revealed) continue;
+      if (tr.triggered && tr.kind !== 'pit') continue; // sprung pits can still be jumped
+      const dx = tr.at.x - focusHero.at.x, dy = tr.at.y - focusHero.at.y;
+      if (Math.abs(dx) + Math.abs(dy) !== 1) continue;
+      const lx = tr.at.x + dx, ly = tr.at.y + dy;
+      const tile = state.tiles[ly]?.[lx];
+      if (!tile || tile.kind === 'wall' || tile.kind === 'blocked') continue;
+      if (state.monsters.some(m => m.body > 0 && m.at.x === lx && m.at.y === ly)) continue;
+      if (tile.kind !== 'stairs' && state.heroes.some(o => o.seat !== focusHero.seat && o.body > 0 && o.at.x === lx && o.at.y === ly)) continue;
+      return tr.id;
+    }
+    return null;
+  })();
+
   return (
     // Left column: 6 action buttons then the 4 hero panels (scrolls internally
     // so the page never scrolls). Map fills the right. The whole grid is exactly
@@ -202,6 +224,8 @@ function PlayingView({
           onCastSpellClick={handleSpellClick}
           disarmableTrapId={disarmableTrapId}
           onDisarmTrap={onDisarmTrap}
+          jumpableTrapId={jumpableTrapId}
+          onJumpTrap={onJumpTrap}
         />
 
         {/* One panel per hero in the party (the active hero is highlighted). */}
@@ -297,7 +321,7 @@ function ActionPanel({
   isMyTurn, myHero, disabled,
   onRollMove, onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onEndTurn,
   adjacentMonsterId, onAttack, onCastSpellClick,
-  disarmableTrapId, onDisarmTrap,
+  disarmableTrapId, onDisarmTrap, jumpableTrapId, onJumpTrap,
 }: {
   isMyTurn: boolean;
   myHero: ReturnType<HQState['heroes']['find']>;
@@ -315,6 +339,9 @@ function ActionPanel({
   /** Adjacent revealed trap the Disarm button targets (null = none / can't disarm). */
   disarmableTrapId: string | null;
   onDisarmTrap: (trapId: string) => void;
+  /** Adjacent revealed trap the hero could leap over (null = none / can't jump). */
+  jumpableTrapId: string | null;
+  onJumpTrap: (trapId: string) => void;
 }) {
   const [spellMenu, setSpellMenu] = useState(false);
 
@@ -341,6 +368,8 @@ function ActionPanel({
         <ActionButton label="Search traps" icon="🪤" onClick={onSearchTraps} disabled={!canAct || acted} flavor="orange" />
         <ActionButton label="Secret doors" icon="🚪" onClick={onSearchSecrets} disabled={!canAct || acted} flavor="indigo" />
         <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && onDisarmTrap(disarmableTrapId)} disabled={!canAct || acted || !disarmableTrapId} flavor="orange" />
+        {/* Jumping is part of movement, not an action — never gated by `acted`. */}
+        <ActionButton label="Jump trap" icon="🤸" onClick={() => jumpableTrapId && onJumpTrap(jumpableTrapId)} disabled={!canAct || !jumpableTrapId} flavor="amber" />
         <div className="relative w-full">
           <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo" />
           {spellMenu && spells.length > 0 && (

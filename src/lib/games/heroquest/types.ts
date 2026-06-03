@@ -364,6 +364,7 @@ export type HQAction =
   | { kind: 'search_traps' }
   | { kind: 'search_secrets' }
   | { kind: 'disarm_trap'; trapId: string }
+  | { kind: 'jump_trap'; trapId: string }
   | { kind: 'climb_pit' }
   | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
   | { kind: 'end_turn' };
