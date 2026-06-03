@@ -30,12 +30,28 @@ export type HeroDefaults = {
   description: string;
 };
 
-const BROADSWORD: Item = { id: 'broadsword', name: 'Broadsword', kind: 'weapon', attack: 3, twoHanded: true, description: 'Two-handed; cannot use shield.' };
-const SHORT_SWORD: Item = { id: 'short_sword', name: 'Short Sword', kind: 'weapon', attack: 2, description: 'A reliable blade.' };
-const DAGGER: Item = { id: 'dagger', name: 'Dagger', kind: 'weapon', attack: 1, description: 'Light, easy to wield.' };
-const STAFF: Item = { id: 'staff', name: 'Staff', kind: 'weapon', attack: 1, diagonal: true, description: 'Can attack diagonally.' };
+// ---- The Armory (between-quests shop). Faithful to the Armory card. ----
+// Weapons
+const DAGGER: Item = { id: 'dagger', name: 'Dagger', kind: 'weapon', attack: 1, cost: 25, description: 'Attack 1 die. Can be thrown at a monster you can see (lost once thrown).' };
+const STAFF: Item = { id: 'staff', name: 'Staff', kind: 'weapon', attack: 1, diagonal: true, twoHanded: true, cost: 100, description: 'Attack 1 die; attacks diagonally. No shield while using it.' };
+const SHORT_SWORD: Item = { id: 'short_sword', name: 'Shortsword', kind: 'weapon', attack: 2, cost: 150, noWizard: true, description: 'Attack 2 dice.' };
+const BROADSWORD: Item = { id: 'broadsword', name: 'Broadsword', kind: 'weapon', attack: 3, cost: 250, noWizard: true, description: 'Attack 3 dice.' };
+const LONGSWORD: Item = { id: 'longsword', name: 'Longsword', kind: 'weapon', attack: 3, diagonal: true, cost: 350, noWizard: true, description: 'Attack 3 dice; attacks diagonally.' };
+const CROSSBOW: Item = { id: 'crossbow', name: 'Crossbow', kind: 'weapon', attack: 3, ranged: true, cost: 350, noWizard: true, description: 'Attack 3 dice; fire at any monster you can see, but not an adjacent one.' };
+const BATTLE_AXE: Item = { id: 'battle_axe', name: 'Battle Axe', kind: 'weapon', attack: 4, twoHanded: true, cost: 450, noWizard: true, description: 'Attack 4 dice. No shield while using it.' };
+// Armor (defense bonuses stack additively)
+const HELMET: Item = { id: 'helmet', name: 'Helmet', kind: 'armor', defense: 1, cost: 125, noWizard: true, description: '+1 Defend die.' };
+const SHIELD: Item = { id: 'shield', name: 'Shield', kind: 'armor', defense: 1, cost: 150, noWizard: true, description: '+1 Defend die. Not with the Battle Axe or Staff.' };
+const CHAIN_MAIL: Item = { id: 'chain_mail', name: 'Chain Mail', kind: 'armor', defense: 1, cost: 500, noWizard: true, description: '+1 Defend die. Combines with Helmet and/or Shield.' };
+const PLATE_MAIL: Item = { id: 'plate_mail', name: 'Plate Mail', kind: 'armor', defense: 2, cost: 850, noWizard: true, description: '+2 Defend dice. Combines with Helmet and/or Shield. Heavy: reduced movement while worn.' };
 /** Lets non-Dwarf heroes attempt to disarm traps (the Dwarf needs no kit). */
-export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', description: 'Lets any hero attempt to disarm traps. The Dwarf never needs one.' };
+export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', cost: 250, description: 'Lets any hero attempt to disarm traps (~50%). The Dwarf never needs one.' };
+
+/** Everything purchasable from the armory between quests, cheapest first. */
+export const ARMORY: Item[] = [
+  DAGGER, STAFF, HELMET, SHORT_SWORD, SHIELD, BROADSWORD, TOOL_KIT,
+  LONGSWORD, CROSSBOW, BATTLE_AXE, CHAIN_MAIL, PLATE_MAIL,
+];
 
 export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
   barbarian: {

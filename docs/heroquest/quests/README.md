@@ -99,3 +99,26 @@ the quest layer faithfully we still need: **artifact cards** (10 named above), *
 cards** (effects), **treasure deck** faces (wandering monsters/hazards split), and the
 **equipment/armory** list (Staff, Shield, Helmet, Tool Kit, Potion of Healing, etc.). Plus
 the rulebook **page 22** (Ending the Quest / between-quests) still applies to the campaign.
+
+## 🗺️ Board: keep our larger board (intentional — not the printed 26×19)
+
+**Design decision (house rule):** we keep our **larger 32×23 board with bigger rooms and
+double-wide hallways**. The printed HeroQuest board's narrow 1-wide corridors and small
+rooms create **chokepoints a clever side can exploit**; our wider layout prevents that. So
+we do **NOT** rebuild to the book's exact geometry.
+
+**What "fidelity" means here:** faithfully adapt each quest's **content** — monster kinds &
+counts, named/unique monsters and their stats, furniture, treasure (gold/artifacts), traps,
+secret doors, objective, reward, wandering monster, and the lettered notes — laid out
+**sensibly on our board's rooms**, matching the book's room-by-room *design* rather than its
+cell coordinates.
+
+**Plan to reach faithful quests:**
+1. **Quest 1 (#70):** adapt the book's Quest 1 onto our board — goblins + orcs + the
+   4-attack mummy guardian (Fellmarg's tomb) + Verag; the broken weapons rack (A); an empty
+   chest (B), an 84-gold chest (D), a 120-gold chest (E); Orc wandering monster; the book
+   parchment; no traps/secret doors.
+2. **Quest-engine mechanics (#71):** objective/win-condition types, named/unique monsters,
+   chest traps, NPC allies, dormant monsters, special tiles, dynamic events — the
+   non-card-dependent parts now; artifact/spell/treasure/store bits as the card scans
+   arrive (the **Armory** is now in hand — see `../equipment.md`).

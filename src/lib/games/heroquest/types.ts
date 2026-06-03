@@ -105,9 +105,13 @@ export type Item = {
   kind: 'weapon' | 'armor' | 'tool' | 'potion' | 'artifact';
   attack?: number;          // weapon attack dice (replaces base if larger)
   defense?: number;         // armor defense dice (stacks additively in v1)
-  twoHanded?: boolean;
+  twoHanded?: boolean;      // cannot be combined with a shield (axe, staff)
   diagonal?: boolean;       // weapon can attack diagonally
   ranged?: boolean;         // weapon can hit at LOS distance
+  /** Armory price in gold (between-quests shop). Undefined = not sold. */
+  cost?: number;
+  /** The Wizard may not use this item ("may not be used/worn by the Wizard"). */
+  noWizard?: boolean;
   description?: string;
 };
 

@@ -13,6 +13,13 @@ engine is a bug to be fixed (unless a rule is intentionally a house rule — see
 > unaffected** — they use fixed movement from the monster chart (the rulebook never
 > rolls monster movement). This is the *only* deliberate rules change so far.
 
+> 🗺️ **Board: keep our larger 32×23 board (bigger rooms + double-wide hallways).** This is
+> a deliberate design choice — the real HeroQuest board's narrow 1-wide corridors and small
+> rooms create chokepoints a clever side can exploit; our wider layout prevents that. So we
+> do **NOT** rebuild to the printed 26×19 board. Quest "fidelity" therefore means faithfully
+> adapting each quest's **content** (monsters, furniture, treasure, traps, objective, notes)
+> onto our board — not copying the book's exact cell geometry.
+
 Any future house rules get added here with a one-line rationale.
 
 ## Decisions log
