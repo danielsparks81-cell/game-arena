@@ -76,6 +76,14 @@ Each rule in the section files is tagged with its implementation status:
 7. [Open questions & conflicts vs. current build](./99-open-questions.md)
 8. [**Quest Book** — the 14 quests, maps & mechanics](./quests/README.md)
 
+### Card reference (transcribed from the component cards)
+
+- [Equipment / Armory](./equipment.md) — 16 buyable items (weapons, armor, tools, potions)
+- [Hero spells](./spells.md) — the 12 elemental spells (Air/Earth/Fire/Water)
+- [Dread spells](./dread-spells.md) — Zargon's 12 spells
+- [Artifacts](./artifacts.md) — the 14 special treasures
+- *(still missing: the 24-card treasure deck, and rulebook page 22)*
+
 ## Code map
 
 | Concern | File |
