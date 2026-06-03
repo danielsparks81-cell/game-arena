@@ -1357,11 +1357,6 @@ function monstersVisibleToHero(s: HQState, h: Hero): Monster[] {
 // Reveal mechanic
 // ============================================================================
 
-// How far a hero can "look" (Chebyshev squares) when revealing line of sight —
-// far enough to see down a corridor, short enough not to reveal the whole
-// dungeon at once.
-const LOS_RANGE = 8;
-
 function revealRegion(s: HQState, region: string): void {
   if (!region) return;
   for (let y = 0; y < s.tiles.length; y++) {
@@ -1384,31 +1379,39 @@ function spawnRoomMonsters(s: HQState, region: string): void {
 /** Reveal LOS-visible cells from this hero (used at start of game + after
     moves). v1: cheap implementation — reveal everything in the hero's
     region plus any directly connected corridor cells within LOS. */
+// HeroQuest has TWO separate "vision" mechanics — keep them distinct:
+//
+//  • LOOKING & REVEALING (this function) — the PHYSICAL PLAYER's view: which
+//    tiles get placed on the board. You look down a hallway in a straight line
+//    and reveal corridor / stairs / blocked squares until a wall stops the line
+//    (never around a corner). You do NOT see INTO a room by looking — a room is
+//    only placed when its DOOR is OPENED (see doOpenDoor). The room you are
+//    standing in is, of course, revealed.
+//
+//  • LINE OF SIGHT (hasLineOfSight) — the CHARACTER's view: used for attacks /
+//    spells / ranged targeting. Separate concern; not reveal.
 function revealLineOfSightForHero(s: HQState, h: Hero): void {
-  // Standing in a room means you see the WHOLE room (reveal the room region).
-  // Standing in a corridor does NOT reveal the whole corridor network — you only
-  // see what's in your line of sight (handled below).
+  // You see the whole room you're standing in.
   const region = s.tiles[h.at.y]?.[h.at.x]?.region ?? '';
   if (region.startsWith('room_')) revealRegion(s, region);
 
-  // Reveal every cell within line of sight (looking down corridors / through
-  // open doors). If a visible cell belongs to a ROOM, reveal that whole room
-  // (you see the entire room the moment you look in — and its monsters appear).
-  const roomsSeen = new Set<string>();
+  // Look down hallways: reveal non-room cells (corridor / stairs / blocked) that
+  // are in a straight, unobstructed line of sight — all the way until a wall,
+  // but never a room interior (rooms reveal only when their door is opened).
   for (let y = 0; y < s.tiles.length; y++) {
     for (let x = 0; x < s.tiles[0].length; x++) {
       const t = s.tiles[y][x];
+      if (t.revealed) continue;
       if (t.kind === 'wall') continue;
+      if (t.region.startsWith('room_')) continue; // never reveal a room by looking
       if (x === h.at.x && y === h.at.y) continue;
-      if (chebyshev(h.at, { x, y }) > LOS_RANGE) continue; // sight distance cap
       if (!hasLineOfSight(s, h.at, { x, y })) continue;
       t.revealed = true;
-      if (t.region.startsWith('room_')) roomsSeen.add(t.region);
     }
   }
-  for (const r of roomsSeen) revealRegion(s, r);
 
-  // Monsters guard rooms — they appear the moment a hero first sees into one.
+  // Spawn monsters for any room that's now revealed (your own room, or one whose
+  // door was just opened).
   spawnRevealedRooms(s);
 }
 
