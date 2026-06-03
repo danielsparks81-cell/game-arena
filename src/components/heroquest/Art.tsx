@@ -135,69 +135,72 @@ export function FloorCell({
   const h = (((gx + 7) * 73856093) ^ ((gy + 13) * 19349663)) >>> 0;
   const rnd = (shift: number) => ((h >> (shift * 3)) & 0xff) / 255;
   const S = 40;
-  const grout = '#0c0a08';
+  // Soft interior decoration colour (kept faint so it never competes with the
+  // crisp per-space grid drawn last).
+  const soft = '#000000';
   const parts: React.ReactNode[] = [
     <rect key="base" width={S} height={S} fill={tl} />,
     // hash-driven shade wash so the fill isn't dead flat
-    <rect key="wash" width={S} height={S} fill={br} opacity={0.2 + rnd(0) * 0.4} />,
+    <rect key="wash" width={S} height={S} fill={br} opacity={0.18 + rnd(0) * 0.34} />,
   ];
 
+  // ---- Soft decorative texture per style. These NEVER draw on the cell border
+  // (the uniform grid below owns that) so the individual spaces stay legible. ----
   if (style === 'checker') {
     parts.push((gx + gy) % 2 === 0
-      ? <rect key="c" width={S} height={S} fill="#ffffff" opacity={0.10} />
-      : <rect key="c" width={S} height={S} fill="#000000" opacity={0.18} />);
-    parts.push(<g key="ln" stroke={grout} strokeWidth="0.8" opacity="0.5"><line x1="0.4" y1="0" x2="0.4" y2={S} /><line x1="0" y1="0.4" x2={S} y2="0.4" /></g>);
+      ? <rect key="c" width={S} height={S} fill="#ffffff" opacity={0.06} />
+      : <rect key="c" width={S} height={S} fill="#000000" opacity={0.11} />);
   } else if (style === 'brick') {
     const off = (gy % 2) * 20;
-    parts.push(<g key="g" stroke={grout} strokeWidth="1.3">
-      <line x1="0" y1="0.6" x2={S} y2="0.6" />
+    parts.push(<g key="g" stroke={soft} strokeOpacity="0.15" strokeWidth="1">
       <line x1="0" y1="20" x2={S} y2="20" />
-      <line x1={(off + 0.6) % S} y1="0" x2={(off + 0.6) % S} y2="20" />
-      <line x1={(off + 20.6) % S} y1="20" x2={(off + 20.6) % S} y2={S} />
+      <line x1={(off + 0.5) % S} y1="0" x2={(off + 0.5) % S} y2="20" />
+      <line x1={(off + 20.5) % S} y1="20" x2={(off + 20.5) % S} y2={S} />
     </g>);
   } else if (style === 'diag') {
-    parts.push(<g key="g" stroke={grout} strokeWidth="1" opacity="0.7">
+    parts.push(<g key="g" stroke={soft} strokeOpacity="0.13" strokeWidth="0.9">
       <line x1="0" y1="0" x2={S} y2={S} />
       <line x1="0" y1={S} x2={S} y2="0" />
     </g>);
   } else if (style === 'cobble') {
-    parts.push(<g key="g" stroke="#00000055" strokeWidth="1" fill="#ffffff" fillOpacity="0.05">
+    parts.push(<g key="g" stroke="#00000030" strokeWidth="0.9" fill="#ffffff" fillOpacity="0.04">
       <circle cx="11" cy="11" r="8.5" />
       <circle cx="30" cy="12" r="7.5" />
       <circle cx="12" cy="30" r="7.5" />
       <circle cx="30" cy="30" r="8.5" />
     </g>);
   } else if (style === 'plank') {
-    // horizontal wooden planks (seamless across cells)
-    parts.push(<g key="g" stroke={grout} strokeWidth="1.1" opacity="0.8">
-      <line x1="0" y1="0.6" x2={S} y2="0.6" />
-      <line x1="0" y1="13.6" x2={S} y2="13.6" />
+    parts.push(<g key="g" stroke={soft} strokeOpacity="0.15" strokeWidth="0.9">
+      <line x1="0" y1="13.3" x2={S} y2="13.3" />
       <line x1="0" y1="26.6" x2={S} y2="26.6" />
     </g>);
-    parts.push(<g key="grain" stroke="#000000" strokeWidth="0.4" opacity="0.18">
-      <line x1="0" y1="7" x2={S} y2="7" /><line x1="0" y1="20" x2={S} y2="20" /><line x1="0" y1="33" x2={S} y2="33" />
+    parts.push(<g key="grain" stroke="#000000" strokeOpacity="0.07" strokeWidth="0.4">
+      <line x1="0" y1="6.5" x2={S} y2="6.5" /><line x1="0" y1="20" x2={S} y2="20" /><line x1="0" y1="33" x2={S} y2="33" />
     </g>);
   } else if (style === 'herringbone') {
-    parts.push(<g key="g" stroke={grout} strokeWidth="0.9" opacity="0.7">
+    parts.push(<g key="g" stroke={soft} strokeOpacity="0.13" strokeWidth="0.8">
       {(gx + gy) % 2 === 0
         ? <><line x1="0" y1="20" x2="20" y2="0" /><line x1="20" y1={S} x2={S} y2="20" /></>
         : <><line x1="0" y1="20" x2="20" y2={S} /><line x1="20" y1="0" x2={S} y2="20" /></>}
     </g>);
   } else if (style === 'slate') {
-    // organic irregular cracks — no grid, reads as natural stone
+    // organic irregular cracks — reads as natural stone
     const a = (8 + rnd(2) * 24).toFixed(1), b = (rnd(4) * S).toFixed(1), c = (8 + rnd(6) * 24).toFixed(1);
-    parts.push(<path key="crack" d={`M0 ${a} L ${(S * 0.5).toFixed(1)} ${b} L ${S} ${c}`} stroke="#00000066" strokeWidth="0.8" fill="none" />);
-    parts.push(<g key="sp" fill="#000" opacity="0.22">
+    parts.push(<path key="crack" d={`M0 ${a} L ${(S * 0.5).toFixed(1)} ${b} L ${S} ${c}`} stroke="#00000040" strokeWidth="0.7" fill="none" />);
+    parts.push(<g key="sp" fill="#000" opacity="0.18">
       <circle cx={(rnd(1) * S).toFixed(1)} cy={(rnd(2) * S).toFixed(1)} r="0.6" />
       <circle cx={(rnd(5) * S).toFixed(1)} cy={(rnd(7) * S).toFixed(1)} r="0.5" />
     </g>);
-  } else { // 'flag' — large flagstones: grout on top + left edges (continuous grid)
-    parts.push(<g key="g" stroke={grout} strokeWidth="1.3">
-      <line x1="0" y1="0.6" x2={S} y2="0.6" />
-      <line x1="0.6" y1="0" x2="0.6" y2={S} />
-    </g>);
+  } else { // 'flag' — subtle top-left bevel highlight only
     parts.push(<line key="hl" x1="1.6" y1="1.6" x2={S - 2} y2="1.6" stroke="#ffffff" strokeOpacity="0.05" strokeWidth="0.8" />);
   }
+
+  // ---- Uniform per-space grid: the SAME crisp boundary on every tile so each
+  // square stands out clearly regardless of the room's decorative pattern. ----
+  parts.push(<g key="grid" stroke="#000000" strokeOpacity="0.34" strokeWidth="1">
+    <line x1="0.5" y1="0" x2="0.5" y2={S} />
+    <line x1="0" y1="0.5" x2={S} y2="0.5" />
+  </g>);
 
   return <svg width={size} height={size} viewBox="0 0 40 40" style={{ display: 'block' }} aria-hidden>{parts}</svg>;
 }

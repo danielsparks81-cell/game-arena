@@ -258,9 +258,9 @@ export default function HeroQuestBoardCanvas({
       className="relative overflow-auto bg-black p-1"
       style={{
         maxWidth: '100%',
-        // Fill the window below the top bar so the whole board can be shown at
-        // its largest (the fit-to-window zoom sizes the board to this area).
-        height: 'calc(100dvh - 7rem)',
+        // Leave room below the board for the action ribbon + dice so they aren't
+        // pushed off-screen (the fit-to-window zoom sizes the board to this area).
+        height: 'calc(100dvh - 15rem)',
         background: 'radial-gradient(ellipse at center, #0a0805 0%, #000 100%)',
         boxShadow: 'inset 0 0 80px rgba(0,0,0,0.95)',
         // Center the board in the area (with the *0.96 fit it has a small border);
@@ -569,11 +569,12 @@ function WallDoorOverlay({
   const W = state.quest.width, H = state.quest.height;
   const openableIds = new Set(openable.map(d => d.id));
   const revealed = (x: number, y: number) => revealAll || !!state.tiles[y]?.[x]?.revealed;
-  const T = 3; // wall thickness (px)
+  const T = 4; // wall thickness (px) — uniform on every wall so they're unmistakable
   const segments: React.ReactNode[] = [];
 
+  // Solid near-black wall, clearly thicker than the per-space grid lines.
   const wall = (key: string, style: CSSProperties) =>
-    segments.push(<div key={key} className="pointer-events-none absolute" style={{ ...style, background: '#2a1410', zIndex: 2 }} />);
+    segments.push(<div key={key} className="pointer-events-none absolute" style={{ ...style, background: '#140a06', borderRadius: 1, zIndex: 3 }} />);
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
