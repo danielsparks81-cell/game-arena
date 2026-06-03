@@ -34,9 +34,9 @@ gold earned in quests on these items; unlimited stock. Source: photo provided 20
 - **Body armor** is one of Chain Mail (+1) *or* Plate Mail (+2); either may stack with
   **Helmet (+1)** and **Shield (+1)**. Max defense bonus = Plate + Helmet + Shield = **+4**
   (a barbarian's 2 Defend dice → 6).
-- **Plate Mail movement penalty:** the book says "only 1 red die." 🎲 Under our **3d4**
-  house rule this needs an adaptation — propose **roll 1d4** (or 1 of the 3 dice) while
-  wearing Plate Mail. (Open question — confirm.)
+- **Plate Mail movement penalty:** the book says "only 1 red die." 🎲 **Decided:** under our
+  **3d4** house rule, Plate Mail = **roll 1 fewer d4 → 2d4** while worn. The item card states
+  "roll 1 less d4." (Borin's Armor artifact has **no** penalty.)
 - **Crossbow / thrown Dagger** are ranged (need line of sight). Crossbow **cannot** target
   an adjacent monster; the thrown Dagger is a one-shot (lost after throwing).
 - **Tool Kit** = 50% disarm — matches our `doDisarmTrap` odds for non-Dwarves.

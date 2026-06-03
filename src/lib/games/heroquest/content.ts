@@ -46,7 +46,7 @@ const SHIELD: Item = { id: 'shield', name: 'Shield', kind: 'armor', defense: 1, 
 const CHAIN_MAIL: Item = { id: 'chain_mail', name: 'Chain Mail', kind: 'armor', defense: 1, cost: 500, noWizard: true, description: '+1 Defend die. Combines with Helmet and/or Shield.' };
 // Bracers are leather, so the Wizard CAN wear them (the only armor they may use).
 const BRACERS: Item = { id: 'bracers', name: 'Bracers', kind: 'armor', defense: 1, cost: 550, description: '+1 Defend die. Combines with Helmet and/or Shield. Wearable by any hero (leather).' };
-const PLATE_MAIL: Item = { id: 'plate_mail', name: 'Plate Mail', kind: 'armor', defense: 2, cost: 850, noWizard: true, description: '+2 Defend dice. Combines with Helmet and/or Shield. Heavy: reduced movement while worn.' };
+const PLATE_MAIL: Item = { id: 'plate_mail', name: 'Plate Mail', kind: 'armor', defense: 2, cost: 850, noWizard: true, description: '+2 Defend dice. Combines with Helmet and/or Shield. Heavy: roll 1 less d4 for movement (2d4 instead of 3d4) while worn.' };
 /** Lets non-Dwarf heroes attempt to disarm traps (the Dwarf needs no kit). */
 export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', cost: 250, description: 'Lets any hero attempt to disarm traps (~50%). The Dwarf never needs one.' };
 // Consumables sold in the equipment deck (one use, then discarded).
@@ -97,7 +97,7 @@ export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
     mindMax: 6,
     baseAttack: 1,
     baseDefense: 2,
-    startingItems: [DAGGER, STAFF],
+    startingItems: [DAGGER], // card-faithful: Wizard starts with the Dagger only (Staff is buyable)
     description: 'Casts three elemental spell groups. Cannot use heavy armor or weapons.',
   },
 };
@@ -217,12 +217,16 @@ function makeQuest1(): QuestDef {
   ) => {
     furniture.push({ id: `furn_${++fn}`, kind, cells: [{ x, y }], blocksMove, blocksLos, fixedContent });
   };
-  furn('chest', 18, 11, false, false, { kind: 'gold', amount: 100 }); // central room — Verag's hoard
-  furn('chest', 9, 3, false, false, { kind: 'gold', amount: 50 });
-  furn('throne', 5, 4, true, true);
-  furn('fireplace', 27, 5, true, true);
-  furn('bookshelf', 5, 9, false, true);
-  furn('table', 13, 4, false, false);
+  // Faithful to Quest Book "Quest 1 — The Trial" (content adapted to our larger board):
+  //   A = weapons rack (chipped/rusted/broken — nothing the heroes want)
+  //   B = empty treasure chest
+  //   C = the mummy guardian of Fellmarg's tomb (placed with the monsters, below)
+  //   D = chest with 84 gold (first searcher)   E = chest with 120 gold (first searcher)
+  furn('rack',  5,  3, false, true,  { kind: 'nothing', flavor: 'The weapons here are chipped, rusted, and broken — nothing you would want.' }); // A
+  furn('chest', 27, 3, false, false, { kind: 'nothing', flavor: 'The chest is empty.' });                                                       // B
+  furn('chest', 9,  8, false, false, { kind: 'gold', amount: 84 });                                                                             // D
+  furn('chest', 27, 8, false, false, { kind: 'gold', amount: 120 });                                                                            // E
+  furn('tomb',  15, 10, true,  true);  // Fellmarg's tomb (in the catacombs, with Verag + its guardian)
 
   // ---- Monsters (spawn when their room is first revealed). roomId is read
   //      straight from the shared board so placements just need a cell. ----
@@ -242,19 +246,24 @@ function makeQuest1(): QuestDef {
       roomId: BASE_BOARD.regions[y][x],
     });
   };
-  // A goblin pack spread across the dungeon, with Verag in the central chamber.
-  mob('goblin', 5, 3); mob('goblin', 13, 3); mob('goblin', 27, 3);
-  mob('goblin', 5, 8); mob('goblin', 23, 8);
+  // Goblins + orcs spread through the catacombs (faithful to the book's roster).
+  mob('goblin', 9, 3); mob('goblin', 19, 3); mob('goblin', 23, 3);
+  mob('goblin', 5, 9); mob('goblin', 23, 9); mob('goblin', 5, 14);
+  mob('orc', 13, 3); mob('orc', 13, 18); mob('orc', 24, 18); mob('orc', 27, 18);
+  // Note C — the mummy guardian of Fellmarg's tomb rolls 4 Attack dice (instead of 3).
+  mob('mummy', 17, 11, { attack: 4, displayName: 'Guardian of Fellmarg’s Tomb' });
+  // Verag, a foul gargoyle, lairs in the central catacomb beside the tomb.
   mob('gargoyle', 16, 11, { displayName: 'Verag' });
-  mob('goblin', 17, 12);
-  mob('goblin', 5, 18); mob('goblin', 13, 18); mob('goblin', 20, 18); mob('goblin', 27, 18);
 
   return {
     id: 'the_trial',
     name: 'The Trial',
     briefing:
-      'Mentor: "Welcome, brave heroes. Your first trial is to descend into the catacombs ' +
-      'and destroy Verag, a Chaos gargoyle that has nested below. Return alive to the stairway."',
+      '"You have learned well, my friends. Now has come the time of your first trial. You ' +
+      'must first enter the catacombs that contain Fellmarg’s tomb. You must seek out and ' +
+      'destroy Verag, a foul gargoyle that hides in the catacombs. This quest is not easy, and ' +
+      'you must work together in order to survive. This is your first step on the road to ' +
+      'becoming true heroes. Tread carefully, my friends."',
     width: BASE_BOARD.width,
     height: BASE_BOARD.height,
     tiles: BASE_BOARD.tiles,
@@ -266,7 +275,7 @@ function makeQuest1(): QuestDef {
     traps: [],
     monsters,
     startCells: BASE_BOARD.startCells,
-    wanderingMonster: 'goblin',
+    wanderingMonster: 'orc', // Quest 1's wandering monster is the Orc (book)
     winCondition: { kind: 'kill_and_exit', monsterDisplayName: 'Verag' },
   };
 }

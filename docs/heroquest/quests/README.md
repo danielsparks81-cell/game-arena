@@ -51,19 +51,20 @@ Maps are a 26×19 grid. **Maroon = solid rock.** Light cells = rooms/corridors.
 > carefully — secret-door vs spear-trap and pit vs falling-block vs blocked are easy to
 > confuse.
 
-## ⚠ Quest 1 fidelity gaps (our current `makeQuest1` vs the book)
+## ✅ Quest 1 fidelity — DONE (2026-06-03)
 
-We have a *playable approximation*, not the book's Quest 1. To make it faithful:
-- **Wandering monster** should be **Orc** (we have `goblin`).
-- Add the **mummy guardian of Fellmarg's tomb** that rolls **4 Attack dice** (note C) — we
-  have **no mummy** at all.
-- Roster should be **goblins + orcs** (we have only goblins) at the book's positions.
-- Chests: one **empty** (B), one **84 gold** (D), one **120 gold** (E) — we have a 100-gold
-  + a 50-gold chest invented.
-- Add the **weapons rack** with broken/useless weapons (note A) — missing.
-- Doors/furniture are **auto-generated**, not the book map; refine to the printed layout.
-- Parchment is paraphrased; use the book text (Fellmarg's tomb, catacombs).
-- The book states **no traps or secret doors** in Quest 1 (we already have `traps: []`).
+`makeQuest1` now matches the book's content (adapted to our larger board):
+- **Orc** wandering monster ✓
+- **Mummy guardian of Fellmarg's tomb** rolling **4 Attack dice** (note C) ✓
+- Roster = **goblins + orcs** + the mummy + **Verag** the gargoyle ✓
+- Chests: **empty** (B), **84 gold** (D), **120 gold** (E) ✓
+- **Useless weapons rack** (A) ✓
+- Book **parchment** text ✓
+- **No traps or secret doors** ✓
+- Fellmarg's tomb furniture in the central catacomb beside Verag ✓
+
+Locked by 5 fidelity tests. (Positions are adapted to our board's rooms — faithful content,
+not cell-for-cell, per the larger-board house rule.)
 
 ## Recurring mechanics we must build to support the 14 quests
 

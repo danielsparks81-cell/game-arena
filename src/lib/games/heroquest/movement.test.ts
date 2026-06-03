@@ -430,6 +430,41 @@ describe('heroquest: monsters spawn when a room is revealed', () => {
   });
 });
 
+describe('heroquest Quest 1 content fidelity (vs the Quest Book)', () => {
+  it('uses the Orc as the wandering monster', () => {
+    expect(QUEST1.wanderingMonster).toBe('orc');
+  });
+
+  it('has a mummy guardian that rolls 4 Attack dice (note C)', () => {
+    const guardian = QUEST1.monsters.find(m => m.kind === 'mummy');
+    expect(guardian).toBeDefined();
+    expect(guardian!.attack).toBe(4);
+  });
+
+  it('fields goblins AND orcs plus Verag the gargoyle', () => {
+    const kinds = new Set(QUEST1.monsters.map(m => m.kind));
+    expect(kinds.has('goblin')).toBe(true);
+    expect(kinds.has('orc')).toBe(true);
+    expect(QUEST1.monsters.some(m => m.displayName === 'Verag' && m.kind === 'gargoyle')).toBe(true);
+  });
+
+  it('has an empty chest (B), an 84-gold chest (D), a 120-gold chest (E), and a useless weapons rack (A)', () => {
+    const gold = QUEST1.furniture
+      .filter(f => f.fixedContent?.kind === 'gold')
+      .map(f => (f.fixedContent as { kind: 'gold'; amount: number }).amount)
+      .sort((a, b) => a - b);
+    expect(gold).toEqual([84, 120]);
+    const empties = QUEST1.furniture.filter(f => f.fixedContent?.kind === 'nothing');
+    expect(empties.some(f => f.kind === 'chest')).toBe(true);   // empty chest (B)
+    expect(empties.some(f => f.kind === 'rack')).toBe(true);    // useless weapons rack (A)
+  });
+
+  it('has no traps or secret doors (Zargon says so)', () => {
+    expect(QUEST1.traps.length).toBe(0);
+    expect(QUEST1.doors.every(d => !d.secret)).toBe(true);
+  });
+});
+
 describe('heroquest win condition: kill-and-exit gating', () => {
   // Two adjacent staircase tiles from the live board.
   const STAIR_A = QUEST1_STAIRS[0];
