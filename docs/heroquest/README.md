@@ -67,6 +67,7 @@ Each rule in the section files is tagged with its implementation status:
 5. [Traps](./05-traps.md)
 6. [Zargon's turn, monsters & defeat](./06-zargon-monsters-defeat.md)
 7. [Open questions & conflicts vs. current build](./99-open-questions.md)
+8. [**Quest Book** — the 14 quests, maps & mechanics](./quests/README.md)
 
 ## Code map
 
