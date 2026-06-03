@@ -52,35 +52,44 @@ function corridorSetup(): HQState {
   return s;
 }
 
-describe('heroquest movement: pass through friendly figures', () => {
-  it('lets a boxed-in hero move past a friendly hero to an empty square', () => {
+describe('heroquest movement: step-by-step (one orthogonal square per move)', () => {
+  it('moves exactly one square east, costing one movement point', () => {
     const s = corridorSetup();
-    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 5, y: 4 } }));
-    expect(out.heroes[0].at).toEqual({ x: 5, y: 4 });
-    expect(out.heroes[0].moveLeft).toBe(6 - 3); // 3 squares travelled
+    s.heroes[1].at = { x: 7, y: 4 }; // clear the friendly out of the way
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 4 } }));
+    expect(out.heroes[0].at).toEqual({ x: 3, y: 4 });
+    expect(out.heroes[0].moveLeft).toBe(5); // 6 - 1
   });
 
-  it('cannot end its move on a square occupied by a friendly hero', () => {
+  it('rejects a multi-square jump (must move one square at a time)', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    const res = applyAction(s, 'p1', { kind: 'move_to', at: { x: 4, y: 4 } }); // 2 away
+    expect(res.ok).toBe(false);
+  });
+
+  it('rejects a diagonal step', () => {
+    const s = corridorSetup();
+    // Open the floor diagonally so only the single-step rule (not a wall) blocks it.
+    s.tiles[5][3] = { kind: 'floor', region: 'room_test', revealed: true };
+    const res = applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 5 } }); // diagonal
+    expect(res.ok).toBe(false);
+  });
+
+  it('cannot step onto a square occupied by a friendly hero', () => {
     const s = corridorSetup();
     const res = applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 4 } });
     expect(res.ok).toBe(false);
   });
 
-  it('rejects a destination beyond the movement allowance', () => {
+  it('cannot step onto a square occupied by a monster', () => {
     const s = corridorSetup();
-    s.heroes[0].moveLeft = 2;
-    const res = applyAction(s, 'p1', { kind: 'move_to', at: { x: 6, y: 4 } }); // 4 away
-    expect(res.ok).toBe(false);
-  });
-
-  it('still blocks paths that run through a monster', () => {
-    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 }; // move the friendly away
     s.monsters = [{
-      id: 'block', kind: 'orc', at: { x: 4, y: 4 }, body: 1, bodyMax: 1,
+      id: 'block', kind: 'orc', at: { x: 3, y: 4 }, body: 1, bodyMax: 1,
       attack: 3, defense: 2, move: 6, roomId: 'room_test',
     }];
-    // The only corridor route to (6,4) passes through the monster at (4,4).
-    const res = applyAction(s, 'p1', { kind: 'move_to', at: { x: 6, y: 4 } });
+    const res = applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 4 } });
     expect(res.ok).toBe(false);
   });
 });

@@ -388,36 +388,40 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
   if (hero.moveLeft <= 0) return err('No movement left.');
   if (hero.inPit) return err('You are in a pit — climb out first.');
   if (!inBounds(state, dest)) return err('Off the board.');
-  if (dest.x === hero.at.x && dest.y === hero.at.y) return err('You are already there.');
-  // You may move THROUGH friendly heroes, but you can't END your move on a
-  // square occupied by another figure (hero or monster).
+  // Movement is STEP-BY-STEP: one orthogonally-adjacent square per move, never
+  // diagonal. Each step is deliberate so a hero only enters (and triggers the
+  // trap on) squares the player actually chose — no auto-pathing around corners.
+  const adx = Math.abs(dest.x - hero.at.x), ady = Math.abs(dest.y - hero.at.y);
+  if (adx + ady !== 1) return err('Move one square at a time — no diagonal moves.');
   if (cellOccupied(state, dest, /*ignoreHeroPassthrough*/ false)) return err('That square is occupied.');
-  // Pass Through Rock lets the hero ignore wall / furniture / closed-door
-  // blockers; otherwise the destination square must be standable.
-  const tile = state.tiles[dest.y][dest.x];
-  if (!hero.phaseWalls && !isPassable(state, dest, /*forHero*/ true)) {
-    return err('That square is blocked.');
+  if (!hero.phaseWalls) {
+    if (!isPassable(state, dest, /*forHero*/ true)) return err('That square is blocked.');
+    if (edgeBlocksMove(state, hero.at, dest, false)) return err('A wall or closed door blocks the way.');
   }
-  // Shortest path length (passing through friendly heroes) must fit in the
-  // remaining movement allowance.
-  const steps = pathDistance(state, hero, dest);
-  if (steps < 0) return err('There is no clear path to that square.');
-  if (steps > hero.moveLeft) return err('That square is out of reach.');
 
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   h.at = { ...dest };
-  h.moveLeft -= steps;
-  // Reveal LOS from the destination.
+  h.moveLeft -= 1;
+  // Reveal LOS from the new square.
   revealLineOfSightForHero(s, h);
-  // If the hero stepped onto a known pit, they fall in (in v1, automatic).
-  const trap = s.traps.find(t => t.at.x === dest.x && t.at.y === dest.y);
-  if (trap && trap.kind === 'pit' && !trap.triggered) {
+
+  // Trap on entry (one-time): pit drops you (and stops you), spear / falling
+  // block wound you. Each fires only because you stepped onto the square.
+  const trap = s.traps.find(t => t.at.x === dest.x && t.at.y === dest.y && !t.triggered);
+  if (trap) {
     trap.triggered = true;
     trap.revealed = true;
-    h.inPit = true;
     h.body = Math.max(0, h.body - 1);
-    pushLog(s, 'trap', `${h.username} falls into a pit trap! (-1 BP)`);
+    if (trap.kind === 'pit') {
+      h.inPit = true;
+      h.moveLeft = 0; // falling in ends your movement
+      pushLog(s, 'trap', `${h.username} falls into a pit trap! (-1 BP)`);
+    } else if (trap.kind === 'spear') {
+      pushLog(s, 'trap', `${h.username} springs a spear trap! (-1 BP)`);
+    } else {
+      pushLog(s, 'trap', `${h.username} triggers a falling block! (-1 BP)`);
+    }
     checkHeroDeath(s, h);
   }
   // If at stairway after Verag is dead → heroes win.
@@ -1149,40 +1153,6 @@ function edgeBlocksSight(s: HQState, p: Coord, q: Coord): boolean {
   const d = doorOnEdge(s, p, q);
   if (d) return (d.secret && !d.found) ? true : !d.open;
   return true;
-}
-
-/** Shortest orthogonal path length from the hero to `dest`. Friendly heroes
- *  may be passed THROUGH (they don't block transit); monsters, walls, blocked
- *  tiles, move-blocking furniture, and closed doors DO block — unless the hero
- *  is phasing (Pass Through Rock), which ignores wall/furniture/door blockers.
- *  Returns -1 if unreachable within the open board. Destination occupancy is
- *  the caller's concern (you can pass through a friend but not stop on them). */
-function pathDistance(s: HQState, hero: Hero, dest: Coord): number {
-  const startKey = `${hero.at.x},${hero.at.y}`;
-  const destKey = `${dest.x},${dest.y}`;
-  if (startKey === destKey) return 0;
-  const dist = new Map<string, number>([[startKey, 0]]);
-  const queue: Coord[] = [{ ...hero.at }];
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    const d = dist.get(`${cur.x},${cur.y}`)!;
-    for (const n of adjacentCells(cur)) {
-      const key = `${n.x},${n.y}`;
-      if (dist.has(key)) continue;
-      if (!inBounds(s, n)) continue;
-      // Rock / move-blocking furniture block unless phasing.
-      if (!hero.phaseWalls && !isPassable(s, n, /*forHero*/ true)) continue;
-      // Room-boundary walls + closed doors block the crossing (unless phasing).
-      if (edgeBlocksMove(s, cur, n, !!hero.phaseWalls)) continue;
-      // Monsters always block movement; friendly heroes are transparent to it.
-      if (s.monsters.some(m => m.at.x === n.x && m.at.y === n.y)) continue;
-      const nd = d + 1;
-      if (key === destKey) return nd;   // BFS → first arrival is the shortest
-      dist.set(key, nd);
-      queue.push(n);
-    }
-  }
-  return -1;
 }
 
 // Bresenham line. Sight is blocked by a rock cell or LOS-blocking furniture on

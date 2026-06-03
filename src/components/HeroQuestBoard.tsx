@@ -137,7 +137,7 @@ function PlayingView({
     // so the page never scrolls). Map fills the right. The whole grid is exactly
     // one screen tall.
     <div className="grid gap-3 lg:grid-cols-[24rem_minmax(0,1fr)]" style={{ height: 'calc(100dvh - 7rem)' }}>
-      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-1">
+      <div className="flex h-full min-h-0 flex-col gap-2 pr-1">
         {pendingSpell && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-500/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
             <span className="font-semibold">Casting {pendingSpell.name}:</span>
@@ -196,8 +196,12 @@ function PlayingView({
           />
         ))}
 
-        <DicePanel roll={state.lastRoll} />
-        <LogView state={state} />
+        {/* Dice + chronicle take the remaining height and scroll internally so
+            the buttons + hero panels stay fixed and the page never scrolls. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+          <DicePanel roll={state.lastRoll} />
+          <LogView state={state} />
+        </div>
       </div>
 
       {/* Map fills the right column. */}

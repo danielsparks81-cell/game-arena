@@ -115,39 +115,27 @@ export default function HeroQuestBoardCanvas({
     return map;
   }, [state.furniture]);
 
-  // ---- Movement highlight: every cell reachable within the movement roll. ----
-  // BFS that passes THROUGH friendly heroes (transit) but is blocked by
-  // monsters, walls, move-blocking furniture, and closed doors. A friendly
-  // hero's own square is reachable-for-transit but not a valid stopping cell,
-  // so it isn't highlighted. Pass Through Rock ignores wall/furniture blockers.
+  // ---- Movement highlight: ONLY the orthogonally-adjacent squares the hero can
+  // step into right now. Movement is step-by-step (one square per click, never
+  // diagonal) so each step is deliberate and triggers any trap on that square. ----
   const reachable = useMemo(() => {
     const out = new Set<string>();
     if (!isMyTurn || !myHero) return out;
     if (myHero.moveLeft <= 0 || myHero.inPit) return out;
     const phaseWalls = !!myHero.phaseWalls;
-    const startKey = `${myHero.at.x},${myHero.at.y}`;
-    const dist = new Map<string, number>([[startKey, 0]]);
-    const queue: Coord[] = [{ ...myHero.at }];
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
-      const d = dist.get(`${cur.x},${cur.y}`)!;
-      if (d >= myHero.moveLeft) continue;
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const nx = cur.x + dx, ny = cur.y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const key = `${nx},${ny}`;
-        if (dist.has(key)) continue;
-        const t = state.tiles[ny][nx];
-        if (!phaseWalls) {
-          if (t.kind === 'wall' || t.kind === 'blocked') continue;
-          if (furnByCell.get(key)?.blocksMove) continue;
-        }
-        if (edgeBlocksMove(cur.x, cur.y, nx, ny, phaseWalls)) continue;  // walls / closed doors
-        if (monsterByCell.has(key)) continue;       // monsters block
-        dist.set(key, d + 1);
-        queue.push({ x: nx, y: ny });
-        if (!heroByCell.has(key)) out.add(key);      // can only STOP on an empty cell
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = myHero.at.x + dx, ny = myHero.at.y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const key = `${nx},${ny}`;
+      const t = state.tiles[ny][nx];
+      if (!phaseWalls) {
+        if (t.kind === 'wall' || t.kind === 'blocked') continue;
+        if (furnByCell.get(key)?.blocksMove) continue;
       }
+      if (edgeBlocksMove(myHero.at.x, myHero.at.y, nx, ny, phaseWalls)) continue; // wall / closed door
+      if (monsterByCell.has(key)) continue;  // monsters block
+      if (heroByCell.has(key)) continue;     // can't step onto another hero
+      out.add(key);
     }
     return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
