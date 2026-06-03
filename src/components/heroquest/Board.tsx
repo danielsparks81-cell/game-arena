@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   MONSTER_STATS,
+  hasLineOfSight,
   type HQState,
   type Hero,
   type Monster,
@@ -210,20 +211,33 @@ export default function HeroQuestBoardCanvas({
   // layout is visible while building/testing. Toggled by the ☀ button.
   const [litAll, setLitAll] = useState(false);
 
-  // ---- Torchlight: which cells are *currently* lit (within Chebyshev 5 of
-  // ANY living hero) vs revealed-but-dim vs unrevealed. Using "any hero" so
-  // the whole party emits light — important for multi-hero parties where
-  // someone's always close to the action. ----
-  function lightLevel(x: number, y: number): 'lit' | 'dim' | 'fog' {
-    if (litAll) return 'lit';
-    const tile = state.tiles[y][x];
-    if (!tile.revealed) return 'fog';
+  // ---- Visibility by LINE OF SIGHT (per the rules: a hero "looks" down
+  // corridors / through open doors and sees what's directly in their line of
+  // sight; walls and closed doors block it). A cell is 'lit' if ANY living hero
+  // has LOS to it, 'dim' if it's been revealed but no hero currently sees it,
+  // and 'fog' if never revealed. (Computed once per render via a memoized set.)
+  const litCells = useMemo(() => {
+    const set = new Set<string>();
+    if (litAll) return set;
     for (const h of state.heroes) {
       if (h.body <= 0) continue;
-      const cheb = Math.max(Math.abs(x - h.at.x), Math.abs(y - h.at.y));
-      if (cheb <= 5) return 'lit';
+      for (let yy = 0; yy < H; yy++) {
+        for (let xx = 0; xx < W; xx++) {
+          if (!state.tiles[yy][xx].revealed) continue;
+          const key = `${xx},${yy}`;
+          if (set.has(key)) continue;
+          if (hasLineOfSight(state, h.at, { x: xx, y: yy })) set.add(key);
+        }
+      }
     }
-    return 'dim';
+    return set;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.heroes, state.tiles, state.doors, state.monsters, state.furniture, litAll, W, H]);
+
+  function lightLevel(x: number, y: number): 'lit' | 'dim' | 'fog' {
+    if (litAll) return 'lit';
+    if (!state.tiles[y][x].revealed) return 'fog';
+    return litCells.has(`${x},${y}`) ? 'lit' : 'dim';
   }
 
   // ---- Zoom / fit-to-screen ----

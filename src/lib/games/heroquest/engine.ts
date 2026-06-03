@@ -1223,7 +1223,7 @@ function edgeBlocksSight(s: HQState, p: Coord, q: Coord): boolean {
 // Bresenham line. Sight is blocked by a rock cell or LOS-blocking furniture on
 // an intermediate cell, by a figure standing on an intermediate cell, OR by a
 // wall / closed door on any edge the ray crosses.
-function hasLineOfSight(s: HQState, a: Coord, b: Coord): boolean {
+export function hasLineOfSight(s: HQState, a: Coord, b: Coord): boolean {
   const cells = bresenham(a, b);
   for (let i = 1; i < cells.length; i++) {
     const prev = cells[i - 1], c = cells[i];

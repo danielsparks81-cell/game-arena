@@ -10,6 +10,7 @@ export {
   getOrderedPlayerIds,
   computeHistory,
   projectStateForViewer,
+  hasLineOfSight,
 } from './engine';
 
 export type {
