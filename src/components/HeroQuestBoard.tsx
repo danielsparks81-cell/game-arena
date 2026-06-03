@@ -11,6 +11,7 @@ import {
   type HeroClass,
   type Coord,
   HERO_DEFAULTS,
+  hasLineOfSight,
 } from '@/lib/games/heroquest';
 import HeroLobby from './heroquest/HeroLobby';
 import HeroQuestBoardCanvas from './heroquest/Board';
@@ -121,9 +122,15 @@ function PlayingView({
     setPendingSpell({ id: spell.id, name: spell.name, target: spell.target });
   };
 
+  // Valid targets for a hero-target spell: yourself, plus any living ally you
+  // can actually see (line of sight). Unseen allies aren't offered, so you can
+  // never waste a spell on a target you can't reach.
   const livingHeroes = state.heroes
     .map((h, idx) => ({ h, idx }))
-    .filter(({ h }) => h.body > 0);
+    .filter(({ h }) =>
+      h.body > 0 &&
+      (h.seat === focusHero?.seat || (!!focusHero && hasLineOfSight(state, focusHero.at, h.at))),
+    );
 
   // First monster orthogonally adjacent to the active hero — the Attack button's
   // target (you can still click any monster on the board directly).

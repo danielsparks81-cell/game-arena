@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   MONSTER_STATS,
+  hasLineOfSight,
   type HQState,
   type Hero,
   type Monster,
@@ -502,9 +503,10 @@ export default function HeroQuestBoardCanvas({
           if (!tile?.revealed) return null;
           const level = lightLevel(m.at.x, m.at.y);
           const adj = myHero && Math.abs(myHero.at.x - m.at.x) + Math.abs(myHero.at.y - m.at.y) === 1;
-          // In spell-targeting mode every visible monster is selectable;
-          // otherwise only an adjacent monster is attackable.
-          const spellPick = spellTargetMonsters && isMyTurn && !!myHero;
+          // Spell-targeting mode: only a monster the caster can SEE (line of
+          // sight) is selectable — unseen monsters aren't targetable, so the
+          // spell can't be wasted. Otherwise only an adjacent monster is attackable.
+          const spellPick = spellTargetMonsters && isMyTurn && !!myHero && hasLineOfSight(state, myHero.at, m.at);
           const targetable = spellPick || (isMyTurn && myHero && !myHero.hasActed && adj);
           return (
             <div

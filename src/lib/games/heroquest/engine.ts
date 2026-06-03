@@ -778,29 +778,30 @@ function doCastSpell(
   const spell = hero.spells.find(sp => sp.id === action.spellId);
   if (!spell) return err('You do not know that spell.');
   if (hero.spellsCast.includes(spell.id)) return err('You have already cast that spell.');
+
+  // Line-of-sight gate (character view), validated BEFORE the spell is spent so
+  // an unseen target simply isn't targetable (no wasted spell). A monster — or
+  // ANOTHER hero — can only be targeted if an unobstructed straight line runs
+  // from the caster's square centre to the target's (walls / closed doors /
+  // figures block; grazing a corner does not). Self-casts and 'area' spells need
+  // no target/line. The UI only offers valid targets; this is the safety net.
+  if (spell.target === 'monster') {
+    const m = action.targetMonsterId ? state.monsters.find(mm => mm.id === action.targetMonsterId) : null;
+    if (!m) return err('Choose a monster you can see.');
+    if (!hasLineOfSight(state, hero.at, m.at)) return err('You cannot see that target.');
+  } else if (spell.target === 'hero' && action.targetHeroIdx != null) {
+    const t = state.heroes[action.targetHeroIdx];
+    if (t && t.seat !== hero.seat) { // targeting an ally (self needs no line of sight)
+      if (t.body <= 0) return err('That hero is not a valid target.');
+      if (!hasLineOfSight(state, hero.at, t.at)) return err('You cannot see that hero.');
+    }
+  }
+
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   markActed(h);
   h.spellsCast.push(spell.id);
   pushLog(s, 'spell', `${h.username} casts ${spell.name}!`);
-
-  // Line-of-sight gate (character view): a monster — or ANOTHER hero — can only
-  // be targeted if it is visible, i.e. an unobstructed straight line runs from
-  // the caster's square centre to the target's. Walls, closed doors and other
-  // figures block it; merely grazing a corner does not. Self-casts and 'area'
-  // spells need no target. A cast with no line of sight is still SPENT (the card
-  // is discarded for the quest) but the effect is wasted.
-  if (spell.target === 'monster') {
-    const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
-    if (!m) { pushLog(s, 'spell', `…but there is no valid target. The spell fizzles.`); return ok(s); }
-    if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but ${h.username} cannot see the target. The spell is wasted.`); return ok(s); }
-  } else if (spell.target === 'hero' && action.targetHeroIdx != null) {
-    const t = s.heroes[action.targetHeroIdx];
-    if (t && t.seat !== h.seat) { // targeting an ally (self needs no line of sight)
-      if (t.body <= 0) { pushLog(s, 'spell', `…but there is no valid target. The spell fizzles.`); return ok(s); }
-      if (!hasLineOfSight(s, h.at, t.at)) { pushLog(s, 'spell', `…but ${h.username} cannot see ${t.username}. The spell is wasted.`); return ok(s); }
-    }
-  }
 
   // v1 effect resolution (minimal — covers the most useful subset).
   switch (spell.id) {
