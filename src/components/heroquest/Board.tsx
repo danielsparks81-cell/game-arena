@@ -22,6 +22,12 @@ import { safeAccent } from '@/lib/accentColors';
 
 export const TILE_PX = 36;
 
+// Distinct room tints for the debug "blueprint" view (cycled by room number).
+const ROOM_TINTS = [
+  '#3b82f6', '#ef4444', '#22c55e', '#eab308', '#a855f7', '#ec4899',
+  '#14b8a6', '#f97316', '#8b5cf6', '#06b6d4', '#84cc16', '#f43f5e',
+];
+
 export type BoardCanvasProps = {
   state: HQState;
   currentUserId: string;
@@ -150,6 +156,15 @@ export default function HeroQuestBoardCanvas({
     return (x * 7 + y * 13) % 3;
   }
 
+  // ---- Debug blueprint: a distinct translucent tint per room region so the
+  // board layout is easy to differentiate while building/testing. ----
+  function regionTint(region: string): string | null {
+    if (!region || !region.startsWith('room_')) return null;
+    const n = parseInt(region.slice('room_'.length), 10);
+    if (Number.isNaN(n)) return null;
+    return ROOM_TINTS[n % ROOM_TINTS.length];
+  }
+
   // Debug: illuminate the whole map (ignores fog + torchlight) so the full
   // layout is visible while building/testing. Toggled by the ☀ button.
   const [litAll, setLitAll] = useState(false);
@@ -266,6 +281,11 @@ export default function HeroQuestBoardCanvas({
                 title={tile.revealed ? `${tile.region} (${x},${y})` : 'Unexplored'}
               >
                 {tileArt}
+                {/* Debug blueprint: distinct per-room color wash. */}
+                {litAll && (() => {
+                  const t = regionTint(tile.region);
+                  return t ? <div className="pointer-events-none absolute inset-0" style={{ background: t, opacity: 0.32 }} /> : null;
+                })()}
                 {/* Lighting overlay */}
                 {level === 'fog' && (
                   <div className="absolute inset-0" style={{ background: HQ_COLORS.fog }} />
@@ -295,6 +315,7 @@ export default function HeroQuestBoardCanvas({
           openable={openableDoors}
           disabled={disabled}
           onOpenDoor={onOpenDoor}
+          revealAll={litAll}
         />
 
         {/* Furniture layer */}
@@ -486,7 +507,7 @@ function ZoomBtn({ onClick, title, active, children }: {
 // ============================================================================
 
 function WallDoorOverlay({
-  state, isWallEdge, doorAtEdge, openable, disabled, onOpenDoor,
+  state, isWallEdge, doorAtEdge, openable, disabled, onOpenDoor, revealAll = false,
 }: {
   state: HQState;
   isWallEdge: (ax: number, ay: number, bx: number, by: number) => boolean;
@@ -494,10 +515,12 @@ function WallDoorOverlay({
   openable: HQDoor[];
   disabled: boolean;
   onOpenDoor: (id: string) => void;
+  /** Debug blueprint mode: draw every wall/door regardless of fog. */
+  revealAll?: boolean;
 }) {
   const W = state.quest.width, H = state.quest.height;
   const openableIds = new Set(openable.map(d => d.id));
-  const revealed = (x: number, y: number) => !!state.tiles[y]?.[x]?.revealed;
+  const revealed = (x: number, y: number) => revealAll || !!state.tiles[y]?.[x]?.revealed;
   const T = 3; // wall thickness (px)
   const segments: React.ReactNode[] = [];
 
