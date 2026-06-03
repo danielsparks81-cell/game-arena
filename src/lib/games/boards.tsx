@@ -236,6 +236,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onSearchTreasure={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'search_treasure' }); })}
       onSearchTraps={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'search_traps' }); })}
       onSearchSecrets={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'search_secrets' }); })}
+      onDisarmTrap={(trapId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'disarm_trap', trapId }); })}
       onClimbPit={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'climb_pit' }); })}
       onCastSpell={(spellId, opts) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'cast_spell', spellId, targetMonsterId: opts?.targetMonsterId, targetHeroIdx: opts?.targetHeroIdx }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'end_turn' }); })}

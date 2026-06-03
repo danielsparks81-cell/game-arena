@@ -38,6 +38,7 @@ export type HeroQuestBoardProps = {
   onSearchTreasure: () => void;
   onSearchTraps: () => void;
   onSearchSecrets: () => void;
+  onDisarmTrap: (trapId: string) => void;
   onClimbPit: () => void;
   onCastSpell: (spellId: string, opts?: { targetMonsterId?: string; targetHeroIdx?: number }) => void;
   onEndTurn: () => void;
@@ -90,7 +91,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
 function PlayingView({
   state, currentUserId, disabled,
   onRollMove, onMoveTo, onOpenDoor, onAttack,
-  onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onCastSpell, onEndTurn,
+  onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onClimbPit, onCastSpell, onEndTurn,
   onShowBriefing,
 }: HeroQuestBoardProps & { onShowBriefing: () => void }) {
   // The sheet always shows the ACTIVE hero (whoever's up). Since players
@@ -130,6 +131,16 @@ function PlayingView({
     const m = state.monsters.find(mo => mo.body > 0 &&
       Math.abs(mo.at.x - focusHero.at.x) + Math.abs(mo.at.y - focusHero.at.y) === 1);
     return m?.id ?? null;
+  })();
+
+  // Disarm target: a revealed, un-sprung trap orthogonally adjacent to the hero,
+  // and only if the hero can actually disarm (a Dwarf, or carrying a Tool Kit).
+  const canDisarm = !!focusHero && (focusHero.klass === 'dwarf' || focusHero.items.some(i => i.id === 'tool_kit'));
+  const disarmableTrapId = (() => {
+    if (!focusHero || !canDisarm) return null;
+    const t = state.traps.find(tr => tr.revealed && !tr.triggered &&
+      Math.abs(tr.at.x - focusHero.at.x) + Math.abs(tr.at.y - focusHero.at.y) === 1);
+    return t?.id ?? null;
   })();
 
   return (
@@ -181,6 +192,8 @@ function PlayingView({
           adjacentMonsterId={adjacentMonsterId}
           onAttack={onAttack}
           onCastSpellClick={handleSpellClick}
+          disarmableTrapId={disarmableTrapId}
+          onDisarmTrap={onDisarmTrap}
         />
 
         {/* One panel per hero in the party (the active hero is highlighted). */}
@@ -273,6 +286,7 @@ function ActionPanel({
   isMyTurn, myHero, disabled,
   onRollMove, onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onEndTurn,
   adjacentMonsterId, onAttack, onCastSpellClick,
+  disarmableTrapId, onDisarmTrap,
 }: {
   isMyTurn: boolean;
   myHero: ReturnType<HQState['heroes']['find']>;
@@ -287,6 +301,9 @@ function ActionPanel({
   adjacentMonsterId: string | null;
   onAttack: (monsterId: string) => void;
   onCastSpellClick: (spellId: string) => void;
+  /** Adjacent revealed trap the Disarm button targets (null = none / can't disarm). */
+  disarmableTrapId: string | null;
+  onDisarmTrap: (trapId: string) => void;
 }) {
   const [spellMenu, setSpellMenu] = useState(false);
 
@@ -312,6 +329,7 @@ function ActionPanel({
         <ActionButton label="Search treasure" icon="💰" onClick={onSearchTreasure} disabled={!canAct || acted} flavor="emerald" />
         <ActionButton label="Search traps" icon="🪤" onClick={onSearchTraps} disabled={!canAct || acted} flavor="orange" />
         <ActionButton label="Secret doors" icon="🚪" onClick={onSearchSecrets} disabled={!canAct || acted} flavor="indigo" />
+        <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && onDisarmTrap(disarmableTrapId)} disabled={!canAct || acted || !disarmableTrapId} flavor="orange" />
         <div className="relative w-full">
           <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo" />
           {spellMenu && spells.length > 0 && (
