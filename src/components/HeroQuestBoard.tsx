@@ -308,7 +308,7 @@ function ActionPanel({
         <ActionButton label="Search treasure" icon="💰" onClick={onSearchTreasure} disabled={!canAct || acted} flavor="emerald" />
         <ActionButton label="Search traps" icon="🪤" onClick={onSearchTraps} disabled={!canAct || acted} flavor="orange" />
         <ActionButton label="Secret doors" icon="🚪" onClick={onSearchSecrets} disabled={!canAct || acted} flavor="indigo" />
-        <div className="relative">
+        <div className="relative w-full">
           <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo" />
           {spellMenu && spells.length > 0 && (
             <div className="absolute right-0 z-30 mt-1 w-52 rounded-md border border-amber-700/60 bg-neutral-900 p-1 shadow-xl">
@@ -357,7 +357,7 @@ function ActionButton({ label, icon, onClick, disabled, flavor }: {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex items-center justify-center gap-1 rounded-md border-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-30 hover:shadow-md"
+      className="flex w-full items-center justify-center gap-1 rounded-md border-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-30 hover:shadow-md"
       style={{
         background: `linear-gradient(180deg, ${f.from} 0%, ${f.to} 100%)`,
         borderColor: f.border,

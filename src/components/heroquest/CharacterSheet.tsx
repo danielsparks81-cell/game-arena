@@ -68,7 +68,7 @@ export default function CharacterSheet({
           <div className="truncate text-sm font-bold uppercase tracking-wider text-amber-950">
             {hero.username}
           </div>
-          <div className="text-[10px] uppercase tracking-widest text-amber-900/80" style={{ fontFamily: 'serif' }}>
+          <div className="text-xs font-bold uppercase tracking-wider text-amber-900/90">
             {d.name}
           </div>
         </div>
@@ -79,11 +79,12 @@ export default function CharacterSheet({
         )}
       </div>
 
-      {/* Stat band: BP / MP / Atk / Def / Gold */}
+      {/* Stat band: BP / MP / Atk / Def / Gold (+ items when compact) */}
       <div className="px-3 py-2 space-y-2">
         <BodyMindRow hero={hero} max={d.bodyMax} />
         <CombatRow hero={hero} />
         <GoldRow hero={hero} />
+        {compact && <CompactItems hero={hero} />}
       </div>
 
       {!compact && (
@@ -183,6 +184,29 @@ function GoldRow({ hero }: { hero: Hero }) {
       <CoinIcon size={16} />
       <span className="text-[9px] uppercase tracking-wider text-amber-900/80">Gold</span>
       <span className="ml-auto text-sm font-bold text-amber-950 tabular-nums">{hero.gold}</span>
+    </div>
+  );
+}
+
+/** Compact inventory line for the party panels — weapons, armor, potions and
+ *  items as small chips so each hero's gear/consumables are visible at a glance. */
+function CompactItems({ hero }: { hero: Hero }) {
+  const icon = (k: string) =>
+    k === 'weapon' ? '🗡️' : k === 'armor' ? '🛡️' : k === 'potion' ? '🧪' : k === 'tool' ? '🔧' : '✦';
+  if (hero.items.length === 0) {
+    return <div className="rounded-md bg-amber-950/10 px-2 py-1 text-[10px] italic text-amber-900/50">No items</div>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1">
+      {hero.items.map((it, i) => (
+        <span
+          key={`${it.id}-${i}`}
+          title={it.description ?? it.name}
+          className="rounded bg-amber-950/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-950"
+        >
+          {icon(it.kind)} {it.name}
+        </span>
+      ))}
     </div>
   );
 }

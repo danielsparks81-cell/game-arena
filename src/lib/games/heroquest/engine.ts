@@ -371,12 +371,15 @@ function doRollMove(state: HQState, hero: Hero): ApplyResult {
   if (hero.hasRolled) return err('You already rolled movement this turn.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
-  const d1 = 1 + Math.floor(Math.random() * 6);
-  const d2 = 1 + Math.floor(Math.random() * 6);
-  h.moveRolled = d1 + d2;
-  h.moveLeft = d1 + d2;
+  // Movement is 3d4 (range 3–12, centred on ~7–8) — replaces the old 2d6.
+  const d1 = 1 + Math.floor(Math.random() * 4);
+  const d2 = 1 + Math.floor(Math.random() * 4);
+  const d3 = 1 + Math.floor(Math.random() * 4);
+  const total = d1 + d2 + d3;
+  h.moveRolled = total;
+  h.moveLeft = total;
   h.hasRolled = true;
-  pushLog(s, 'move', `${h.username} rolls ${d1}+${d2} = ${d1 + d2} squares of movement.`);
+  pushLog(s, 'move', `${h.username} rolls ${d1}+${d2}+${d3} = ${total} squares of movement.`);
   return ok(s);
 }
 
