@@ -243,8 +243,11 @@ export default function HeroQuestBoardCanvas({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-auto bg-black p-1"
+      className="relative bg-black p-1"
       style={{
+        // In fit mode the board always fits, so never show a scrollbar; only
+        // allow scrolling/panning when the user has manually zoomed in.
+        overflow: fitMode ? 'hidden' : 'auto',
         maxWidth: '100%',
         // Fills its grid column (one screen tall). Actions/character panels live
         // in the right column now, so nothing sits below the board to scroll.
