@@ -368,13 +368,19 @@ export default function HeroQuestBoardCanvas({
       {/* Size-reserving wrapper so the scroll area matches the scaled board. */}
       <div style={{ width: boardW * zoom, height: boardH * zoom, flexShrink: 0 }}>
       <div
-        className="relative"
+        className="relative select-none"
+        onDragStart={(e) => e.preventDefault()}
         style={{
           width: W * TILE_PX,
           height: H * TILE_PX,
           imageRendering: 'pixelated',
           transform: `scale(${zoom})`,
           transformOrigin: 'top left',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          // @ts-expect-error - vendor prop to stop native image dragging on press
+          WebkitUserDrag: 'none',
+          touchAction: 'none',
         }}
       >
         {/* Tile layer */}
@@ -573,7 +579,7 @@ export default function HeroQuestBoardCanvas({
           return (
             <div
               key={h.playerId}
-              className="absolute"
+              className="pointer-events-none absolute"
               style={{
                 left: h.at.x * TILE_PX,
                 top:  h.at.y * TILE_PX,

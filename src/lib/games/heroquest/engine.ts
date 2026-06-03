@@ -1352,6 +1352,11 @@ function monstersVisibleToHero(s: HQState, h: Hero): Monster[] {
 // Reveal mechanic
 // ============================================================================
 
+// How far a hero can "look" (Chebyshev squares) when revealing line of sight —
+// far enough to see down a corridor, short enough not to reveal the whole
+// dungeon at once.
+const LOS_RANGE = 8;
+
 function revealRegion(s: HQState, region: string): void {
   if (!region) return;
   for (let y = 0; y < s.tiles.length; y++) {
@@ -1375,20 +1380,30 @@ function spawnRoomMonsters(s: HQState, region: string): void {
     moves). v1: cheap implementation — reveal everything in the hero's
     region plus any directly connected corridor cells within LOS. */
 function revealLineOfSightForHero(s: HQState, h: Hero): void {
+  // Standing in a room means you see the WHOLE room (reveal the room region).
+  // Standing in a corridor does NOT reveal the whole corridor network — you only
+  // see what's in your line of sight (handled below).
   const region = s.tiles[h.at.y]?.[h.at.x]?.region ?? '';
-  revealRegion(s, region);
-  // Also reveal corridor cells within 6 squares of LOS as a cheap heuristic.
+  if (region.startsWith('room_')) revealRegion(s, region);
+
+  // Reveal every cell within line of sight (looking down corridors / through
+  // open doors). If a visible cell belongs to a ROOM, reveal that whole room
+  // (you see the entire room the moment you look in — and its monsters appear).
+  const roomsSeen = new Set<string>();
   for (let y = 0; y < s.tiles.length; y++) {
     for (let x = 0; x < s.tiles[0].length; x++) {
       const t = s.tiles[y][x];
-      if (t.revealed) continue;
       if (t.kind === 'wall') continue;
-      if (chebyshev(h.at, { x, y }) > 6) continue;
-      if (hasLineOfSight(s, h.at, { x, y })) t.revealed = true;
+      if (x === h.at.x && y === h.at.y) continue;
+      if (chebyshev(h.at, { x, y }) > LOS_RANGE) continue; // sight distance cap
+      if (!hasLineOfSight(s, h.at, { x, y })) continue;
+      t.revealed = true;
+      if (t.region.startsWith('room_')) roomsSeen.add(t.region);
     }
   }
-  // On this open-room board, monsters guard rooms that have no doors — so a
-  // room's monsters appear the moment a hero first sees into it.
+  for (const r of roomsSeen) revealRegion(s, r);
+
+  // Monsters guard rooms — they appear the moment a hero first sees into one.
   spawnRevealedRooms(s);
 }
 
