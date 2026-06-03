@@ -82,7 +82,8 @@ Each rule in the section files is tagged with its implementation status:
 - [Hero spells](./spells.md) — the 12 elemental spells (Air/Earth/Fire/Water)
 - [Dread spells](./dread-spells.md) — Zargon's 12 spells
 - [Artifacts](./artifacts.md) — the 14 special treasures
-- *(still missing: the 24-card treasure deck, and rulebook page 22)*
+- [Treasure deck](./treasure-deck.md) — the 24-card deck (wealth / potions / hazards / wandering)
+- *(still missing: only rulebook page 22 — Ending the Quest / between-quests)*
 
 ## Code map
 
