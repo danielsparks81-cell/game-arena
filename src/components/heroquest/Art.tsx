@@ -122,6 +122,86 @@ export function FloorTile({ size, variant = 0, tl, br }: { size: number; variant
   );
 }
 
+export type FloorStyle = 'flag' | 'brick' | 'checker' | 'diag' | 'cobble' | 'slate' | 'plank' | 'herringbone';
+
+/** A single floor cell rendered as part of a CONTINUOUS pattern (keyed off the
+ *  global x/y so adjacent cells join up — no per-cell "box"). Each room picks a
+ *  (style, color) so the dungeon floor varies like the printed board. */
+export function FloorCell({
+  size, gx, gy, style, tl, br,
+}: { size: number; gx: number; gy: number; style: FloorStyle; tl: string; br: string }) {
+  // Deterministic per-cell hash → stable pseudo-random so a floor doesn't
+  // shimmer on rerender but each cell differs subtly.
+  const h = (((gx + 7) * 73856093) ^ ((gy + 13) * 19349663)) >>> 0;
+  const rnd = (shift: number) => ((h >> (shift * 3)) & 0xff) / 255;
+  const S = 40;
+  const grout = '#0c0a08';
+  const parts: React.ReactNode[] = [
+    <rect key="base" width={S} height={S} fill={tl} />,
+    // hash-driven shade wash so the fill isn't dead flat
+    <rect key="wash" width={S} height={S} fill={br} opacity={0.2 + rnd(0) * 0.4} />,
+  ];
+
+  if (style === 'checker') {
+    parts.push((gx + gy) % 2 === 0
+      ? <rect key="c" width={S} height={S} fill="#ffffff" opacity={0.10} />
+      : <rect key="c" width={S} height={S} fill="#000000" opacity={0.18} />);
+    parts.push(<g key="ln" stroke={grout} strokeWidth="0.8" opacity="0.5"><line x1="0.4" y1="0" x2="0.4" y2={S} /><line x1="0" y1="0.4" x2={S} y2="0.4" /></g>);
+  } else if (style === 'brick') {
+    const off = (gy % 2) * 20;
+    parts.push(<g key="g" stroke={grout} strokeWidth="1.3">
+      <line x1="0" y1="0.6" x2={S} y2="0.6" />
+      <line x1="0" y1="20" x2={S} y2="20" />
+      <line x1={(off + 0.6) % S} y1="0" x2={(off + 0.6) % S} y2="20" />
+      <line x1={(off + 20.6) % S} y1="20" x2={(off + 20.6) % S} y2={S} />
+    </g>);
+  } else if (style === 'diag') {
+    parts.push(<g key="g" stroke={grout} strokeWidth="1" opacity="0.7">
+      <line x1="0" y1="0" x2={S} y2={S} />
+      <line x1="0" y1={S} x2={S} y2="0" />
+    </g>);
+  } else if (style === 'cobble') {
+    parts.push(<g key="g" stroke="#00000055" strokeWidth="1" fill="#ffffff" fillOpacity="0.05">
+      <circle cx="11" cy="11" r="8.5" />
+      <circle cx="30" cy="12" r="7.5" />
+      <circle cx="12" cy="30" r="7.5" />
+      <circle cx="30" cy="30" r="8.5" />
+    </g>);
+  } else if (style === 'plank') {
+    // horizontal wooden planks (seamless across cells)
+    parts.push(<g key="g" stroke={grout} strokeWidth="1.1" opacity="0.8">
+      <line x1="0" y1="0.6" x2={S} y2="0.6" />
+      <line x1="0" y1="13.6" x2={S} y2="13.6" />
+      <line x1="0" y1="26.6" x2={S} y2="26.6" />
+    </g>);
+    parts.push(<g key="grain" stroke="#000000" strokeWidth="0.4" opacity="0.18">
+      <line x1="0" y1="7" x2={S} y2="7" /><line x1="0" y1="20" x2={S} y2="20" /><line x1="0" y1="33" x2={S} y2="33" />
+    </g>);
+  } else if (style === 'herringbone') {
+    parts.push(<g key="g" stroke={grout} strokeWidth="0.9" opacity="0.7">
+      {(gx + gy) % 2 === 0
+        ? <><line x1="0" y1="20" x2="20" y2="0" /><line x1="20" y1={S} x2={S} y2="20" /></>
+        : <><line x1="0" y1="20" x2="20" y2={S} /><line x1="20" y1="0" x2={S} y2="20" /></>}
+    </g>);
+  } else if (style === 'slate') {
+    // organic irregular cracks — no grid, reads as natural stone
+    const a = (8 + rnd(2) * 24).toFixed(1), b = (rnd(4) * S).toFixed(1), c = (8 + rnd(6) * 24).toFixed(1);
+    parts.push(<path key="crack" d={`M0 ${a} L ${(S * 0.5).toFixed(1)} ${b} L ${S} ${c}`} stroke="#00000066" strokeWidth="0.8" fill="none" />);
+    parts.push(<g key="sp" fill="#000" opacity="0.22">
+      <circle cx={(rnd(1) * S).toFixed(1)} cy={(rnd(2) * S).toFixed(1)} r="0.6" />
+      <circle cx={(rnd(5) * S).toFixed(1)} cy={(rnd(7) * S).toFixed(1)} r="0.5" />
+    </g>);
+  } else { // 'flag' — large flagstones: grout on top + left edges (continuous grid)
+    parts.push(<g key="g" stroke={grout} strokeWidth="1.3">
+      <line x1="0" y1="0.6" x2={S} y2="0.6" />
+      <line x1="0.6" y1="0" x2="0.6" y2={S} />
+    </g>);
+    parts.push(<line key="hl" x1="1.6" y1="1.6" x2={S - 2} y2="1.6" stroke="#ffffff" strokeOpacity="0.05" strokeWidth="0.8" />);
+  }
+
+  return <svg width={size} height={size} viewBox="0 0 40 40" style={{ display: 'block' }} aria-hidden>{parts}</svg>;
+}
+
 /** Stairway tile — chevron of steps with a glow. */
 export function StairsTile({ size }: { size: number }) {
   return (

@@ -14,29 +14,35 @@ import {
   type Furniture as HQFurniture,
 } from '@/lib/games/heroquest';
 import {
-  FloorTile, StairsTile,
+  FloorCell, StairsTile,
   HeroToken, MonsterToken, FurnitureToken,
   HQ_COLORS,
+  type FloorStyle,
 } from './Art';
 import { safeAccent } from '@/lib/accentColors';
 
 export const TILE_PX = 36;
 
 // Light grey "broken slate" flooring for the hallways/corridors.
-const CORRIDOR_FLOOR = { tl: '#9c9c98', br: '#6c6c68' };
-// Distinct muted stone shades for rooms. A greedy graph-coloring assigns these
-// so that no two touching rooms share a shade.
-const ROOM_FLOOR_PALETTE: { tl: string; br: string }[] = [
-  { tl: '#6f5c44', br: '#4c3f2c' }, // warm tan
-  { tl: '#48586a', br: '#2e3b47' }, // slate blue
-  { tl: '#56684a', br: '#384630' }, // moss green
-  { tl: '#6c4848', br: '#472e2e' }, // dusty red
-  { tl: '#5d4a6b', br: '#3c2f48' }, // muted purple
-  { tl: '#6b6450', br: '#474230' }, // olive
-  { tl: '#486b64', br: '#2e4844' }, // teal
-  { tl: '#6b5650', br: '#473934' }, // brown-rose
-  { tl: '#4f566b', br: '#333848' }, // indigo grey
-  { tl: '#656b48', br: '#42472e' }, // yellow-green
+const CORRIDOR_FLOOR: { tl: string; br: string; style: FloorStyle } = { tl: '#9c9c98', br: '#6c6c68', style: 'slate' };
+// A varied set of (color, pattern) floor looks for rooms. The room coloring
+// spreads these across the board (and keeps touching rooms distinct), so the
+// dungeon reads like the printed board rather than one repeated tile.
+const ROOM_FLOORS: { tl: string; br: string; style: FloorStyle }[] = [
+  { tl: '#7a6147', br: '#4c3d2c', style: 'flag' },        // warm tan flagstone
+  { tl: '#4e5e72', br: '#2e3b47', style: 'checker' },     // slate-blue checker
+  { tl: '#566b4a', br: '#384630', style: 'brick' },       // moss-green brick
+  { tl: '#7a4c4c', br: '#472e2e', style: 'flag' },        // dusty red flag
+  { tl: '#5d4a6b', br: '#3c2f48', style: 'cobble' },      // purple cobble
+  { tl: '#7a7050', br: '#474230', style: 'diag' },        // olive diagonal
+  { tl: '#487a70', br: '#2e4844', style: 'flag' },        // teal flag
+  { tl: '#7a5650', br: '#473934', style: 'checker' },     // brown-rose checker
+  { tl: '#4f566b', br: '#333848', style: 'brick' },       // indigo brick
+  { tl: '#6f7a48', br: '#42472e', style: 'cobble' },      // yellow-green cobble
+  { tl: '#3f6b7a', br: '#2a4450', style: 'diag' },        // cyan diagonal
+  { tl: '#7a5a3a', br: '#4a3622', style: 'plank' },       // oak plank
+  { tl: '#6b4a5e', br: '#45303c', style: 'herringbone' }, // magenta herringbone
+  { tl: '#5a6b5a', br: '#384538', style: 'slate' },       // grey-green slate
 ];
 
 export type BoardCanvasProps = {
@@ -162,11 +168,6 @@ export default function HeroQuestBoardCanvas({
     return out;
   }, [isMyTurn, myHero, state.doors]);
 
-  // ---- Tile variant stable per cell (so the floor doesn't shimmer on rerender) ----
-  function floorVariant(x: number, y: number) {
-    return (x * 7 + y * 13) % 3;
-  }
-
   // ---- Per-room flooring: greedy graph-coloring so that no two rooms that
   // touch (orthogonally or diagonally) share the same shade. ----
   const roomColorIdx = useMemo(() => {
@@ -186,11 +187,20 @@ export default function HeroQuestBoardCanvas({
     const num = (r: string) => parseInt(r.slice('room_'.length), 10) || 0;
     const order = [...rooms].sort((a, b) => num(a) - num(b));
     const color = new Map<string, number>();
+    const N = ROOM_FLOORS.length;
+    const usage = new Array(N).fill(0);
     for (const r of order) {
-      const used = new Set<number>();
-      for (const nb of adj.get(r) ?? []) { const c = color.get(nb); if (c !== undefined) used.add(c); }
-      let c = 0; while (used.has(c)) c++;
-      color.set(r, c);
+      const taken = new Set<number>();
+      for (const nb of adj.get(r) ?? []) { const c = color.get(nb); if (c !== undefined) taken.add(c); }
+      // Pick the LEAST-used floor not used by a neighbor — spreads all the
+      // looks across the board while keeping touching rooms distinct.
+      let best = 0, bestUse = Infinity;
+      for (let i = 0; i < N; i++) {
+        if (taken.has(i)) continue;
+        if (usage[i] < bestUse) { bestUse = usage[i]; best = i; }
+      }
+      color.set(r, best);
+      usage[best]++;
     }
     return color;
   }, [state.tiles, W, H]);
@@ -230,7 +240,8 @@ export default function HeroQuestBoardCanvas({
       // board fits inside without triggering the scrollbar.
       const availW = el.clientWidth - 8;
       const availH = el.clientHeight - 8;
-      setFitZoom(Math.max(0.2, Math.min(availW / boardW, availH / boardH, 2.5)));
+      // *0.96 leaves a small border area around the board.
+      setFitZoom(Math.max(0.2, Math.min(availW / boardW, availH / boardH, 2.5) * 0.96));
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -252,6 +263,11 @@ export default function HeroQuestBoardCanvas({
         height: 'calc(100dvh - 7rem)',
         background: 'radial-gradient(ellipse at center, #0a0805 0%, #000 100%)',
         boxShadow: 'inset 0 0 80px rgba(0,0,0,0.95)',
+        // Center the board in the area (with the *0.96 fit it has a small border);
+        // `safe` keeps it scroll-reachable rather than clipped when zoomed in.
+        display: 'flex',
+        alignItems: 'safe center',
+        justifyContent: 'safe center',
       }}
     >
       {/* Zoom controls — absolutely positioned so they overlay the board corner
@@ -264,7 +280,7 @@ export default function HeroQuestBoardCanvas({
       </div>
 
       {/* Size-reserving wrapper so the scroll area matches the scaled board. */}
-      <div style={{ width: boardW * zoom, height: boardH * zoom }}>
+      <div style={{ width: boardW * zoom, height: boardH * zoom, flexShrink: 0 }}>
       <div
         className="relative"
         style={{
@@ -292,12 +308,12 @@ export default function HeroQuestBoardCanvas({
             } else if (tile.kind === 'stairs') {
               tileArt = <StairsTile size={TILE_PX} />;
             } else if (tile.region.startsWith('room_')) {
-              // Each room a distinct shade (graph-colored so neighbors differ).
-              const pal = ROOM_FLOOR_PALETTE[(roomColorIdx.get(tile.region) ?? 0) % ROOM_FLOOR_PALETTE.length];
-              tileArt = <FloorTile size={TILE_PX} variant={floorVariant(x, y)} tl={pal.tl} br={pal.br} />;
+              // Each room a distinct (color, pattern), spread so neighbors differ.
+              const f = ROOM_FLOORS[(roomColorIdx.get(tile.region) ?? 0) % ROOM_FLOORS.length];
+              tileArt = <FloorCell size={TILE_PX} gx={x} gy={y} style={f.style} tl={f.tl} br={f.br} />;
             } else {
               // Corridors / stairway floor → light grey broken slate.
-              tileArt = <FloorTile size={TILE_PX} variant={floorVariant(x, y)} tl={CORRIDOR_FLOOR.tl} br={CORRIDOR_FLOOR.br} />;
+              tileArt = <FloorCell size={TILE_PX} gx={x} gy={y} style={CORRIDOR_FLOOR.style} tl={CORRIDOR_FLOOR.tl} br={CORRIDOR_FLOOR.br} />;
             }
             return (
               <div
