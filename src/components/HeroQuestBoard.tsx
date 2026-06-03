@@ -14,7 +14,7 @@ import {
 } from '@/lib/games/heroquest';
 import HeroLobby from './heroquest/HeroLobby';
 import HeroQuestBoardCanvas from './heroquest/Board';
-import CharacterSheet, { PartyRoster } from './heroquest/CharacterSheet';
+import CharacterSheet from './heroquest/CharacterSheet';
 import DicePanel from './heroquest/DicePanel';
 import QuestBriefing from './heroquest/QuestBriefing';
 import { HeartIcon, CoinIcon } from './heroquest/Art';
@@ -133,24 +133,11 @@ function PlayingView({
   })();
 
   return (
-    // Map on the left, a single scrolling column of actions + character panels
-    // on the right. The whole thing is exactly one screen tall so nothing below
-    // the board forces the page to scroll.
-    <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr),21rem]" style={{ height: 'calc(100dvh - 7rem)' }}>
-      <div className="min-h-0 min-w-0">
-        <HeroQuestBoardCanvas
-          state={state}
-          currentUserId={currentUserId}
-          disabled={disabled || !isMyTurn}
-          onMoveTo={onMoveTo}
-          onOpenDoor={onOpenDoor}
-          onAttack={onAttack}
-          spellTargetMonsters={pendingSpell?.target === 'monster'}
-          onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
-        />
-      </div>
-
-      <div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+    // Left column: 6 action buttons then the 4 hero panels (scrolls internally
+    // so the page never scrolls). Map fills the right. The whole grid is exactly
+    // one screen tall.
+    <div className="grid gap-3 lg:grid-cols-[24rem_minmax(0,1fr)]" style={{ height: 'calc(100dvh - 7rem)' }}>
+      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto pr-1">
         {pendingSpell && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-500/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
             <span className="font-semibold">Casting {pendingSpell.name}:</span>
@@ -196,18 +183,35 @@ function PlayingView({
           onCastSpellClick={handleSpellClick}
         />
 
-        {focusHero && (
+        {/* One panel per hero in the party (the active hero is highlighted). */}
+        {state.heroes.map(h => (
           <CharacterSheet
-            hero={focusHero}
-            isActive
+            key={`${h.playerId}-${h.seat}`}
+            compact
+            hero={h}
+            isActive={h.seat === active?.seat}
             isMyTurn={isMyTurn}
-            isMine={focusHero.playerId === currentUserId}
+            isMine={h.playerId === currentUserId}
             onCastSpell={handleSpellClick}
           />
-        )}
-        <PartyRoster state={state} currentUserId={currentUserId} />
+        ))}
+
         <DicePanel roll={state.lastRoll} />
         <LogView state={state} />
+      </div>
+
+      {/* Map fills the right column. */}
+      <div className="min-h-0 min-w-0">
+        <HeroQuestBoardCanvas
+          state={state}
+          currentUserId={currentUserId}
+          disabled={disabled || !isMyTurn}
+          onMoveTo={onMoveTo}
+          onOpenDoor={onOpenDoor}
+          onAttack={onAttack}
+          spellTargetMonsters={pendingSpell?.target === 'monster'}
+          onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
+        />
       </div>
     </div>
   );

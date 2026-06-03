@@ -29,13 +29,16 @@ const PARCHMENT_BG = `
 `;
 
 export default function CharacterSheet({
-  hero, isActive, isMyTurn, isMine, onCastSpell,
+  hero, isActive, isMyTurn, isMine, onCastSpell, compact = false,
 }: {
   hero: Hero;
   isActive: boolean;
   isMyTurn: boolean;
   isMine: boolean;
   onCastSpell: (spellId: string) => void;
+  /** Compact: header + stat band only (no equipment / spell grids) so several
+   *  heroes can stack as a party of panels. */
+  compact?: boolean;
 }) {
   const d = HERO_DEFAULTS[hero.klass];
   const accent = safeAccent(hero.accent_color);
@@ -83,30 +86,34 @@ export default function CharacterSheet({
         <GoldRow hero={hero} />
       </div>
 
-      <FleurDivider width={220} />
-
-      {/* Inventory grid (6 slots) */}
-      <div className="px-3 py-2">
-        <div className="mb-1 text-[9px] uppercase tracking-widest text-amber-900/80" style={{ fontFamily: 'serif' }}>
-          Equipment
-        </div>
-        <InventoryGrid hero={hero} />
-      </div>
-
-      {/* Spells (casters only) */}
-      {hero.spells.length > 0 && (
+      {!compact && (
         <>
           <FleurDivider width={220} />
+
+          {/* Inventory grid (6 slots) */}
           <div className="px-3 py-2">
-            <div className="mb-1.5 text-[9px] uppercase tracking-widest text-amber-900/80" style={{ fontFamily: 'serif' }}>
-              Spells
+            <div className="mb-1 text-[9px] uppercase tracking-widest text-amber-900/80" style={{ fontFamily: 'serif' }}>
+              Equipment
             </div>
-            <SpellGrid
-              hero={hero}
-              canCast={isMine && isMyTurn && !hero.hasActed}
-              onCast={onCastSpell}
-            />
+            <InventoryGrid hero={hero} />
           </div>
+
+          {/* Spells (casters only) */}
+          {hero.spells.length > 0 && (
+            <>
+              <FleurDivider width={220} />
+              <div className="px-3 py-2">
+                <div className="mb-1.5 text-[9px] uppercase tracking-widest text-amber-900/80" style={{ fontFamily: 'serif' }}>
+                  Spells
+                </div>
+                <SpellGrid
+                  hero={hero}
+                  canCast={isMine && isMyTurn && !hero.hasActed}
+                  onCast={onCastSpell}
+                />
+              </div>
+            </>
+          )}
         </>
       )}
     </div>
