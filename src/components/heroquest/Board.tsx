@@ -51,6 +51,8 @@ export type BoardCanvasProps = {
   currentUserId: string;
   disabled: boolean;
   onMoveTo: (at: Coord) => void;
+  /** Drag movement: walk the traced square-by-square path. */
+  onMovePath: (path: Coord[]) => void;
   onOpenDoor: (doorId: string) => void;
   onAttack: (monsterId: string) => void;
   /** When true, the board is in spell-targeting mode: every visible monster is
@@ -60,7 +62,7 @@ export type BoardCanvasProps = {
 };
 
 export default function HeroQuestBoardCanvas({
-  state, currentUserId, disabled, onMoveTo, onOpenDoor, onAttack,
+  state, currentUserId, disabled, onMoveTo, onMovePath, onOpenDoor, onAttack,
   spellTargetMonsters = false, onPickMonster,
 }: BoardCanvasProps) {
   const W = state.quest.width;
@@ -154,6 +156,72 @@ export default function HeroQuestBoardCanvas({
     return out;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMyTurn, myHero, state.tiles, doorByEdge, monsterByCell, heroByCell, furnByCell, W, H]);
+
+  // ---- Drag movement: press on your hero and drag over squares to trace a path
+  // (one orthogonal step per square). Release to walk it — the engine stops the
+  // hero the moment it springs a trap or a new area comes into view. ----
+  const canDrag = isMyTurn && !disabled && !!myHero && myHero.hasRolled && myHero.moveLeft > 0 && !myHero.inPit && !spellTargetMonsters;
+  const [dragging, setDragging] = useState(false);
+  const [dragPath, setDragPath] = useState<Coord[]>([]);
+  const dragPathRef = useRef<Coord[]>([]);
+  useEffect(() => { dragPathRef.current = dragPath; }, [dragPath]);
+
+  const canStep = (from: Coord, to: Coord): boolean => {
+    if (!myHero) return false;
+    const phaseWalls = !!myHero.phaseWalls;
+    if (Math.abs(to.x - from.x) + Math.abs(to.y - from.y) !== 1) return false;
+    if (to.x < 0 || to.y < 0 || to.x >= W || to.y >= H) return false;
+    const key = `${to.x},${to.y}`;
+    if (!phaseWalls) {
+      const t = state.tiles[to.y][to.x];
+      if (t.kind === 'wall' || t.kind === 'blocked') return false;
+      if (furnByCell.get(key)?.blocksMove) return false;
+    }
+    if (edgeBlocksMove(from.x, from.y, to.x, to.y, phaseWalls)) return false;
+    if (monsterByCell.has(key)) return false; // monsters block (friendly heroes are transit)
+    return true;
+  };
+
+  const dragStepOf = (x: number, y: number) => dragPath.findIndex(p => p.x === x && p.y === y);
+
+  // While dragging, follow the pointer/finger across cells (works for mouse and
+  // touch via elementFromPoint) and commit the path on release.
+  useEffect(() => {
+    if (!dragging || !myHero) return;
+    const start = myHero.at;
+    const cellAt = (e: PointerEvent): Coord | null => {
+      const el = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
+      const cellEl = el?.closest('[data-hqcell]') as HTMLElement | null;
+      if (!cellEl?.dataset.hqcell) return null;
+      const [x, y] = cellEl.dataset.hqcell.split(',').map(Number);
+      return { x, y };
+    };
+    const onMove = (e: PointerEvent) => {
+      const cell = cellAt(e);
+      if (!cell) return;
+      setDragPath(prev => {
+        const last = prev.length ? prev[prev.length - 1] : start;
+        if (last.x === cell.x && last.y === cell.y) return prev;
+        // Backtrack: dragging onto the previous square removes the last step.
+        const beforeLast = prev.length > 1 ? prev[prev.length - 2] : start;
+        if (cell.x === beforeLast.x && cell.y === beforeLast.y) return prev.slice(0, -1);
+        if (prev.length >= myHero.moveLeft) return prev;        // out of movement
+        if (prev.some(p => p.x === cell.x && p.y === cell.y)) return prev; // no loops
+        if (!canStep(last, cell)) return prev;
+        return [...prev, cell];
+      });
+    };
+    const onUp = () => {
+      setDragging(false);
+      const p = dragPathRef.current;
+      setDragPath([]);
+      if (p.length > 0) onMovePath(p);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dragging]);
 
   // ---- Doors the active hero can open: a closed, visible door with the hero
   // standing on one of its squares (the doorway). ----
@@ -333,17 +401,28 @@ export default function HeroQuestBoardCanvas({
               // Corridors / stairway floor → light grey broken slate.
               tileArt = <FloorCell size={TILE_PX} gx={x} gy={y} style={CORRIDOR_FLOOR.style} tl={CORRIDOR_FLOOR.tl} br={CORRIDOR_FLOOR.br} />;
             }
+            const isHeroCell = !!myHero && x === myHero.at.x && y === myHero.at.y;
+            const dragStep = dragStepOf(x, y);
             return (
               <div
                 key={key}
+                data-hqcell={key}
                 className="absolute"
                 style={{
                   left: x * TILE_PX,
                   top:  y * TILE_PX,
                   width: TILE_PX,
                   height: TILE_PX,
-                  cursor: !disabled && isClickable ? 'pointer' : 'default',
+                  cursor: canDrag && isHeroCell ? 'grab' : (!disabled && isClickable ? 'pointer' : 'default'),
+                  touchAction: 'none',
                   zIndex: 1,
+                }}
+                onPointerDown={(e) => {
+                  if (canDrag && isHeroCell) {
+                    e.preventDefault();
+                    setDragging(true);
+                    setDragPath([]);
+                  }
                 }}
                 onClick={() => {
                   if (disabled) return;
@@ -359,14 +438,25 @@ export default function HeroQuestBoardCanvas({
                 {level === 'dim' && (
                   <div className="absolute inset-0 pointer-events-none" style={{ background: 'rgba(0,0,0,0.55)' }} />
                 )}
-                {/* Yellow ring on a reachable cell */}
-                {isReach && (
+                {/* Yellow ring on a reachable cell (hidden while dragging a path) */}
+                {isReach && !dragging && (
                   <div
                     className="pointer-events-none absolute inset-0"
                     style={{
                       boxShadow: 'inset 0 0 0 2px rgba(255,200,30,0.85), 0 0 14px rgba(255,200,30,0.4)',
                     }}
                   />
+                )}
+                {/* Drag path trail + step number */}
+                {dragStep >= 0 && (
+                  <div
+                    className="pointer-events-none absolute inset-0 flex items-center justify-center"
+                    style={{ background: 'rgba(80,200,255,0.28)', boxShadow: 'inset 0 0 0 2px rgba(120,220,255,0.9)' }}
+                  >
+                    <span className="font-bold text-white" style={{ fontSize: TILE_PX * 0.4, textShadow: '0 1px 2px #000' }}>
+                      {dragStep + 1}
+                    </span>
+                  </div>
                 )}
               </div>
             );

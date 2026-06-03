@@ -27,6 +27,9 @@ function corridorSetup(): HQState {
   // Clear the quest's furniture/monsters so the hand-built test corridor is empty.
   s.furniture = [];
   s.monsters = [];
+  // Reset all reveals so moving in the test strip doesn't re-reveal a real room
+  // (which would re-spawn its monsters and trip the look-and-stop interrupt).
+  for (const row of s.tiles) for (const t of row) t.revealed = false;
   const y = 4;
   // A one-tile-wide corridor walled off above and below + capped at both ends,
   // so the only route between its cells runs straight along row y.
@@ -37,7 +40,7 @@ function corridorSetup(): HQState {
   s.tiles[y][1] = { kind: 'wall', region: 'corridor', revealed: true };
   s.tiles[y][8] = { kind: 'wall', region: 'corridor', revealed: true };
   for (let x = 2; x <= 7; x++) {
-    s.tiles[y][x] = { kind: 'floor', region: 'room_test', revealed: true };
+    s.tiles[y][x] = { kind: 'floor', region: 'corridor', revealed: true };
   }
   // Park the two non-involved heroes far away so they don't sit on the path.
   s.heroes[2].at = { x: 0, y: 0 };
@@ -99,6 +102,28 @@ describe('heroquest movement: path-based, pass over friendly heroes', () => {
     s.traps = [{ id: 'pit1', kind: 'pit', at: { x: 4, y: 4 }, triggered: false, revealed: false }];
     const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 6, y: 4 } }));
     expect(out.heroes[0].at).toEqual({ x: 4, y: 4 }); // stopped on the pit, not at (6,4)
+    expect(out.heroes[0].inPit).toBe(true);
+    expect(out.heroes[0].moveLeft).toBe(0);
+  });
+});
+
+describe('heroquest: drag movement (move_path)', () => {
+  it('walks the full traced path when nothing interrupts', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    const path = [{ x: 3, y: 4 }, { x: 4, y: 4 }, { x: 5, y: 4 }];
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_path', path }));
+    expect(out.heroes[0].at).toEqual({ x: 5, y: 4 });
+    expect(out.heroes[0].moveLeft).toBe(3); // 6 - 3
+  });
+
+  it('stops on a pit trap partway down the traced path', () => {
+    const s = corridorSetup();
+    s.heroes[1].at = { x: 7, y: 4 };
+    s.traps = [{ id: 'pit1', kind: 'pit', at: { x: 4, y: 4 }, triggered: false, revealed: false }];
+    const path = [{ x: 3, y: 4 }, { x: 4, y: 4 }, { x: 5, y: 4 }];
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_path', path }));
+    expect(out.heroes[0].at).toEqual({ x: 4, y: 4 }); // stopped on the pit
     expect(out.heroes[0].inPit).toBe(true);
     expect(out.heroes[0].moveLeft).toBe(0);
   });

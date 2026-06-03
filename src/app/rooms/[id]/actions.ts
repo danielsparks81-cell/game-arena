@@ -684,6 +684,7 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'start_game' }
   | { game: 'heroquest'; kind: 'roll_move' }
   | { game: 'heroquest'; kind: 'move_to'; at: HQCoord }
+  | { game: 'heroquest'; kind: 'move_path'; path: HQCoord[] }
   | { game: 'heroquest'; kind: 'open_door'; doorId: string }
   | { game: 'heroquest'; kind: 'attack'; monsterId: string }
   | { game: 'heroquest'; kind: 'search_treasure' }

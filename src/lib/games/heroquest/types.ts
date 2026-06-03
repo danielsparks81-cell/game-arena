@@ -357,6 +357,7 @@ export type HQAction =
   // Turn — hero
   | { kind: 'roll_move' }
   | { kind: 'move_to'; at: Coord }
+  | { kind: 'move_path'; path: Coord[] }
   | { kind: 'open_door'; doorId: string }
   | { kind: 'attack'; monsterId: string }
   | { kind: 'search_treasure' }

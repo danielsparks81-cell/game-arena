@@ -231,6 +231,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'start_game' }); })}
       onRollMove={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'roll_move' }); })}
       onMoveTo={(at: HQCoord) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'move_to', at }); })}
+      onMovePath={(path: HQCoord[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'move_path', path }); })}
       onOpenDoor={(doorId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'open_door', doorId }); })}
       onAttack={(monsterId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'attack', monsterId }); })}
       onSearchTreasure={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'search_treasure' }); })}

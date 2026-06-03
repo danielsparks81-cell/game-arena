@@ -331,6 +331,7 @@ export function applyAction(
 
   if (action.kind === 'roll_move') return doRollMove(state, hero);
   if (action.kind === 'move_to')   return doMoveTo(state, hero, action.at);
+  if (action.kind === 'move_path') return doMovePath(state, hero, action.path);
   if (action.kind === 'open_door') return doOpenDoor(state, hero, action.doorId);
   if (action.kind === 'attack')    return doAttack(state, hero, action.monsterId);
   if (action.kind === 'search_treasure') return doSearchTreasure(state, hero);
@@ -398,6 +399,71 @@ function markActed(h: Hero) {
   if (h.hasRolled && h.moveLeft < h.moveRolled) h.moveLeft = 0;
 }
 
+/** The set of ROOM regions that currently have at least one revealed tile. Used
+ *  to detect when a hero looks into a NEW room (the moment Zargon places its
+ *  monsters and the hero must stop). Corridor/wall reveals don't count. */
+function revealedRoomRegions(s: HQState): Set<string> {
+  const set = new Set<string>();
+  for (const row of s.tiles) for (const t of row) {
+    if (t.revealed && t.region.startsWith('room_')) set.add(t.region);
+  }
+  return set;
+}
+
+/** Walk a hero step-by-step along `path` (each square orthogonally adjacent to
+ *  the previous). At EACH square: deduct 1 movement, fire any trap (which stops
+ *  movement), then "look" — reveal line of sight. The walk STOPS the moment the
+ *  hero springs a trap OR a new area / monster comes into view, so the player
+ *  can react (this is how looking works in HeroQuest). An invalid step (not
+ *  adjacent, blocked, off-board, onto a monster) also stops the walk. */
+function walkPath(s: HQState, h: Hero, path: Coord[]): void {
+  let from: Coord = { ...h.at };
+  for (const sq of path) {
+    if (h.moveLeft <= 0) break;
+    const adx = Math.abs(sq.x - from.x), ady = Math.abs(sq.y - from.y);
+    if (adx + ady !== 1) break;                              // orthogonal single step only
+    if (!inBounds(s, sq)) break;
+    if (!h.phaseWalls && (!isPassable(s, sq, /*forHero*/ true) || edgeBlocksMove(s, from, sq, false))) break;
+    if (s.monsters.some(m => m.at.x === sq.x && m.at.y === sq.y)) break; // monsters block
+    // Friendly heroes are transit-able (we pass over them); the caller ensures
+    // the final square isn't shared.
+
+    const roomsBefore = revealedRoomRegions(s);
+    const monstersBefore = s.monsters.length;
+    h.at = { ...sq };
+    h.moveLeft -= 1;
+    from = { ...sq };
+
+    // Trap on entry → springs and stops the hero on that square.
+    const trap = s.traps.find(t => !t.triggered && t.at.x === sq.x && t.at.y === sq.y);
+    if (trap) {
+      trap.triggered = true;
+      trap.revealed = true;
+      h.body = Math.max(0, h.body - 1);
+      h.moveLeft = 0;
+      if (trap.kind === 'pit') {
+        h.inPit = true;
+        pushLog(s, 'trap', `${h.username} falls into a pit trap! (-1 BP)`);
+      } else if (trap.kind === 'spear') {
+        pushLog(s, 'trap', `${h.username} springs a spear trap! (-1 BP)`);
+      } else {
+        pushLog(s, 'trap', `${h.username} triggers a falling block! (-1 BP)`);
+      }
+      checkHeroDeath(s, h);
+      revealLineOfSightForHero(s, h);
+      return;
+    }
+
+    // Look from the new square. Stop if a NEW room comes into view (its monsters
+    // are placed) or monsters otherwise appear — so the player can react.
+    revealLineOfSightForHero(s, h);
+    if (revealedRoomRegions(s).size > roomsBefore.size || s.monsters.length > monstersBefore) {
+      pushLog(s, 'reveal', `${h.username} rounds the corner — a new area comes into view.`);
+      return;
+    }
+  }
+}
+
 function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
   if (!hero.hasRolled) return err('Roll movement first.');
   if (hero.moveLeft <= 0) return err('No movement left.');
@@ -405,12 +471,6 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
   if (!inBounds(state, dest)) return err('Off the board.');
   if (dest.x === hero.at.x && dest.y === hero.at.y) return err('You are already there.');
 
-  // Official movement rules (HeroQuest):
-  //  • Move up to your roll, square by square along an orthogonal path — never
-  //    diagonally, never through walls, never over monsters.
-  //  • You MAY pass over other heroes (transit) but may NOT END on a shared
-  //    square — except on the stairs (or in a pit).
-  //  • Rooms can only be entered through doors (edge walls/doors enforce this).
   const destIsStairs = state.tiles[dest.y][dest.x].kind === 'stairs';
   if (state.monsters.some(m => m.at.x === dest.x && m.at.y === dest.y)) {
     return err('You cannot end your move on a monster.');
@@ -422,38 +482,41 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
     return err('That square is blocked.');
   }
 
-  // Shortest orthogonal path (through friendly heroes); never enters a room
-  // except through an open door (edge checks), never crosses a monster/wall.
   const path = findPath(state, hero, dest);
   if (!path) return err('There is no clear path there (no diagonals; rooms are entered only through doors).');
   if (path.length > hero.moveLeft) return err('That square is out of reach.');
 
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
-  // Walk the path square by square so a trap fires on the square it sits on —
-  // and a sprung trap stops the hero there (you don't slide past it).
-  for (const sq of path) {
-    h.at = { ...sq };
-    h.moveLeft -= 1;
-    const trap = s.traps.find(t => !t.triggered && t.at.x === sq.x && t.at.y === sq.y);
-    if (trap) {
-      trap.triggered = true;
-      trap.revealed = true;
-      h.body = Math.max(0, h.body - 1);
-      h.moveLeft = 0; // a sprung trap ends your movement on that square
-      if (trap.kind === 'pit') {
-        h.inPit = true;
-        pushLog(s, 'trap', `${h.username} falls into a pit trap! (-1 BP)`);
-      } else if (trap.kind === 'spear') {
-        pushLog(s, 'trap', `${h.username} springs a spear trap! (-1 BP)`);
-      } else {
-        pushLog(s, 'trap', `${h.username} triggers a falling block! (-1 BP)`);
-      }
-      checkHeroDeath(s, h);
-      break;
-    }
+  walkPath(s, h, path);
+  if (s.tiles[h.at.y][h.at.x].kind === 'stairs') maybeFinishOnExit(s);
+  return ok(s);
+}
+
+/** Drag movement: the player traces an explicit square-by-square path. The walk
+ *  follows it but stops early on a trap or a new reveal (see walkPath). */
+function doMovePath(state: HQState, hero: Hero, path: Coord[]): ApplyResult {
+  if (!hero.hasRolled) return err('Roll movement first.');
+  if (hero.moveLeft <= 0) return err('No movement left.');
+  if (hero.inPit) return err('You are in a pit — climb out first.');
+  if (!Array.isArray(path) || path.length === 0) return err('No path to walk.');
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+  walkPath(s, h, path);
+  // Never END on another figure's square (except the stairs). If the traced
+  // path stopped on a friendly, back up to the last empty square.
+  while (
+    s.tiles[h.at.y][h.at.x].kind !== 'stairs' &&
+    s.heroes.some(o => o.seat !== h.seat && o.body > 0 && o.at.x === h.at.x && o.at.y === h.at.y) &&
+    !h.inPit
+  ) {
+    // step back to the previous path square (or the start)
+    const idx = path.findIndex(p => p.x === h.at.x && p.y === h.at.y);
+    const back = idx > 0 ? path[idx - 1] : state.heroes[state.turnIndex].at;
+    h.at = { ...back };
+    h.moveLeft += 1;
+    if (idx <= 0) break;
   }
-  revealLineOfSightForHero(s, h);
   if (s.tiles[h.at.y][h.at.x].kind === 'stairs') maybeFinishOnExit(s);
   return ok(s);
 }

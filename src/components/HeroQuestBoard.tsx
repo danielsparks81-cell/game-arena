@@ -33,6 +33,7 @@ export type HeroQuestBoardProps = {
   onStart: () => void;
   onRollMove: () => void;
   onMoveTo: (at: Coord) => void;
+  onMovePath: (path: Coord[]) => void;
   onOpenDoor: (doorId: string) => void;
   onAttack: (monsterId: string) => void;
   onSearchTreasure: () => void;
@@ -90,7 +91,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
 
 function PlayingView({
   state, currentUserId, disabled,
-  onRollMove, onMoveTo, onOpenDoor, onAttack,
+  onRollMove, onMoveTo, onMovePath, onOpenDoor, onAttack,
   onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onClimbPit, onCastSpell, onEndTurn,
   onShowBriefing,
 }: HeroQuestBoardProps & { onShowBriefing: () => void }) {
@@ -226,6 +227,7 @@ function PlayingView({
           currentUserId={currentUserId}
           disabled={disabled || !isMyTurn}
           onMoveTo={onMoveTo}
+          onMovePath={onMovePath}
           onOpenDoor={onOpenDoor}
           onAttack={onAttack}
           spellTargetMonsters={pendingSpell?.target === 'monster'}
