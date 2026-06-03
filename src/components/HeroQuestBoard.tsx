@@ -209,10 +209,12 @@ function PlayingView({
           />
         ))}
 
-        {/* Dice + chronicle take the remaining height and scroll internally so
-            the buttons + hero panels stay fixed and the page never scrolls. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-          <DicePanel roll={state.lastRoll} />
+        {/* Dice panel sits right under the hero panels — always visible. */}
+        <DicePanel attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
+
+        {/* Chronicle takes the remaining height and scrolls internally so the
+            buttons + hero panels + dice stay fixed and the page never scrolls. */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <LogView state={state} />
         </div>
       </div>

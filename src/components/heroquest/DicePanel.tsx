@@ -1,48 +1,87 @@
 'use client';
 
-// Dice display panel — shows the last combat roll with animated dice.
-// Roll is keyed by `lastRoll` reference so the spin animation runs on each
-// new roll.
+// Dice display panel — shows the most recent roll: movement (3d4 number dice),
+// or a combat exchange (the attacker's dice + the defender's dice). Animated.
 
 import { useEffect, useState } from 'react';
 import { type DiceRoll, type DieFace } from '@/lib/games/heroquest';
 import { CombatDie } from './Art';
 
-export default function DicePanel({ roll }: { roll: DiceRoll | null }) {
-  // Animate dice when a new roll arrives: render `null` faces briefly then
-  // settle on the actual face. Keying off roll reference forces remount.
-  const [showFaces, setShowFaces] = useState(false);
-  useEffect(() => {
-    if (!roll) return;
-    setShowFaces(false);
-    const t = setTimeout(() => setShowFaces(true), 350);
-    return () => clearTimeout(t);
-  }, [roll]);
+export default function DicePanel({
+  attack, defense, move,
+}: {
+  attack: DiceRoll | null;
+  defense: DiceRoll | null;
+  move: number[] | null;
+}) {
+  // Movement roll takes priority — it's the most recent thing that happened.
+  if (move && move.length > 0) {
+    const total = move.reduce((a, b) => a + b, 0);
+    return (
+      <div className="rounded-lg border border-amber-900/50 bg-gradient-to-b from-amber-950/40 to-black p-2">
+        <div className="mb-1 flex items-center justify-between">
+          <div className="text-[10px] uppercase tracking-widest text-amber-200/80" style={{ fontFamily: 'serif' }}>Movement</div>
+          <div className="text-[10px] uppercase tracking-wider text-amber-200/90">{total} squares</div>
+        </div>
+        <div className="flex items-center justify-center gap-2">
+          {move.map((n, i) => <NumberDie key={i} n={n} />)}
+        </div>
+      </div>
+    );
+  }
 
-  if (!roll) {
+  if (!attack) {
     return (
       <div className="rounded-lg border border-amber-900/50 bg-neutral-900 px-3 py-2 text-xs text-amber-200/40 text-center">
-        No combat yet.
+        Roll movement or attack to see the dice here.
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-amber-900/50 bg-gradient-to-b from-amber-950/40 to-black p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-widest text-amber-200/80" style={{ fontFamily: 'serif' }}>
-          {roll.rolledBy === 'hero' ? 'Hero attack' : 'Monster attack'}
-        </div>
-        <div className="flex gap-2 text-[10px] uppercase tracking-wider">
-          <span className="text-rose-300">{roll.skulls} hit{roll.skulls !== 1 ? 's' : ''}</span>
-          <span className="text-sky-300">{roll.blocks} block{roll.blocks !== 1 ? 's' : ''}</span>
+    <div className="space-y-2 rounded-lg border border-amber-900/50 bg-gradient-to-b from-amber-950/40 to-black p-2">
+      <CombatRow label={attack.rolledBy === 'hero' ? 'Hero attack' : 'Monster attack'} roll={attack} metric="skulls" />
+      {defense && (
+        <CombatRow label={defense.rolledBy === 'hero' ? 'Hero defend' : 'Monster defend'} roll={defense} metric="blocks" />
+      )}
+    </div>
+  );
+}
+
+function CombatRow({ label, roll, metric }: { label: string; roll: DiceRoll; metric: 'skulls' | 'blocks' }) {
+  // Re-run the spin whenever this roll changes.
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    setShow(false);
+    const t = setTimeout(() => setShow(true), 300);
+    return () => clearTimeout(t);
+  }, [roll]);
+  const count = metric === 'skulls' ? roll.skulls : roll.blocks;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-widest text-amber-200/80" style={{ fontFamily: 'serif' }}>{label}</div>
+        <div className="text-[10px] uppercase tracking-wider">
+          {metric === 'skulls'
+            ? <span className="text-rose-300">{count} hit{count !== 1 ? 's' : ''}</span>
+            : <span className="text-sky-300">{count} block{count !== 1 ? 's' : ''}</span>}
         </div>
       </div>
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        {roll.faces.map((f, i) => (
-          <DieRoller key={`${roll.faces.length}-${i}`} face={f} show={showFaces} index={i} />
-        ))}
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
+        {roll.faces.map((f, i) => <DieRoller key={`${roll.faces.length}-${i}`} face={f} show={show} index={i} />)}
       </div>
+    </div>
+  );
+}
+
+/** A movement (d4) die — a plain numbered face. */
+function NumberDie({ n }: { n: number }) {
+  return (
+    <div
+      className="flex h-9 w-9 items-center justify-center rounded-md border-2 border-amber-700/70 bg-gradient-to-br from-amber-900/40 to-black text-lg font-bold text-amber-100"
+      style={{ fontFamily: 'Georgia, serif' }}
+    >
+      {n}
     </div>
   );
 }
@@ -68,7 +107,7 @@ function DieRoller({ face, show, index }: { face: DieFace; show: boolean; index:
         transition: show ? `transform 0.25s ${index * 0.05}s ease-out` : undefined,
       }}
     >
-      <CombatDie face={show ? face : flicker} size={48} />
+      <CombatDie face={show ? face : flicker} size={40} />
     </div>
   );
 }

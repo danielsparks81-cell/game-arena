@@ -56,13 +56,13 @@ export default function CharacterSheet({
     >
       {/* Header band */}
       <div
-        className="flex items-center gap-3 px-3 py-2 border-b border-amber-900/40"
+        className={`flex items-center gap-3 border-b border-amber-900/40 px-3 ${compact ? 'py-1' : 'py-2'}`}
         style={{
           background: `linear-gradient(180deg, ${accent}aa 0%, ${accent}55 100%)`,
         }}
       >
         <div className="shrink-0">
-          <HeroToken klass={hero.klass} size={42} color={accent} ring={isActive ? '#fff' : undefined} />
+          <HeroToken klass={hero.klass} size={compact ? 30 : 42} color={accent} ring={isActive ? '#fff' : undefined} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-bold uppercase tracking-wider text-amber-950">
@@ -80,7 +80,7 @@ export default function CharacterSheet({
       </div>
 
       {/* Stat band: BP / MP / Atk / Def / Gold (+ items when compact) */}
-      <div className="px-3 py-2 space-y-2">
+      <div className={`px-3 ${compact ? 'space-y-1 py-1.5' : 'space-y-2 py-2'}`}>
         <BodyMindRow hero={hero} max={d.bodyMax} />
         <CombatRow hero={hero} />
         <GoldRow hero={hero} />

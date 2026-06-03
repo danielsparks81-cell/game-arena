@@ -74,6 +74,8 @@ export function initialState(): HQState {
     log: [],
     logSeq: 0,
     lastRoll: null,
+    lastDefenseRoll: null,
+    lastMoveRoll: null,
     pendingPrompt: null,
     winner: null,
   };
@@ -379,6 +381,9 @@ function doRollMove(state: HQState, hero: Hero): ApplyResult {
   h.moveRolled = total;
   h.moveLeft = total;
   h.hasRolled = true;
+  s.lastMoveRoll = [d1, d2, d3];
+  s.lastRoll = null;
+  s.lastDefenseRoll = null;
   pushLog(s, 'move', `${h.username} rolls ${d1}+${d2}+${d3} = ${total} squares of movement.`);
   return ok(s);
 }
@@ -536,8 +541,10 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   const bonus = h.attackBonus ?? 0;
   const atk = rollDice(h.attack + bonus, 'hero');
   s.lastRoll = atk;
+  s.lastMoveRoll = null;
   // Defense roll.
   const def = rollDice(m.defense, 'monster');
+  s.lastDefenseRoll = def;
   const damage = Math.max(0, atk.skulls - def.blocks);
   m.body -= damage;
   pushLog(s, 'combat',
@@ -667,7 +674,7 @@ function doDisarmTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
   markActed(h);
   // Roll one die — fail on a skull.
   const roll = rollDice(1, hero.klass === 'dwarf' ? 'hero' : 'monster');
-  s.lastRoll = roll;
+  s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
   if (roll.faces[0] === 'skull') {
     // Trap triggers on the disarmer.
     const t = s.traps.find(tt => tt.id === trapId)!;
@@ -747,7 +754,7 @@ function doCastSpell(
       if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
       if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. Spell wasted.`); return ok(s); }
       const roll = rollDice(2, 'hero');
-      s.lastRoll = roll;
+      s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
       const def = rollDice(m.defense, 'monster');
       const damage = Math.max(0, roll.skulls - def.blocks);
       m.body -= damage;
@@ -768,7 +775,7 @@ function doCastSpell(
       if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
       if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. The genie returns to its lamp.`); return ok(s); }
       const roll = rollDice(4, 'hero');
-      s.lastRoll = roll;
+      s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
       const def = rollDice(m.defense, 'monster');
       const damage = Math.max(0, roll.skulls - def.blocks);
       m.body -= damage;
@@ -965,9 +972,11 @@ function runMonster(s: HQState, m: Monster): void {
   if (chebyshev(m.at, target.at) === 1) {
     const atk = rollDice(m.attack, 'monster');
     s.lastRoll = atk;
+    s.lastMoveRoll = null;
     // Rock Skin adds bonus defense dice to the hero's block.
     const defBonus = target.defenseBonus ?? 0;
     const def = rollDice(target.defense + defBonus, 'hero');
+    s.lastDefenseRoll = def;
     const damage = Math.max(0, atk.skulls - def.blocks);
     target.body = Math.max(0, target.body - damage);
     pushLog(s, 'combat',

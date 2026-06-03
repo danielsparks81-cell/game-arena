@@ -315,8 +315,13 @@ export type HQState = {
   /** Append-only log. */
   log: LogEntry[];
   logSeq: number;
-  /** Most recent combat roll (for the board's dice animation). */
+  /** Most recent combat roll — the ATTACKER's dice (for the board's dice panel). */
   lastRoll: DiceRoll | null;
+  /** The DEFENDER's dice from the most recent attack (paired with lastRoll). */
+  lastDefenseRoll: DiceRoll | null;
+  /** Most recent movement roll (the 3d4 faces). Shown by the dice panel when a
+   *  hero rolls movement; cleared when a combat/other roll happens. */
+  lastMoveRoll: number[] | null;
   /** Pending UI prompt — set when the engine needs the active hero (or
       Zargon-as-engine, in our case it's always the active hero) to make a
       choice that can't be auto-resolved. v1 keeps this small. */
