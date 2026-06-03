@@ -63,3 +63,29 @@ gold earned in quests on these items; unlimited stock. Source: photo provided 20
 Artifacts, Dread spells, the treasure deck, and the hero spell cards remain. The **armory**
 unblocks the equipment half of the **store-between-quests** feature (which also needs the
 rulebook **page 22** between-quests flow).
+
+---
+
+## Update — additional equipment cards (batch 2)
+
+The individual equipment cards reveal items beyond the summary Armory card:
+
+| Item | Cost | Type | Effect | Restrictions |
+|---|---|---|---|---|
+| **Handaxe** | 200 | Weapon | Attack **2** dice. Can be **thrown** at any monster in line of sight — **lost once thrown**. | **(none stated — the Wizard CAN use it!)** |
+| **Potion of Speed** | 200 | Potion | Drink **any time**: **roll twice as many** movement dice on your next move. One use, then discarded. | — |
+| **Holy Water** | 400 | Potion | Use **instead of attacking**: instantly **kills any one undead** (skeleton / zombie / mummy). One use, then discarded. | — |
+
+- **Handaxe** has **no Wizard restriction** on its card (like the Dagger and Staff) — so the
+  Wizard's usable weapons are **Dagger, Handaxe, Staff**. Three throwable/light options.
+- **Two throwable weapons** now: Dagger (1 die) and Handaxe (2 dice) — both ranged via LOS,
+  both lost after one throw. Crossbow is the unlimited ranged option (can't fire adjacent).
+- ⚠ Our **treasure-deck** "Holy Water" placeholder (heal 4) clashes with the real
+  **equipment** Holy Water (kill-undead). Renamed the placeholder; the real treasure deck
+  still replaces all of those when its scans arrive.
+- The weapon cards otherwise **confirm** Staff/Crossbow/Dagger/Shortsword/Broadsword/
+  Longsword/Battle Axe exactly as captured above.
+
+## Deck cover cards
+Confirmed the four draw decks (cover art only): **Treasure**, **Dread Spell**, **Equipment**,
+**Artifact** — plus a Zargon card. No rules text; confirms the deck taxonomy we're filling.

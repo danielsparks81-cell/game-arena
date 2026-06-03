@@ -38,6 +38,7 @@ const SHORT_SWORD: Item = { id: 'short_sword', name: 'Shortsword', kind: 'weapon
 const BROADSWORD: Item = { id: 'broadsword', name: 'Broadsword', kind: 'weapon', attack: 3, cost: 250, noWizard: true, description: 'Attack 3 dice.' };
 const LONGSWORD: Item = { id: 'longsword', name: 'Longsword', kind: 'weapon', attack: 3, diagonal: true, cost: 350, noWizard: true, description: 'Attack 3 dice; attacks diagonally.' };
 const CROSSBOW: Item = { id: 'crossbow', name: 'Crossbow', kind: 'weapon', attack: 3, ranged: true, cost: 350, noWizard: true, description: 'Attack 3 dice; fire at any monster you can see, but not an adjacent one.' };
+const HANDAXE: Item = { id: 'handaxe', name: 'Handaxe', kind: 'weapon', attack: 2, ranged: true, cost: 200, description: 'Attack 2 dice; can be thrown at a monster in line of sight (lost once thrown). Usable by any hero.' };
 const BATTLE_AXE: Item = { id: 'battle_axe', name: 'Battle Axe', kind: 'weapon', attack: 4, twoHanded: true, cost: 450, noWizard: true, description: 'Attack 4 dice. No shield while using it.' };
 // Armor (defense bonuses stack additively)
 const HELMET: Item = { id: 'helmet', name: 'Helmet', kind: 'armor', defense: 1, cost: 125, noWizard: true, description: '+1 Defend die.' };
@@ -48,11 +49,14 @@ const BRACERS: Item = { id: 'bracers', name: 'Bracers', kind: 'armor', defense: 
 const PLATE_MAIL: Item = { id: 'plate_mail', name: 'Plate Mail', kind: 'armor', defense: 2, cost: 850, noWizard: true, description: '+2 Defend dice. Combines with Helmet and/or Shield. Heavy: reduced movement while worn.' };
 /** Lets non-Dwarf heroes attempt to disarm traps (the Dwarf needs no kit). */
 export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', cost: 250, description: 'Lets any hero attempt to disarm traps (~50%). The Dwarf never needs one.' };
+// Consumables sold in the equipment deck (one use, then discarded).
+const POTION_OF_SPEED: Item = { id: 'potion_of_speed', name: 'Potion of Speed', kind: 'potion', cost: 200, description: 'Drink any time: roll twice as many movement dice on your next move. One use.' };
+const HOLY_WATER: Item = { id: 'holy_water', name: 'Holy Water', kind: 'potion', cost: 400, description: 'Use instead of attacking to instantly kill any one undead (skeleton/zombie/mummy). One use.' };
 
 /** Everything purchasable from the armory between quests, cheapest first. */
 export const ARMORY: Item[] = [
-  DAGGER, STAFF, HELMET, SHORT_SWORD, SHIELD, BROADSWORD, TOOL_KIT,
-  LONGSWORD, CROSSBOW, BATTLE_AXE, CHAIN_MAIL, BRACERS, PLATE_MAIL,
+  DAGGER, STAFF, HELMET, SHORT_SWORD, SHIELD, HANDAXE, POTION_OF_SPEED, BROADSWORD, TOOL_KIT,
+  LONGSWORD, CROSSBOW, HOLY_WATER, BATTLE_AXE, CHAIN_MAIL, BRACERS, PLATE_MAIL,
 ];
 
 export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
@@ -182,7 +186,7 @@ export function buildTreasureDeck(): TreasureCard[] {
     { id: id(), kind: 'gem', value: 50 },
     { id: id(), kind: 'gem', value: 75 },
     { id: id(), kind: 'potion', name: 'Heroic Brew', effect: 'heal', amount: 4 },
-    { id: id(), kind: 'potion', name: 'Holy Water',  effect: 'heal', amount: 4 },
+    { id: id(), kind: 'potion', name: 'Healing Draught', effect: 'heal', amount: 4 }, // placeholder treasure deck (pending real cards); real Holy Water is an equipment item (kills undead)
     { id: id(), kind: 'potion', name: 'Healing Salve', effect: 'heal', amount: 2 },
     { id: id(), kind: 'hazard', flavor: 'You slip and twist an ankle.', bpLoss: 1 },
     { id: id(), kind: 'hazard', flavor: 'A loose stone gives way.', bpLoss: 1 },
