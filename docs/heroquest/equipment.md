@@ -18,7 +18,12 @@ gold earned in quests on these items; unlimited stock. Source: photo provided 20
 | **Crossbow** | 350 | Weapon | Attack **3** dice. **Ranged** — fire at any monster you can "see"; **cannot fire at an adjacent** monster. Unlimited arrows. | Not the **Wizard**. |
 | **Battle Axe** | 450 | Weapon | Attack **4** dice. | **No shield** while using it. Not the **Wizard**. |
 | **Chain Mail** | 500 | Armor | **+1** Defend die. Combines with **Helmet** and/or **Shield**. | Not the **Wizard**. |
+| **Bracers** | 550 | Armor | **+1** Defend die. Combines with **Helmet** and/or **Shield**. | **(none — the Wizard CAN wear these; leather, not metal.)** |
 | **Plate Mail** | 850 | Armor | **+2** Defend dice. Combines with **Helmet** and/or **Shield**. | **Movement: only 1 red die** while worn. Not the **Wizard**. |
+
+> **Bracers** appear on a separate armor card (not on the summary Armory card). They are the
+> **only armor the Wizard may wear** — hardened leather, so the no-metal-armor rule doesn't
+> apply. +1 Defend die, stacks with Helmet/Shield.
 
 ## Key mechanics
 

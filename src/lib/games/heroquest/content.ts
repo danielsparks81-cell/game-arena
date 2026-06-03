@@ -43,6 +43,8 @@ const BATTLE_AXE: Item = { id: 'battle_axe', name: 'Battle Axe', kind: 'weapon',
 const HELMET: Item = { id: 'helmet', name: 'Helmet', kind: 'armor', defense: 1, cost: 125, noWizard: true, description: '+1 Defend die.' };
 const SHIELD: Item = { id: 'shield', name: 'Shield', kind: 'armor', defense: 1, cost: 150, noWizard: true, description: '+1 Defend die. Not with the Battle Axe or Staff.' };
 const CHAIN_MAIL: Item = { id: 'chain_mail', name: 'Chain Mail', kind: 'armor', defense: 1, cost: 500, noWizard: true, description: '+1 Defend die. Combines with Helmet and/or Shield.' };
+// Bracers are leather, so the Wizard CAN wear them (the only armor they may use).
+const BRACERS: Item = { id: 'bracers', name: 'Bracers', kind: 'armor', defense: 1, cost: 550, description: '+1 Defend die. Combines with Helmet and/or Shield. Wearable by any hero (leather).' };
 const PLATE_MAIL: Item = { id: 'plate_mail', name: 'Plate Mail', kind: 'armor', defense: 2, cost: 850, noWizard: true, description: '+2 Defend dice. Combines with Helmet and/or Shield. Heavy: reduced movement while worn.' };
 /** Lets non-Dwarf heroes attempt to disarm traps (the Dwarf needs no kit). */
 export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', cost: 250, description: 'Lets any hero attempt to disarm traps (~50%). The Dwarf never needs one.' };
@@ -50,7 +52,7 @@ export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', 
 /** Everything purchasable from the armory between quests, cheapest first. */
 export const ARMORY: Item[] = [
   DAGGER, STAFF, HELMET, SHORT_SWORD, SHIELD, BROADSWORD, TOOL_KIT,
-  LONGSWORD, CROSSBOW, BATTLE_AXE, CHAIN_MAIL, PLATE_MAIL,
+  LONGSWORD, CROSSBOW, BATTLE_AXE, CHAIN_MAIL, BRACERS, PLATE_MAIL,
 ];
 
 export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
@@ -150,7 +152,7 @@ export type MonsterStats = {
 //   Zombie                     5    2    3    1     0
 //   Abomination                6    3    3    2     3
 //   Mummy                      4    3    4    2     0
-//   Dread Warrior              4    4    4    3     3
+//   Dread Warrior              7    4    3    3     3
 //   Gargoyle                   6    4    5    3     4
 export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
   goblin:         { kind: 'goblin',         displayName: 'Goblin',         move: 10, attack: 2, defense: 1, bodyMax: 1, mind: 1, gold: 5 },
@@ -159,7 +161,7 @@ export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
   zombie:         { kind: 'zombie',         displayName: 'Zombie',         move: 5,  attack: 2, defense: 3, bodyMax: 1, mind: 0, gold: 20 },
   abomination:    { kind: 'abomination',    displayName: 'Abomination',    move: 6,  attack: 3, defense: 3, bodyMax: 2, mind: 3, gold: 20 },
   mummy:          { kind: 'mummy',          displayName: 'Mummy',          move: 4,  attack: 3, defense: 4, bodyMax: 2, mind: 0, gold: 25 },
-  dread_warrior:  { kind: 'dread_warrior',  displayName: 'Dread Warrior',  move: 4,  attack: 4, defense: 4, bodyMax: 3, mind: 3, gold: 35 },
+  dread_warrior:  { kind: 'dread_warrior',  displayName: 'Dread Warrior',  move: 7,  attack: 4, defense: 3, bodyMax: 3, mind: 3, gold: 35 },
   gargoyle:       { kind: 'gargoyle',       displayName: 'Gargoyle',       move: 6,  attack: 4, defense: 5, bodyMax: 3, mind: 4, gold: 75 },
 };
 
