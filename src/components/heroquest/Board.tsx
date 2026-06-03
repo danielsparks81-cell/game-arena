@@ -502,12 +502,21 @@ export default function HeroQuestBoardCanvas({
           const tile = state.tiles[m.at.y]?.[m.at.x];
           if (!tile?.revealed) return null;
           const level = lightLevel(m.at.x, m.at.y);
-          const adj = myHero && Math.abs(myHero.at.x - m.at.x) + Math.abs(myHero.at.y - m.at.y) === 1;
+          // Attackable target: a melee weapon hits an adjacent monster (diagonal
+          // too if the weapon allows); a ranged weapon hits any monster in line
+          // of sight. Only those highlight, so you can't click an unreachable one.
+          const dxm = myHero ? Math.abs(myHero.at.x - m.at.x) : 99;
+          const dym = myHero ? Math.abs(myHero.at.y - m.at.y) : 99;
+          const allowDiag = !!myHero?.items.some(i => i.diagonal);
+          const allowRanged = !!myHero?.items.some(i => i.ranged);
+          const meleeAdj = (dxm + dym === 1) || (allowDiag && dxm === 1 && dym === 1);
+          const losToM = !!myHero && hasLineOfSight(state, myHero.at, m.at);
+          const attackable = isMyTurn && !!myHero && !myHero.hasActed && (meleeAdj || (allowRanged && losToM));
           // Spell-targeting mode: only a monster the caster can SEE (line of
           // sight) is selectable — unseen monsters aren't targetable, so the
-          // spell can't be wasted. Otherwise only an adjacent monster is attackable.
-          const spellPick = spellTargetMonsters && isMyTurn && !!myHero && hasLineOfSight(state, myHero.at, m.at);
-          const targetable = spellPick || (isMyTurn && myHero && !myHero.hasActed && adj);
+          // spell can't be wasted.
+          const spellPick = spellTargetMonsters && isMyTurn && !!myHero && losToM;
+          const targetable = spellPick || attackable;
           return (
             <div
               key={m.id}
