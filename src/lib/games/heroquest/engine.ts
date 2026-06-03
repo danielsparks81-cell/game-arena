@@ -383,6 +383,16 @@ function doRollMove(state: HQState, hero: Hero): ApplyResult {
   return ok(s);
 }
 
+/** Spend the hero's one action for the turn. Enforces the movement rule —
+ *  "move then act, OR act then move, but never move part-way, act, then finish
+ *  moving": if the hero had already used some of their movement before acting,
+ *  the remaining movement is forfeited. (Acting BEFORE moving leaves the full
+ *  allowance, so act-then-move still works.) */
+function markActed(h: Hero) {
+  h.hasActed = true;
+  if (h.hasRolled && h.moveLeft < h.moveRolled) h.moveLeft = 0;
+}
+
 function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
   if (!hero.hasRolled) return err('Roll movement first.');
   if (hero.moveLeft <= 0) return err('No movement left.');
@@ -547,7 +557,7 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   // attack, consume that too; otherwise it's the hero's normal action.
   h.attackBonus = 0;
   if (usingExtraAttack) h.extraAttack = false;
-  else h.hasActed = true;
+  else markActed(h);
   // Check win condition (kill the named monster).
   maybeFinishOnKill(s, m);
   return ok(s);
@@ -563,7 +573,7 @@ function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   h.searchedRooms.push(room);
-  h.hasActed = true;
+  markActed(h);
   // Quest-defined fixed content overrides the deck for the FIRST hero to search.
   const fixedFurn = s.furniture.find(f =>
     !f.searched
@@ -601,7 +611,7 @@ function doSearchTraps(state: HQState, hero: Hero): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   h.searchedTraps.push(region);
-  h.hasActed = true;
+  markActed(h);
   let found = 0;
   for (const t of s.traps) {
     if (t.revealed || t.triggered) continue;
@@ -624,7 +634,7 @@ function doSearchSecrets(state: HQState, hero: Hero): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   h.searchedSecrets.push(region);
-  h.hasActed = true;
+  markActed(h);
   let found = 0;
   for (const d of s.doors) {
     if (!d.secret || d.found) continue;
@@ -654,7 +664,7 @@ function doDisarmTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
   if (!hasToolKit && hero.klass !== 'dwarf') return err('You need a Dwarf or a Tool Kit to disarm.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
-  h.hasActed = true;
+  markActed(h);
   // Roll one die — fail on a skull.
   const roll = rollDice(1, hero.klass === 'dwarf' ? 'hero' : 'monster');
   s.lastRoll = roll;
@@ -695,7 +705,7 @@ function doCastSpell(
   if (hero.spellsCast.includes(spell.id)) return err('You have already cast that spell.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
-  h.hasActed = true;
+  markActed(h);
   h.spellsCast.push(spell.id);
   pushLog(s, 'spell', `${h.username} casts ${spell.name}!`);
   // v1 effect resolution (minimal — covers the most useful subset).
