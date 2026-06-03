@@ -1317,6 +1317,35 @@ export function hasLineOfSight(s: HQState, a: Coord, b: Coord): boolean {
   return true;
 }
 
+/** Visibility for LOOKING & REVEALING (the PHYSICAL PLAYER's view) — separate
+ *  from character line of sight. Stricter so the reveal doesn't leak: you can't
+ *  peek diagonally past a wall corner, and you can't see THROUGH a room (its
+ *  walls stop the line). Used only to decide which hallway tiles to place. */
+function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
+  const cells = bresenham(a, b);
+  for (let i = 1; i < cells.length; i++) {
+    const prev = cells[i - 1], c = cells[i];
+    const ortho = Math.abs(prev.x - c.x) + Math.abs(prev.y - c.y) === 1;
+    if (ortho) {
+      if (edgeBlocksSight(s, prev, c)) return false;
+    } else {
+      // No peeking around a corner: a diagonal is blocked if EITHER corner edge
+      // is a wall, or either corner cell is solid rock.
+      const e1 = edgeBlocksSight(s, prev, { x: c.x, y: prev.y });
+      const e2 = edgeBlocksSight(s, prev, { x: prev.x, y: c.y });
+      if (e1 || e2) return false;
+      if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' || s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;
+    }
+    if (i < cells.length - 1) {
+      if (!inBounds(s, c)) return false;
+      const t = s.tiles[c.y][c.x];
+      if (t.kind === 'wall' || t.kind === 'blocked') return false;
+      if (t.region.startsWith('room_')) return false; // can't see through a room
+    }
+  }
+  return true;
+}
+
 function bresenham(a: Coord, b: Coord): Coord[] {
   const out: Coord[] = [];
   let x0 = a.x, y0 = a.y;
@@ -1405,7 +1434,7 @@ function revealLineOfSightForHero(s: HQState, h: Hero): void {
       if (t.kind === 'wall') continue;
       if (t.region.startsWith('room_')) continue; // never reveal a room by looking
       if (x === h.at.x && y === h.at.y) continue;
-      if (!hasLineOfSight(s, h.at, { x, y })) continue;
+      if (!revealVisible(s, h.at, { x, y })) continue;
       t.revealed = true;
     }
   }
