@@ -465,6 +465,41 @@ describe('heroquest Quest 1 content fidelity (vs the Quest Book)', () => {
   });
 });
 
+describe('heroquest win condition: escape (all heroes reach the stairs)', () => {
+  it('wins the moment the last living hero steps onto the stairway', () => {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s));
+    s.quest.winCondition = { kind: 'escape' };
+    // Three heroes already on stair tiles; hero 0 just off, about to step on.
+    s.heroes[1].at = { x: 2, y: 21 };
+    s.heroes[2].at = { x: 3, y: 21 };
+    s.heroes[3].at = { x: 2, y: 22 };
+    s.heroes[0].at = { x: 3, y: 20 };
+    s.heroes[0].hasRolled = true;
+    s.heroes[0].moveLeft = 6;
+    s.turnIndex = 0;
+    expect(s.phase).not.toBe('finished');         // not all on the stairs yet
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 22 } }));
+    expect(out.phase).toBe('finished');
+    expect(out.winner).toBe('heroes');
+  });
+
+  it('does NOT win while a living hero is still off the stairs', () => {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s));
+    s.quest.winCondition = { kind: 'escape' };
+    s.heroes[0].at = { x: 2, y: 21 };  // on stairs
+    s.heroes[1].at = { x: 3, y: 21 };  // on stairs
+    s.heroes[2].at = { x: 2, y: 22 };  // on stairs
+    s.heroes[3].at = { x: 5, y: 18 };  // still in the dungeon, alive
+    s.heroes[3].hasRolled = true;
+    s.heroes[3].moveLeft = 1;
+    s.turnIndex = 3;
+    const out = unwrap(applyAction(s, 'p1', { kind: 'search_traps' })); // a no-move action
+    expect(out.phase).not.toBe('finished');
+  });
+});
+
 describe('heroquest win condition: kill-and-exit gating', () => {
   // Two adjacent staircase tiles from the live board.
   const STAIR_A = QUEST1_STAIRS[0];

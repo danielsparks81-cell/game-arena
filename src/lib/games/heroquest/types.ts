@@ -198,6 +198,8 @@ export type Monster = {
   move: number;
   /** Optional override of display name for named bosses (e.g. "Verag"). */
   displayName?: string;
+  /** Mind Points — used by Dread-spell resistance (roll 1 die per Mind Point). */
+  mind?: number;
   /** Optional gold bounty (deposited in the active hero's purse on kill). */
   gold?: number;
   /** Room this monster was placed in. Used for "wakes when room revealed". */
@@ -230,11 +232,18 @@ export type QuestDef = {
   startCells: Coord[];
   /** Quest-book defined wandering monster type, or null for none. */
   wanderingMonster: MonsterKind | null;
-  /** Win condition. v1 supports "kill the named monster and reach stairs". */
-  winCondition:
-    | { kind: 'kill_and_exit'; monsterDisplayName: string }
-    | { kind: 'kill_all' };
+  /** How the heroes win this quest. */
+  winCondition: WinCondition;
 };
+
+/** Objective / victory condition for a quest. */
+export type WinCondition =
+  /** Slay the named boss, then return to the stairway (Q1, 3, 8, 14, …). */
+  | { kind: 'kill_and_exit'; monsterDisplayName: string }
+  /** Clear every monster on the board (Q11). */
+  | { kind: 'kill_all' }
+  /** All living heroes reach the stairway — an escape quest (Q6, 9). */
+  | { kind: 'escape' };
 
 // ============================================================================
 // Treasure deck

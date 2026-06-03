@@ -1224,15 +1224,34 @@ function maybeFinishOnKill(s: HQState, killed: Monster): void {
   }
 }
 
+/** Is this hero standing on a stairway tile? */
+function onStairs(s: HQState, h: Hero): boolean {
+  return s.tiles[h.at.y]?.[h.at.x]?.kind === 'stairs';
+}
+
 function maybeFinishOnExit(s: HQState): void {
   const wc = s.quest.winCondition;
-  if (wc.kind !== 'kill_and_exit') return;
-  // The objective must have been killed first. (Monsters lazy-spawn, so we
-  // track an explicit flag rather than inferring "dead" from absence.)
-  if (!s.objectiveDefeated) return;
-  s.phase = 'finished';
-  s.winner = 'heroes';
-  pushLog(s, 'system', `Heroes escape the dungeon — quest complete!`);
+  if (wc.kind === 'kill_and_exit') {
+    // The objective must have been killed first. (Monsters lazy-spawn, so we
+    // track an explicit flag rather than inferring "dead" from absence.)
+    if (!s.objectiveDefeated) return;
+    s.phase = 'finished';
+    s.winner = 'heroes';
+    pushLog(s, 'system', 'Heroes escape the dungeon — quest complete!');
+    return;
+  }
+  if (wc.kind === 'escape') {
+    // Win the moment every living hero has reached the stairway (heroes may
+    // share stair tiles). Lost only if all heroes die (handled elsewhere).
+    const living = s.heroes.filter(h => h.body > 0);
+    if (living.length > 0 && living.every(h => onStairs(s, h))) {
+      s.phase = 'finished';
+      s.winner = 'heroes';
+      pushLog(s, 'system', 'The heroes escape the dungeon — quest complete!');
+    }
+    return;
+  }
+  // kill_all is resolved on the killing blow (maybeFinishOnKill), not on exit.
 }
 
 // ============================================================================

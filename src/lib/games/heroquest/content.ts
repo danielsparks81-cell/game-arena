@@ -234,15 +234,19 @@ function makeQuest1(): QuestDef {
   let mn = 0;
   const mob = (
     kind: MonsterKind, x: number, y: number,
-    opts?: { displayName?: string; bodyMax?: number; attack?: number },
+    // Named bosses (Ulag, Grak, Verag, …) override any of their stats.
+    opts?: { displayName?: string; bodyMax?: number; attack?: number; defense?: number; move?: number; mind?: number; gold?: number },
   ) => {
     const st = MONSTER_STATS[kind];
     monsters.push({
       id: `mon_${++mn}`, kind, at: { x, y },
       bodyMax: opts?.bodyMax ?? st.bodyMax,
       attack: opts?.attack ?? st.attack,
-      defense: st.defense, move: st.move,
-      displayName: opts?.displayName, gold: st.gold,
+      defense: opts?.defense ?? st.defense,
+      move: opts?.move ?? st.move,
+      mind: opts?.mind ?? st.mind,
+      displayName: opts?.displayName,
+      gold: opts?.gold ?? st.gold,
       roomId: BASE_BOARD.regions[y][x],
     });
   };
