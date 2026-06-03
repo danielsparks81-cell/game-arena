@@ -783,6 +783,25 @@ function doCastSpell(
   markActed(h);
   h.spellsCast.push(spell.id);
   pushLog(s, 'spell', `${h.username} casts ${spell.name}!`);
+
+  // Line-of-sight gate (character view): a monster — or ANOTHER hero — can only
+  // be targeted if it is visible, i.e. an unobstructed straight line runs from
+  // the caster's square centre to the target's. Walls, closed doors and other
+  // figures block it; merely grazing a corner does not. Self-casts and 'area'
+  // spells need no target. A cast with no line of sight is still SPENT (the card
+  // is discarded for the quest) but the effect is wasted.
+  if (spell.target === 'monster') {
+    const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
+    if (!m) { pushLog(s, 'spell', `…but there is no valid target. The spell fizzles.`); return ok(s); }
+    if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but ${h.username} cannot see the target. The spell is wasted.`); return ok(s); }
+  } else if (spell.target === 'hero' && action.targetHeroIdx != null) {
+    const t = s.heroes[action.targetHeroIdx];
+    if (t && t.seat !== h.seat) { // targeting an ally (self needs no line of sight)
+      if (t.body <= 0) { pushLog(s, 'spell', `…but there is no valid target. The spell fizzles.`); return ok(s); }
+      if (!hasLineOfSight(s, h.at, t.at)) { pushLog(s, 'spell', `…but ${h.username} cannot see ${t.username}. The spell is wasted.`); return ok(s); }
+    }
+  }
+
   // v1 effect resolution (minimal — covers the most useful subset).
   switch (spell.id) {
     case 'heal_body_w':
