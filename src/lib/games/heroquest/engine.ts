@@ -418,6 +418,21 @@ function revealedRoomRegions(s: HQState): Set<string> {
  *  adjacent, blocked, off-board, onto a monster) also stops the walk. */
 function walkPath(s: HQState, h: Hero, path: Coord[]): void {
   let from: Coord = { ...h.at };
+  const isStairs = (c: Coord) => s.tiles[c.y]?.[c.x]?.kind === 'stairs';
+  const sharedWithHero = (c: Coord) => s.heroes.some(o => o.seat !== h.seat && o.body > 0 && o.at.x === c.x && o.at.y === c.y);
+  // You may pass OVER a friendly hero but not STOP on one (except the stairs).
+  const standable = (c: Coord) => isStairs(c) || !sharedWithHero(c);
+  // Track the last square the hero can legally stand on, so a walk that ends
+  // while passing over a friendly snaps back there (refunding that movement).
+  let lastSafe: Coord = { ...h.at };
+  let spentSinceSafe = 0;
+  const settle = () => {
+    if (!h.inPit && !standable(h.at)) {
+      h.at = { ...lastSafe };
+      h.moveLeft += spentSinceSafe;
+    }
+  };
+
   for (const sq of path) {
     if (h.moveLeft <= 0) break;
     const adx = Math.abs(sq.x - from.x), ady = Math.abs(sq.y - from.y);
@@ -425,14 +440,13 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
     if (!inBounds(s, sq)) break;
     if (!h.phaseWalls && (!isPassable(s, sq, /*forHero*/ true) || edgeBlocksMove(s, from, sq, false))) break;
     if (s.monsters.some(m => m.at.x === sq.x && m.at.y === sq.y)) break; // monsters block
-    // Friendly heroes are transit-able (we pass over them); the caller ensures
-    // the final square isn't shared.
 
     const roomsBefore = revealedRoomRegions(s);
     const monstersBefore = s.monsters.length;
     h.at = { ...sq };
     h.moveLeft -= 1;
     from = { ...sq };
+    spentSinceSafe += 1;
 
     // Trap on entry → springs and stops the hero on that square.
     const trap = s.traps.find(t => !t.triggered && t.at.x === sq.x && t.at.y === sq.y);
@@ -451,17 +465,22 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
       }
       checkHeroDeath(s, h);
       revealLineOfSightForHero(s, h);
+      settle();
       return;
     }
 
-    // Look from the new square. Stop if a NEW room comes into view (its monsters
-    // are placed) or monsters otherwise appear — so the player can react.
+    // Look from the new square.
     revealLineOfSightForHero(s, h);
+    if (standable(sq)) { lastSafe = { ...sq }; spentSinceSafe = 0; }
+    // Stop if a NEW room comes into view (its monsters are placed) or monsters
+    // otherwise appear — so the player can react.
     if (revealedRoomRegions(s).size > roomsBefore.size || s.monsters.length > monstersBefore) {
       pushLog(s, 'reveal', `${h.username} rounds the corner — a new area comes into view.`);
+      settle();
       return;
     }
   }
+  settle();
 }
 
 function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
@@ -502,21 +521,7 @@ function doMovePath(state: HQState, hero: Hero, path: Coord[]): ApplyResult {
   if (!Array.isArray(path) || path.length === 0) return err('No path to walk.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
-  walkPath(s, h, path);
-  // Never END on another figure's square (except the stairs). If the traced
-  // path stopped on a friendly, back up to the last empty square.
-  while (
-    s.tiles[h.at.y][h.at.x].kind !== 'stairs' &&
-    s.heroes.some(o => o.seat !== h.seat && o.body > 0 && o.at.x === h.at.x && o.at.y === h.at.y) &&
-    !h.inPit
-  ) {
-    // step back to the previous path square (or the start)
-    const idx = path.findIndex(p => p.x === h.at.x && p.y === h.at.y);
-    const back = idx > 0 ? path[idx - 1] : state.heroes[state.turnIndex].at;
-    h.at = { ...back };
-    h.moveLeft += 1;
-    if (idx <= 0) break;
-  }
+  walkPath(s, h, path); // walkPath snaps off a shared final square itself
   if (s.tiles[h.at.y][h.at.x].kind === 'stairs') maybeFinishOnExit(s);
   return ok(s);
 }

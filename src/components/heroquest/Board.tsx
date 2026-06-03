@@ -6,7 +6,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import {
   MONSTER_STATS,
-  hasLineOfSight,
   type HQState,
   type Hero,
   type Monster,
@@ -279,33 +278,13 @@ export default function HeroQuestBoardCanvas({
   // layout is visible while building/testing. Toggled by the ☀ button.
   const [litAll, setLitAll] = useState(false);
 
-  // ---- Visibility by LINE OF SIGHT (per the rules: a hero "looks" down
-  // corridors / through open doors and sees what's directly in their line of
-  // sight; walls and closed doors block it). A cell is 'lit' if ANY living hero
-  // has LOS to it, 'dim' if it's been revealed but no hero currently sees it,
-  // and 'fog' if never revealed. (Computed once per render via a memoized set.)
-  const litCells = useMemo(() => {
-    const set = new Set<string>();
-    if (litAll) return set;
-    for (const h of state.heroes) {
-      if (h.body <= 0) continue;
-      for (let yy = 0; yy < H; yy++) {
-        for (let xx = 0; xx < W; xx++) {
-          if (!state.tiles[yy][xx].revealed) continue;
-          const key = `${xx},${yy}`;
-          if (set.has(key)) continue;
-          if (hasLineOfSight(state, h.at, { x: xx, y: yy })) set.add(key);
-        }
-      }
-    }
-    return set;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.heroes, state.tiles, state.doors, state.monsters, state.furniture, litAll, W, H]);
-
-  function lightLevel(x: number, y: number): 'lit' | 'dim' | 'fog' {
+  // ---- Visibility: in HeroQuest a tile is either explored (placed on the board
+  // and fully visible) or not yet seen (fog). What gets REVEALED is driven by
+  // line of sight in the engine ("looking"); once revealed it stays visible, so
+  // there's no torch-dimming here. ----
+  function lightLevel(x: number, y: number): 'lit' | 'fog' {
     if (litAll) return 'lit';
-    if (!state.tiles[y][x].revealed) return 'fog';
-    return litCells.has(`${x},${y}`) ? 'lit' : 'dim';
+    return state.tiles[y][x].revealed ? 'lit' : 'fog';
   }
 
   // ---- Zoom / fit-to-screen ----
@@ -437,12 +416,9 @@ export default function HeroQuestBoardCanvas({
                 title={tile.revealed ? `${tile.region} (${x},${y})` : 'Unexplored'}
               >
                 {tileArt}
-                {/* Lighting overlay */}
+                {/* Fog over unexplored tiles; explored tiles stay fully visible. */}
                 {level === 'fog' && (
                   <div className="absolute inset-0" style={{ background: HQ_COLORS.fog }} />
-                )}
-                {level === 'dim' && (
-                  <div className="absolute inset-0 pointer-events-none" style={{ background: 'rgba(0,0,0,0.55)' }} />
                 )}
                 {/* Yellow ring on a reachable cell (hidden while dragging a path) */}
                 {isReach && !dragging && (
@@ -494,7 +470,7 @@ export default function HeroQuestBoardCanvas({
                   left: c.x * TILE_PX, top: c.y * TILE_PX,
                   width: TILE_PX, height: TILE_PX,
                   zIndex: 3,
-                  filter: level === 'dim' ? 'brightness(0.55)' : undefined,
+                  
                 }}
               >
                 <FurnitureToken kind={f.kind} size={TILE_PX} searched={f.searched} />
@@ -541,7 +517,7 @@ export default function HeroQuestBoardCanvas({
                 height: TILE_PX,
                 zIndex: 5,
                 cursor: targetable && !disabled ? 'pointer' : 'default',
-                filter: level === 'dim' ? 'brightness(0.6)' : undefined,
+                
                 transition: 'left 0.25s ease-out, top 0.25s ease-out',
               }}
               onClick={() => {
