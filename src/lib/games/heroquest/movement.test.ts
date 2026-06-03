@@ -498,6 +498,24 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     const out = unwrap(applyAction(s, 'p1', { kind: 'search_traps' })); // a no-move action
     expect(out.phase).not.toBe('finished');
   });
+
+  it('grants the quest reward (gold divided among living heroes) on victory', () => {
+    let s = startedGame();
+    s = JSON.parse(JSON.stringify(s));
+    s.quest.winCondition = { kind: 'escape' };
+    s.quest.reward = { kind: 'gold', amount: 240, split: 'divided' };
+    const before = s.heroes.map(h => h.gold);
+    s.heroes[1].at = { x: 2, y: 21 };
+    s.heroes[2].at = { x: 3, y: 21 };
+    s.heroes[3].at = { x: 2, y: 22 };
+    s.heroes[0].at = { x: 3, y: 20 };
+    s.heroes[0].hasRolled = true;
+    s.heroes[0].moveLeft = 6;
+    s.turnIndex = 0;
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 22 } }));
+    expect(out.phase).toBe('finished');
+    out.heroes.forEach((h, i) => expect(h.gold).toBe(before[i] + 60)); // 240 / 4
+  });
 });
 
 describe('heroquest win condition: kill-and-exit gating', () => {

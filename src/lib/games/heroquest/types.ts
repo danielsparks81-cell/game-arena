@@ -234,7 +234,17 @@ export type QuestDef = {
   wanderingMonster: MonsterKind | null;
   /** How the heroes win this quest. */
   winCondition: WinCondition;
+  /** Reward granted to the heroes on completion (beyond treasure found). */
+  reward: QuestReward;
 };
+
+/** Completion reward for a quest. */
+export type QuestReward =
+  /** No completion bonus (Quest 1 — the reward is the gold in the chests). */
+  | { kind: 'none' }
+  /** A gold purse: `divided` splits `amount` among living heroes; `each` gives
+   *  `amount` to every living hero (e.g. "100 gold coins each"). */
+  | { kind: 'gold'; amount: number; split: 'divided' | 'each' };
 
 /** Objective / victory condition for a quest. */
 export type WinCondition =

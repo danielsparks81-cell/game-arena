@@ -1218,9 +1218,7 @@ function maybeFinishOnKill(s: HQState, killed: Monster): void {
     pushLog(s, 'system', `${wc.monsterDisplayName} has been slain! Return to the stairway to escape.`);
   }
   if (wc.kind === 'kill_all' && s.monsters.length === 0) {
-    s.phase = 'finished';
-    s.winner = 'heroes';
-    pushLog(s, 'system', 'All monsters defeated. Heroes win!');
+    heroesWin(s, 'All monsters defeated. Heroes win!');
   }
 }
 
@@ -1229,15 +1227,35 @@ function onStairs(s: HQState, h: Hero): boolean {
   return s.tiles[h.at.y]?.[h.at.x]?.kind === 'stairs';
 }
 
+/** Finish the quest with a hero victory: set phase/winner, log, and grant the
+ *  quest's completion reward to the living heroes. Centralises every win path. */
+function heroesWin(s: HQState, message: string): void {
+  s.phase = 'finished';
+  s.winner = 'heroes';
+  pushLog(s, 'system', message);
+  const reward = s.quest.reward;
+  if (reward.kind === 'gold') {
+    const living = s.heroes.filter(h => h.body > 0);
+    if (living.length > 0) {
+      if (reward.split === 'each') {
+        for (const h of living) h.gold += reward.amount;
+        pushLog(s, 'system', `The King rewards each hero with ${reward.amount} gold.`);
+      } else {
+        const share = Math.floor(reward.amount / living.length);
+        for (const h of living) h.gold += share;
+        pushLog(s, 'system', `The heroes divide a reward of ${reward.amount} gold (${share} each).`);
+      }
+    }
+  }
+}
+
 function maybeFinishOnExit(s: HQState): void {
   const wc = s.quest.winCondition;
   if (wc.kind === 'kill_and_exit') {
     // The objective must have been killed first. (Monsters lazy-spawn, so we
     // track an explicit flag rather than inferring "dead" from absence.)
     if (!s.objectiveDefeated) return;
-    s.phase = 'finished';
-    s.winner = 'heroes';
-    pushLog(s, 'system', 'Heroes escape the dungeon — quest complete!');
+    heroesWin(s, 'Heroes escape the dungeon — quest complete!');
     return;
   }
   if (wc.kind === 'escape') {
@@ -1245,9 +1263,7 @@ function maybeFinishOnExit(s: HQState): void {
     // share stair tiles). Lost only if all heroes die (handled elsewhere).
     const living = s.heroes.filter(h => h.body > 0);
     if (living.length > 0 && living.every(h => onStairs(s, h))) {
-      s.phase = 'finished';
-      s.winner = 'heroes';
-      pushLog(s, 'system', 'The heroes escape the dungeon — quest complete!');
+      heroesWin(s, 'The heroes escape the dungeon — quest complete!');
     }
     return;
   }

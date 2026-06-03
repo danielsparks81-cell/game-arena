@@ -281,6 +281,7 @@ function makeQuest1(): QuestDef {
     startCells: BASE_BOARD.startCells,
     wanderingMonster: 'orc', // Quest 1's wandering monster is the Orc (book)
     winCondition: { kind: 'kill_and_exit', monsterDisplayName: 'Verag' },
+    reward: { kind: 'none' }, // Quest 1's reward is the gold in the chests (84 + 120)
   };
 }
 
