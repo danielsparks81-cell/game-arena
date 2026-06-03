@@ -297,7 +297,18 @@ export function applyAction(
     if (state.phase !== 'lobby') return err('Quest already underway.');
     const claimed = state.heroes.filter(h => h.playerId);
     if (claimed.length < 1) return err('Need at least one player to start the quest.');
-    const s = clone(state);
+    // Rebuild from a FRESH initialState so the quest content always reflects the
+    // current code. A room's lobby state snapshots the quest when the room is
+    // created, so a room made before a quest update would otherwise start with
+    // stale content. We carry over who claimed each hero slot (seat → class is
+    // fixed), then proceed exactly as before.
+    const s = initialState();
+    state.heroes.forEach((old, i) => {
+      if (!s.heroes[i]) return;
+      s.heroes[i].playerId = old.playerId;
+      s.heroes[i].username = old.username;
+      s.heroes[i].accent_color = old.accent_color;
+    });
     // Auto-fill any unclaimed hero slots by cycling through claimed players.
     // With 1 player → that player owns all 4. With 2 players → round-robin
     // gives 2 heroes each. With 3 → 2/1/1. With 4 → 1/1/1/1 (no change).
