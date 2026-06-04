@@ -1,163 +1,94 @@
 'use client';
 
-// HeroQuest quest-map review gallery. Renders quests on the LOCKED 32×23 board
-// (wider halls + larger rooms — the live game board). Read-only comparison tool.
-// Quest 1 placement is final; quests 2–14 are rough drafts until we lock the
-// placement ruleset on Quest 1 and apply it across the board.
+// HeroQuest quest review — renders Quest 1 "The Trial" on the locked 30×23 board
+// (rooms + monsters + furniture + stairs + doors + this quest's rock), read-only,
+// so the layout can be checked against the Quest Book. Source: quests/quest1.ts.
 
-import { useState } from 'react';
-import { BOARD32, ROOMS32, type RoomLabel, type Cell } from '@/lib/games/heroquest/quests/board32';
-import { generateConnectingDoors } from '@/lib/games/heroquest/board';
 import {
-  QUEST_MAPS, type QuestMap, type MapMonster, type MapFurniture, type MapTrap,
-} from '@/lib/games/heroquest/quests/maps';
+  buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS,
+} from '@/lib/games/heroquest/quests/quest1';
 
-const CELL = 24;
-const W = BOARD32.width * CELL;
-const H = BOARD32.height * CELL;
-const DOORS = generateConnectingDoors();
+const CELL = 23;
+const GRID = buildQuest1Grid();
+const W = (GRID[0]?.length ?? 30) * CELL;
+const H = GRID.length * CELL;
 
-const MON: Record<MapMonster['kind'], { c: string; t: string; label: string }> = {
-  goblin:        { c: '#4d7c2f', t: '#fff', label: 'Gob' },
-  orc:           { c: '#3f6212', t: '#fff', label: 'Orc' },
-  skeleton:      { c: '#e7e5e4', t: '#1c1917', label: 'Skl' },
-  zombie:        { c: '#65a30d', t: '#fff', label: 'Zom' },
-  abomination:   { c: '#7e22ce', t: '#fff', label: 'Abm' },
-  mummy:         { c: '#ca8a04', t: '#fff', label: 'Mum' },
+const MON: Record<string, { c: string; t: string; label: string }> = {
+  goblin: { c: '#22c55e', t: '#04210f', label: 'Gob' },
+  orc: { c: '#a16207', t: '#fff', label: 'Orc' },
+  skeleton: { c: '#e5e7eb', t: '#111', label: 'Skl' },
+  zombie: { c: '#65a30d', t: '#fff', label: 'Zom' },
+  abomination: { c: '#9333ea', t: '#fff', label: 'Abm' },
+  mummy: { c: '#d4a373', t: '#231a10', label: 'Mum' },
   dread_warrior: { c: '#991b1b', t: '#fff', label: 'DW' },
-  gargoyle:      { c: '#57534e', t: '#fff', label: 'Gar' },
-  dread_sorcerer:{ c: '#1e1b4b', t: '#fff', label: 'DS' },
+  gargoyle: { c: '#475569', t: '#fff', label: 'Verag' },
 };
+const FURN_GLYPH: Record<string, string> = { tomb: '⚰', chest: '▣', weapon_rack: '⚔', rack: '☰', table: '▬' };
 
-const FURN_GLYPH: Record<MapFurniture['kind'], string> = {
-  table: '▬', chest: '▣', cupboard: '▦', bookcase: '▤', rack: '☰', weapon_rack: '⚔',
-  throne: '♛', tomb: '⚰', fireplace: '✶', sorcerer_table: '✦', alchemist_bench: '⚗',
-};
-
-const TRAP_GLYPH: Record<MapTrap['kind'], { g: string; c: string }> = {
-  pit: { g: '▢', c: '#a16207' }, spear: { g: '╱', c: '#ea580c' },
-  falling_block: { g: '▨', c: '#b91c1c' }, chest: { g: '▣', c: '#a16207' },
-};
-
-/** Resolve overlaps: items sharing a cell get fanned out around the centre. */
-function spread<T extends { at: Cell }>(items: T[]): (T & { px: number; py: number })[] {
-  const groups = new Map<string, T[]>();
-  for (const it of items) {
-    const k = `${it.at.x},${it.at.y}`;
-    (groups.get(k) ?? groups.set(k, []).get(k)!).push(it);
-  }
-  const out: (T & { px: number; py: number })[] = [];
-  for (const [k, list] of groups) {
-    const [cx, cy] = k.split(',').map(Number);
-    const bx = cx * CELL + CELL / 2, by = cy * CELL + CELL / 2;
-    if (list.length === 1) { out.push({ ...list[0], px: bx, py: by }); continue; }
-    const rad = CELL * 0.32;
-    list.forEach((it, i) => {
-      const a = (i / list.length) * Math.PI * 2 - Math.PI / 2;
-      out.push({ ...it, px: bx + Math.cos(a) * rad, py: by + Math.sin(a) * rad });
-    });
-  }
-  return out;
+const isRoom = (c?: string) => !!c && /[a-z]/.test(c);
+const isFloor = (c?: string) => !!c && (c === '.' || c === 'S' || c === '+' || isRoom(c));
+const regionKey = (c?: string) => (isRoom(c) ? c! : c === '.' || c === 'S' ? '.' : c === '+' ? 'door' : 'x');
+function wallBetween(x: number, y: number, nx: number, ny: number) {
+  const a = GRID[y]?.[x], b = GRID[ny]?.[nx];
+  if (!isFloor(a)) return false;
+  if (!isFloor(b)) return true;
+  if (a === '+' || b === '+') return false;
+  const ra = regionKey(a), rb = regionKey(b);
+  if (ra === '.' && rb === '.') return false;
+  return ra !== rb;
 }
 
-function StairFan({ cells }: { cells: Cell[] }) {
+function StairFan({ cells }: { cells: { x: number; y: number }[] }) {
   const minX = Math.min(...cells.map(c => c.x)), minY = Math.min(...cells.map(c => c.y));
   const maxX = Math.max(...cells.map(c => c.x)), maxY = Math.max(...cells.map(c => c.y));
-  // Fan of steps radiating from the room-facing corner.
-  const x0 = minX * CELL, y0 = minY * CELL;
-  const w = (maxX - minX + 1) * CELL, h = (maxY - minY + 1) * CELL;
-  const ox = x0, oy = y0;                  // origin corner (top-left of the staircase)
-  const R = Math.max(w, h);
-  const arcs = [], rads = [];
+  const x0 = minX * CELL, y0 = minY * CELL, w = (maxX - minX + 1) * CELL, h = (maxY - minY + 1) * CELL;
+  const R = Math.max(w, h), arcs = [];
   for (let i = 1; i <= 6; i++) {
     const r = (R * i) / 6;
-    arcs.push(<path key={`a${i}`} d={`M ${ox + r} ${oy} A ${r} ${r} 0 0 1 ${ox} ${oy + r}`} fill="none" stroke="#475569" strokeWidth="1.3" />);
-  }
-  for (const deg of [15, 38, 62, 85]) {
-    const a = (deg * Math.PI) / 180;
-    rads.push(<line key={`r${deg}`} x1={ox} y1={oy} x2={ox + Math.cos(a) * R} y2={oy + Math.sin(a) * R} stroke="#475569" strokeWidth="1.1" />);
+    arcs.push(<path key={i} d={`M ${x0 + r} ${y0} A ${r} ${r} 0 0 1 ${x0} ${y0 + r}`} fill="none" stroke="#475569" strokeWidth="1.2" />);
   }
   return (
     <g>
       <rect x={x0} y={y0} width={w} height={h} fill="#94a3b8" stroke="#1e3a5f" strokeWidth="2" />
-      {arcs}{rads}
-      <text x={x0 + w - 3} y={y0 + h - 4} textAnchor="end" fontSize="8" fontWeight="800" fill="#1e293b">STAIRS · 1 space</text>
+      {arcs}
+      <text x={x0 + w - 2} y={y0 + h - 3} textAnchor="end" fontSize="7" fontWeight="800" fill="#1e293b">STAIRS</text>
     </g>
   );
 }
 
-function Board({ q }: { q: QuestMap }) {
-  const monsters = spread(q.monsters);
-  const furniture = spread(q.furniture);
+function Board() {
   return (
     <svg viewBox={`-2 -2 ${W + 4} ${H + 4}`} className="w-full h-auto rounded-lg border border-stone-700 bg-black">
-      {/* tiles (the board's built-in stair cells render as ordinary room floor;
-          each quest's staircase is drawn as one fan wherever the quest puts it) */}
-      {BOARD32.tiles.map((row, y) =>
-        row.map((tile, x) => {
-          const reg = BOARD32.regions[y][x];
-          const fill = tile === 'wall' ? '#161311' : reg.startsWith('room_') ? '#e7e2d6' : '#a8a29e';
-          return <rect key={`${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL} fill={fill} stroke="#3f3a36" strokeWidth="0.4" />;
-        }),
-      )}
-      {/* room outlines */}
-      {BOARD32.regions.map((row, y) =>
-        row.map((reg, x) => {
-          if (!reg.startsWith('room_')) return null;
-          const diff = (nx: number, ny: number) => (BOARD32.regions[ny]?.[nx] ?? '') !== reg;
-          const E: React.ReactNode[] = [];
-          const mk = (x1: number, y1: number, x2: number, y2: number, k: string) =>
-            E.push(<line key={k} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#44403c" strokeWidth="1.6" />);
-          if (diff(x - 1, y)) mk(x * CELL, y * CELL, x * CELL, (y + 1) * CELL, `l${x},${y}`);
-          if (diff(x + 1, y)) mk((x + 1) * CELL, y * CELL, (x + 1) * CELL, (y + 1) * CELL, `r${x},${y}`);
-          if (diff(x, y - 1)) mk(x * CELL, y * CELL, (x + 1) * CELL, y * CELL, `t${x},${y}`);
-          if (diff(x, y + 1)) mk(x * CELL, (y + 1) * CELL, (x + 1) * CELL, (y + 1) * CELL, `b${x},${y}`);
-          return E.length ? <g key={`o${x},${y}`}>{E}</g> : null;
-        }),
-      )}
-      {/* doors (auto-connecting, orange) */}
-      {DOORS.map((d, i) => d.crossings.map((cr, j) => {
-        const mx = (cr.a.x + cr.b.x + 1) / 2 * CELL, my = (cr.a.y + cr.b.y + 1) / 2 * CELL;
-        const horiz = cr.a.y === cr.b.y;
-        return <rect key={`d${i}-${j}`} x={mx - (horiz ? 2 : CELL * 0.34)} y={my - (horiz ? CELL * 0.34 : 2)}
-          width={horiz ? 4 : CELL * 0.68} height={horiz ? CELL * 0.68 : 4} fill="#ea7c2f" stroke="#7c2d12" strokeWidth="0.5" />;
+      {GRID.map((row, y) => row.map((c, x) => {
+        const fill = c === '#' || c === 'W' ? '#161311' : c === '+' ? '#b45309' : isRoom(c) ? '#e7e2d6' : c === 'S' ? '#e7e2d6' : '#cfc9ba';
+        return <rect key={`${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL} fill={fill} stroke="rgba(40,30,20,0.12)" strokeWidth="0.5" />;
       }))}
-
-      {/* room labels */}
-      {(Object.keys(ROOMS32) as RoomLabel[]).map(l => {
-        const r = ROOMS32[l];
-        return <text key={l} x={r.minX * CELL + 2} y={r.minY * CELL + 9} fontSize="8" fontWeight="700" fill="#9a8f7a">{l}</text>;
-      })}
-
-      <StairFan cells={q.stairs ?? BOARD32.stairway.cells} />
-      {q.startMarker && (
-        <g transform={`translate(${q.startMarker.x * CELL + CELL / 2},${q.startMarker.y * CELL + CELL / 2})`}>
-          <rect x={-CELL / 2} y={-CELL / 2} width={CELL} height={CELL} fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3 2" />
-          <text y="4" textAnchor="middle" fontSize="8" fill="#22d3ee" fontWeight="700">START</text>
-        </g>
-      )}
-
-      {/* traps */}
-      {q.traps.map((t, i) => (
-        <text key={`t${i}`} x={t.at.x * CELL + CELL / 2} y={t.at.y * CELL + CELL / 2 + 5}
-          textAnchor="middle" fontSize="15" fontWeight="800" fill={TRAP_GLYPH[t.kind].c}>{TRAP_GLYPH[t.kind].g}</text>
-      ))}
-      {/* furniture */}
-      {furniture.map((f, i) => (
-        <g key={`f${i}`} transform={`translate(${f.px},${f.py})`}>
-          <rect x={-CELL / 2 + 3} y={-CELL / 2 + 3} width={CELL - 6} height={CELL - 6} rx="2" fill="#6b4423" stroke="#3f2a14" strokeWidth="1" />
-          <text y="5" textAnchor="middle" fontSize="13" fill="#fde68a">{FURN_GLYPH[f.kind]}</text>
-          {f.label && <text x={CELL / 2 - 4} y={-CELL / 2 + 9} textAnchor="end" fontSize="8" fontWeight="800" fill="#fff">{f.label}</text>}
+      {/* solid walls */}
+      {GRID.map((row, y) => row.map((c, x) => {
+        if (!isFloor(c)) return null;
+        const E: React.ReactNode[] = [];
+        const mk = (x1: number, y1: number, x2: number, y2: number, k: string) =>
+          E.push(<line key={k} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#0c0a09" strokeWidth="2" />);
+        if (wallBetween(x, y, x, y - 1)) mk(x * CELL, y * CELL, (x + 1) * CELL, y * CELL, `t${x},${y}`);
+        if (wallBetween(x, y, x, y + 1)) mk(x * CELL, (y + 1) * CELL, (x + 1) * CELL, (y + 1) * CELL, `b${x},${y}`);
+        if (wallBetween(x, y, x - 1, y)) mk(x * CELL, y * CELL, x * CELL, (y + 1) * CELL, `l${x},${y}`);
+        if (wallBetween(x, y, x + 1, y)) mk((x + 1) * CELL, y * CELL, (x + 1) * CELL, (y + 1) * CELL, `r${x},${y}`);
+        return E.length ? <g key={`w${x},${y}`}>{E}</g> : null;
+      }))}
+      <StairFan cells={QUEST1_STAIRS} />
+      {QUEST1_FURNITURE.map((f, i) => (
+        <g key={`f${i}`} transform={`translate(${f.x * CELL},${f.y * CELL})`}>
+          <rect x="2.5" y="2.5" width={CELL - 5} height={CELL - 5} rx="2" fill="#6b4423" stroke="#3f2a14" strokeWidth="1" />
+          <text x={CELL / 2} y={CELL / 2 + 4} textAnchor="middle" fontSize="12" fill="#fde68a">{FURN_GLYPH[f.kind] ?? '▦'}</text>
+          {f.gold != null && <text x={CELL / 2} y={CELL - 3} textAnchor="middle" fontSize="7" fontWeight="800" fill="#fde68a">{f.gold}</text>}
         </g>
       ))}
-      {/* monsters */}
-      {monsters.map((m, i) => {
-        const s = MON[m.kind];
+      {QUEST1_MONSTERS.map((m, i) => {
+        const s = MON[m.kind] ?? { c: '#777', t: '#fff', label: '?' };
         return (
-          <g key={`m${i}`} transform={`translate(${m.px},${m.py})`}>
+          <g key={`m${i}`} transform={`translate(${m.x * CELL + CELL / 2},${m.y * CELL + CELL / 2})`}>
             <circle r={CELL / 2 - 2} fill={s.c} stroke={m.name ? '#fbbf24' : '#0c0a09'} strokeWidth={m.name ? 2 : 1} />
-            <text y="3" textAnchor="middle" fontSize="8" fontWeight="800" fill={s.t}>{s.label}</text>
-            {m.name && <text y={CELL / 2 + 6} textAnchor="middle" fontSize="8" fill="#fbbf24">★</text>}
+            <text y="2.5" textAnchor="middle" fontSize="6.5" fontWeight="800" fill={s.t}>{s.label}</text>
           </g>
         );
       })}
@@ -165,75 +96,49 @@ function Board({ q }: { q: QuestMap }) {
   );
 }
 
-export default function QuestGallery() {
-  const [idx, setIdx] = useState(0);
-  const q = QUEST_MAPS[idx];
-  const isFinal = q.status === 'final';
+const ROOMS: [string, string][] = [
+  ['9', 'staircase + 4 hero starts'], ['A', '2 skeletons'], ['B', 'Guardian mummy + 2 zombies'],
+  ['C', "Fellmarg's tomb + 84-gold chest + mummy + 2 skeletons"], ['3', 'goblin + orc'], ['4', '2 goblins'],
+  ['5', 'Verag + 2 orcs + dread warrior + 120-gold chest'], ['6', 'goblin + orc'], ['10', '2 orcs'],
+  ['G', 'weapon rack + goblin + abomination'], ['H', '2 dread warriors + empty chest'],
+];
 
+export default function QuestGallery() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-xl font-bold text-amber-200">HeroQuest — Quest Map Gallery</h2>
+        <h2 className="text-xl font-bold text-amber-200">Quest 1 — The Trial</h2>
         <p className="text-sm text-stone-400">
-          All 14 quests on the <strong className="text-stone-200">locked 32×23 board</strong> (wider halls, larger
-          rooms). Quest 1 is final; quests 2–14 have the placement ruleset applied (stairway relocated
-          per the book, exact monster counts) — verify monster/furniture rooms against the book.
+          On the locked 30×23 board. The shaded right side is <strong className="text-stone-200">rock</strong> (unused this
+          quest); doors are auto-placed and can be nudged in Map Authoring.
         </p>
       </div>
-
-      <div className="flex flex-wrap gap-1.5">
-        {QUEST_MAPS.map((m, i) => (
-          <button key={m.id} onClick={() => setIdx(i)}
-            className={`px-2.5 py-1 rounded text-xs font-semibold border transition ${
-              i === idx ? 'bg-amber-500 text-stone-900 border-amber-400'
-                        : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'}`}>
-            {m.n}. {m.name}{m.status === 'final' ? '' : ' •'}
-          </button>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="font-bold text-amber-100">Quest {q.n}: {q.name}</h3>
-            <span className={`text-xs font-bold px-2 py-0.5 rounded ${isFinal ? 'bg-emerald-800 text-emerald-100' : 'bg-amber-900 text-amber-200'}`}>
-              {isFinal ? 'PLACEMENT FINAL' : 'DRAFT — verify vs book'}
-            </span>
-          </div>
-          <Board q={q} />
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-stone-400">
+          <Board />
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-stone-400">
             <span><span className="inline-block w-3 h-3 align-middle bg-[#e7e2d6] border border-stone-500" /> room</span>
-            <span><span className="inline-block w-3 h-3 align-middle bg-[#a8a29e] border border-stone-500" /> hall</span>
+            <span><span className="inline-block w-3 h-3 align-middle bg-[#cfc9ba] border border-stone-500" /> hall</span>
             <span><span className="inline-block w-3 h-3 align-middle bg-[#161311] border border-stone-500" /> rock</span>
-            <span><span className="inline-block w-3 h-3 align-middle bg-[#ea7c2f] border border-stone-500" /> door</span>
-            <span>★ named/boss · letters = room labels & note anchors</span>
+            <span><span className="inline-block w-3 h-3 align-middle bg-[#b45309] border border-stone-500" /> door</span>
+            <span>gold ring = named (Verag / Guardian)</span>
           </div>
         </div>
-
-        <div className="space-y-3 text-sm">
-          <div className="rounded-lg border border-amber-900/50 bg-amber-950/20 p-3">
-            <p className="italic text-amber-100/90 leading-snug">{q.briefing}</p>
-          </div>
-          <dl className="space-y-1.5">
-            <div><dt className="inline font-semibold text-amber-300">Objective: </dt><dd className="inline text-stone-200">{q.objective}</dd></div>
-            <div><dt className="inline font-semibold text-amber-300">Reward: </dt><dd className="inline text-stone-200">{q.reward}</dd></div>
-            <div><dt className="inline font-semibold text-amber-300">Wandering monster: </dt><dd className="inline text-stone-200">{q.wandering}</dd></div>
-            {q.special && <div><dt className="inline font-semibold text-amber-300">Special: </dt><dd className="inline text-stone-300">{q.special}</dd></div>}
-          </dl>
-          {q.notes.length > 0 && (
-            <div>
-              <h4 className="font-semibold text-amber-300 mb-1">Notes</h4>
-              <ul className="space-y-1.5">
-                {q.notes.map((n, i) => (
-                  <li key={i} className="text-stone-300 leading-snug">
-                    <span className="inline-flex items-center justify-center w-5 h-5 rounded bg-amber-100 text-amber-900 text-[11px] font-bold mr-1.5 align-middle">{n.label}</span>
-                    {n.text}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          <div className="text-xs text-stone-500">{q.monsters.length} monsters · {q.furniture.length} furniture · {q.traps.length} traps</div>
+        <div className="text-sm">
+          <h3 className="font-semibold text-amber-300 mb-1">Room contents</h3>
+          <table className="w-full text-stone-300">
+            <tbody>
+              {ROOMS.map(([r, t]) => (
+                <tr key={r} className="border-b border-stone-800">
+                  <td className="py-1 pr-2 font-bold text-amber-200 align-top">{r}</td>
+                  <td className="py-1">{t}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-xs text-stone-500">
+            To tweak exact squares or doors: Map Authoring tab → ★ Load Quest 1, then nudge with the brushes.
+          </p>
         </div>
       </div>
     </div>

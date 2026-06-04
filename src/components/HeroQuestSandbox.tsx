@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
+import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS } from '@/lib/games/heroquest/quests/quest1';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
 type Pt = { x: number; y: number };
@@ -112,30 +113,10 @@ function normalizeToBoard(s: SaveState): SaveState {
 /** Quest 1 "The Trial" laid out on the locked template board (rooms per the
  *  user's Quest Book read; exact cells are a first pass to nudge). */
 function quest1State(): SaveState {
-  const grid = makeTemplateGrid();
-  for (const [x, y] of [[2, 17], [3, 17], [2, 18], [3, 18]]) grid[y][x] = 'S'; // stairs in room 9
-  const furniture: Furn[] = [
-    { kind: 'tomb', x: 11, y: 2 },                  // C: Fellmarg's tomb
-    { kind: 'chest', x: 13, y: 4, gold: 84 },       // C: 84-gold chest
-    { kind: 'chest', x: 17, y: 11, gold: 120 },     // 5: 120-gold chest (Verag)
-    { kind: 'weapon_rack', x: 11, y: 16 },          // G: chipped weapon rack (empty)
-    { kind: 'chest', x: 20, y: 18 },                // H: empty chest
-  ];
-  const M = (kind: MonKind, x: number, y: number, name?: string): Mon =>
-    ({ kind, x, y, named: !!name, name });
-  const monsters: Mon[] = [
-    M('skeleton', 3, 3), M('skeleton', 4, 4),                                            // A
-    M('mummy', 8, 3, 'Guardian of Fellmarg’s Tomb'), M('zombie', 6, 3), M('zombie', 7, 5), // B
-    M('skeleton', 10, 5), M('skeleton', 13, 5), M('mummy', 11, 3),                       // C
-    M('goblin', 3, 7), M('orc', 4, 9),                                                   // 3
-    M('goblin', 7, 7), M('goblin', 8, 9),                                                // 4
-    M('gargoyle', 14, 11, 'Verag'), M('orc', 13, 10), M('orc', 16, 12), M('dread_warrior', 15, 12), // 5
-    M('goblin', 3, 14), M('orc', 4, 15),                                                 // 6
-    M('orc', 7, 17), M('orc', 8, 19),                                                    // 10
-    M('goblin', 11, 18), M('abomination', 12, 19),                                       // G
-    M('dread_warrior', 17, 18), M('dread_warrior', 19, 18),                              // H
-  ];
-  const starts: Pt[] = [{ x: 2, y: 17 }, { x: 3, y: 17 }, { x: 2, y: 18 }, { x: 3, y: 18 }];
+  const grid = buildQuest1Grid();
+  const furniture: Furn[] = QUEST1_FURNITURE.map(f => ({ kind: f.kind as FurnKind, x: f.x, y: f.y, gold: f.gold }));
+  const monsters: Mon[] = QUEST1_MONSTERS.map(m => ({ kind: m.kind as MonKind, x: m.x, y: m.y, named: !!m.name, name: m.name }));
+  const starts: Pt[] = QUEST1_STAIRS.map(s => ({ x: s.x, y: s.y }));
   return { w: BOARD_W, h: BOARD_H, grid, furniture, monsters, starts, traps: [] };
 }
 
