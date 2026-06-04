@@ -5,11 +5,11 @@
 
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
-import HeroQuestSandbox from '@/components/HeroQuestSandbox';
+import SandboxTabs from '@/components/heroquest/SandboxTabs';
 
 export default async function HeroQuestSandboxPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login?next=/heroquest-sandbox');
-  return <HeroQuestSandbox />;
+  return <SandboxTabs />;
 }
