@@ -29,36 +29,31 @@ Coordinates are `(col, row)`.
 | 13 | cols 21–23, rows 17–20 | 3×4 | |
 | 14 | cols 24–27, rows 17–20 | 4×4 | |
 
-## 2. The enlarged parts — ruleset (DRAFT, iterating)
+## 2. The enlarged parts — ruleset (LOCKED)
+
+All rooms get used by some quest, so these rules apply throughout.
 
 ### Wider halls (book 1-wide → our 2-wide)
 - A hall follows the **same route between the same rooms**; ours just has an extra
   lane.
 - A corridor monster / wandering-monster spawn → the **matching point** of our
   hall, on the lane the book shows it (either lane is fine for spawns).
-- A trap meant to **block** a corridor → place it across **BOTH lanes** (a single
-  cell in a 2-wide hall is walk-around-able; both lanes preserves the block). A
-  trap meant to be **dodge-able** → one lane.
+- **Blocking trap** (falling block) → make it **double-wide** (both lanes). It is
+  triggered by **either** square, and when triggered the **block falls on both**
+  squares, sealing the whole hall. (Engine: a 2-cell linked falling block.)
+- A **dodge-able** trap (pit/spear) → a single lane.
 - **Doors** stay on the room wall at the book's position; they now open into the
   2-wide hall.
 
 ### Enlarged (unnumbered) rooms
-- **Against-wall furniture** (chest, tomb, rack, cupboard, bookcase, fireplace,
-  throne, sorcerer's/alchemist's bench): keep on the **same wall**, the **same
-  distance from the door-side corner**. The extra floor stays empty.
-- **Free-standing furniture** (table): keep **centred**.
-- **Monsters**: keep the **same relative spread**, scaled to fill the larger room
-  proportionally (so it's populated like the book, with the extra breathing room).
+- **Furniture touching a wall** in the book → keep it **against that same wall**
+  in our room (north stays north, etc.). The extra floor stays empty.
+- Furniture **not** touching a wall (e.g. a central table) → keep it **centred**.
+- **Monsters** → keep each monster the **same distance from the door(s)** as in
+  the book, whenever the larger room allows (they guard the same approach).
 - **Objective / treasure** rides with its furniture (it's attached to a chest /
   tomb / etc.).
 
 ## 3. Stairway (per quest)
 Place the staircase (one space, 2×2) in the room matching the book's start corner;
 put the heroes' 4 start cells on it. **Quest 1 → room #9, stairs (2,17)(3,17)(2,18)(3,18).**
-
-## Open questions
-- Blocking trap in a wide hall → both lanes (above) — confirm?
-- Enlarged-room furniture → anchor to the door-side corner (above), or a different
-  reference corner?
-- Do quests ever place content in the unnumbered rooms, or are those mostly unused
-  / rocked-out per quest?
