@@ -71,9 +71,24 @@ const MON_ICON: Record<MonKind, string> = {
   goblin: '👺', orc: '👹', abomination: '🦎', skeleton: '💀', zombie: '🧟',
   mummy: '🧻', dread_warrior: '🛡️', gargoyle: '😈', dread_sorcerer: '🧙',
 };
+// Monster tokens: a coloured circle + the kind's first letter.
+//   green  = goblinoids (goblin, orc, abomination)
+//   yellow = undead     (skeleton, zombie, mummy)
+//   grey   = dread/stone (dread warrior, sorcerer, gargoyle)
+const MON_DOT: Record<MonKind, { bg: string; fg: string; letter: string }> = {
+  goblin:         { bg: '#22c55e', fg: '#052e16', letter: 'G' },
+  orc:            { bg: '#22c55e', fg: '#052e16', letter: 'O' },
+  abomination:    { bg: '#22c55e', fg: '#052e16', letter: 'A' },
+  skeleton:       { bg: '#eab308', fg: '#422006', letter: 'S' },
+  zombie:         { bg: '#eab308', fg: '#422006', letter: 'Z' },
+  mummy:          { bg: '#eab308', fg: '#422006', letter: 'M' },
+  dread_warrior:  { bg: '#9ca3af', fg: '#111827', letter: 'D' },
+  dread_sorcerer: { bg: '#9ca3af', fg: '#111827', letter: 'S' },
+  gargoyle:       { bg: '#9ca3af', fg: '#111827', letter: 'G' },
+};
 const TRAP_ICON: Record<TrapKind, string> = { pit: '⬛', spear: '🔻', falling_block: '🧱' };
 
-const CELL = 24;
+const CELL = 40;
 const LS_KEY = 'hq-sandbox-v1';
 // The board is LOCKED at this size — it never changes, and the editor offers no
 // resize. (Quests vary by what's painted on it, never by its dimensions.)
@@ -344,7 +359,7 @@ ${startLine}`;
     return {
       width: CELL, height: CELL, background: bg,
       boxShadow: sh.length ? sh.join(', ') : 'inset 0 0 0 0.5px rgba(0,0,0,0.2)',
-      fontSize: 13, lineHeight: `${CELL}px`, textAlign: 'center',
+      fontSize: Math.round(CELL * 0.5), lineHeight: `${CELL}px`, textAlign: 'center',
       cursor: 'pointer', userSelect: 'none', position: 'relative',
     };
   };
@@ -472,10 +487,18 @@ ${startLine}`;
                     onMouseDown={() => applyTool(x, y)}
                     onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'door' || tool.t === 'secret' || tool.t === 'stairs' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
                   >
-                    {mo ? <span style={{ filter: mo.named ? 'drop-shadow(0 0 2px #f59e0b)' : undefined }}>{MON_ICON[mo.kind]}</span>
-                      : f ? <span>{FURN_ICON[f.kind]}{f.gold ? <span style={{ position: 'absolute', right: 1, bottom: -2, fontSize: 7, color: '#b45309', fontWeight: 700 }}>{f.gold}</span> : null}</span>
-                      : tr ? <span style={{ opacity: 0.9 }}>{TRAP_ICON[tr.kind]}</span>
-                      : isStart ? <span style={{ color: '#0f766e', fontWeight: 700 }}>◊</span>
+                    {mo ? (
+                      <span style={{
+                        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+                        width: CELL - 8, height: CELL - 8, borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        background: MON_DOT[mo.kind].bg, color: MON_DOT[mo.kind].fg,
+                        fontWeight: 800, fontSize: Math.round(CELL * 0.42),
+                        boxShadow: mo.named ? '0 0 0 3px #f59e0b' : 'inset 0 0 0 1px rgba(0,0,0,0.4)',
+                      }}>{MON_DOT[mo.kind].letter}</span>)
+                      : f ? <span style={{ fontSize: Math.round(CELL * 0.52) }}>{FURN_ICON[f.kind]}{f.gold ? <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: Math.round(CELL * 0.26), color: '#7c2d12', fontWeight: 800 }}>{f.gold}</span> : null}</span>
+                      : tr ? <span style={{ opacity: 0.9, fontSize: Math.round(CELL * 0.5) }}>{TRAP_ICON[tr.kind]}</span>
+                      : isStart ? <span style={{ color: '#0f766e', fontWeight: 700, fontSize: Math.round(CELL * 0.6) }}>◊</span>
                       : null}
                   </div>
                 );

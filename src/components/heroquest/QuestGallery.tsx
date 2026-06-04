@@ -13,15 +13,17 @@ const GRID = buildQuest1Grid();
 const W = (GRID[0]?.length ?? 30) * CELL;
 const H = GRID.length * CELL;
 
+// green = goblinoids, yellow = undead, grey = dread/stone; label = first letter.
 const MON: Record<string, { c: string; t: string; label: string }> = {
-  goblin: { c: '#22c55e', t: '#04210f', label: 'Gob' },
-  orc: { c: '#a16207', t: '#fff', label: 'Orc' },
-  skeleton: { c: '#e5e7eb', t: '#111', label: 'Skl' },
-  zombie: { c: '#65a30d', t: '#fff', label: 'Zom' },
-  abomination: { c: '#9333ea', t: '#fff', label: 'Abm' },
-  mummy: { c: '#d4a373', t: '#231a10', label: 'Mum' },
-  dread_warrior: { c: '#991b1b', t: '#fff', label: 'DW' },
-  gargoyle: { c: '#475569', t: '#fff', label: 'Verag' },
+  goblin:         { c: '#22c55e', t: '#052e16', label: 'G' },
+  orc:            { c: '#22c55e', t: '#052e16', label: 'O' },
+  abomination:    { c: '#22c55e', t: '#052e16', label: 'A' },
+  skeleton:       { c: '#eab308', t: '#422006', label: 'S' },
+  zombie:         { c: '#eab308', t: '#422006', label: 'Z' },
+  mummy:          { c: '#eab308', t: '#422006', label: 'M' },
+  dread_warrior:  { c: '#9ca3af', t: '#111827', label: 'D' },
+  dread_sorcerer: { c: '#9ca3af', t: '#111827', label: 'S' },
+  gargoyle:       { c: '#9ca3af', t: '#111827', label: 'G' },
 };
 const FURN_GLYPH: Record<string, string> = { tomb: '⚰', chest: '▣', weapon_rack: '⚔', rack: '☰', table: '▬' };
 
@@ -87,8 +89,8 @@ function Board() {
         const s = MON[m.kind] ?? { c: '#777', t: '#fff', label: '?' };
         return (
           <g key={`m${i}`} transform={`translate(${m.x * CELL + CELL / 2},${m.y * CELL + CELL / 2})`}>
-            <circle r={CELL / 2 - 2} fill={s.c} stroke={m.name ? '#fbbf24' : '#0c0a09'} strokeWidth={m.name ? 2 : 1} />
-            <text y="2.5" textAnchor="middle" fontSize="6.5" fontWeight="800" fill={s.t}>{s.label}</text>
+            <circle r={CELL / 2 - 2} fill={s.c} stroke={m.name ? '#fbbf24' : '#0c0a09'} strokeWidth={m.name ? 2.5 : 1} />
+            <text y="3.5" textAnchor="middle" fontSize="11" fontWeight="800" fill={s.t}>{s.label}</text>
           </g>
         );
       })}
