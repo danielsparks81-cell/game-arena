@@ -6,7 +6,10 @@
 // quest data for src/lib/games/heroquest/content.ts.
 //
 // Glyphs (also the export format):
-//   #  rock     .  corridor/hall     S  stairs (one space)     +  door     *  secret door
+//   #  rock — full-board area NOT used by this quest (the board never shrinks;
+//             players just never explore here). The default fill.
+//   W  wall — a solid barrier WITHIN the dungeon (block off a hallway).
+//   .  hall   S  stairs (one space)   +  door   *  secret door
 //   a..p  room floor — each connected same-letter block becomes a distinct room
 //         (so a colour can be reused for several rooms; export flood-fills them)
 // Furniture / monsters / traps / starts are overlays placed by cell.
@@ -32,7 +35,7 @@ type Mon = { kind: MonKind; x: number; y: number; named?: boolean; name?: string
 type Trap = { kind: TrapKind; x: number; y: number };
 
 type Tool =
-  | { t: 'rock' } | { t: 'hall' } | { t: 'stairs' } | { t: 'door' } | { t: 'secret' } | { t: 'erase' }
+  | { t: 'rock' } | { t: 'wall' } | { t: 'hall' } | { t: 'stairs' } | { t: 'door' } | { t: 'secret' } | { t: 'erase' }
   | { t: 'room'; letter: string }
   | { t: 'furniture'; kind: FurnKind }
   | { t: 'monster'; kind: MonKind; named: boolean }
@@ -179,6 +182,7 @@ export default function HeroQuestSandbox() {
   const applyTool = useCallback((x: number, y: number) => {
     switch (tool.t) {
       case 'rock':   setCellGlyph(x, y, '#'); break;
+      case 'wall':   setCellGlyph(x, y, 'W'); break;
       case 'hall':   setCellGlyph(x, y, '.'); break;
       case 'stairs': setCellGlyph(x, y, 'S'); break;
       case 'door':   setCellGlyph(x, y, '+'); break;
@@ -236,14 +240,14 @@ export default function HeroQuestSandbox() {
     }
     for (const f of furniture) {
       const g = grid[f.y]?.[f.x];
-      if (g === '#') out.push(`Furniture (${f.kind}) at ${f.x},${f.y} is on rock.`);
+      if (g === '#' || g === 'W') out.push(`Furniture (${f.kind}) at ${f.x},${f.y} is on ${g === 'W' ? 'a wall' : 'rock'}.`);
     }
     for (const s of starts) {
       if (grid[s.y]?.[s.x] !== 'S') out.push(`Start cell ${s.x},${s.y} is not on a staircase tile.`);
     }
     for (const t of traps) {
       const g = grid[t.y]?.[t.x];
-      if (g === '#') out.push(`Trap (${t.kind}) at ${t.x},${t.y} is on rock.`);
+      if (g === '#' || g === 'W') out.push(`Trap (${t.kind}) at ${t.x},${t.y} is on ${g === 'W' ? 'a wall' : 'rock'}.`);
     }
     if (!monsters.some(m => m.named)) out.push('No named boss/NPC marked (tick "named" and give it a name).');
     if (starts.length === 0) out.push('No start cells marked (place up to 4 on staircase tiles).');
@@ -316,8 +320,9 @@ ${startLine}`;
     else if (g === 'S') bg = '#5eead4';
     else if (g === '+') bg = '#b45309';
     else if (g === '*') bg = '#6d28d9'; // secret door
+    else if (g === 'W') bg = '#6b7280'; // wall (stone barrier)
     else if (ROOM_LETTERS.includes(g)) bg = ROOM_TINT[g] ?? '#e5e5e5';
-    else bg = '#241a12'; // rock
+    else bg = '#241a12'; // rock (unused this quest)
     return {
       width: CELL, height: CELL, background: bg,
       boxShadow: 'inset 0 0 0 0.5px rgba(0,0,0,0.25)',
@@ -344,12 +349,13 @@ ${startLine}`;
             <Section title="Brush">
               <div className="grid grid-cols-2 gap-1">
                 <ToolBtn active={tool.t === 'hall'} onClick={() => setTool({ t: 'hall' })}>Hall</ToolBtn>
-                <ToolBtn active={tool.t === 'rock'} onClick={() => setTool({ t: 'rock' })}>Rock</ToolBtn>
+                <ToolBtn active={tool.t === 'wall'} onClick={() => setTool({ t: 'wall' })}>Wall</ToolBtn>
+                <ToolBtn active={tool.t === 'rock'} onClick={() => setTool({ t: 'rock' })}>Rock (unused)</ToolBtn>
                 <ToolBtn active={tool.t === 'door'} onClick={() => setTool({ t: 'door' })}>Door</ToolBtn>
                 <ToolBtn active={tool.t === 'secret'} onClick={() => setTool({ t: 'secret' })}>Secret door</ToolBtn>
                 <ToolBtn active={tool.t === 'stairs'} onClick={() => setTool({ t: 'stairs' })}>Stairs (1 space)</ToolBtn>
                 <ToolBtn active={tool.t === 'start'} onClick={() => setTool({ t: 'start' })}>Start ×4</ToolBtn>
-                <ToolBtn active={tool.t === 'erase'} onClick={() => setTool({ t: 'erase' })}>Erase</ToolBtn>
+                <ToolBtn active={tool.t === 'erase'} onClick={() => setTool({ t: 'erase' })}>Erase → rock</ToolBtn>
               </div>
             </Section>
 
@@ -448,7 +454,7 @@ ${startLine}`;
                     style={cellStyle(x, y)}
                     title={mo?.name ? `${mo.name} (${x},${y})` : `${x},${y}`}
                     onMouseDown={() => applyTool(x, y)}
-                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'hall' || tool.t === 'door' || tool.t === 'secret' || tool.t === 'stairs' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
+                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'door' || tool.t === 'secret' || tool.t === 'stairs' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
                   >
                     {mo ? <span style={{ filter: mo.named ? 'drop-shadow(0 0 2px #f59e0b)' : undefined }}>{MON_ICON[mo.kind]}</span>
                       : f ? <span>{FURN_ICON[f.kind]}{f.gold ? <span style={{ position: 'absolute', right: 1, bottom: -2, fontSize: 7, color: '#b45309', fontWeight: 700 }}>{f.gold}</span> : null}</span>
