@@ -29,6 +29,22 @@ Coordinates are `(col, row)`.
 | 13 | cols 21–23, rows 17–20 | 3×4 | |
 | 14 | cols 24–27, rows 17–20 | 4×4 | |
 
+### Lettered rooms A–H — enlarged (use the §2 ruleset)
+
+Same book↔board correspondence (both boards carry the same letters); these grew,
+so content is placed by the enlarged-room rules, not corner-aligned 1:1.
+
+| Room | Our cells | Size |
+|------|-----------|------|
+| A | cols 2–5, rows 2–5 | 4×4 |
+| B | cols 6–9, rows 2–5 | 4×4 |
+| C | cols 10–13, rows 2–6 | 4×5 |
+| D | cols 16–19, rows 2–6 | 4×5 |
+| E | cols 20–23, rows 6–10 | 4×5 |
+| F | cols 24–27, rows 6–10 | 4×5 |
+| G | cols 10–13, rows 16–20 | 4×5 |
+| H | cols 16–20, rows 16–20 | 5×5 |
+
 ## 2. The enlarged parts — ruleset (LOCKED)
 
 All rooms get used by some quest, so these rules apply throughout.
