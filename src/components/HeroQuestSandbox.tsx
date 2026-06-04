@@ -74,6 +74,10 @@ const TRAP_ICON: Record<TrapKind, string> = { pit: '⬛', spear: '🔻', falling
 
 const CELL = 24;
 const LS_KEY = 'hq-sandbox-v1';
+// The board is LOCKED at this size — it never changes, and the editor offers no
+// resize. (Quests vary by what's painted on it, never by its dimensions.)
+const BOARD_W = 30;
+const BOARD_H = 23;
 
 function makeGrid(w: number, h: number, fill: Glyph = '#'): Glyph[][] {
   return Array.from({ length: h }, () => new Array<Glyph>(w).fill(fill));
@@ -83,6 +87,22 @@ type SaveState = {
   w: number; h: number; grid: Glyph[][];
   furniture: Furn[]; monsters: Mon[]; starts: Pt[]; traps?: Trap[];
 };
+
+/** Force any saved state to the locked 30×23 — crop extra columns from the LEFT
+ *  (where stray rock columns live) and extra rows from the bottom, padding with
+ *  rock if short, and shift the overlays to match. */
+function normalizeToBoard(s: SaveState): SaveState {
+  let grid = (s.grid ?? []).map(r => r.slice());
+  const w0 = grid[0]?.length ?? BOARD_W;
+  let dx = 0;
+  if (w0 > BOARD_W) { dx = -(w0 - BOARD_W); grid = grid.map(r => r.slice(w0 - BOARD_W)); }
+  else if (w0 < BOARD_W) grid = grid.map(r => [...r, ...new Array<Glyph>(BOARD_W - w0).fill('#')]);
+  if (grid.length > BOARD_H) grid = grid.slice(0, BOARD_H);
+  else while (grid.length < BOARD_H) grid.push(new Array<Glyph>(BOARD_W).fill('#'));
+  const fix = <T extends Pt>(list: T[] = []): T[] =>
+    list.map(p => ({ ...p, x: p.x + dx })).filter(p => p.x >= 0 && p.x < BOARD_W && p.y >= 0 && p.y < BOARD_H);
+  return { w: BOARD_W, h: BOARD_H, grid, furniture: fix(s.furniture), monsters: fix(s.monsters), starts: fix(s.starts), traps: fix(s.traps) };
+}
 
 /** Convert the live QUEST1 quest into editor state (so you can start from it). */
 function loadTrial(): SaveState {
@@ -110,9 +130,9 @@ function loadTrial(): SaveState {
 }
 
 export default function HeroQuestSandbox() {
-  const [w, setW] = useState(32);
-  const [h, setH] = useState(23);
-  const [grid, setGrid] = useState<Glyph[][]>(() => makeGrid(32, 23));
+  const [w, setW] = useState(BOARD_W);
+  const [h, setH] = useState(BOARD_H);
+  const [grid, setGrid] = useState<Glyph[][]>(() => makeGrid(BOARD_W, BOARD_H));
   const [furniture, setFurniture] = useState<Furn[]>([]);
   const [monsters, setMonsters] = useState<Mon[]>([]);
   const [starts, setStarts] = useState<Pt[]>([]);
@@ -129,10 +149,11 @@ export default function HeroQuestSandbox() {
     try {
       const raw = localStorage.getItem(LS_KEY);
       if (raw) {
-        const s = JSON.parse(raw) as SaveState;
-        if (s.grid?.length) {
+        const parsed = JSON.parse(raw) as SaveState;
+        if (parsed.grid?.length) {
+          const s = normalizeToBoard(parsed); // force to the locked 30×23
           setW(s.w); setH(s.h); setGrid(s.grid);
-          setFurniture(s.furniture ?? []); setMonsters(s.monsters ?? []); setStarts(s.starts ?? []);
+          setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts);
           setTraps(s.traps ?? []);
         }
       }
@@ -146,20 +167,6 @@ export default function HeroQuestSandbox() {
     const s: SaveState = { w, h, grid, furniture, monsters, starts, traps };
     try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch { /* ignore */ }
   }, [loaded, w, h, grid, furniture, monsters, starts, traps]);
-
-  const resize = useCallback((nw: number, nh: number) => {
-    setW(nw); setH(nh);
-    setGrid(prev => {
-      const next = makeGrid(nw, nh, '#');
-      for (let y = 0; y < Math.min(nh, prev.length); y++)
-        for (let x = 0; x < Math.min(nw, prev[0].length); x++) next[y][x] = prev[y][x];
-      return next;
-    });
-    setFurniture(f => f.filter(p => p.x < nw && p.y < nh));
-    setMonsters(m => m.filter(p => p.x < nw && p.y < nh));
-    setStarts(s => s.filter(p => p.x < nw && p.y < nh));
-    setTraps(t => t.filter(p => p.x < nw && p.y < nh));
-  }, []);
 
   const setCellGlyph = useCallback((x: number, y: number, g: Glyph) => {
     setGrid(prev => {
@@ -323,9 +330,29 @@ ${startLine}`;
     else if (g === 'W') bg = '#6b7280'; // wall (stone barrier)
     else if (ROOM_LETTERS.includes(g)) bg = ROOM_TINT[g] ?? '#e5e5e5';
     else bg = '#241a12'; // rock (unused this quest)
+
+    // Soft grid lines on floor; SOLID bold lines on room/rock walls (HeroQuest look).
+    const floor = (c?: string) => c === '.' || c === 'S' || c === '+' || c === '*' || (c !== undefined && ROOM_LETTERS.includes(c));
+    const regionKey = (c?: string) => (c && ROOM_LETTERS.includes(c)) ? c : (c === '.' || c === 'S') ? '.' : 'x';
+    const wallTo = (nx: number, ny: number) => {
+      if (!floor(g)) return false;                                  // draw from floor side only
+      const nb = grid[ny]?.[nx];
+      if (!floor(nb)) return true;                                  // floor ↔ rock/wall/edge
+      if (g === '+' || g === '*' || nb === '+' || nb === '*') return false; // doorway opening
+      const a = regionKey(g), b = regionKey(nb);
+      if (a === '.' && b === '.') return false;                     // corridor ↔ corridor (open)
+      return a !== b;                                               // room boundary
+    };
+    const sh: string[] = floor(g) ? ['inset 0 0 0 0.5px rgba(40,30,20,0.22)'] : [];
+    const wc = '#0c0a09';
+    if (wallTo(x, y - 1)) sh.push(`inset 0 2px 0 0 ${wc}`);
+    if (wallTo(x, y + 1)) sh.push(`inset 0 -2px 0 0 ${wc}`);
+    if (wallTo(x - 1, y)) sh.push(`inset 2px 0 0 0 ${wc}`);
+    if (wallTo(x + 1, y)) sh.push(`inset -2px 0 0 0 ${wc}`);
+
     return {
       width: CELL, height: CELL, background: bg,
-      boxShadow: 'inset 0 0 0 0.5px rgba(0,0,0,0.25)',
+      boxShadow: sh.length ? sh.join(', ') : 'inset 0 0 0 0.5px rgba(0,0,0,0.2)',
       fontSize: 13, lineHeight: `${CELL}px`, textAlign: 'center',
       cursor: 'pointer', userSelect: 'none', position: 'relative',
     };
@@ -421,12 +448,9 @@ ${startLine}`;
             </Section>
 
             <Section title="Board">
-              <div className="flex items-center gap-2 text-xs">
-                <label>W <input type="number" value={w} min={10} max={48} onChange={e => resize(Math.max(10, Math.min(48, +e.target.value || 10)), h)} className="w-14 rounded bg-neutral-800 px-1 py-0.5" /></label>
-                <label>H <input type="number" value={h} min={10} max={36} onChange={e => resize(w, Math.max(10, Math.min(36, +e.target.value || 10)))} className="w-14 rounded bg-neutral-800 px-1 py-0.5" /></label>
-              </div>
+              <div className="text-xs text-neutral-400">Size: <span className="font-semibold text-neutral-200">{w}×{h}</span> — locked</div>
               <div className="mt-2 flex flex-wrap gap-1">
-                <SmallBtn onClick={() => { if (confirm('Reset to the blank original template (32×23) and build from scratch? This clears your current map.')) { setW(32); setH(23); setGrid(makeGrid(32, 23)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>↺ Reset to template</SmallBtn>
+                <SmallBtn onClick={() => { if (confirm('Reset to the blank 30×23 template and build from scratch? This clears your current map.')) { setW(BOARD_W); setH(BOARD_H); setGrid(makeGrid(BOARD_W, BOARD_H)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>↺ Reset to template</SmallBtn>
                 <SmallBtn onClick={() => { const t = loadTrial(); setW(t.w); setH(t.h); setGrid(t.grid); setFurniture(t.furniture); setMonsters(t.monsters); setStarts(t.starts); setTraps(t.traps ?? []); }}>Load current Trial</SmallBtn>
                 <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>Clear</SmallBtn>
               </div>
