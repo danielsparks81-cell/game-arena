@@ -18,7 +18,6 @@
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
-import { QUEST1 } from '@/lib/games/heroquest';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
@@ -110,29 +109,34 @@ function normalizeToBoard(s: SaveState): SaveState {
   return { w: BOARD_W, h: BOARD_H, grid, furniture: fix(s.furniture), monsters: fix(s.monsters), starts: fix(s.starts), traps: fix(s.traps) };
 }
 
-/** Convert the live QUEST1 quest into editor state (so you can start from it). */
-function loadTrial(): SaveState {
-  const w = QUEST1.width, h = QUEST1.height;
-  const grid = makeGrid(w, h, '#');
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const k = QUEST1.tiles[y][x];
-      const r = QUEST1.regions[y][x];
-      if (k === 'wall' || k === 'blocked') grid[y][x] = '#';
-      else if (k === 'door') grid[y][x] = '+';
-      else if (k === 'stairs') grid[y][x] = 'S';
-      else grid[y][x] = r.startsWith('room_') ? r.slice(5) : '.';
-    }
-  }
-  const furniture: Furn[] = QUEST1.furniture.map(f => ({
-    kind: f.kind as FurnKind, x: f.cells[0].x, y: f.cells[0].y,
-    gold: f.fixedContent && f.fixedContent.kind === 'gold' ? f.fixedContent.amount : undefined,
-  }));
-  const monsters: Mon[] = QUEST1.monsters.map(m => ({
-    kind: m.kind as MonKind, x: m.at.x, y: m.at.y, named: !!m.displayName, name: m.displayName,
-  }));
-  const starts: Pt[] = QUEST1.startCells.map(c => ({ x: c.x, y: c.y }));
-  return { w, h, grid, furniture, monsters, starts, traps: [] };
+/** Quest 1 "The Trial" laid out on the locked template board (rooms per the
+ *  user's Quest Book read; exact cells are a first pass to nudge). */
+function quest1State(): SaveState {
+  const grid = makeTemplateGrid();
+  for (const [x, y] of [[2, 17], [3, 17], [2, 18], [3, 18]]) grid[y][x] = 'S'; // stairs in room 9
+  const furniture: Furn[] = [
+    { kind: 'tomb', x: 11, y: 2 },                  // C: Fellmarg's tomb
+    { kind: 'chest', x: 13, y: 4, gold: 84 },       // C: 84-gold chest
+    { kind: 'chest', x: 17, y: 11, gold: 120 },     // 5: 120-gold chest (Verag)
+    { kind: 'weapon_rack', x: 11, y: 16 },          // G: chipped weapon rack (empty)
+    { kind: 'chest', x: 20, y: 18 },                // H: empty chest
+  ];
+  const M = (kind: MonKind, x: number, y: number, name?: string): Mon =>
+    ({ kind, x, y, named: !!name, name });
+  const monsters: Mon[] = [
+    M('skeleton', 3, 3), M('skeleton', 4, 4),                                            // A
+    M('mummy', 8, 3, 'Guardian of Fellmarg’s Tomb'), M('zombie', 6, 3), M('zombie', 7, 5), // B
+    M('skeleton', 10, 5), M('skeleton', 13, 5), M('mummy', 11, 3),                       // C
+    M('goblin', 3, 7), M('orc', 4, 9),                                                   // 3
+    M('goblin', 7, 7), M('goblin', 8, 9),                                                // 4
+    M('gargoyle', 14, 11, 'Verag'), M('orc', 13, 10), M('orc', 16, 12), M('dread_warrior', 15, 12), // 5
+    M('goblin', 3, 14), M('orc', 4, 15),                                                 // 6
+    M('orc', 7, 17), M('orc', 8, 19),                                                    // 10
+    M('goblin', 11, 18), M('abomination', 12, 19),                                       // G
+    M('dread_warrior', 17, 18), M('dread_warrior', 19, 18),                              // H
+  ];
+  const starts: Pt[] = [{ x: 2, y: 17 }, { x: 3, y: 17 }, { x: 2, y: 18 }, { x: 3, y: 18 }];
+  return { w: BOARD_W, h: BOARD_H, grid, furniture, monsters, starts, traps: [] };
 }
 
 export default function HeroQuestSandbox() {
@@ -456,8 +460,8 @@ ${startLine}`;
             <Section title="Board">
               <div className="text-xs text-neutral-400">Size: <span className="font-semibold text-neutral-200">{w}×{h}</span> — locked</div>
               <div className="mt-2 flex flex-wrap gap-1">
+                <SmallBtn onClick={() => { const s = quest1State(); setW(s.w); setH(s.h); setGrid(s.grid); setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts); setTraps(s.traps ?? []); }}>★ Load Quest 1</SmallBtn>
                 <SmallBtn onClick={() => { if (confirm('Reset to the locked 30×23 board template? This clears everything you have placed (monsters, furniture, traps, stairs) and restores the default board.')) { setW(BOARD_W); setH(BOARD_H); setGrid(makeTemplateGrid()); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>↺ Reset to template</SmallBtn>
-                <SmallBtn onClick={() => { const t = loadTrial(); setW(t.w); setH(t.h); setGrid(t.grid); setFurniture(t.furniture); setMonsters(t.monsters); setStarts(t.starts); setTraps(t.traps ?? []); }}>Load current Trial</SmallBtn>
                 <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>Clear</SmallBtn>
               </div>
             </Section>
