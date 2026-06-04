@@ -418,14 +418,14 @@ describe('heroquest: monsters spawn when a room is revealed', () => {
     expect(s.monsters.some(m => m.displayName === 'Verag')).toBe(false);
     // Drop hero 0 into Verag's central chamber and take one step so LOS reveals it.
     s = JSON.parse(JSON.stringify(s));
-    s.heroes[1].at = { x: 28, y: 1 };
-    s.heroes[2].at = { x: 29, y: 1 };
-    s.heroes[3].at = { x: 30, y: 1 };
-    s.heroes[0].at = { x: 14, y: 11 };
+    s.heroes[1].at = { x: 1, y: 20 };
+    s.heroes[2].at = { x: 2, y: 20 };
+    s.heroes[3].at = { x: 3, y: 20 };
+    s.heroes[0].at = { x: 11, y: 9 };  // inside Verag's chamber 'e' (not yet revealed)
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;
-    s = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 15, y: 11 } }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 12, y: 9 } })); // a step reveals 'e'
     expect(s.monsters.some(m => m.displayName === 'Verag')).toBe(true);
   });
 });
@@ -482,15 +482,15 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     s = JSON.parse(JSON.stringify(s));
     s.quest.winCondition = { kind: 'escape' };
     // Three heroes already on stair tiles; hero 0 just off, about to step on.
-    s.heroes[1].at = { x: 2, y: 21 };
-    s.heroes[2].at = { x: 3, y: 21 };
-    s.heroes[3].at = { x: 2, y: 22 };
-    s.heroes[0].at = { x: 3, y: 20 };
+    s.heroes[1].at = { x: 2, y: 13 };
+    s.heroes[2].at = { x: 3, y: 13 };
+    s.heroes[3].at = { x: 2, y: 14 };
+    s.heroes[0].at = { x: 4, y: 15 }; // inside the entrance room, off the stairs
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;
     expect(s.phase).not.toBe('finished');         // not all on the stairs yet
-    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 22 } }));
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 14 } }));
     expect(out.phase).toBe('finished');
     expect(out.winner).toBe('heroes');
   });
@@ -499,10 +499,10 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     let s = startedGame();
     s = JSON.parse(JSON.stringify(s));
     s.quest.winCondition = { kind: 'escape' };
-    s.heroes[0].at = { x: 2, y: 21 };  // on stairs
-    s.heroes[1].at = { x: 3, y: 21 };  // on stairs
-    s.heroes[2].at = { x: 2, y: 22 };  // on stairs
-    s.heroes[3].at = { x: 5, y: 18 };  // still in the dungeon, alive
+    s.heroes[0].at = { x: 2, y: 13 };  // on stairs
+    s.heroes[1].at = { x: 3, y: 13 };  // on stairs
+    s.heroes[2].at = { x: 2, y: 14 };  // on stairs
+    s.heroes[3].at = { x: 5, y: 16 };  // in the entrance room but NOT on a stair
     s.heroes[3].hasRolled = true;
     s.heroes[3].moveLeft = 1;
     s.turnIndex = 3;
@@ -516,14 +516,14 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     s.quest.winCondition = { kind: 'escape' };
     s.quest.reward = { kind: 'gold', amount: 240, split: 'divided' };
     const before = s.heroes.map(h => h.gold);
-    s.heroes[1].at = { x: 2, y: 21 };
-    s.heroes[2].at = { x: 3, y: 21 };
-    s.heroes[3].at = { x: 2, y: 22 };
-    s.heroes[0].at = { x: 3, y: 20 };
+    s.heroes[1].at = { x: 2, y: 13 };
+    s.heroes[2].at = { x: 3, y: 13 };
+    s.heroes[3].at = { x: 2, y: 14 };
+    s.heroes[0].at = { x: 4, y: 15 };
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;
-    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 22 } }));
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 14 } }));
     expect(out.phase).toBe('finished');
     out.heroes.forEach((h, i) => expect(h.gold).toBe(before[i] + 60)); // 240 / 4
   });

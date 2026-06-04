@@ -222,11 +222,12 @@ function makeQuest1(): QuestDef {
   //   B = empty treasure chest
   //   C = the mummy guardian of Fellmarg's tomb (placed with the monsters, below)
   //   D = chest with 84 gold (first searcher)   E = chest with 120 gold (first searcher)
-  furn('rack',  5,  3, false, true,  { kind: 'nothing', flavor: 'The weapons here are chipped, rusted, and broken — nothing you would want.' }); // A
-  furn('chest', 27, 3, false, false, { kind: 'nothing', flavor: 'The chest is empty.' });                                                       // B
-  furn('chest', 9,  8, false, false, { kind: 'gold', amount: 84 });                                                                             // D
-  furn('chest', 27, 8, false, false, { kind: 'gold', amount: 120 });                                                                            // E
-  furn('tomb',  15, 10, true,  true);  // Fellmarg's tomb (in the catacombs, with Verag + its guardian)
+  furn('rack',  12, 15, false, true,  { kind: 'nothing', flavor: 'The weapons here are chipped, rusted, and broken — nothing you would want.' }); // A (lower-centre room)
+  furn('chest', 20, 15, false, false, { kind: 'nothing', flavor: 'The chest is empty.' });                                                        // B (lower-right room)
+  furn('chest', 20, 3,  false, false, { kind: 'gold', amount: 84 });                                                                              // D (upper-right room)
+  furn('chest', 15, 8,  false, false, { kind: 'gold', amount: 120 });                                                                             // E (Verag's chamber)
+  furn('tomb',  11, 2,  true,  true);   // Fellmarg's tomb (upper-centre, guarded by the mummy)
+  furn('table', 5,  16, false, false);  // entrance-room furniture (flavour)
 
   // ---- Monsters (spawn when their room is first revealed). roomId is read
   //      straight from the shared board so placements just need a cell. ----
@@ -251,13 +252,13 @@ function makeQuest1(): QuestDef {
     });
   };
   // Goblins + orcs spread through the catacombs (faithful to the book's roster).
-  mob('goblin', 9, 3); mob('goblin', 19, 3); mob('goblin', 23, 3);
-  mob('goblin', 5, 9); mob('goblin', 23, 9); mob('goblin', 5, 14);
-  mob('orc', 13, 3); mob('orc', 13, 18); mob('orc', 24, 18); mob('orc', 27, 18);
+  mob('goblin', 4, 2); mob('goblin', 5, 4); mob('goblin', 20, 4);  // a (upper-left) + c
+  mob('goblin', 4, 9); mob('goblin', 12, 17); mob('goblin', 14, 16); // d + i (room A)
+  mob('orc', 13, 16); mob('orc', 19, 17); mob('orc', 21, 9); mob('orc', 5, 9); // i, j, f, d
   // Note C — the mummy guardian of Fellmarg's tomb rolls 4 Attack dice (instead of 3).
-  mob('mummy', 17, 11, { attack: 4, displayName: 'Guardian of Fellmarg’s Tomb' });
-  // Verag, a foul gargoyle, lairs in the central catacomb beside the tomb.
-  mob('gargoyle', 16, 11, { displayName: 'Verag' });
+  mob('mummy', 13, 3, { attack: 4, displayName: 'Guardian of Fellmarg’s Tomb' }); // b (upper-centre)
+  // Verag, a foul gargoyle, lairs in the central chamber.
+  mob('gargoyle', 13, 9, { displayName: 'Verag' }); // e (centre)
 
   return {
     id: 'the_trial',

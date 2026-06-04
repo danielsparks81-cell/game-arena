@@ -52,7 +52,7 @@ describe('heroquest base board', () => {
   it('is 32x23 with many distinct rooms', () => {
     expect(BASE_BOARD.width).toBe(32);
     expect(BASE_BOARD.height).toBe(23);
-    expect(BASE_BOARD.rooms.length).toBeGreaterThanOrEqual(12);
+    expect(BASE_BOARD.rooms.length).toBeGreaterThanOrEqual(8);
     expect(new Set(BASE_BOARD.rooms).size).toBe(BASE_BOARD.rooms.length);
   });
 

@@ -15,30 +15,35 @@ import type { TileKind, Coord } from './types';
 export const BOARD_W = 32;
 export const BOARD_H = 23;
 
+// Quest 1 "The Trial" board, reproducing the Quest Book's arrangement with our
+// larger rooms + double-wide halls: the entrance room 'h' is lower-left with the
+// staircase in its UPPER-LEFT corner and its only door on the BOTTOM (to the
+// bottom hallway); Verag's chamber 'e' is central; the right ~third is solid
+// rock for this quest. Validated for connectivity (every room reachable).
 const BOARD_MAP: string[] = [
-  '##..............................', // 0
-  '##..............................', // 1
-  '##..ggggeeeebbbb..bbbbeeeeffff..', // 2
-  '##..ggggeeeebbbb..bbbbeeeeffff..', // 3
-  '##..ggggeeeebbbb..bbbbeeeeffff..', // 4
-  '##..ggggeeeebbbb..bbbbeeeeffff..', // 5
-  '##..hhhhddddbbbb..bbbbggggdddd..', // 6
-  '##..hhhhdddd..........ggggdddd..', // 7
-  '##..hhhhdddd..........ggggdddd..', // 8
-  '##..hhhhdddd..aaaaaa..ggggdddd..', // 9
-  '##..hhhhdddd..aaaaaa..ggggdddd..', // 10
-  '##............aaaaaa............', // 11
-  '##............aaaaaa............', // 12
-  '##..hhhhbbdd..aaaaaa..hhhhdddd..', // 13
-  '##..hhhhbbdd..........hhhhdddd..', // 14
-  '##..hhhhbbdd..........hhhhdddd..', // 15
-  '##..hhhheeeebbbb..bbbbbhhhdddd..', // 16
-  '##..ggggeeeebbbb..bbbbbeeegggg..', // 17
-  '##..ggggeeeebbbb..bbbbbeeegggg..', // 18
-  '##..ggggeeeebbbb..bbbbbeeegggg..', // 19
-  '##iiiiggeeeebbbb..bbbbbeeegggg..', // 20  (entrance room 'i')
-  '##SSii..........................', // 21  (entry staircase inside the entrance room)
-  '##SSii..........................', // 22
+  '################################', // 0
+  '#.aaaaaa..bbbbbb..cccccc..######', // 1   a=upper-left  b=mummy/tomb  c=tomb/84g
+  '#.aaaaaa..bbbbbb..cccccc..######', // 2
+  '#.aaaaaa..bbbbbb..cccccc..######', // 3
+  '#.aaaaaa..bbbbbb..cccccc..######', // 4
+  '#.aaaaaa..bbbbbb..cccccc..######', // 5
+  '#.........................######', // 6   (mid hall)
+  '#.dddddd..eeeeeeee..ffff..######', // 7   d=throne  e=VERAG/120g  f=side room
+  '#.dddddd..eeeeeeee..ffff..######', // 8
+  '#.dddddd..eeeeeeee..ffff..######', // 9
+  '#.dddddd..eeeeeeee..ffff..######', // 10
+  '#.........eeeeeeee........######', // 11
+  '#.######..................######', // 12  (mid hall; entrance top walled off)
+  '##SShhhh#.iiiiii..jjjjjj..######', // 13  h=entrance (stairs UL)  i=A/rack  j=B/chest
+  '##SShhhh#.iiiiii..jjjjjj..######', // 14
+  '##hhhhhh#.iiiiii..jjjjjj..######', // 15
+  '##hhhhhh#.iiiiii..jjjjjj..######', // 16
+  '##hhhhhh#.iiiiii..jjjjjj..######', // 17
+  '##hhhhhh#.iiiiii..jjjjjj..######', // 18  (entrance opens ONLY at the bottom ↓)
+  '#.........................######', // 19  (bottom hallway)
+  '#.........................######', // 20
+  '################################', // 21
+  '################################', // 22
 ];
 
 export type BaseBoard = {
@@ -52,7 +57,7 @@ export type BaseBoard = {
   startCells: { x: number; y: number }[];
 };
 
-const ROOM_LETTERS = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']);
+const ROOM_LETTERS = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
 
 /** Parse the ASCII board into tiles + regions, flood-filling each contiguous
  *  block of one room letter into a distinct room_N region. */
