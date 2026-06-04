@@ -16,7 +16,7 @@ import {
 import HeroLobby from './heroquest/HeroLobby';
 import HeroQuestBoardCanvas from './heroquest/Board';
 import CharacterSheet from './heroquest/CharacterSheet';
-import DicePanel from './heroquest/DicePanel';
+import DicePanel, { DiceRollOverlay } from './heroquest/DicePanel';
 import QuestBriefing from './heroquest/QuestBriefing';
 import { HeartIcon, CoinIcon } from './heroquest/Art';
 import { safeAccent } from '@/lib/accentColors';
@@ -251,8 +251,8 @@ function PlayingView({
         </div>
       </div>
 
-      {/* Map fills the right column. */}
-      <div className="min-h-0 min-w-0">
+      {/* Map fills the right column. The roll overlay pops up over it. */}
+      <div className="relative min-h-0 min-w-0">
         <HeroQuestBoardCanvas
           state={state}
           currentUserId={currentUserId}
@@ -264,6 +264,7 @@ function PlayingView({
           spellTargetMonsters={pendingSpell?.target === 'monster'}
           onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
         />
+        <DiceRollOverlay attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
       </div>
     </div>
   );
