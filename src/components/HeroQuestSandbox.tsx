@@ -426,8 +426,9 @@ ${startLine}`;
                 <label>H <input type="number" value={h} min={10} max={36} onChange={e => resize(w, Math.max(10, Math.min(36, +e.target.value || 10)))} className="w-14 rounded bg-neutral-800 px-1 py-0.5" /></label>
               </div>
               <div className="mt-2 flex flex-wrap gap-1">
+                <SmallBtn onClick={() => { if (confirm('Reset to the blank original template (32×23) and build from scratch? This clears your current map.')) { setW(32); setH(23); setGrid(makeGrid(32, 23)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>↺ Reset to template</SmallBtn>
                 <SmallBtn onClick={() => { const t = loadTrial(); setW(t.w); setH(t.h); setGrid(t.grid); setFurniture(t.furniture); setMonsters(t.monsters); setStarts(t.starts); setTraps(t.traps ?? []); }}>Load current Trial</SmallBtn>
-                <SmallBtn onClick={() => { if (confirm('Clear the whole map?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>Clear</SmallBtn>
+                <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>Clear</SmallBtn>
               </div>
             </Section>
 
