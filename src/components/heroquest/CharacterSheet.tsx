@@ -43,6 +43,51 @@ export default function CharacterSheet({
   const d = HERO_DEFAULTS[hero.klass];
   const accent = safeAccent(hero.accent_color);
 
+  // Compact party panel: a dense 2-row card (header + one stat line) so all four
+  // heroes fit the sidebar without being cut off. Stats carry hover tooltips.
+  if (compact) {
+    const dead = hero.body <= 0;
+    return (
+      <div
+        className={`rounded-lg border-2 overflow-hidden text-amber-950 ${dead ? 'opacity-50 grayscale' : ''}`}
+        style={{
+          background: PARCHMENT_BG,
+          borderColor: isActive ? accent : '#7a5a08',
+          boxShadow: isActive ? `0 0 12px ${accent}` : undefined,
+        }}
+      >
+        <div
+          className="flex items-center gap-2 border-b border-amber-900/40 px-2 py-0.5"
+          style={{ background: `linear-gradient(180deg, ${accent}aa 0%, ${accent}44 100%)` }}
+        >
+          <HeroToken klass={hero.klass} size={24} color={accent} ring={isActive ? '#fff' : undefined} />
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-[11px] font-bold uppercase tracking-wide">{hero.username}</div>
+            <div className="text-[9px] font-semibold uppercase tracking-wide text-amber-900/80">{d.name}</div>
+          </div>
+          <span title="Attack dice — how many combat dice you roll to attack" className="flex items-center gap-0.5 rounded bg-amber-950/20 px-1.5 py-0.5 text-xs font-bold tabular-nums">
+            <SwordIcon size={13} />{hero.attack}
+          </span>
+          <span title="Defend dice — how many combat dice you roll to defend" className="flex items-center gap-0.5 rounded bg-amber-950/20 px-1.5 py-0.5 text-xs font-bold tabular-nums">
+            <ShieldIcon size={13} />{hero.defense}
+          </span>
+        </div>
+        <div className="flex items-center gap-3 px-2 py-1 text-[11px] font-bold tabular-nums">
+          <span title="Body Points — your health; you die at 0" className="flex items-center gap-1">
+            <HeartIcon size={12} filled /> {hero.body}/{hero.bodyMax}
+          </span>
+          <span title="Mind Points — wisdom & resistance to magic" className="flex items-center gap-1">
+            <MindIcon size={12} filled /> {hero.mind}/{hero.mindMax}
+          </span>
+          <span title="Gold collected" className="ml-auto flex items-center gap-1">
+            <CoinIcon size={12} /> {hero.gold}
+          </span>
+        </div>
+        {hero.items.length > 0 && <div className="px-2 pb-1"><CompactItems hero={hero} /></div>}
+      </div>
+    );
+  }
+
   return (
     <div
       className="rounded-xl border-2 shadow-lg overflow-hidden text-amber-950"

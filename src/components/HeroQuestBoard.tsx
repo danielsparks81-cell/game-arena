@@ -361,17 +361,25 @@ function ActionPanel({
 
   return (
     <div className="rounded-lg border border-amber-900/50 bg-neutral-900/70 p-2">
-      <div className="grid grid-cols-2 gap-2">
-        <ActionButton label={moveText} icon="🎲" onClick={onRollMove} disabled={!canAct || myHero.hasRolled || myHero.inPit} flavor="amber" />
-        <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && onAttack(adjacentMonsterId)} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose" />
-        <ActionButton label="Search treasure" icon="💰" onClick={onSearchTreasure} disabled={!canAct || acted} flavor="emerald" />
-        <ActionButton label="Search traps" icon="🪤" onClick={onSearchTraps} disabled={!canAct || acted} flavor="orange" />
-        <ActionButton label="Secret doors" icon="🚪" onClick={onSearchSecrets} disabled={!canAct || acted} flavor="indigo" />
-        <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && onDisarmTrap(disarmableTrapId)} disabled={!canAct || acted || !disarmableTrapId} flavor="orange" />
+      <div className="grid grid-cols-2 gap-1.5">
+        <ActionButton label={moveText} icon="🎲" onClick={onRollMove} disabled={!canAct || myHero.hasRolled || myHero.inPit} flavor="amber"
+          tip="Roll 3d4 for movement, then drag your hero square by square (no diagonals). You don't have to use it all." />
+        <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && onAttack(adjacentMonsterId)} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose"
+          tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
+        <ActionButton label="Search treasure" icon="💰" onClick={onSearchTreasure} disabled={!canAct || acted} flavor="emerald"
+          tip="Search the room you're in for treasure — only if no monsters are in it, and once per hero per room." />
+        <ActionButton label="Search traps" icon="🪤" onClick={onSearchTraps} disabled={!canAct || acted} flavor="orange"
+          tip="Reveal any hidden traps in your room or corridor (only if no monsters are visible). Search before you loot a chest!" />
+        <ActionButton label="Secret doors" icon="🚪" onClick={onSearchSecrets} disabled={!canAct || acted} flavor="indigo"
+          tip="Search your room or corridor for hidden doors (only if no monsters are visible)." />
+        <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && onDisarmTrap(disarmableTrapId)} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
+          tip="Disarm an adjacent discovered trap. The Dwarf is best at it; everyone else needs a Tool Kit." />
         {/* Jumping is part of movement, not an action — never gated by `acted`. */}
-        <ActionButton label="Jump trap" icon="🤸" onClick={() => jumpableTrapId && onJumpTrap(jumpableTrapId)} disabled={!canAct || !jumpableTrapId} flavor="amber" />
+        <ActionButton label="Jump trap" icon="🤸" onClick={() => jumpableTrapId && onJumpTrap(jumpableTrapId)} disabled={!canAct || !jumpableTrapId} flavor="amber"
+          tip="Leap over a discovered trap (needs 2+ movement and a clear landing). A shield clears it; a skull springs it. Not an action." />
         <div className="relative w-full">
-          <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo" />
+          <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo"
+            tip="Cast one of your spells (Elf/Wizard) at anything you can see. Each spell can be cast once per quest." />
           {spellMenu && spells.length > 0 && (
             <div className="absolute right-0 z-30 mt-1 w-52 rounded-md border border-amber-700/60 bg-neutral-900 p-1 shadow-xl">
               {spells.map(s => (
@@ -389,22 +397,26 @@ function ActionPanel({
           )}
         </div>
       </div>
-      <div className="mt-2 grid grid-cols-2 gap-2">
+      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
         {myHero.inPit
-          ? <ActionButton label="Climb out (-2)" icon="⬆️" onClick={onClimbPit} disabled={!canAct || myHero.moveLeft < 2} flavor="orange" />
+          ? <ActionButton label="Climb out (-2)" icon="⬆️" onClick={onClimbPit} disabled={!canAct || myHero.moveLeft < 2} flavor="orange"
+              tip="Climb out of the pit you fell into (costs 2 movement)." />
           : <div />}
-        <ActionButton label="End turn" icon="▶" onClick={onEndTurn} disabled={!canAct} flavor="slate" />
+        <ActionButton label="End turn" icon="▶" onClick={onEndTurn} disabled={!canAct} flavor="slate"
+          tip="Finish your turn and pass to the next hero (then Zargon moves the monsters)." />
       </div>
     </div>
   );
 }
 
-function ActionButton({ label, icon, onClick, disabled, flavor }: {
+function ActionButton({ label, icon, onClick, disabled, flavor, tip }: {
   label: string;
   icon: string;
   onClick: () => void;
   disabled: boolean;
   flavor: 'amber' | 'emerald' | 'rose' | 'indigo' | 'orange' | 'slate';
+  /** Hover tooltip explaining what the action does (for new players). */
+  tip?: string;
 }) {
   const FLAVORS: Record<typeof flavor, { from: string; to: string; border: string }> = {
     amber:   { from: '#8a5a08', to: '#3a2408', border: '#d4a043' },
@@ -419,7 +431,8 @@ function ActionButton({ label, icon, onClick, disabled, flavor }: {
     <button
       onClick={onClick}
       disabled={disabled}
-      className="flex w-full items-center justify-center gap-1 rounded-md border-2 px-2 py-1.5 text-xs font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-30 hover:shadow-md"
+      title={tip}
+      className="flex w-full items-center justify-center gap-1 rounded border px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-30 hover:shadow-md"
       style={{
         background: `linear-gradient(180deg, ${f.from} 0%, ${f.to} 100%)`,
         borderColor: f.border,
@@ -428,7 +441,7 @@ function ActionButton({ label, icon, onClick, disabled, flavor }: {
         textShadow: '0 1px 1px rgba(0,0,0,0.6)',
       }}
     >
-      <span className="text-sm">{icon}</span>
+      <span className="text-sm leading-none">{icon}</span>
       <span className="truncate">{label}</span>
     </button>
   );
