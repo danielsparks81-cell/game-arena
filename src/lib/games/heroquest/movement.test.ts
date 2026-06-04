@@ -463,6 +463,17 @@ describe('heroquest Quest 1 content fidelity (vs the Quest Book)', () => {
     expect(QUEST1.traps.length).toBe(0);
     expect(QUEST1.doors.every(d => !d.secret)).toBe(true);
   });
+
+  it('starts the heroes INSIDE an enclosed entrance room (not bare corridor)', () => {
+    const s = startedGame();
+    for (const start of QUEST1.startCells) {
+      const t = s.tiles[start.y][start.x];
+      expect(t.kind).toBe('stairs');                 // still a start/exit tile
+      expect(t.region.startsWith('room_')).toBe(true); // but now part of a room
+    }
+    // The entrance room is revealed from turn 1 (heroes stand in it).
+    expect(s.tiles[QUEST1.startCells[0].y][QUEST1.startCells[0].x].revealed).toBe(true);
+  });
 });
 
 describe('heroquest win condition: escape (all heroes reach the stairs)', () => {

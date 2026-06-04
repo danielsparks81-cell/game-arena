@@ -36,9 +36,9 @@ const BOARD_MAP: string[] = [
   '##..ggggeeeebbbb..bbbbbeeegggg..', // 17
   '##..ggggeeeebbbb..bbbbbeeegggg..', // 18
   '##..ggggeeeebbbb..bbbbbeeegggg..', // 19
-  '##..ggggeeeebbbb..bbbbbeeegggg..', // 20
-  '##SS............................', // 21  (entry staircase, bottom-left)
-  '##SS............................', // 22
+  '##iiiiggeeeebbbb..bbbbbeeegggg..', // 20  (entrance room 'i')
+  '##SSii..........................', // 21  (entry staircase inside the entrance room)
+  '##SSii..........................', // 22
 ];
 
 export type BaseBoard = {
@@ -52,7 +52,7 @@ export type BaseBoard = {
   startCells: { x: number; y: number }[];
 };
 
-const ROOM_LETTERS = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']);
+const ROOM_LETTERS = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']);
 
 /** Parse the ASCII board into tiles + regions, flood-filling each contiguous
  *  block of one room letter into a distinct room_N region. */
@@ -67,7 +67,10 @@ export function buildBaseBoard(): BaseBoard {
     for (let x = 0; x < W; x++) {
       const ch = BOARD_MAP[y][x] ?? '#';
       if (ch === '.') { tiles[y][x] = 'floor'; regions[y][x] = 'corridor'; }
-      else if (ch === 'S') { tiles[y][x] = 'stairs'; regions[y][x] = 'stairway'; startCells.push({ x, y }); }
+      // Stairs are walkable + flagged as a start/exit; their REGION is assigned
+      // after flood-fill so they join the entrance room they sit in (heroes then
+      // start "in a room" that reveals on turn 1).
+      else if (ch === 'S') { tiles[y][x] = 'stairs'; startCells.push({ x, y }); }
       else if (ROOM_LETTERS.has(ch)) { tiles[y][x] = 'floor'; letter[y][x] = ch; }
       // '#' (and anything else) stays a wall.
     }
@@ -98,6 +101,19 @@ export function buildBaseBoard(): BaseBoard {
       }
     }
   }
+
+  // Assign the stair cluster to the room it sits in, so the heroes begin "in a
+  // room" (the entrance room) rather than bare corridor. Fall back to a distinct
+  // 'stairway' region if the stairs aren't enclosed by a room.
+  let stairRegion = 'stairway';
+  for (const sc of startCells) {
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const r = regions[sc.y + dy]?.[sc.x + dx];
+      if (r && r.startsWith('room_')) { stairRegion = r; break; }
+    }
+    if (stairRegion !== 'stairway') break;
+  }
+  for (const sc of startCells) regions[sc.y][sc.x] = stairRegion;
 
   return { width: W, height: H, tiles, regions, rooms, startCells };
 }
