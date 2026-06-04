@@ -1,18 +1,21 @@
 'use client';
 
-// HeroQuest quest-map review gallery. Renders all 14 Quest Book quests on the
-// shared 26×19 board so the layouts can be flipped through and checked against a
-// physical copy. Read-only — this is a comparison tool, not the playable board.
+// HeroQuest quest-map review gallery. Renders quests on the LOCKED 32×23 board
+// (wider halls + larger rooms — the live game board). Read-only comparison tool.
+// Quest 1 placement is final; quests 2–14 are rough drafts until we lock the
+// placement ruleset on Quest 1 and apply it across the board.
 
 import { useState } from 'react';
-import { BOARD26 } from '@/lib/games/heroquest/quests/board26';
+import { BOARD32, ROOMS32, type RoomLabel, type Cell } from '@/lib/games/heroquest/quests/board32';
+import { generateConnectingDoors } from '@/lib/games/heroquest/board';
 import {
   QUEST_MAPS, type QuestMap, type MapMonster, type MapFurniture, type MapTrap,
 } from '@/lib/games/heroquest/quests/maps';
 
-const CELL = 26;
-const W = BOARD26.width * CELL;
-const H = BOARD26.height * CELL;
+const CELL = 24;
+const W = BOARD32.width * CELL;
+const H = BOARD32.height * CELL;
+const DOORS = generateConnectingDoors();
 
 const MON: Record<MapMonster['kind'], { c: string; t: string; label: string }> = {
   goblin:        { c: '#4d7c2f', t: '#fff', label: 'Gob' },
@@ -32,70 +35,104 @@ const FURN_GLYPH: Record<MapFurniture['kind'], string> = {
 };
 
 const TRAP_GLYPH: Record<MapTrap['kind'], { g: string; c: string }> = {
-  pit: { g: '▢', c: '#a16207' },
-  spear: { g: '╱', c: '#ea580c' },
-  falling_block: { g: '▨', c: '#b91c1c' },
-  chest: { g: '▣', c: '#a16207' },
+  pit: { g: '▢', c: '#a16207' }, spear: { g: '╱', c: '#ea580c' },
+  falling_block: { g: '▨', c: '#b91c1c' }, chest: { g: '▣', c: '#a16207' },
 };
 
-function Board({ q }: { q: QuestMap }) {
-  const rock = new Set(q.rockRooms);
-  const stairSet = new Set(q.stairs.map(s => `${s.x},${s.y}`));
+/** Resolve overlaps: items sharing a cell get fanned out around the centre. */
+function spread<T extends { at: Cell }>(items: T[]): (T & { px: number; py: number })[] {
+  const groups = new Map<string, T[]>();
+  for (const it of items) {
+    const k = `${it.at.x},${it.at.y}`;
+    (groups.get(k) ?? groups.set(k, []).get(k)!).push(it);
+  }
+  const out: (T & { px: number; py: number })[] = [];
+  for (const [k, list] of groups) {
+    const [cx, cy] = k.split(',').map(Number);
+    const bx = cx * CELL + CELL / 2, by = cy * CELL + CELL / 2;
+    if (list.length === 1) { out.push({ ...list[0], px: bx, py: by }); continue; }
+    const rad = CELL * 0.32;
+    list.forEach((it, i) => {
+      const a = (i / list.length) * Math.PI * 2 - Math.PI / 2;
+      out.push({ ...it, px: bx + Math.cos(a) * rad, py: by + Math.sin(a) * rad });
+    });
+  }
+  return out;
+}
 
+function StairFan({ s }: { s: typeof BOARD32.stairway }) {
+  // Fan of steps radiating from the room-facing (bottom-right) corner.
+  const x0 = s.minX * CELL, y0 = s.minY * CELL;
+  const w = (s.maxX - s.minX + 1) * CELL, h = (s.maxY - s.minY + 1) * CELL;
+  const ox = x0, oy = y0;                  // origin corner (top-left of the staircase)
+  const R = Math.max(w, h);
+  const arcs = [], rads = [];
+  for (let i = 1; i <= 6; i++) {
+    const r = (R * i) / 6;
+    arcs.push(<path key={`a${i}`} d={`M ${ox + r} ${oy} A ${r} ${r} 0 0 1 ${ox} ${oy + r}`} fill="none" stroke="#475569" strokeWidth="1.3" />);
+  }
+  for (const deg of [15, 38, 62, 85]) {
+    const a = (deg * Math.PI) / 180;
+    rads.push(<line key={`r${deg}`} x1={ox} y1={oy} x2={ox + Math.cos(a) * R} y2={oy + Math.sin(a) * R} stroke="#475569" strokeWidth="1.1" />);
+  }
   return (
-    <svg viewBox={`-2 -2 ${W + 4} ${H + 4}`} className="w-full h-auto rounded-lg border border-stone-700 bg-stone-900">
-      <defs>
-        <pattern id="hatch" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
-          <line x1="0" y1="0" x2="0" y2="6" stroke="#1c1917" strokeWidth="3" />
-        </pattern>
-        <pattern id="stairs" width={CELL} height={CELL / 4} patternUnits="userSpaceOnUse">
-          <rect width={CELL} height={CELL / 4} fill="#1e3a5f" />
-          <line x1="0" y1="0" x2={CELL} y2="0" stroke="#7dd3fc" strokeWidth="1.5" />
-        </pattern>
-      </defs>
+    <g>
+      <rect x={x0} y={y0} width={w} height={h} fill="#94a3b8" stroke="#1e3a5f" strokeWidth="2" />
+      {arcs}{rads}
+      <text x={x0 + w - 3} y={y0 + h - 4} textAnchor="end" fontSize="8" fontWeight="800" fill="#1e293b">STAIRS · 1 space</text>
+    </g>
+  );
+}
 
-      {/* cells */}
-      {BOARD26.regionAt.map((row, y) =>
-        row.map((reg, x) => {
-          const isRoom = reg.startsWith('room_');
-          const isRock = isRoom && rock.has(reg);
-          const isStair = stairSet.has(`${x},${y}`);
-          const fill = isStair ? 'url(#stairs)' : isRock ? '#292524' : isRoom ? '#e7e2d6' : '#cfc9ba';
-          return (
-            <rect key={`${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL}
-              fill={fill} stroke="#a8a29e" strokeWidth="0.5" />
-          );
+function Board({ q }: { q: QuestMap }) {
+  const monsters = spread(q.monsters);
+  const furniture = spread(q.furniture);
+  return (
+    <svg viewBox={`-2 -2 ${W + 4} ${H + 4}`} className="w-full h-auto rounded-lg border border-stone-700 bg-black">
+      {/* tiles */}
+      {BOARD32.tiles.map((row, y) =>
+        row.map((tile, x) => {
+          if (tile === 'stairs') return null; // drawn as one fan below
+          const reg = BOARD32.regions[y][x];
+          const fill = tile === 'wall' ? '#161311' : reg.startsWith('room_') ? '#e7e2d6' : '#a8a29e';
+          return <rect key={`${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL} fill={fill} stroke="#3f3a36" strokeWidth="0.4" />;
         }),
       )}
-      {/* rock hatch overlay */}
-      {BOARD26.regionAt.map((row, y) =>
-        row.map((reg, x) =>
-          reg.startsWith('room_') && rock.has(reg)
-            ? <rect key={`r${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL} fill="url(#hatch)" opacity="0.5" />
-            : null,
-        ),
-      )}
-      {/* room outlines (thicker borders where region changes) */}
-      {BOARD26.regionAt.map((row, y) =>
+      {/* room outlines */}
+      {BOARD32.regions.map((row, y) =>
         row.map((reg, x) => {
-          if (!reg.startsWith('room_')) return null;
-          const edges: React.ReactNode[] = [];
+          if (!reg.startsWith('room_') || BOARD32.tiles[y][x] === 'stairs') return null;
+          const diff = (nx: number, ny: number) =>
+            (BOARD32.regions[ny]?.[nx] ?? '') !== reg || BOARD32.tiles[ny]?.[nx] === 'stairs';
+          const E: React.ReactNode[] = [];
           const mk = (x1: number, y1: number, x2: number, y2: number, k: string) =>
-            edges.push(<line key={k} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#44403c" strokeWidth="1.6" />);
-          const diff = (nx: number, ny: number) => (BOARD26.regionAt[ny]?.[nx] ?? '') !== reg;
+            E.push(<line key={k} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#44403c" strokeWidth="1.6" />);
           if (diff(x - 1, y)) mk(x * CELL, y * CELL, x * CELL, (y + 1) * CELL, `l${x},${y}`);
           if (diff(x + 1, y)) mk((x + 1) * CELL, y * CELL, (x + 1) * CELL, (y + 1) * CELL, `r${x},${y}`);
           if (diff(x, y - 1)) mk(x * CELL, y * CELL, (x + 1) * CELL, y * CELL, `t${x},${y}`);
           if (diff(x, y + 1)) mk(x * CELL, (y + 1) * CELL, (x + 1) * CELL, (y + 1) * CELL, `b${x},${y}`);
-          return <g key={`o${x},${y}`}>{edges}</g>;
+          return E.length ? <g key={`o${x},${y}`}>{E}</g> : null;
         }),
       )}
+      {/* doors (auto-connecting, orange) */}
+      {DOORS.map((d, i) => d.crossings.map((cr, j) => {
+        const mx = (cr.a.x + cr.b.x + 1) / 2 * CELL, my = (cr.a.y + cr.b.y + 1) / 2 * CELL;
+        const horiz = cr.a.y === cr.b.y;
+        return <rect key={`d${i}-${j}`} x={mx - (horiz ? 2 : CELL * 0.34)} y={my - (horiz ? CELL * 0.34 : 2)}
+          width={horiz ? 4 : CELL * 0.68} height={horiz ? CELL * 0.68 : 4} fill="#ea7c2f" stroke="#7c2d12" strokeWidth="0.5" />;
+      }))}
 
-      {/* start marker */}
+      {/* room labels */}
+      {(Object.keys(ROOMS32) as RoomLabel[]).map(l => {
+        const r = ROOMS32[l];
+        return <text key={l} x={r.minX * CELL + 2} y={r.minY * CELL + 9} fontSize="8" fontWeight="700" fill="#9a8f7a">{l}</text>;
+      })}
+
+      <StairFan s={BOARD32.stairway} />
       {q.startMarker && (
         <g transform={`translate(${q.startMarker.x * CELL + CELL / 2},${q.startMarker.y * CELL + CELL / 2})`}>
           <rect x={-CELL / 2} y={-CELL / 2} width={CELL} height={CELL} fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3 2" />
-          <text y="4" textAnchor="middle" fontSize="9" fill="#22d3ee" fontWeight="700">START</text>
+          <text y="4" textAnchor="middle" fontSize="8" fill="#22d3ee" fontWeight="700">START</text>
         </g>
       )}
 
@@ -104,35 +141,25 @@ function Board({ q }: { q: QuestMap }) {
         <text key={`t${i}`} x={t.at.x * CELL + CELL / 2} y={t.at.y * CELL + CELL / 2 + 5}
           textAnchor="middle" fontSize="15" fontWeight="800" fill={TRAP_GLYPH[t.kind].c}>{TRAP_GLYPH[t.kind].g}</text>
       ))}
-
       {/* furniture */}
-      {q.furniture.map((f, i) => (
-        <g key={`f${i}`} transform={`translate(${f.at.x * CELL},${f.at.y * CELL})`}>
-          <rect x="3" y="3" width={CELL - 6} height={CELL - 6} rx="2" fill="#6b4423" stroke="#3f2a14" strokeWidth="1" />
-          <text x={CELL / 2} y={CELL / 2 + 5} textAnchor="middle" fontSize="13" fill="#fde68a">{FURN_GLYPH[f.kind]}</text>
-          {f.label && <text x={CELL - 3} y="9" textAnchor="end" fontSize="8" fontWeight="800" fill="#fff">{f.label}</text>}
+      {furniture.map((f, i) => (
+        <g key={`f${i}`} transform={`translate(${f.px},${f.py})`}>
+          <rect x={-CELL / 2 + 3} y={-CELL / 2 + 3} width={CELL - 6} height={CELL - 6} rx="2" fill="#6b4423" stroke="#3f2a14" strokeWidth="1" />
+          <text y="5" textAnchor="middle" fontSize="13" fill="#fde68a">{FURN_GLYPH[f.kind]}</text>
+          {f.label && <text x={CELL / 2 - 4} y={-CELL / 2 + 9} textAnchor="end" fontSize="8" fontWeight="800" fill="#fff">{f.label}</text>}
         </g>
       ))}
-
       {/* monsters */}
-      {q.monsters.map((m, i) => {
+      {monsters.map((m, i) => {
         const s = MON[m.kind];
         return (
-          <g key={`m${i}`} transform={`translate(${m.at.x * CELL + CELL / 2},${m.at.y * CELL + CELL / 2})`}>
+          <g key={`m${i}`} transform={`translate(${m.px},${m.py})`}>
             <circle r={CELL / 2 - 2} fill={s.c} stroke={m.name ? '#fbbf24' : '#0c0a09'} strokeWidth={m.name ? 2 : 1} />
             <text y="3" textAnchor="middle" fontSize="8" fontWeight="800" fill={s.t}>{s.label}</text>
-            {m.name && <text y={CELL / 2 + 6} textAnchor="middle" fontSize="7.5" fontWeight="700" fill="#fbbf24">★</text>}
+            {m.name && <text y={CELL / 2 + 6} textAnchor="middle" fontSize="8" fill="#fbbf24">★</text>}
           </g>
         );
       })}
-
-      {/* note / objective markers */}
-      {q.markers.map((mk, i) => (
-        <g key={`k${i}`} transform={`translate(${mk.at.x * CELL + CELL / 2},${mk.at.y * CELL + 6})`}>
-          <rect x={-9} y={-6} width="18" height="12" rx="2" fill="#fefce8" stroke="#a16207" strokeWidth="1" />
-          <text y="3" textAnchor="middle" fontSize="8" fontWeight="800" fill="#92400e">{mk.label}</text>
-        </g>
-      ))}
     </svg>
   );
 }
@@ -140,49 +167,47 @@ function Board({ q }: { q: QuestMap }) {
 export default function QuestGallery() {
   const [idx, setIdx] = useState(0);
   const q = QUEST_MAPS[idx];
+  const isFinal = q.status === 'final';
 
   return (
     <div className="space-y-4">
       <div>
         <h2 className="text-xl font-bold text-amber-200">HeroQuest — Quest Map Gallery</h2>
         <p className="text-sm text-stone-400">
-          All 14 quests on the shared 26×19 board (true book proportions). A first-pass
-          reconstruction — flip through and compare to your physical Quest Book.
+          All 14 quests on the <strong className="text-stone-200">locked 32×23 board</strong> (wider halls, larger
+          rooms). Quest 1 is final; the rest are rough drafts until we lock the placement ruleset.
         </p>
       </div>
 
-      {/* quest selector */}
       <div className="flex flex-wrap gap-1.5">
         {QUEST_MAPS.map((m, i) => (
           <button key={m.id} onClick={() => setIdx(i)}
             className={`px-2.5 py-1 rounded text-xs font-semibold border transition ${
               i === idx ? 'bg-amber-500 text-stone-900 border-amber-400'
                         : 'bg-stone-800 text-stone-300 border-stone-700 hover:bg-stone-700'}`}>
-            {m.n}. {m.name}
+            {m.n}. {m.name}{m.status === 'final' ? '' : ' •'}
           </button>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4">
-        {/* board */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-4">
         <div>
           <div className="flex items-center justify-between mb-1">
             <h3 className="font-bold text-amber-100">Quest {q.n}: {q.name}</h3>
-            <span className="text-xs text-stone-500">{q.page}</span>
+            <span className={`text-xs font-bold px-2 py-0.5 rounded ${isFinal ? 'bg-emerald-800 text-emerald-100' : 'bg-amber-900 text-amber-200'}`}>
+              {isFinal ? 'PLACEMENT FINAL' : 'DRAFT — pending ruleset'}
+            </span>
           </div>
           <Board q={q} />
-          {/* legend */}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-stone-400">
             <span><span className="inline-block w-3 h-3 align-middle bg-[#e7e2d6] border border-stone-500" /> room</span>
-            <span><span className="inline-block w-3 h-3 align-middle bg-[#cfc9ba] border border-stone-500" /> corridor</span>
-            <span><span className="inline-block w-3 h-3 align-middle bg-[#292524] border border-stone-500" /> solid rock</span>
-            <span><span className="inline-block w-3 h-3 align-middle bg-[#1e3a5f] border border-stone-500" /> stairway</span>
-            <span>★ = named / boss</span>
-            <span>letters = note anchors</span>
+            <span><span className="inline-block w-3 h-3 align-middle bg-[#a8a29e] border border-stone-500" /> hall</span>
+            <span><span className="inline-block w-3 h-3 align-middle bg-[#161311] border border-stone-500" /> rock</span>
+            <span><span className="inline-block w-3 h-3 align-middle bg-[#ea7c2f] border border-stone-500" /> door</span>
+            <span>★ named/boss · letters = room labels & note anchors</span>
           </div>
         </div>
 
-        {/* details */}
         <div className="space-y-3 text-sm">
           <div className="rounded-lg border border-amber-900/50 bg-amber-950/20 p-3">
             <p className="italic text-amber-100/90 leading-snug">{q.briefing}</p>
@@ -206,9 +231,7 @@ export default function QuestGallery() {
               </ul>
             </div>
           )}
-          <div className="text-xs text-stone-500">
-            {q.monsters.length} monsters · {q.furniture.length} furniture · {q.traps.length} traps
-          </div>
+          <div className="text-xs text-stone-500">{q.monsters.length} monsters · {q.furniture.length} furniture · {q.traps.length} traps</div>
         </div>
       </div>
     </div>

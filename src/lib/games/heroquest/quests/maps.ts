@@ -1,11 +1,11 @@
-// All 14 Quest Book quests, expressed as overlays on the shared 26×19 board
-// (see board26.ts). Text — briefings, objectives, rewards, lettered notes — is
-// transcribed from the Quest Book. Geometry (stairway corner, which rooms are
-// solid rock, where monsters / furniture / objective markers sit) is a faithful
-// FIRST PASS reconstructed from the printed maps; the sandbox gallery exists so
-// it can be checked room-by-room against a physical copy and corrected.
+// All 14 Quest Book quests, expressed as overlays on the LOCKED board (board32 —
+// our 32×23 layout with wider halls + larger rooms). Text — briefings,
+// objectives, rewards, lettered notes — is transcribed from the Quest Book.
+// Quest 1's placement is final (matches the live game); quests 2–14 are rough
+// auto-drafts that get the real placement ruleset once it's locked on Quest 1.
+// See docs/heroquest/quests/placement-ruleset.md.
 
-import { BOARD26, roomCenter, type Cell } from './board26';
+import { inRoom, type Cell, type RoomLabel } from './board32';
 
 export type MonsterKind =
   | 'goblin' | 'orc' | 'skeleton' | 'zombie' | 'abomination' | 'mummy'
@@ -31,9 +31,10 @@ export type QuestMap = {
   reward: string;
   wandering: string;         // wandering-monster name (or '—')
   special?: string;          // one-line summary of any special rule
-  stairs: Cell[];            // the hatched stairway (heroes' start / exit)
-  startMarker?: Cell;        // when heroes begin somewhere other than the stairs
-  rockRooms: string[];       // room ids that are solid rock this quest (shaded)
+  status?: 'final' | 'draft';// 'final' = placement locked; 'draft' = rough, pending ruleset
+  startMarker?: Cell;        // when heroes begin somewhere other than the stairway
+  stairs?: Cell[];           // (legacy / unused — the board owns the stairway now)
+  rockRooms?: string[];      // (legacy / unused — the board owns the solid rock now)
   monsters: MapMonster[];
   furniture: MapFurniture[];
   traps: MapTrap[];
@@ -42,16 +43,23 @@ export type QuestMap = {
 };
 
 // ---- placement helpers -----------------------------------------------------
-/** Centre cell of a room (by letter), optionally offset. */
-function R(letter: string, dx = 0, dy = 0): Cell {
-  const c = roomCenter(`room_${letter}`) ?? { x: 13, y: 9 };
-  return { x: c.x + dx, y: c.y + dy };
+// Compatibility shim: quests 2–14 were first drafted against a 19-room board
+// (letters a–s). Map each of those onto the LOCKED 9-room board (board32) so the
+// drafts still render while we lock the placement ruleset on Quest 1. These are
+// rough — the gallery flags such quests as DRAFT until the ruleset is applied.
+const LETTER_TO_ROOM: Record<string, RoomLabel> = {
+  k: 'TL', l: 'TC', p: 'TR',
+  a: 'ML', b: 'C', i: 'TC', e: 'MR', f: 'MR', q: 'MR',
+  g: 'BL', n: 'C', o: 'C', j: 'BR', r: 'BR',
+  h: 'BL', c: 'BC', d: 'BC', m: 'BR', s: 'BR',
+};
+/** Centre of a room. Accepts a room LABEL ('C', 'TR', …) or a legacy letter. */
+function R(key: string, dx = 0, dy = 0): Cell {
+  const label = (LETTER_TO_ROOM[key] ?? key) as RoomLabel;
+  return inRoom(label, dx, dy);
 }
-/** A literal corridor / arbitrary cell. */
+/** A literal cell (corridor / explicit placement). */
 function C(x: number, y: number): Cell { return { x, y }; }
-
-const ALL_RIGHT = ['room_p', 'room_q', 'room_r', 'room_s'];
-const RIGHT_AND_CENTER = [...ALL_RIGHT, 'room_e', 'room_f', 'room_j', 'room_m'];
 
 export const QUEST_MAPS: QuestMap[] = [
   // ──────────────────────────────────────────────────────────────────────────
@@ -66,21 +74,22 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: 'The gold in the chests (84 + 120).',
     wandering: 'Orc',
     special: 'No traps or secret doors in this first quest.',
-    stairs: [C(2, 16), C(3, 16), C(2, 17), C(3, 17)],
-    rockRooms: ['room_p', 'room_q', 'room_r', 'room_s'],
+    status: 'final',
+    // Exact placements from the live game (content.ts QUEST1) on the locked board.
     monsters: [
-      { kind: 'gargoyle', at: R('e'), name: 'Verag', note: 'objective' },
-      { kind: 'mummy', at: R('i'), name: 'Guardian of Fellmarg’s Tomb', note: 'C — rolls 4 attack dice' },
-      { kind: 'goblin', at: R('k') }, { kind: 'goblin', at: R('l') }, { kind: 'goblin', at: R('b') },
-      { kind: 'orc', at: R('f') }, { kind: 'orc', at: R('j') }, { kind: 'orc', at: R('d') },
-      { kind: 'goblin', at: R('g') }, { kind: 'orc', at: R('c') },
+      { kind: 'gargoyle', at: C(13, 9), name: 'Verag', note: 'objective' },
+      { kind: 'mummy', at: C(13, 3), name: 'Guardian of Fellmarg’s Tomb', note: 'C — rolls 4 attack dice' },
+      { kind: 'goblin', at: C(4, 2) }, { kind: 'goblin', at: C(5, 4) }, { kind: 'goblin', at: C(20, 4) },
+      { kind: 'goblin', at: C(4, 9) }, { kind: 'goblin', at: C(12, 17) }, { kind: 'goblin', at: C(14, 16) },
+      { kind: 'orc', at: C(13, 16) }, { kind: 'orc', at: C(19, 17) }, { kind: 'orc', at: C(21, 9) }, { kind: 'orc', at: C(5, 9) },
     ],
     furniture: [
-      { kind: 'weapon_rack', at: R('c', 0, -1), label: 'A' },
-      { kind: 'chest', at: R('m'), label: 'B' },
-      { kind: 'chest', at: R('e', 1, 0), label: 'D' },
-      { kind: 'chest', at: R('e', -1, 1), label: 'E' },
-      { kind: 'tomb', at: R('i', 0, -1) },
+      { kind: 'weapon_rack', at: C(12, 15), label: 'A' },
+      { kind: 'chest', at: C(20, 15), label: 'B' },
+      { kind: 'chest', at: C(20, 3), label: 'D' },
+      { kind: 'chest', at: C(15, 8), label: 'E' },
+      { kind: 'tomb', at: C(11, 2) },
+      { kind: 'table', at: C(5, 16) },
     ],
     traps: [],
     markers: [],
@@ -140,7 +149,7 @@ export const QUEST_MAPS: QuestMap[] = [
     wandering: 'Orc',
     special: 'Ulag: Move 10 · Attack 4 · Defend 5 · Body 2 · Mind 3.',
     stairs: [C(13, 0), C(14, 0)],
-    rockRooms: RIGHT_AND_CENTER,
+    rockRooms: [],
     monsters: [
       { kind: 'orc', at: R('a'), name: 'Ulag', note: 'objective' },
       { kind: 'orc', at: R('b') }, { kind: 'orc', at: R('k') }, { kind: 'orc', at: R('l') },
