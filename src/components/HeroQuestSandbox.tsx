@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { QUEST1 } from '@/lib/games/heroquest';
+import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
 type Pt = { x: number; y: number };
@@ -83,6 +84,11 @@ function makeGrid(w: number, h: number, fill: Glyph = '#'): Glyph[][] {
   return Array.from({ length: h }, () => new Array<Glyph>(w).fill(fill));
 }
 
+/** The locked default board — the editor opens on this and Reset returns to it. */
+function makeTemplateGrid(): Glyph[][] {
+  return TEMPLATE_BOARD.map(row => row.split(''));
+}
+
 type SaveState = {
   w: number; h: number; grid: Glyph[][];
   furniture: Furn[]; monsters: Mon[]; starts: Pt[]; traps?: Trap[];
@@ -132,7 +138,7 @@ function loadTrial(): SaveState {
 export default function HeroQuestSandbox() {
   const [w, setW] = useState(BOARD_W);
   const [h, setH] = useState(BOARD_H);
-  const [grid, setGrid] = useState<Glyph[][]>(() => makeGrid(BOARD_W, BOARD_H));
+  const [grid, setGrid] = useState<Glyph[][]>(() => makeTemplateGrid());
   const [furniture, setFurniture] = useState<Furn[]>([]);
   const [monsters, setMonsters] = useState<Mon[]>([]);
   const [starts, setStarts] = useState<Pt[]>([]);
@@ -450,7 +456,7 @@ ${startLine}`;
             <Section title="Board">
               <div className="text-xs text-neutral-400">Size: <span className="font-semibold text-neutral-200">{w}×{h}</span> — locked</div>
               <div className="mt-2 flex flex-wrap gap-1">
-                <SmallBtn onClick={() => { if (confirm('Reset to the blank 30×23 template and build from scratch? This clears your current map.')) { setW(BOARD_W); setH(BOARD_H); setGrid(makeGrid(BOARD_W, BOARD_H)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>↺ Reset to template</SmallBtn>
+                <SmallBtn onClick={() => { if (confirm('Reset to the locked 30×23 board template? This clears everything you have placed (monsters, furniture, traps, stairs) and restores the default board.')) { setW(BOARD_W); setH(BOARD_H); setGrid(makeTemplateGrid()); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>↺ Reset to template</SmallBtn>
                 <SmallBtn onClick={() => { const t = loadTrial(); setW(t.w); setH(t.h); setGrid(t.grid); setFurniture(t.furniture); setMonsters(t.monsters); setStarts(t.starts); setTraps(t.traps ?? []); }}>Load current Trial</SmallBtn>
                 <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>Clear</SmallBtn>
               </div>
