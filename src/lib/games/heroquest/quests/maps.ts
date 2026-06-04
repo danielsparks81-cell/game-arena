@@ -5,7 +5,7 @@
 // auto-drafts that get the real placement ruleset once it's locked on Quest 1.
 // See docs/heroquest/quests/placement-ruleset.md.
 
-import { inRoom, type Cell, type RoomLabel } from './board32';
+import { inRoom, stairCells, type Cell, type RoomLabel } from './board32';
 
 export type MonsterKind =
   | 'goblin' | 'orc' | 'skeleton' | 'zombie' | 'abomination' | 'mummy'
@@ -75,6 +75,7 @@ export const QUEST_MAPS: QuestMap[] = [
     wandering: 'Orc',
     special: 'No traps or secret doors in this first quest.',
     status: 'final',
+    stairs: stairCells('BL', 'tl'),    // lower-left entrance (matches the live game)
     // Exact placements from the live game (content.ts QUEST1) on the locked board.
     monsters: [
       { kind: 'gargoyle', at: C(13, 9), name: 'Verag', note: 'objective' },
@@ -114,7 +115,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: '240 gold (divided) — only if he survives.',
     wandering: 'Orc',
     special: 'Finding Ragnar sounds an alarm: all monsters/doors placed, all doors open. Ragnar rolls 2 defend, 2 Body, can’t attack; escort moves him with 1 red die.',
-    stairs: [C(0, 8), C(0, 9), C(0, 10)],
+    stairs: stairCells('ML', 'tl'),    // centre-left
     rockRooms: [],
     monsters: [
       { kind: 'dread_sorcerer', at: R('i'), name: 'Sir Ragnar', note: 'X — prisoner (Dread-sorcerer figure)' },
@@ -148,7 +149,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: '180 gold (divided). Treasure kept by finder alone.',
     wandering: 'Orc',
     special: 'Ulag: Move 10 · Attack 4 · Defend 5 · Body 2 · Mind 3.',
-    stairs: [C(13, 0), C(14, 0)],
+    stairs: stairCells('TC', 'tl'),    // top-centre
     rockRooms: [],
     monsters: [
       { kind: 'orc', at: R('a'), name: 'Ulag', note: 'objective' },
@@ -180,7 +181,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: '240 gold. (Gold inside the chests goes to the King.)',
     wandering: 'Abomination',
     special: 'A carried chest limits the hero to 1 red die of movement; only one chest at a time. First quest with traps.',
-    stairs: [C(23, 16), C(24, 16), C(23, 17), C(24, 17)],
+    stairs: stairCells('BR', 'br'),    // lower-right
     rockRooms: [],
     monsters: [
       { kind: 'dread_warrior', at: R('i'), name: 'Gulthor', note: 'leads the band' },
@@ -216,7 +217,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: 'The Talisman of Lore (artifact).',
     wandering: 'Zombie',
     special: 'B: a statue-gargoyle wakes only when the next door opens, and is unharmable until it moves/attacks. E: a treasure search finds Melar’s key, sliding a throne aside to reveal a secret door.',
-    stairs: [C(1, 1), C(2, 1), C(1, 2)],
+    stairs: stairCells('TL', 'tl'),    // upper-left
     rockRooms: ['room_p', 'room_q', 'room_r', 'room_s', 'room_m'],
     monsters: [
       { kind: 'gargoyle', at: R('f'), name: 'Stone statue', note: 'B — dormant / invulnerable' },
@@ -256,7 +257,7 @@ export const QUEST_MAPS: QuestMap[] = [
     wandering: 'Abomination',
     special: 'Heroes begin disarmed in the Cell — no equipment or spells until reclaimed; unarmed heroes roll 1 attack / 2 defend. Grak: Move 8 · Atk 4 · Def 3 · Body 3 · Mind 3; casts Fear, Sleep, Tempest.',
     stairs: [C(1, 16), C(1, 17)],
-    startMarker: R('i'),
+    startMarker: inRoom('ML'),         // begin in the Cell (centre-left)
     rockRooms: [],
     monsters: [
       { kind: 'orc', at: R('e'), name: 'Grak', note: 'casts Dread spells' },
@@ -288,7 +289,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: '100 gold each.',
     wandering: 'Mummy',
     special: 'A: every Dread warrior here is made of stone and rolls 1 extra defend die. C: a cursed purple potion turns the drinker to stone for 5 of their turns (invulnerable), then revives.',
-    stairs: [C(1, 1), C(2, 1), C(1, 2)],
+    stairs: stairCells('TL', 'tl'),    // upper-left
     rockRooms: [],
     monsters: [
       { kind: 'zombie', at: R('d'), name: 'Wardoz', note: 'D — the zombie in wizard’s robes' },
@@ -327,7 +328,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: '100 gold each.',
     wandering: 'Abomination',
     special: 'Balur (Dread-sorcerer figure): Move 8 · Atk 2 · Def 5 · Body 3 · Mind 7; immune to fire; casts Ball of Flame, Firestorm, Tempest, Summon Orcs, Fear, Escape. Escape teleports him to the XX square.',
-    stairs: [C(25, 8), C(25, 9), C(25, 10)],
+    stairs: stairCells('MR', 'tr'),    // mid-right
     rockRooms: [],
     monsters: [
       { kind: 'dread_sorcerer', at: R('k'), name: 'Balur', note: 'X — start (upper-left)' },
@@ -363,8 +364,8 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: 'The Elixir of Life (artifact) in chest C.',
     wandering: 'Abomination',
     special: 'Start in the three-door room (A), far from the exit stairs.',
-    stairs: [C(1, 1), C(2, 1), C(1, 2)],
-    startMarker: R('s'),
+    stairs: stairCells('TL', 'tl'),    // upper-left
+    startMarker: inRoom('BR'),         // begin lower-right, escape to the stairs
     rockRooms: [],
     monsters: [
       { kind: 'abomination', at: R('a') }, { kind: 'abomination', at: R('e') },
@@ -400,7 +401,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: 'The 5,000 “gold” is fool’s gold; other treasure found is real.',
     wandering: '— (Ollar’s ghost, flavour only)',
     special: 'Teleporting doors: moving through any door stops you and rolls 2 dice → teleport to the numbered square (2–12). One door per turn.',
-    stairs: [C(1, 16), C(2, 16), C(1, 17)],
+    stairs: stairCells('BL', 'tl'),    // lower-left
     rockRooms: [],
     monsters: [
       { kind: 'dread_warrior', at: R('j'), note: 'A — one of two' },
@@ -438,7 +439,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: 'Per-kill bounty: goblin 10 · orc 20 · abomination 30 · Dread warrior 50.',
     wandering: 'Abomination',
     special: 'B: a gargoyle statue tied to a trap chest — searching the chest before disarming springs it to life; it cannot be harmed until it has moved/attacked.',
-    stairs: [C(12, 9), C(13, 9)],
+    stairs: stairCells('C', 'tl'),     // centre
     rockRooms: [],
     monsters: [
       { kind: 'dread_warrior', at: R('s'), name: 'Orc’s Bane bearer', note: 'C / A — armory' },
@@ -478,7 +479,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: '200 gold (divided).',
     wandering: 'Skeleton',
     special: 'Witch Lord: only the Spirit Blade can harm him (recovered next quest). Moves 1/turn, 2 attack dice; casts Summon Undead, Fear, Command, Ball of Flame. A: false doors. C: a falling block seals the path back when the last hero passes. D: tomb — he wakes when the first hero enters.',
-    stairs: [C(1, 16), C(2, 16), C(1, 17)],
+    stairs: stairCells('BL', 'tl'),    // lower-left
     rockRooms: [],
     monsters: [
       { kind: 'zombie', at: R('i'), name: 'Star bearer', note: 'B — Star is in its hand' },
@@ -521,7 +522,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: 'The Spirit Blade (artifact) — needed to defeat the Witch Lord.',
     wandering: 'Dread Warrior',
     special: 'Rubble field (modified falling blocks): a hero who moves onto one rolls 1 die — 4/5/6 = −1 Body (with a helmet, only a 6). Monsters are unaffected and heroes are not blocked.',
-    stairs: [C(12, 0), C(13, 0)],
+    stairs: stairCells('TC', 'tl'),    // centre-upper
     rockRooms: [],
     monsters: [
       { kind: 'dread_warrior', at: R('a') }, { kind: 'dread_warrior', at: R('e') },
@@ -557,7 +558,7 @@ export const QUEST_MAPS: QuestMap[] = [
     reward: 'The Spell Ring artifact; surviving heroes are named “Champion”.',
     wandering: 'Mummy',
     special: 'Witch Lord (stronger now): Move 10 · Atk 5 · Def 6 · Body 4 · Mind 6; still only the Spirit Blade harms him. Casts Summon Undead, Fear (×2), Ball of Flame, Command, Tempest.',
-    stairs: [C(1, 16), C(2, 16), C(1, 17)],
+    stairs: stairCells('BL', 'tl'),    // lower-left
     rockRooms: [],
     monsters: [
       { kind: 'dread_sorcerer', at: R('p'), name: 'The Witch Lord', note: 'X — upper-right' },

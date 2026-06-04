@@ -60,10 +60,12 @@ function spread<T extends { at: Cell }>(items: T[]): (T & { px: number; py: numb
   return out;
 }
 
-function StairFan({ s }: { s: typeof BOARD32.stairway }) {
-  // Fan of steps radiating from the room-facing (bottom-right) corner.
-  const x0 = s.minX * CELL, y0 = s.minY * CELL;
-  const w = (s.maxX - s.minX + 1) * CELL, h = (s.maxY - s.minY + 1) * CELL;
+function StairFan({ cells }: { cells: Cell[] }) {
+  const minX = Math.min(...cells.map(c => c.x)), minY = Math.min(...cells.map(c => c.y));
+  const maxX = Math.max(...cells.map(c => c.x)), maxY = Math.max(...cells.map(c => c.y));
+  // Fan of steps radiating from the room-facing corner.
+  const x0 = minX * CELL, y0 = minY * CELL;
+  const w = (maxX - minX + 1) * CELL, h = (maxY - minY + 1) * CELL;
   const ox = x0, oy = y0;                  // origin corner (top-left of the staircase)
   const R = Math.max(w, h);
   const arcs = [], rads = [];
@@ -89,10 +91,10 @@ function Board({ q }: { q: QuestMap }) {
   const furniture = spread(q.furniture);
   return (
     <svg viewBox={`-2 -2 ${W + 4} ${H + 4}`} className="w-full h-auto rounded-lg border border-stone-700 bg-black">
-      {/* tiles */}
+      {/* tiles (the board's built-in stair cells render as ordinary room floor;
+          each quest's staircase is drawn as one fan wherever the quest puts it) */}
       {BOARD32.tiles.map((row, y) =>
         row.map((tile, x) => {
-          if (tile === 'stairs') return null; // drawn as one fan below
           const reg = BOARD32.regions[y][x];
           const fill = tile === 'wall' ? '#161311' : reg.startsWith('room_') ? '#e7e2d6' : '#a8a29e';
           return <rect key={`${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL} fill={fill} stroke="#3f3a36" strokeWidth="0.4" />;
@@ -101,9 +103,8 @@ function Board({ q }: { q: QuestMap }) {
       {/* room outlines */}
       {BOARD32.regions.map((row, y) =>
         row.map((reg, x) => {
-          if (!reg.startsWith('room_') || BOARD32.tiles[y][x] === 'stairs') return null;
-          const diff = (nx: number, ny: number) =>
-            (BOARD32.regions[ny]?.[nx] ?? '') !== reg || BOARD32.tiles[ny]?.[nx] === 'stairs';
+          if (!reg.startsWith('room_')) return null;
+          const diff = (nx: number, ny: number) => (BOARD32.regions[ny]?.[nx] ?? '') !== reg;
           const E: React.ReactNode[] = [];
           const mk = (x1: number, y1: number, x2: number, y2: number, k: string) =>
             E.push(<line key={k} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#44403c" strokeWidth="1.6" />);
@@ -128,7 +129,7 @@ function Board({ q }: { q: QuestMap }) {
         return <text key={l} x={r.minX * CELL + 2} y={r.minY * CELL + 9} fontSize="8" fontWeight="700" fill="#9a8f7a">{l}</text>;
       })}
 
-      <StairFan s={BOARD32.stairway} />
+      <StairFan cells={q.stairs ?? BOARD32.stairway.cells} />
       {q.startMarker && (
         <g transform={`translate(${q.startMarker.x * CELL + CELL / 2},${q.startMarker.y * CELL + CELL / 2})`}>
           <rect x={-CELL / 2} y={-CELL / 2} width={CELL} height={CELL} fill="none" stroke="#22d3ee" strokeWidth="2" strokeDasharray="3 2" />
@@ -175,7 +176,8 @@ export default function QuestGallery() {
         <h2 className="text-xl font-bold text-amber-200">HeroQuest — Quest Map Gallery</h2>
         <p className="text-sm text-stone-400">
           All 14 quests on the <strong className="text-stone-200">locked 32×23 board</strong> (wider halls, larger
-          rooms). Quest 1 is final; the rest are rough drafts until we lock the placement ruleset.
+          rooms). Quest 1 is final; quests 2–14 have the placement ruleset applied (stairway relocated
+          per the book, exact monster counts) — verify monster/furniture rooms against the book.
         </p>
       </div>
 
@@ -195,7 +197,7 @@ export default function QuestGallery() {
           <div className="flex items-center justify-between mb-1">
             <h3 className="font-bold text-amber-100">Quest {q.n}: {q.name}</h3>
             <span className={`text-xs font-bold px-2 py-0.5 rounded ${isFinal ? 'bg-emerald-800 text-emerald-100' : 'bg-amber-900 text-amber-200'}`}>
-              {isFinal ? 'PLACEMENT FINAL' : 'DRAFT — pending ruleset'}
+              {isFinal ? 'PLACEMENT FINAL' : 'DRAFT — verify vs book'}
             </span>
           </div>
           <Board q={q} />

@@ -53,18 +53,20 @@ on Quest 1, then apply to all 14 so every quest places consistently.
    a different playable footprint we adjust that quest's rock — but the room grid
    never moves.
 
-## Open questions for you
+## Locked decisions
 
-- **Stairway per quest:** keep it fixed in BL for all 14, or relocate it per the
-  book (some quests start in a different corner)? (Right now: fixed in BL, with a
-  separate START marker for escape quests.)
-- **Monsters per room cap:** is 1–2 right for the larger rooms, or do you want
-  the book's exact counts even if that clusters several in one room?
-- **Objective room mapping:** for "the far chamber", do you prefer **C** (center,
-  most contested) or a far corner (**TR/MR**)?
+- **Stairway: relocate per quest.** Each quest's staircase is placed in the room
+  matching the book's printed start corner (TL/TC/TR/ML/C/MR/BL/BC/BR). Escape
+  quests keep the staircase as the exit and add a separate START marker.
+- **Monsters: the book's exact counts/types.** Even if that clusters several
+  monsters into one of our (larger) rooms.
+- **Objective room: mapped per quest** from the book's relative position (my
+  judgment), e.g. a "far chamber" → the central chamber or a far corner.
 
 ## Status
 
 - **Quest 1 — The Trial:** placement locked (matches the live game).
-- **Quests 2–14:** rough auto-drafts (monsters scattered across rooms) shown in
-  the gallery as DRAFT — they get the real ruleset once we lock it here.
+- **Quests 2–14:** ruleset applied — per-quest stairway relocation + the monster
+  rosters from my Quest Book reading. Shown as DRAFT until the monster/furniture
+  ROOMS are verified against a physical copy (my extracted counts are best-effort
+  and the central-chamber vs far-corner objective mapping may want tweaks).

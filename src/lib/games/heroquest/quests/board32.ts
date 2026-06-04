@@ -88,6 +88,15 @@ export function roomCorner(label: RoomLabel, corner: 'tl' | 'tr' | 'bl' | 'br'):
   };
 }
 
+/** A 2×2 staircase placed in a corner of a room — the quest's entry/exit (one
+ *  space). Per the ruleset the stairway relocates per quest to match the book. */
+export function stairCells(label: RoomLabel, corner: 'tl' | 'tr' | 'bl' | 'br' = 'tl'): Cell[] {
+  const r = ROOMS32[label];
+  const x0 = corner === 'tl' || corner === 'bl' ? r.minX : r.maxX - 1;
+  const y0 = corner === 'tl' || corner === 'tr' ? r.minY : r.maxY - 1;
+  return [{ x: x0, y: y0 }, { x: x0 + 1, y: y0 }, { x: x0, y: y0 + 1 }, { x: x0 + 1, y: y0 + 1 }];
+}
+
 export const BOARD32 = {
   width: BASE_BOARD.width,
   height: BASE_BOARD.height,
