@@ -16,7 +16,7 @@
 //
 // State auto-saves to localStorage; nothing touches the server.
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
 import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS } from '@/lib/games/heroquest/quests/quest1';
@@ -149,6 +149,21 @@ export default function HeroQuestSandbox() {
   const [exportText, setExportText] = useState<string | null>(null);
   const [monName, setMonName] = useState('');     // name for the next "named" monster
   const [chestGold, setChestGold] = useState(0);  // gold stocked into the next chest (0 = none)
+
+  // Cell size is computed to make the whole board fit its container (no scroll).
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [cell, setCell] = useState(CELL);
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect();
+      const c = Math.floor(Math.min((r.width - 6) / BOARD_W, (r.height - 6) / BOARD_H));
+      setCell(Math.max(14, Math.min(72, c)));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Load saved state once.
   useEffect(() => {
@@ -357,28 +372,27 @@ ${startLine}`;
     if (wallTo(x + 1, y)) sh.push(`inset -2px 0 0 0 ${wc}`);
 
     return {
-      width: CELL, height: CELL, background: bg,
+      width: cell, height: cell, background: bg,
       boxShadow: sh.length ? sh.join(', ') : 'inset 0 0 0 0.5px rgba(0,0,0,0.2)',
-      fontSize: Math.round(CELL * 0.5), lineHeight: `${CELL}px`, textAlign: 'center',
+      fontSize: Math.round(cell * 0.5), lineHeight: `${cell}px`, textAlign: 'center',
       cursor: 'pointer', userSelect: 'none', position: 'relative',
     };
   };
 
   return (
     <div
-      className="min-h-screen bg-neutral-950 p-4 text-neutral-200"
+      className="h-full flex flex-col bg-neutral-950 text-neutral-200 overflow-hidden"
       onMouseUp={() => setPainting(false)}
       onMouseLeave={() => setPainting(false)}
     >
-      <div className="mx-auto max-w-[1400px]">
-        <div className="mb-3 flex items-center justify-between">
-          <h1 className="text-xl font-semibold">HeroQuest — Map Sandbox</h1>
-          <Link href="/lobby" className="text-sm text-emerald-400 hover:underline">← Back to lobby</Link>
-        </div>
+      <div className="flex items-center justify-between px-3 py-1.5 shrink-0">
+        <h1 className="text-base font-semibold">HeroQuest — Map Sandbox</h1>
+        <Link href="/lobby" className="text-sm text-emerald-400 hover:underline">← Back to lobby</Link>
+      </div>
 
-        <div className="flex flex-wrap gap-4">
-          {/* Toolbar */}
-          <div className="w-64 shrink-0 space-y-3">
+      <div className="flex gap-3 flex-1 min-h-0 px-3 pb-2">
+        {/* Toolbar */}
+        <div className="w-[340px] shrink-0 overflow-y-auto space-y-2 pr-1">
             <Section title="Brush">
               <div className="grid grid-cols-2 gap-1">
                 <ToolBtn active={tool.t === 'hall'} onClick={() => setTool({ t: 'hall' })}>Hall</ToolBtn>
@@ -398,7 +412,7 @@ ${startLine}`;
                   <button
                     key={l}
                     onClick={() => setTool({ t: 'room', letter: l })}
-                    className={`rounded px-2 py-1 text-xs font-bold uppercase ${tool.t === 'room' && tool.letter === l ? 'ring-2 ring-white' : ''}`}
+                    className={`rounded px-2 py-2 text-sm font-bold uppercase ${tool.t === 'room' && tool.letter === l ? 'ring-2 ring-white' : ''}`}
                     style={{ background: ROOM_TINT[l], color: '#1a1410' }}
                   >{l}</button>
                 ))}
@@ -465,13 +479,21 @@ ${startLine}`;
             <Section title="Export">
               <SmallBtn onClick={buildExport}>Generate quest data →</SmallBtn>
             </Section>
+
+            {warnings.length > 0 && (
+              <Section title="Checks">
+                <ul className="list-disc pl-4 text-[11px] leading-snug text-amber-300/90 space-y-0.5">
+                  {warnings.slice(0, 8).map((wn, i) => <li key={i}>{wn}</li>)}
+                </ul>
+              </Section>
+            )}
           </div>
 
-          {/* Grid */}
-          <div className="min-w-0 flex-1 overflow-auto">
+          {/* Grid — fills the remaining space, sized to fit (no scroll) */}
+          <div ref={boardRef} className="flex-1 min-w-0 flex items-center justify-center overflow-hidden">
             <div
-              className="inline-block select-none rounded border border-neutral-700"
-              style={{ display: 'grid', gridTemplateColumns: `repeat(${w}, ${CELL}px)` }}
+              className="select-none rounded border border-neutral-700"
+              style={{ display: 'grid', gridTemplateColumns: `repeat(${w}, ${cell}px)` }}
               onMouseDown={() => setPainting(true)}
             >
               {grid.map((row, y) => row.map((_, x) => {
@@ -490,15 +512,15 @@ ${startLine}`;
                     {mo ? (
                       <span style={{
                         position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-                        width: CELL - 8, height: CELL - 8, borderRadius: '50%',
+                        width: cell - 8, height: cell - 8, borderRadius: '50%',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         background: MON_DOT[mo.kind].bg, color: MON_DOT[mo.kind].fg,
-                        fontWeight: 800, fontSize: Math.round(CELL * 0.42),
+                        fontWeight: 800, fontSize: Math.round(cell * 0.42),
                         boxShadow: mo.named ? '0 0 0 3px #f59e0b' : 'inset 0 0 0 1px rgba(0,0,0,0.4)',
                       }}>{MON_DOT[mo.kind].letter}</span>)
-                      : f ? <span style={{ fontSize: Math.round(CELL * 0.52) }}>{FURN_ICON[f.kind]}{f.gold ? <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: Math.round(CELL * 0.26), color: '#7c2d12', fontWeight: 800 }}>{f.gold}</span> : null}</span>
-                      : tr ? <span style={{ opacity: 0.9, fontSize: Math.round(CELL * 0.5) }}>{TRAP_ICON[tr.kind]}</span>
-                      : isStart ? <span style={{ color: '#0f766e', fontWeight: 700, fontSize: Math.round(CELL * 0.6) }}>◊</span>
+                      : f ? <span style={{ fontSize: Math.round(cell * 0.52) }}>{FURN_ICON[f.kind]}{f.gold ? <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: Math.round(cell * 0.26), color: '#7c2d12', fontWeight: 800 }}>{f.gold}</span> : null}</span>
+                      : tr ? <span style={{ opacity: 0.9, fontSize: Math.round(cell * 0.5) }}>{TRAP_ICON[tr.kind]}</span>
+                      : isStart ? <span style={{ color: '#0f766e', fontWeight: 700, fontSize: Math.round(cell * 0.6) }}>◊</span>
                       : null}
                   </div>
                 );
@@ -507,26 +529,19 @@ ${startLine}`;
           </div>
         </div>
 
-        {/* Warnings */}
-        {warnings.length > 0 && (
-          <div className="mt-3 rounded border border-amber-600/40 bg-amber-500/10 p-2 text-xs text-amber-200">
-            <div className="mb-1 font-semibold">Checks</div>
-            <ul className="list-disc pl-4">{warnings.slice(0, 8).map((wn, i) => <li key={i}>{wn}</li>)}</ul>
-          </div>
-        )}
-
-        {/* Export output */}
+        {/* Export output — overlay so it doesn't disturb the fitted layout */}
         {exportText && (
-          <div className="mt-3">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="text-sm font-semibold">Quest data</span>
-              <SmallBtn onClick={() => navigator.clipboard?.writeText(exportText)}>Copy</SmallBtn>
-              <SmallBtn onClick={() => setExportText(null)}>Close</SmallBtn>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={() => setExportText(null)}>
+            <div className="w-full max-w-3xl rounded-lg border border-neutral-700 bg-neutral-900 p-3" onClick={e => e.stopPropagation()}>
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-sm font-semibold">Quest data</span>
+                <SmallBtn onClick={() => navigator.clipboard?.writeText(exportText)}>Copy</SmallBtn>
+                <SmallBtn onClick={() => setExportText(null)}>Close</SmallBtn>
+              </div>
+              <textarea readOnly value={exportText} className="h-[60vh] w-full rounded border border-neutral-700 bg-neutral-950 p-2 font-mono text-[11px] leading-snug" />
             </div>
-            <textarea readOnly value={exportText} className="h-72 w-full rounded border border-neutral-700 bg-neutral-900 p-2 font-mono text-[11px] leading-snug" />
           </div>
         )}
-      </div>
     </div>
   );
 }
@@ -544,7 +559,7 @@ function ToolBtn({ active, onClick, children }: { active: boolean; onClick: () =
   return (
     <button
       onClick={onClick}
-      className={`rounded px-2 py-1 text-left text-xs transition ${active ? 'bg-emerald-500 text-neutral-950' : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700'}`}
+      className={`rounded px-2.5 py-2 text-left text-sm font-medium transition ${active ? 'bg-emerald-500 text-neutral-950' : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700'}`}
     >{children}</button>
   );
 }
