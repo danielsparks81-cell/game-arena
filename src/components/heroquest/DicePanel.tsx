@@ -18,6 +18,11 @@ export function DiceRollOverlay({ attack, defense, move }: {
   defense: DiceRoll | null;
   move: number[] | null;
 }) {
+  // Derive stable PRIMITIVES for the effect deps. Using the roll objects/arrays
+  // directly would re-run the effect on every state poll (they're new refs each
+  // render), whose cleanup would cancel the timeouts mid-animation and leave it
+  // stuck. A string signature + boolean only change when the roll actually does.
+  const hasRoll = (!!move && move.length > 0) || !!attack || !!defense;
   const sig = JSON.stringify([move, attack?.faces ?? null, defense?.faces ?? null]);
   const prev = useRef<string>('');
   const first = useRef(true);
@@ -26,7 +31,6 @@ export function DiceRollOverlay({ attack, defense, move }: {
   useEffect(() => {
     // Don't replay an existing roll when the board first mounts (e.g. on reconnect).
     if (first.current) { first.current = false; prev.current = sig; return; }
-    const hasRoll = (!!move && move.length > 0) || !!attack || !!defense;
     if (!hasRoll || sig === prev.current) return;
     prev.current = sig;
     setPhase('rolling');
@@ -34,7 +38,7 @@ export function DiceRollOverlay({ attack, defense, move }: {
     const t2 = setTimeout(() => setPhase('leaving'), 1350);
     const t3 = setTimeout(() => setPhase('idle'), 1750);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [sig, attack, defense, move]);
+  }, [sig, hasRoll]);
 
   if (phase === 'idle') return null;
   const rolling = phase === 'rolling';
