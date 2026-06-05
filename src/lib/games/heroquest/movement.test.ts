@@ -485,7 +485,7 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     s.heroes[1].at = { x: 2, y: 17 };
     s.heroes[2].at = { x: 2, y: 18 };
     s.heroes[3].at = { x: 3, y: 18 };
-    s.heroes[0].at = { x: 3, y: 16 }; // inside the entrance room, just above the stairs
+    s.heroes[0].at = { x: 4, y: 17 }; // in the entrance room next to the stairs
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;
@@ -502,12 +502,12 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     s.heroes[0].at = { x: 2, y: 17 };  // on stairs
     s.heroes[1].at = { x: 3, y: 17 };  // on stairs
     s.heroes[2].at = { x: 2, y: 18 };  // on stairs
-    s.heroes[3].at = { x: 3, y: 16 };  // in the entrance room but NOT on a stair
+    s.heroes[3].at = { x: 4, y: 17 };  // in the entrance room but NOT on a stair
     s.heroes[3].hasRolled = true;
     s.heroes[3].moveLeft = 2;
     s.turnIndex = 3;
     // A move that stays OFF the stairs must not complete the escape.
-    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 2, y: 16 } }));
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 5, y: 17 } }));
     expect(out.phase).not.toBe('finished');
   });
 
@@ -520,7 +520,7 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     s.heroes[1].at = { x: 2, y: 17 };
     s.heroes[2].at = { x: 2, y: 18 };
     s.heroes[3].at = { x: 3, y: 18 };
-    s.heroes[0].at = { x: 3, y: 16 };
+    s.heroes[0].at = { x: 4, y: 17 };
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;

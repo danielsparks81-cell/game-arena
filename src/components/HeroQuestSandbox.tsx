@@ -158,6 +158,21 @@ function floodRegions(grid: Glyph[][], w: number, h: number): { region: string[]
       }
     }
   }
+  // Stairs join the room they border MOST (a corner staircase can touch two), so
+  // they're part of that room for wall drawing — matching the engine's parser.
+  const stairCells: [number, number][] = [];
+  const borders = new Map<string, number>();
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (grid[y]?.[x] !== 'S') continue;
+    stairCells.push([x, y]);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const r = region[y + dy]?.[x + dx];
+      if (r && r.startsWith('room_')) borders.set(r, (borders.get(r) ?? 0) + 1);
+    }
+  }
+  let stairRegion = '', best = 0;
+  for (const [r, n] of borders) if (n > best) { best = n; stairRegion = r; }
+  if (stairRegion) for (const [x, y] of stairCells) region[y][x] = stairRegion;
   return { region, order, anchor };
 }
 
@@ -894,8 +909,9 @@ function WallLayer({ grid, region, doorSet, cell, w, h }: {
   const wc = '#0c0a09';
   const keyOf = (x: number, y: number) => {
     const g = grid[y]?.[x];
-    if (g && ROOM_LETTERS.includes(g)) return region[y]?.[x] || 'room';
-    if (g === 'S') return 'stairs';   // the entry staircase (embedded in its room)
+    // Rooms AND stairs carry a room region (stairs were joined to their room in
+    // floodRegions), so they read as part of that room for wall drawing.
+    if ((g && ROOM_LETTERS.includes(g)) || g === 'S') return region[y]?.[x] || 'corridor';
     if (g === '.') return 'corridor';
     if (g === 'W') return 'wall';
     return ''; // rock / off-board
@@ -903,10 +919,6 @@ function WallLayer({ grid, region, doorSet, cell, w, h }: {
   const wallEdge = (ax: number, ay: number, bx: number, by: number) => {
     const a = keyOf(ax, ay), b = keyOf(bx, by);
     if (a === b) return false;
-    // The staircase reads as part of its room: open to any room it touches, but
-    // walled against corridors / rock / wall tiles so it stays a tidy alcove.
-    const aS = a === 'stairs', bS = b === 'stairs';
-    if (aS || bS) return !((aS && b.startsWith('room')) || (bS && a.startsWith('room')));
     return a.startsWith('room') || b.startsWith('room');
   };
   const segs: ReactNode[] = [];

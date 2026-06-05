@@ -356,6 +356,10 @@ export type HQState = {
       "reach the stairway to escape" win — without it, monsters lazy-spawn so an
       unspawned target would look "absent" and let heroes win instantly. */
   objectiveDefeated?: boolean;
+  /** Room regions whose monsters have already been spawned — so a room spawns
+   *  its monsters exactly ONCE. Without this, killed monsters re-appear every
+   *  time the room is re-revealed (which happens on every hero move). */
+  spawnedRooms?: string[];
   /** Final result. */
   winner: Winner;
 };

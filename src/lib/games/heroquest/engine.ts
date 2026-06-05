@@ -1587,12 +1587,16 @@ function revealRegion(s: HQState, region: string): void {
   }
 }
 
-/** Lazily instantiate monsters that belong to the just-revealed room. */
+/** Lazily instantiate monsters that belong to the just-revealed room — ONCE per
+ *  room. Tracking spawned rooms (rather than checking live monsters) means a
+ *  killed monster never re-appears when its room is re-revealed. */
 function spawnRoomMonsters(s: HQState, region: string): void {
   if (!region) return;
+  if (!s.spawnedRooms) s.spawnedRooms = [];
+  if (s.spawnedRooms.includes(region)) return;  // already spawned once — never again
+  s.spawnedRooms.push(region);
   for (const monDef of s.quest.monsters) {
     if (monDef.roomId !== region) continue;
-    if (s.monsters.some(m => m.id === monDef.id)) continue;  // already alive
     s.monsters.push(instantiateMonster(monDef));
   }
 }

@@ -56,15 +56,29 @@ function floodRegions(grid: string[][]) {
       }
     }
   }
+  // Stairs join the room they border most (matches the engine + editor).
+  const stairCells: [number, number][] = [];
+  const borders = new Map<string, number>();
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (grid[y][x] !== 'S') continue;
+    stairCells.push([x, y]);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const r = region[y + dy]?.[x + dx];
+      if (r && r.startsWith('room_')) borders.set(r, (borders.get(r) ?? 0) + 1);
+    }
+  }
+  let sr = '', best = 0;
+  for (const [r, n] of borders) if (n > best) { best = n; sr = r; }
+  if (sr) for (const [x, y] of stairCells) region[y][x] = sr;
   return { region, order };
 }
 const { region: REGION, order: ROOM_ORDER } = floodRegions(GRID);
 
-// Region key per cell: a room's id, or 'stairs' / 'corridor' / 'wall' / '' (rock).
+// Region key per cell: a room's id (stairs carry their room's id), or 'corridor'
+// / 'wall' / '' (rock).
 function regionKeyAt(x: number, y: number) {
   const c = GRID[y]?.[x];
-  if (isRoom(c)) return REGION[y][x] || 'room';
-  if (c === 'S') return 'stairs';
+  if (isRoom(c) || c === 'S') return REGION[y][x] || 'corridor';
   if (c === '.') return 'corridor';
   if (c === 'W') return 'wall';
   return '';
@@ -82,9 +96,6 @@ function wallBetween(x: number, y: number, nx: number, ny: number) {
   const a = regionKeyAt(x, y), b = regionKeyAt(nx, ny);
   if (a === b) return false;
   if (doorOpen(x, y, nx, ny)) return false;
-  // Stairs read as part of their room: open to a room, walled against the rest.
-  const aS = a === 'stairs', bS = b === 'stairs';
-  if (aS || bS) return !((aS && b.startsWith('room')) || (bS && a.startsWith('room')));
   return a.startsWith('room') || b.startsWith('room');
 }
 

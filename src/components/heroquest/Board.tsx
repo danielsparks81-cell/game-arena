@@ -356,10 +356,20 @@ export default function HeroQuestBoardCanvas({
             // Render the appropriate sub-tile (doors/walls are drawn as an
             // overlay on the cell boundaries, not as tiles).
             let tileArt: React.ReactNode = null;
-            if (tile.kind === 'wall' || tile.kind === 'blocked') {
+            if (tile.kind === 'wall') {
               // Solid rock renders as nothing (the dark board shows through), so
               // the hallways form the outer border — no surrounding brick.
               tileArt = null;
+            } else if (tile.kind === 'blocked') {
+              // A placed wall (blocks a hallway). Drawn as a hatched stone block
+              // so it's visible once a hero looks down the hall and reveals it.
+              tileArt = (
+                <div style={{
+                  width: TILE_PX, height: TILE_PX, background: '#565b63',
+                  backgroundImage: 'repeating-linear-gradient(135deg,#6a7079 0,#6a7079 2px,transparent 2px,transparent 8px)',
+                  boxShadow: 'inset 0 0 0 1px #2f343b',
+                }} />
+              );
             } else if (tile.kind === 'stairs') {
               // Plain stone base; the staircase fan is drawn as one overlay below.
               tileArt = <div style={{ width: TILE_PX, height: TILE_PX, background: '#5b636e' }} />;

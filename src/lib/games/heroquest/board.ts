@@ -80,6 +80,9 @@ export function parseAsciiBoard(map: string[]): BaseBoard {
       // start "in a room" that reveals on turn 1).
       else if (ch === 'S') { tiles[y][x] = 'stairs'; startCells.push({ x, y }); }
       else if (ROOM_LETTERS.has(ch)) { tiles[y][x] = 'floor'; letter[y][x] = ch; }
+      // 'W' = a placed wall (blocks move + sight, but CAN be seen down a hallway,
+      // so it gets the distinct 'blocked' kind). '#' rock stays an invisible wall.
+      else if (ch === 'W') tiles[y][x] = 'blocked';
       // '#' (and anything else) stays a wall.
     }
   }
@@ -111,16 +114,18 @@ export function parseAsciiBoard(map: string[]): BaseBoard {
   }
 
   // Assign the stair cluster to the room it sits in, so the heroes begin "in a
-  // room" (the entrance room) rather than bare corridor. Fall back to a distinct
-  // 'stairway' region if the stairs aren't enclosed by a room.
-  let stairRegion = 'stairway';
+  // room" (the entrance room) rather than bare corridor. A staircase tucked into
+  // a corner can touch two rooms, so pick the one it borders MOST (otherwise the
+  // wall lands on the wrong side and heroes can't step into their own room).
+  const borders = new Map<string, number>();
   for (const sc of startCells) {
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
       const r = regions[sc.y + dy]?.[sc.x + dx];
-      if (r && r.startsWith('room_')) { stairRegion = r; break; }
+      if (r && r.startsWith('room_')) borders.set(r, (borders.get(r) ?? 0) + 1);
     }
-    if (stairRegion !== 'stairway') break;
   }
+  let stairRegion = 'stairway', bestBorders = 0;
+  for (const [r, n] of borders) if (n > bestBorders) { bestBorders = n; stairRegion = r; }
   for (const sc of startCells) regions[sc.y][sc.x] = stairRegion;
 
   return { width: W, height: H, tiles, regions, rooms, startCells };
