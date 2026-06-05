@@ -169,6 +169,11 @@ type SaveState = {
   furniture: Furn[]; monsters: Mon[]; starts: Pt[]; traps?: Trap[]; doors?: Door[];
 };
 
+/** The editable document captured for undo (the board is locked, so not w/h).
+ *  Editor state is immutable — every change replaces the grid/arrays — so a
+ *  snapshot is just the current references; no deep copy is needed. */
+type EditDoc = { grid: Glyph[][]; furniture: Furn[]; monsters: Mon[]; starts: Pt[]; traps: Trap[]; doors: Door[] };
+
 /** Force any saved state to the locked 30×23 — crop extra columns from the LEFT
  *  (where stray rock columns live) and extra rows from the bottom, padding with
  *  rock if short, and shift the overlays to match. */
@@ -255,6 +260,45 @@ export default function HeroQuestSandbox() {
     const s: SaveState = { w, h, grid, furniture, monsters, starts, traps, doors };
     try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch { /* ignore */ }
   }, [loaded, w, h, grid, furniture, monsters, starts, traps, doors]);
+
+  // ---- Undo history ----
+  // docRef always holds the latest doc (updated after render); during an event
+  // handler — before the next render — it is the PRE-change doc, which is exactly
+  // what we snapshot. snapshot() is called at the START of each interaction (a
+  // paint stroke, a click, a drop, a Load/Reset/Clear), so a whole stroke is a
+  // single undo step. It de-dupes by reference, so a no-op click adds nothing.
+  const docRef = useRef<EditDoc>({ grid, furniture, monsters, starts, traps, doors });
+  useEffect(() => { docRef.current = { grid, furniture, monsters, starts, traps, doors }; },
+    [grid, furniture, monsters, starts, traps, doors]);
+  const historyRef = useRef<EditDoc[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const snapshot = useCallback(() => {
+    const hist = historyRef.current, s = docRef.current, top = hist[hist.length - 1];
+    if (top && top.grid === s.grid && top.furniture === s.furniture && top.monsters === s.monsters
+      && top.starts === s.starts && top.traps === s.traps && top.doors === s.doors) return;
+    hist.push(s);
+    if (hist.length > 100) hist.shift();      // cap memory; oldest steps fall off
+    setCanUndo(true);
+  }, []);
+  const undo = useCallback(() => {
+    const prev = historyRef.current.pop();
+    if (!prev) return;
+    setGrid(prev.grid); setFurniture(prev.furniture); setMonsters(prev.monsters);
+    setStarts(prev.starts); setTraps(prev.traps); setDoors(prev.doors);
+    setCanUndo(historyRef.current.length > 0);
+  }, []);
+  // Ctrl/Cmd+Z, except while typing in a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.key.toLowerCase() !== 'z') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [undo]);
 
   const setCellGlyph = useCallback((x: number, y: number, g: Glyph) => {
     setGrid(prev => {
@@ -507,7 +551,15 @@ ${startLine}`;
     >
       <div className="flex items-center justify-between px-3 py-1.5 shrink-0">
         <h1 className="text-base font-semibold">HeroQuest — Map Sandbox</h1>
-        <Link href="/lobby" className="text-sm text-emerald-400 hover:underline">← Back to lobby</Link>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo last change (Ctrl/Cmd+Z)"
+            className={`rounded px-2.5 py-1 text-sm font-medium transition ${canUndo ? 'bg-neutral-800 text-neutral-100 hover:bg-neutral-700' : 'bg-neutral-900 text-neutral-600 cursor-not-allowed'}`}
+          >↶ Undo</button>
+          <Link href="/lobby" className="text-sm text-emerald-400 hover:underline">← Back to lobby</Link>
+        </div>
       </div>
 
       <div className="flex gap-3 flex-1 min-h-0 px-3 pb-2">
@@ -598,9 +650,9 @@ ${startLine}`;
             <Section title="Board">
               <div className="text-xs text-neutral-400">Size: <span className="font-semibold text-neutral-200">{w}×{h}</span> — locked</div>
               <div className="mt-2 flex flex-wrap gap-1">
-                <SmallBtn onClick={() => { const s = quest1State(); setW(s.w); setH(s.h); setGrid(s.grid); setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts); setTraps(s.traps ?? []); setDoors(s.doors ?? []); }}>★ Load Quest 1</SmallBtn>
-                <SmallBtn onClick={() => { if (confirm('Reset to the locked 30×23 board template? This clears everything you have placed and restores the default board.')) { setW(BOARD_W); setH(BOARD_H); setGrid(makeTemplateGrid()); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); setDoors([]); } }}>↺ Reset to template</SmallBtn>
-                <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); setDoors([]); } }}>Clear</SmallBtn>
+                <SmallBtn onClick={() => { snapshot(); const s = quest1State(); setW(s.w); setH(s.h); setGrid(s.grid); setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts); setTraps(s.traps ?? []); setDoors(s.doors ?? []); }}>★ Load Quest 1</SmallBtn>
+                <SmallBtn onClick={() => { if (confirm('Reset to the locked 30×23 board template? This clears everything you have placed and restores the default board. (You can still Undo it.)')) { snapshot(); setW(BOARD_W); setH(BOARD_H); setGrid(makeTemplateGrid()); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); setDoors([]); } }}>↺ Reset to template</SmallBtn>
+                <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size? (You can still Undo it.)')) { snapshot(); setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); setDoors([]); } }}>Clear</SmallBtn>
               </div>
             </Section>
 
@@ -631,7 +683,7 @@ ${startLine}`;
                 const r = gridRef.current?.getBoundingClientRect();
                 if (!dragKind || !r) return;
                 const cx = Math.floor((e.clientX - r.left) / cell), cy = Math.floor((e.clientY - r.top) / cell);
-                if (cx >= 0 && cy >= 0 && cx < w && cy < h) placeFurniture(dragKind, cx, cy, furnRot);
+                if (cx >= 0 && cy >= 0 && cx < w && cy < h) { snapshot(); placeFurniture(dragKind, cx, cy, furnRot); }
                 setDragKind(null);
               }}
             >
@@ -645,6 +697,7 @@ ${startLine}`;
                     title={`${x},${y}`}
                     style={{ width: cell, height: cell, position: 'relative', overflow: 'hidden', cursor: 'pointer', userSelect: 'none' }}
                     onMouseDown={e => {
+                      snapshot();   // one undo step per click / paint stroke
                       if (e.button === 2) { removeAt(x, y); return; }
                       if (tool.t === 'door' || tool.t === 'secret') { placeDoor(e, x, y, tool.t === 'secret'); return; }
                       applyTool(x, y);
