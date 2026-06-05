@@ -576,6 +576,11 @@ ${startLine}`;
         <h1 className="text-base font-semibold">HeroQuest — Map Sandbox</h1>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => { if (confirm('Return the board to the default Quest 1 layout? This replaces what is currently on the board (you can Undo it).')) { snapshot(); const s = quest1State(); setW(s.w); setH(s.h); setGrid(s.grid); setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts); setTraps(s.traps ?? []); setDoors(s.doors ?? []); } }}
+            title="Reload the default Quest 1 board"
+            className="rounded px-2.5 py-1 text-sm font-medium bg-amber-700/80 text-amber-50 transition hover:bg-amber-600"
+          >↩ Return to default</button>
+          <button
             onClick={undo}
             disabled={!canUndo}
             title="Undo last change (Ctrl/Cmd+Z)"
