@@ -239,6 +239,9 @@ export type QuestDef = {
   winCondition: WinCondition;
   /** Reward granted to the heroes on completion (beyond treasure found). */
   reward: QuestReward;
+  /** Quest-Book "special notes": boxed text read aloud the first time the heroes
+   *  reveal the room containing `at`. */
+  roomNotes?: { at: Coord; text: string }[];
 };
 
 /** Completion reward for a quest. */
@@ -297,8 +300,9 @@ export type LogEntry = {
   seq: number;
   ts: number;
   text: string;
-  /** Optional tag the UI can use to render with an icon (combat, search, etc). */
-  tag?: 'system' | 'move' | 'combat' | 'search' | 'spell' | 'trap' | 'death' | 'spawn' | 'zargon' | 'reveal';
+  /** Optional tag the UI can use to render with an icon (combat, search, etc).
+   *  'note' = a Quest-Book boxed note read aloud when its room is first entered. */
+  tag?: 'system' | 'move' | 'combat' | 'search' | 'spell' | 'trap' | 'death' | 'spawn' | 'zargon' | 'reveal' | 'note';
 };
 
 // ============================================================================

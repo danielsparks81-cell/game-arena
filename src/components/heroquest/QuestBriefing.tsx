@@ -4,7 +4,9 @@
 // "Mentor's words" button). Faithful to the 1989 art: aged paper texture,
 // chunky serif headings, drop-cap initial, wax seal at the bottom.
 
+import { useEffect } from 'react';
 import type { QuestDef } from '@/lib/games/heroquest';
+import { speak, cancelSpeech, useNarration } from './narration';
 
 const PARCHMENT_BG = `
   radial-gradient(ellipse at 30% 20%, #fdf3d8 0%, #e8cf94 60%, #c9a560 100%),
@@ -20,6 +22,13 @@ export default function QuestBriefing({
   // Drop-cap split: extract leading word as the illuminated letter, rest as body.
   const [firstWord, ...rest] = quest.briefing.split(' ');
   const restText = rest.join(' ');
+
+  // Narrate the briefing aloud when it opens (if narration is on); stop on close.
+  const { enabled } = useNarration();
+  useEffect(() => {
+    if (enabled) speak(quest.briefing);
+    return () => cancelSpeech();
+  }, [enabled, quest.briefing]);
 
   return (
     <div
@@ -98,10 +107,18 @@ export default function QuestBriefing({
           </div>
         </div>
 
-        {/* Begin button */}
-        <div className="flex justify-center px-8 pb-7">
+        {/* Buttons */}
+        <div className="flex items-center justify-center gap-3 px-8 pb-7">
           <button
-            onClick={onClose}
+            onClick={() => speak(quest.briefing)}
+            title="Read the briefing aloud"
+            className="rounded-md border-2 px-4 py-2 text-sm font-bold uppercase tracking-widest transition hover:scale-105"
+            style={{ background: 'linear-gradient(180deg,#efdcae,#c9a560)', borderColor: '#5a3a08', color: '#3a2408', fontFamily: 'Georgia, serif' }}
+          >
+            🔊 Read aloud
+          </button>
+          <button
+            onClick={() => { cancelSpeech(); onClose(); }}
             className="rounded-md border-2 px-6 py-2 text-sm font-bold uppercase tracking-widest transition hover:scale-105"
             style={{
               background: 'linear-gradient(180deg, #d4a043 0%, #8a6020 100%)',

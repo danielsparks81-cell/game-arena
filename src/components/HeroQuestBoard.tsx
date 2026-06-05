@@ -5,7 +5,7 @@
 // real rendering lives in components/heroquest/* sub-components; this file
 // is just wiring + the action bar.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   type HQState,
   type HeroClass,
@@ -19,6 +19,7 @@ import CharacterSheet from './heroquest/CharacterSheet';
 import DicePanel, { DiceRollOverlay } from './heroquest/DicePanel';
 import QuestBriefing from './heroquest/QuestBriefing';
 import { HeartIcon, CoinIcon } from './heroquest/Art';
+import { useNarration, speak } from './heroquest/narration';
 import { safeAccent } from '@/lib/accentColors';
 
 export type HeroQuestBoardProps = {
@@ -129,6 +130,19 @@ function PlayingView({
     if (pendingSpell && (!isMyTurn || !focusHero || focusHero.hasActed)) setPendingSpell(null);
   }, [pendingSpell, isMyTurn, focusHero]);
 
+  // Narration: read the Quest-Book "special notes" aloud as their rooms reveal.
+  const { enabled: narrate, setEnabled: setNarrate, supported: narrateSupported } = useNarration();
+  const lastNoteSeq = useRef<number | null>(null);
+  useEffect(() => {
+    const notes = state.log.filter(e => e.tag === 'note');
+    const maxSeq = notes.length ? notes[notes.length - 1].seq : -1;
+    // On first render just remember where we are — don't replay old notes.
+    if (lastNoteSeq.current === null) { lastNoteSeq.current = maxSeq; return; }
+    const fresh = notes.filter(e => e.seq > (lastNoteSeq.current ?? -1));
+    lastNoteSeq.current = maxSeq;
+    if (narrate && fresh.length) speak(fresh.map(e => e.text).join(' '));
+  }, [state.log, narrate]);
+
   const handleSpellClick = (spellId: string) => {
     const spell = focusHero?.spells.find(s => s.id === spellId);
     if (!spell) return;
@@ -192,6 +206,15 @@ function PlayingView({
     // one screen tall.
     <div className="grid gap-3 lg:grid-cols-[24rem_minmax(0,1fr)]" style={{ height: 'calc(100dvh - 7rem)' }}>
       <div className="flex h-full min-h-0 flex-col gap-2 pr-1">
+        {narrateSupported && (
+          <button
+            onClick={() => setNarrate(!narrate)}
+            title={narrate ? 'Narration on — click to mute' : 'Narration off — click to enable'}
+            className="self-start rounded border border-amber-700/50 bg-amber-900/30 px-2 py-1 text-[10px] uppercase tracking-wider text-amber-200 transition hover:bg-amber-800/40"
+          >
+            {narrate ? '🔊 Narration on' : '🔇 Narration off'}
+          </button>
+        )}
         {pendingSpell && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-amber-500/70 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
             <span className="font-semibold">Casting {pendingSpell.name}:</span>

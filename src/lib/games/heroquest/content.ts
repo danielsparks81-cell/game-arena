@@ -291,6 +291,13 @@ function makeQuest1(): QuestDef {
     wanderingMonster: 'orc', // Quest 1's wandering monster is the Orc (book)
     winCondition: { kind: 'kill_and_exit', monsterDisplayName: 'Verag' },
     reward: { kind: 'none' }, // the reward is the gold in the chests (84 + 120)
+    // "Special notes" read aloud when each room is first entered. Short, original
+    // placeholders — swap in your own Quest-Book wording per room.
+    roomNotes: [
+      { at: { x: 8, y: 3 },   text: 'An ancient guardian stirs, barring the way to the tomb beyond.' },
+      { at: { x: 12, y: 2 },  text: "Here lies Fellmarg's tomb, watched over by the restless dead." },
+      { at: { x: 14, y: 10 }, text: 'A foul gargoyle uncoils from the shadows. You have found Verag.' },
+    ],
   };
 }
 

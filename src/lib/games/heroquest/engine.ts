@@ -1631,6 +1631,10 @@ function spawnRoomMonsters(s: HQState, region: string): void {
     if (monDef.roomId !== region) continue;
     s.monsters.push(instantiateMonster(monDef));
   }
+  // Read aloud any Quest-Book "special note" for this room (once, on first entry).
+  for (const note of s.quest.roomNotes ?? []) {
+    if (s.tiles[note.at.y]?.[note.at.x]?.region === region) pushLog(s, 'note', note.text);
+  }
 }
 
 /** Reveal LOS-visible cells from this hero (used at start of game + after
