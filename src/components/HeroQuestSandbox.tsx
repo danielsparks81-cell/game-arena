@@ -31,7 +31,8 @@ type MonKind =
   | 'goblin' | 'orc' | 'abomination' | 'skeleton' | 'zombie' | 'mummy'
   | 'dread_warrior' | 'gargoyle' | 'dread_sorcerer';
 type TrapKind = 'pit' | 'spear' | 'falling_block';
-type Furn = { kind: FurnKind; x: number; y: number; gold?: number };
+// (x,y) is the top-left of the footprint; rot=1 swaps width/height.
+type Furn = { kind: FurnKind; x: number; y: number; gold?: number; rot?: number };
 type Mon = { kind: MonKind; x: number; y: number; named?: boolean; name?: string };
 type Trap = { kind: TrapKind; x: number; y: number };
 
@@ -40,21 +41,34 @@ type Tool =
   | { t: 'room'; letter: string }
   | { t: 'furniture'; kind: FurnKind }
   | { t: 'monster'; kind: MonKind; named: boolean }
-  | { t: 'trap'; kind: TrapKind }
-  | { t: 'start' };
+  | { t: 'trap'; kind: TrapKind };
+
+// Footprint (in squares) + whether the piece blocks line of sight.
+const FURN_SIZE: Record<FurnKind, { w: number; h: number; los: boolean }> = {
+  table:           { w: 2, h: 3, los: false },
+  chest:           { w: 1, h: 1, los: false },
+  bookshelf:       { w: 1, h: 3, los: true },
+  sorcerer_table:  { w: 2, h: 3, los: false },
+  alchemist_bench: { w: 2, h: 3, los: false },
+  throne:          { w: 1, h: 1, los: false },
+  fireplace:       { w: 1, h: 3, los: true },
+  cupboard:        { w: 1, h: 3, los: true },
+  tomb:            { w: 2, h: 3, los: false },
+  rack:            { w: 2, h: 3, los: false },
+  weapon_rack:     { w: 1, h: 3, los: true },
+  altar:           { w: 1, h: 1, los: false },
+  bench:           { w: 1, h: 1, los: false },
+};
+/** Footprint of a placed piece, accounting for rotation. */
+function footprint(kind: FurnKind, rot = 0) {
+  const s = FURN_SIZE[kind];
+  return rot ? { w: s.h, h: s.w, los: s.los } : { w: s.w, h: s.h, los: s.los };
+}
 
 const ROOM_LETTERS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p'];
-const FURN_KINDS: FurnKind[] = ['chest', 'table', 'cupboard', 'rack', 'weapon_rack', 'bookshelf', 'throne', 'tomb', 'fireplace', 'sorcerer_table', 'alchemist_bench', 'altar', 'bench'];
+const FURN_KINDS: FurnKind[] = ['table', 'chest', 'bookshelf', 'sorcerer_table', 'alchemist_bench', 'throne', 'fireplace', 'cupboard', 'tomb', 'rack', 'weapon_rack', 'altar', 'bench'];
 const MON_KINDS: MonKind[] = ['goblin', 'orc', 'abomination', 'skeleton', 'zombie', 'mummy', 'dread_warrior', 'gargoyle', 'dread_sorcerer'];
 const TRAP_KINDS: TrapKind[] = ['pit', 'spear', 'falling_block'];
-
-/** Furniture default [blocksMove, blocksLos] for export. */
-const FURN_BLOCK: Record<FurnKind, [boolean, boolean]> = {
-  fireplace: [true, true], throne: [true, true], tomb: [true, true],
-  bookshelf: [false, true], rack: [false, true], weapon_rack: [false, true], cupboard: [false, true],
-  sorcerer_table: [false, true], alchemist_bench: [false, true],
-  table: [false, false], chest: [false, false], altar: [false, false], bench: [false, false],
-};
 
 const ROOM_TINT: Record<string, string> = {
   a: '#7dd3fc', b: '#86efac', c: '#fca5a5', d: '#fcd34d',
@@ -150,6 +164,10 @@ export default function HeroQuestSandbox() {
   const [monName, setMonName] = useState('');     // name for the next "named" monster
   const [chestGold, setChestGold] = useState(0);  // gold stocked into the next chest (0 = none)
 
+  const [furnRot, setFurnRot] = useState(0);          // 0 / 1 — rotate footprint tiles
+  const gridRef = useRef<HTMLDivElement>(null);       // for drag-drop cell math
+  const [dragKind, setDragKind] = useState<FurnKind | null>(null);
+
   // Cell size is computed to make the whole board fit its container (no scroll).
   const boardRef = useRef<HTMLDivElement>(null);
   const [cell, setCell] = useState(CELL);
@@ -207,37 +225,43 @@ export default function HeroQuestSandbox() {
     });
   };
 
+  // Place (or toggle off) a furniture footprint anchored at (x,y). Used by both
+  // click-to-place and drag-and-drop from the palette.
+  const placeFurniture = useCallback((kind: FurnKind, x: number, y: number, rot: number) => {
+    setFurniture(prev => {
+      const i = prev.findIndex(p => p.x === x && p.y === y && p.kind === kind);
+      if (i >= 0) { const c = prev.slice(); c.splice(i, 1); return c; }
+      return [...prev, { kind, x, y, rot, gold: kind === 'chest' && chestGold > 0 ? chestGold : undefined }];
+    });
+  }, [chestGold]);
+
   const applyTool = useCallback((x: number, y: number) => {
     switch (tool.t) {
       case 'rock':   setCellGlyph(x, y, '#'); break;
       case 'wall':   setCellGlyph(x, y, 'W'); break;
       case 'hall':   setCellGlyph(x, y, '.'); break;
-      case 'stairs': setCellGlyph(x, y, 'S'); break;
       case 'door':   setCellGlyph(x, y, '+'); break;
       case 'secret': setCellGlyph(x, y, '*'); break;
       case 'room':   setCellGlyph(x, y, tool.letter); break;
       case 'erase':  setCellGlyph(x, y, '#'); break;
-      case 'furniture':
-        toggleList(furniture, setFurniture, { kind: tool.kind, x, y, gold: tool.kind === 'chest' && chestGold > 0 ? chestGold : undefined });
+      case 'stairs': {
+        // The staircase is one 2×2 space; stamp 'S' on it and make those the starts.
+        const cells = [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]].filter(([cx, cy]) => cx < w && cy < h);
+        setGrid(prev => { const n = prev.map(r => r.slice()); for (const [cx, cy] of cells) n[cy][cx] = 'S'; return n; });
+        setStarts(cells.map(([cx, cy]) => ({ x: cx, y: cy })));
         break;
+      }
+      case 'furniture': placeFurniture(tool.kind, x, y, furnRot); break;
       case 'monster':
         toggleList(monsters, setMonsters, { kind: tool.kind, x, y, named: tool.named, name: tool.named ? (monName.trim() || 'Boss') : undefined });
         break;
       case 'trap':
         toggleList(traps, setTraps, { kind: tool.kind, x, y });
         break;
-      case 'start':
-        toggleList(starts, setStarts, { x, y }, 4);
-        break;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tool, furniture, monsters, starts, traps, monName, chestGold, setCellGlyph]);
+  }, [tool, monsters, traps, monName, chestGold, furnRot, setCellGlyph, placeFurniture, w, h]);
 
-  const furnAt = useMemo(() => {
-    const m = new Map<string, Furn>();
-    for (const f of furniture) m.set(`${f.x},${f.y}`, f);
-    return m;
-  }, [furniture]);
   const monAt = useMemo(() => {
     const m = new Map<string, Mon>();
     for (const mo of monsters) m.set(`${mo.x},${mo.y}`, mo);
@@ -248,7 +272,6 @@ export default function HeroQuestSandbox() {
     for (const t of traps) m.set(`${t.x},${t.y}`, t);
     return m;
   }, [traps]);
-  const startSet = useMemo(() => new Set(starts.map(s => `${s.x},${s.y}`)), [starts]);
 
   // ---- Validation hints ----
   const warnings = useMemo(() => {
@@ -308,9 +331,10 @@ export default function HeroQuestSandbox() {
     }
     const regionOf = (x: number, y: number) => region[y]?.[x] || 'corridor';
     const furnLines = furniture.map(f => {
-      const [bm, bl] = FURN_BLOCK[f.kind];
+      const fp = footprint(f.kind, f.rot);
       const fc = f.gold != null ? `, { kind: 'gold', amount: ${f.gold} }` : '';
-      return `  furn('${f.kind}', ${f.x}, ${f.y}, ${bm}, ${bl}${fc});`;
+      // furn(kind, x, y, w, h, blocksLos, content?) — (x,y) = top-left of the footprint
+      return `  furn('${f.kind}', ${f.x}, ${f.y}, ${fp.w}, ${fp.h}, ${fp.los}${fc});`;
     }).join('\n');
     const monLines = monsters.map(m => {
       const opts = m.named ? `, { displayName: ${JSON.stringify(m.name || 'Boss')} }` : '';
@@ -391,8 +415,8 @@ ${startLine}`;
       </div>
 
       <div className="flex gap-3 flex-1 min-h-0 px-3 pb-2">
-        {/* Toolbar */}
-        <div className="w-[340px] shrink-0 overflow-y-auto space-y-2 pr-1">
+        {/* Toolbar — two columns so it fits without scrolling */}
+        <div className="w-[500px] shrink-0 overflow-y-auto pr-1 columns-2 gap-2 [column-fill:balance]">
             <Section title="Brush">
               <div className="grid grid-cols-2 gap-1">
                 <ToolBtn active={tool.t === 'hall'} onClick={() => setTool({ t: 'hall' })}>Hall</ToolBtn>
@@ -400,8 +424,7 @@ ${startLine}`;
                 <ToolBtn active={tool.t === 'rock'} onClick={() => setTool({ t: 'rock' })}>Rock (unused)</ToolBtn>
                 <ToolBtn active={tool.t === 'door'} onClick={() => setTool({ t: 'door' })}>Door</ToolBtn>
                 <ToolBtn active={tool.t === 'secret'} onClick={() => setTool({ t: 'secret' })}>Secret door</ToolBtn>
-                <ToolBtn active={tool.t === 'stairs'} onClick={() => setTool({ t: 'stairs' })}>Stairs (1 space)</ToolBtn>
-                <ToolBtn active={tool.t === 'start'} onClick={() => setTool({ t: 'start' })}>Start ×4</ToolBtn>
+                <ToolBtn active={tool.t === 'stairs'} onClick={() => setTool({ t: 'stairs' })}>Stairs 2×2</ToolBtn>
                 <ToolBtn active={tool.t === 'erase'} onClick={() => setTool({ t: 'erase' })}>Erase → rock</ToolBtn>
               </div>
             </Section>
@@ -419,20 +442,29 @@ ${startLine}`;
               </div>
             </Section>
 
-            <Section title="Furniture">
-              <label className="mb-1 flex items-center gap-1 text-xs">
-                Chest gold:
-                <input type="number" min={0} value={chestGold} onChange={e => setChestGold(Math.max(0, +e.target.value || 0))}
-                  className="w-16 rounded bg-neutral-800 px-1 py-0.5" />
-                <span className="text-neutral-500">(0 = none)</span>
-              </label>
-              <div className="grid grid-cols-2 gap-1">
-                {FURN_KINDS.map(k => (
-                  <ToolBtn key={k} active={tool.t === 'furniture' && tool.kind === k} onClick={() => setTool({ t: 'furniture', kind: k })}>
-                    {FURN_ICON[k]} {k.replace('_', ' ')}
-                  </ToolBtn>
-                ))}
+            <Section title="Objects — drag onto the map (or click then click a square)">
+              <div className="mb-1.5 flex items-center gap-2 text-xs">
+                <label className="flex items-center gap-1">Chest gold:
+                  <input type="number" min={0} value={chestGold} onChange={e => setChestGold(Math.max(0, +e.target.value || 0))} className="w-14 rounded bg-neutral-800 px-1 py-0.5" /></label>
+                <button onClick={() => setFurnRot(r => (r ? 0 : 1))} className="rounded bg-neutral-700 px-2 py-1 font-medium hover:bg-neutral-600">⟳ Rotate{furnRot ? ' 90°' : ''}</button>
               </div>
+              <div className="grid grid-cols-2 gap-1">
+                {FURN_KINDS.map(k => {
+                  const s = FURN_SIZE[k];
+                  const active = tool.t === 'furniture' && tool.kind === k;
+                  return (
+                    <button key={k} draggable
+                      onDragStart={() => setDragKind(k)}
+                      onClick={() => setTool({ t: 'furniture', kind: k })}
+                      className={`flex items-center gap-1 rounded px-2 py-1.5 text-left text-xs transition cursor-grab active:cursor-grabbing ${active ? 'bg-emerald-500 text-neutral-950' : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700'}`}>
+                      <span>{FURN_ICON[k]}</span>
+                      <span className="flex-1 truncate">{k.replace('_', ' ')}</span>
+                      <span className={active ? 'text-neutral-800' : 'text-neutral-400'}>{s.w}×{s.h}{s.los ? '◾' : ''}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="mt-1 text-[10px] text-neutral-500">◾ = blocks line of sight · drag-rotate with ⟳</div>
             </Section>
 
             <Section title="Monsters">
@@ -492,22 +524,30 @@ ${startLine}`;
           {/* Grid — fills the remaining space, sized to fit (no scroll) */}
           <div ref={boardRef} className="flex-1 min-w-0 flex items-center justify-center overflow-hidden">
             <div
-              className="select-none rounded border border-neutral-700"
+              ref={gridRef}
+              className="relative select-none rounded border border-neutral-700"
               style={{ display: 'grid', gridTemplateColumns: `repeat(${w}, ${cell}px)` }}
               onMouseDown={() => setPainting(true)}
+              onDragOver={e => { if (dragKind) e.preventDefault(); }}
+              onDrop={e => {
+                e.preventDefault();
+                const r = gridRef.current?.getBoundingClientRect();
+                if (!dragKind || !r) return;
+                const cx = Math.floor((e.clientX - r.left) / cell), cy = Math.floor((e.clientY - r.top) / cell);
+                if (cx >= 0 && cy >= 0 && cx < w && cy < h) placeFurniture(dragKind, cx, cy, furnRot);
+                setDragKind(null);
+              }}
             >
               {grid.map((row, y) => row.map((_, x) => {
-                const f = furnAt.get(`${x},${y}`);
                 const mo = monAt.get(`${x},${y}`);
                 const tr = trapAt.get(`${x},${y}`);
-                const isStart = startSet.has(`${x},${y}`);
                 return (
                   <div
                     key={`${x},${y}`}
                     style={cellStyle(x, y)}
                     title={mo?.name ? `${mo.name} (${x},${y})` : `${x},${y}`}
                     onMouseDown={() => applyTool(x, y)}
-                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'door' || tool.t === 'secret' || tool.t === 'stairs' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
+                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'door' || tool.t === 'secret' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
                   >
                     {mo ? (
                       <span style={{
@@ -518,13 +558,26 @@ ${startLine}`;
                         fontWeight: 800, fontSize: Math.round(cell * 0.42),
                         boxShadow: mo.named ? '0 0 0 3px #f59e0b' : 'inset 0 0 0 1px rgba(0,0,0,0.4)',
                       }}>{MON_DOT[mo.kind].letter}</span>)
-                      : f ? <span style={{ fontSize: Math.round(cell * 0.52) }}>{FURN_ICON[f.kind]}{f.gold ? <span style={{ position: 'absolute', right: 2, bottom: 0, fontSize: Math.round(cell * 0.26), color: '#7c2d12', fontWeight: 800 }}>{f.gold}</span> : null}</span>
                       : tr ? <span style={{ opacity: 0.9, fontSize: Math.round(cell * 0.5) }}>{TRAP_ICON[tr.kind]}</span>
-                      : isStart ? <span style={{ color: '#0f766e', fontWeight: 700, fontSize: Math.round(cell * 0.6) }}>◊</span>
                       : null}
                   </div>
                 );
               }))}
+              {/* Furniture footprints (overlay). Solid border = blocks line of sight. */}
+              {furniture.map((fu, i) => {
+                const fp = footprint(fu.kind, fu.rot);
+                return (
+                  <div key={`fur${i}`} title={`${fu.kind} ${fp.w}×${fp.h}${fp.los ? ' (blocks LOS)' : ''}`} style={{
+                    position: 'absolute', left: fu.x * cell, top: fu.y * cell, width: fp.w * cell, height: fp.h * cell,
+                    background: '#6b4423', border: fp.los ? '2px solid #241509' : '2px dashed #c79a63',
+                    borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    pointerEvents: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.55)', overflow: 'hidden',
+                  }}>
+                    <span style={{ fontSize: Math.round(Math.min(fp.w, fp.h) * cell * 0.5) }}>{FURN_ICON[fu.kind]}</span>
+                    {fu.gold ? <span style={{ position: 'absolute', right: 3, bottom: 1, fontSize: Math.round(cell * 0.28), color: '#fde68a', fontWeight: 800 }}>{fu.gold}</span> : null}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -548,7 +601,7 @@ ${startLine}`;
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-2">
+    <div className="mb-2 break-inside-avoid rounded-lg border border-neutral-800 bg-neutral-900 p-2">
       <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-500">{title}</div>
       {children}
     </div>
