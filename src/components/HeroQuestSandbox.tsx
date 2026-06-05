@@ -20,7 +20,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from 'next/link';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
 import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS } from '@/lib/games/heroquest/quests/quest1';
-import { FloorCell, StairsFan, FurnitureToken } from './heroquest/Art';
+import { FloorCell, StairsFan } from './heroquest/Art';
+import { FurnitureSvg } from './heroquest/furnitureArt';
 import { ROOM_FLOORS, CORRIDOR_FLOOR, floorForIndex, type RoomFloor } from './heroquest/floors';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
@@ -64,10 +65,11 @@ const FURN_SIZE: Record<FurnKind, { w: number; h: number; los: boolean }> = {
   altar:           { w: 1, h: 1, los: false },
   bench:           { w: 1, h: 1, los: false },
 };
-/** Footprint of a placed piece, accounting for rotation. */
+/** Footprint of a placed piece, accounting for rotation. rot is 0..3 (90° each);
+ *  odd rotations swap width/height. */
 function footprint(kind: FurnKind, rot = 0) {
   const s = FURN_SIZE[kind];
-  return rot ? { w: s.h, h: s.w, los: s.los } : { w: s.w, h: s.h, los: s.los };
+  return rot % 2 ? { w: s.h, h: s.w, los: s.los } : { w: s.w, h: s.h, los: s.los };
 }
 
 const ROOM_LETTERS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p'];
@@ -85,15 +87,6 @@ const FURN_ICON: Record<FurnKind, string> = {
   chest: '🧰', table: '🪵', cupboard: '🗄️', rack: '⚔️', weapon_rack: '🗡️', bookshelf: '📚',
   throne: '🪑', tomb: '⚰️', altar: '🔯', bench: '🛋️', fireplace: '🔥',
   sorcerer_table: '🔮', alchemist_bench: '⚗️',
-};
-// Map the editor's furniture kinds onto the game's FurnitureToken art kinds (the
-// token kit doesn't have weapon_rack / sorcerer_table / alchemist_bench, so they
-// borrow the closest piece).
-type TokenFurnKind = 'chest' | 'table' | 'cupboard' | 'rack' | 'bookshelf' | 'throne' | 'tomb' | 'altar' | 'bench' | 'fireplace';
-const FURN_TOKEN_KIND: Record<FurnKind, TokenFurnKind> = {
-  chest: 'chest', table: 'table', cupboard: 'cupboard', rack: 'rack', weapon_rack: 'rack',
-  bookshelf: 'bookshelf', throne: 'throne', tomb: 'tomb', altar: 'altar', bench: 'bench',
-  fireplace: 'fireplace', sorcerer_table: 'table', alchemist_bench: 'bench',
 };
 const MON_ICON: Record<MonKind, string> = {
   goblin: '👺', orc: '👹', abomination: '🦎', skeleton: '💀', zombie: '🧟',
@@ -622,7 +615,7 @@ ${startLine}`;
               <div className="mb-1.5 flex items-center gap-2 text-xs">
                 <label className="flex items-center gap-1">Chest gold:
                   <input type="number" min={0} value={chestGold} onChange={e => setChestGold(Math.max(0, +e.target.value || 0))} className="w-14 rounded bg-neutral-800 px-1 py-0.5" /></label>
-                <button onClick={() => setFurnRot(r => (r ? 0 : 1))} className="rounded bg-neutral-700 px-2 py-1 font-medium hover:bg-neutral-600">⟳ Rotate{furnRot ? ' 90°' : ''}</button>
+                <button onClick={() => setFurnRot(r => (r + 1) % 4)} className="rounded bg-neutral-700 px-2 py-1 font-medium hover:bg-neutral-600">⟳ Rotate {furnRot * 90}°</button>
               </div>
               <div className="grid grid-cols-2 gap-1">
                 {FURN_KINDS.map(k => {
@@ -747,33 +740,18 @@ ${startLine}`;
               {/* Room / rock walls — bold dark edges (a door leaves its edge open). */}
               <WallLayer grid={grid} region={regionGrid} doorSet={doorSet} cell={cell} w={w} h={h} />
 
-              {/* Furniture — a solid material slab fills the WHOLE footprint (so it
-                  never looks like open floor you could step on), with the game art
-                  on top. Solid border = blocks line of sight, dashed = doesn't. */}
+              {/* Furniture — shared art that fills the whole footprint: flat
+                  pieces top-down, tall pieces in the oblique "table angle" view
+                  (rotate to face it 4 ways). Solid border = blocks LOS. */}
               {furniture.map((fu, i) => {
                 const fp = footprint(fu.kind, fu.rot);
-                const stone = fu.kind === 'tomb' || fu.kind === 'altar' || fu.kind === 'fireplace';
-                const ts = Math.min(fp.w, fp.h) * cell * 0.92;
-                const grain = Math.max(7, Math.round(cell * 0.45));
                 return (
                   <div key={`fur${i}`} title={`${fu.kind} ${fp.w}×${fp.h}${fp.los ? ' (blocks LOS)' : ''}`} style={{
                     position: 'absolute', left: fu.x * cell, top: fu.y * cell, width: fp.w * cell, height: fp.h * cell,
                     border: fp.los ? '2px solid #100b05' : '2px dashed #e0b97f', borderRadius: 3,
-                    background: stone ? 'linear-gradient(135deg,#727781,#3a3f47)' : 'linear-gradient(135deg,#825c34,#46301a)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    pointerEvents: 'none', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.65)',
-                    overflow: 'hidden', zIndex: 3,
+                    pointerEvents: 'none', boxShadow: '0 2px 6px rgba(0,0,0,0.6)', overflow: 'hidden', zIndex: 3,
                   }}>
-                    {/* faint grain/mortar so the slab isn't a flat block */}
-                    <div style={{
-                      position: 'absolute', inset: 0, opacity: 0.5,
-                      backgroundImage: stone
-                        ? `repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 1px, transparent 1px ${grain}px)`
-                        : `repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0 1px, transparent 1px ${grain}px)`,
-                    }} />
-                    <div style={{ width: ts, height: ts, filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.55))' }}>
-                      <FurnitureToken kind={FURN_TOKEN_KIND[fu.kind]} size={ts} />
-                    </div>
+                    <FurnitureSvg kind={fu.kind} w={fp.w} h={fp.h} rot={fu.rot ?? 0} cell={cell} />
                     {fu.gold ? <span style={{ position: 'absolute', right: 3, bottom: 1, fontSize: Math.round(cell * 0.28), color: '#fde68a', fontWeight: 800, textShadow: '0 1px 2px #000' }}>{fu.gold}</span> : null}
                   </div>
                 );

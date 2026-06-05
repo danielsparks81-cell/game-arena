@@ -238,6 +238,7 @@ function makeQuest1(): QuestDef {
       id: `furn_${i + 1}`,
       kind: FURN_KIND[f.kind] ?? 'table',
       cells,
+      facing: f.rot ?? 0,
       blocksMove: true,
       blocksLos: f.los,
       fixedContent: fixedContentAt(f.x, f.y),

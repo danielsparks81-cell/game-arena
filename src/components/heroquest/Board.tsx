@@ -16,9 +16,10 @@ import {
 } from '@/lib/games/heroquest';
 import {
   FloorCell, StairsFan,
-  HeroToken, MonsterToken, FurnitureToken,
+  HeroToken, MonsterToken,
   HQ_COLORS,
 } from './Art';
+import { FurnitureSvg } from './furnitureArt';
 import { ROOM_FLOORS, CORRIDOR_FLOOR, assignRoomFloors } from './floors';
 import { safeAccent } from '@/lib/accentColors';
 
@@ -451,28 +452,23 @@ export default function HeroQuestBoardCanvas({
           </div>
         ) : null)}
 
-        {/* Furniture layer */}
-        {state.furniture.map(f =>
-          f.cells.map((c, i) => {
-            const tile = state.tiles[c.y]?.[c.x];
-            if (!tile?.revealed) return null;
-            const level = lightLevel(c.x, c.y);
-            return (
-              <div
-                key={`${f.id}-${i}`}
-                className="pointer-events-none absolute"
-                style={{
-                  left: c.x * TILE_PX, top: c.y * TILE_PX,
-                  width: TILE_PX, height: TILE_PX,
-                  zIndex: 3,
-                  
-                }}
-              >
-                <FurnitureToken kind={f.kind} size={TILE_PX} searched={f.searched} />
-              </div>
-            );
-          }),
-        )}
+        {/* Furniture layer — one piece across its whole footprint (flat top-down
+            or oblique "table angle" per kind), shown once any cell is revealed. */}
+        {state.furniture.map(f => {
+          if (!litAll && !f.cells.some(c => state.tiles[c.y]?.[c.x]?.revealed)) return null;
+          const xs = f.cells.map(c => c.x), ys = f.cells.map(c => c.y);
+          const minX = Math.min(...xs), minY = Math.min(...ys);
+          const fw = Math.max(...xs) - minX + 1, fh = Math.max(...ys) - minY + 1;
+          return (
+            <div
+              key={f.id}
+              className="pointer-events-none absolute"
+              style={{ left: minX * TILE_PX, top: minY * TILE_PX, width: fw * TILE_PX, height: fh * TILE_PX, zIndex: 3, opacity: f.searched ? 0.6 : 1 }}
+            >
+              <FurnitureSvg kind={f.kind} w={fw} h={fh} rot={f.facing ?? 0} cell={TILE_PX} />
+            </div>
+          );
+        })}
 
         {/* Trap layer */}
         {state.traps.map(t => {

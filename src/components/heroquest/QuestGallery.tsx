@@ -8,6 +8,7 @@ import {
   buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS,
 } from '@/lib/games/heroquest/quests/quest1';
 import { stairsFanEls } from './Art';
+import { furnEls } from './furnitureArt';
 
 const CELL = 23;
 const GRID = buildQuest1Grid();
@@ -27,11 +28,6 @@ const MON: Record<string, { c: string; t: string; label: string }> = {
   dread_sorcerer: { c: '#9ca3af', t: '#111827', label: 'S' },
   gargoyle:       { c: '#9ca3af', t: '#111827', label: 'G' },
 };
-const FURN_GLYPH: Record<string, string> = {
-  tomb: '⚰', chest: '▣', weapon_rack: '⚔', rack: '☰', table: '▬', throne: '♟',
-  fireplace: '🔥', bookshelf: '▤', cupboard: '▥', sorcerer_table: '✶', alchemist_bench: '⚗',
-};
-
 const isRoom = (c?: string) => !!c && /[a-z]/.test(c);
 const isFloor = (c?: string) => !!c && (c === '.' || c === 'S' || isRoom(c));
 
@@ -127,15 +123,14 @@ function Board() {
       })}
       <StairFan cells={QUEST1_STAIRS} />
       {QUEST1_FURNITURE.map((f, i) => {
-        const w = f.w * CELL, h = f.h * CELL;
-        const stone = f.kind === 'tomb' || f.kind === 'altar' || f.kind === 'fireplace';
+        const uw = f.w * 40, uh = f.h * 40;
         return (
-          <g key={`f${i}`} transform={`translate(${f.x * CELL},${f.y * CELL})`}>
-            <rect x="1.5" y="1.5" width={w - 3} height={h - 3} rx="2" fill={stone ? '#565b63' : '#6b4423'}
-              stroke={stone ? '#2c3037' : '#3f2a14'} strokeWidth={f.los ? 2 : 1} strokeDasharray={f.los ? undefined : '3 2'} />
-            <text x={w / 2} y={h / 2 + 4} textAnchor="middle" fontSize="12" fill="#fde68a">{FURN_GLYPH[f.kind] ?? '▦'}</text>
-            {f.gold != null && <text x={w / 2} y={h - 4} textAnchor="middle" fontSize="7" fontWeight="800" fill="#fde68a">{f.gold}</text>}
-          </g>
+          <svg key={`f${i}`} x={f.x * CELL} y={f.y * CELL} width={f.w * CELL} height={f.h * CELL} viewBox={`0 0 ${uw} ${uh}`}>
+            {furnEls(f.kind, f.w, f.h, f.rot ?? 0)}
+            <rect x="1" y="1" width={uw - 2} height={uh - 2} rx="2" fill="none"
+              stroke={f.los ? '#100b05' : '#e0b97f'} strokeWidth={f.los ? 2.5 : 1.5} strokeDasharray={f.los ? undefined : '5 3'} />
+            {f.gold != null && <text x={uw - 4} y={uh - 5} textAnchor="end" fontSize="11" fontWeight="800" fill="#fde68a" stroke="#000" strokeWidth="0.4">{f.gold}</text>}
+          </svg>
         );
       })}
       {QUEST1_MONSTERS.map((m, i) => {

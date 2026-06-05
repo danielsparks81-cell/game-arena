@@ -50,6 +50,8 @@ export type Furniture = {
   id: string;
   kind: 'chest' | 'table' | 'cupboard' | 'rack' | 'bookshelf' | 'throne' | 'tomb' | 'altar' | 'bench' | 'fireplace';
   cells: Coord[];
+  /** Orientation 0..3 (90° each) — which way a tall piece faces, for art. */
+  facing?: number;
   blocksMove: boolean;
   blocksLos: boolean;
   /** If true, "Search for treasure" while standing in this room also
