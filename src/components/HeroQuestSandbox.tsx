@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
-import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS } from '@/lib/games/heroquest/quests/quest1';
+import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS } from '@/lib/games/heroquest/quests/quest1';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
 type Pt = { x: number; y: number };
@@ -35,6 +35,9 @@ type TrapKind = 'pit' | 'spear' | 'falling_block';
 type Furn = { kind: FurnKind; x: number; y: number; gold?: number; rot?: number };
 type Mon = { kind: MonKind; x: number; y: number; named?: boolean; name?: string };
 type Trap = { kind: TrapKind; x: number; y: number };
+// A door lives ON a wall edge (never a square): the TOP edge of (x,y) when v=false,
+// or the LEFT edge of (x,y) when v=true. secret = hidden door.
+type Door = { x: number; y: number; v: boolean; secret?: boolean };
 
 type Tool =
   | { t: 'rock' } | { t: 'wall' } | { t: 'hall' } | { t: 'stairs' } | { t: 'door' } | { t: 'secret' } | { t: 'erase' }
@@ -120,7 +123,7 @@ function makeTemplateGrid(): Glyph[][] {
 
 type SaveState = {
   w: number; h: number; grid: Glyph[][];
-  furniture: Furn[]; monsters: Mon[]; starts: Pt[]; traps?: Trap[];
+  furniture: Furn[]; monsters: Mon[]; starts: Pt[]; traps?: Trap[]; doors?: Door[];
 };
 
 /** Force any saved state to the locked 30×23 — crop extra columns from the LEFT
@@ -136,7 +139,8 @@ function normalizeToBoard(s: SaveState): SaveState {
   else while (grid.length < BOARD_H) grid.push(new Array<Glyph>(BOARD_W).fill('#'));
   const fix = <T extends Pt>(list: T[] = []): T[] =>
     list.map(p => ({ ...p, x: p.x + dx })).filter(p => p.x >= 0 && p.x < BOARD_W && p.y >= 0 && p.y < BOARD_H);
-  return { w: BOARD_W, h: BOARD_H, grid, furniture: fix(s.furniture), monsters: fix(s.monsters), starts: fix(s.starts), traps: fix(s.traps) };
+  const doors = (s.doors ?? []).map(d => ({ ...d, x: d.x + dx })).filter(d => d.x >= 0 && d.x <= BOARD_W && d.y >= 0 && d.y <= BOARD_H);
+  return { w: BOARD_W, h: BOARD_H, grid, furniture: fix(s.furniture), monsters: fix(s.monsters), starts: fix(s.starts), traps: fix(s.traps), doors };
 }
 
 /** Quest 1 "The Trial" laid out on the locked template board (rooms per the
@@ -146,7 +150,8 @@ function quest1State(): SaveState {
   const furniture: Furn[] = QUEST1_FURNITURE.map(f => ({ kind: f.kind as FurnKind, x: f.x, y: f.y, gold: f.gold }));
   const monsters: Mon[] = QUEST1_MONSTERS.map(m => ({ kind: m.kind as MonKind, x: m.x, y: m.y, named: !!m.name, name: m.name }));
   const starts: Pt[] = QUEST1_STAIRS.map(s => ({ x: s.x, y: s.y }));
-  return { w: BOARD_W, h: BOARD_H, grid, furniture, monsters, starts, traps: [] };
+  const doors: Door[] = QUEST1_DOORS.map(d => ({ x: d.x, y: d.y, v: d.v, secret: d.secret }));
+  return { w: BOARD_W, h: BOARD_H, grid, furniture, monsters, starts, traps: [], doors };
 }
 
 export default function HeroQuestSandbox() {
@@ -157,6 +162,7 @@ export default function HeroQuestSandbox() {
   const [monsters, setMonsters] = useState<Mon[]>([]);
   const [starts, setStarts] = useState<Pt[]>([]);
   const [traps, setTraps] = useState<Trap[]>([]);
+  const [doors, setDoors] = useState<Door[]>([]);
   const [tool, setTool] = useState<Tool>({ t: 'hall' });
   const [painting, setPainting] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -193,7 +199,7 @@ export default function HeroQuestSandbox() {
           const s = normalizeToBoard(parsed); // force to the locked 30×23
           setW(s.w); setH(s.h); setGrid(s.grid);
           setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts);
-          setTraps(s.traps ?? []);
+          setTraps(s.traps ?? []); setDoors(s.doors ?? []);
         }
       }
     } catch { /* ignore */ }
@@ -203,9 +209,9 @@ export default function HeroQuestSandbox() {
   // Auto-save.
   useEffect(() => {
     if (!loaded) return;
-    const s: SaveState = { w, h, grid, furniture, monsters, starts, traps };
+    const s: SaveState = { w, h, grid, furniture, monsters, starts, traps, doors };
     try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch { /* ignore */ }
-  }, [loaded, w, h, grid, furniture, monsters, starts, traps]);
+  }, [loaded, w, h, grid, furniture, monsters, starts, traps, doors]);
 
   const setCellGlyph = useCallback((x: number, y: number, g: Glyph) => {
     setGrid(prev => {
@@ -234,7 +240,8 @@ export default function HeroQuestSandbox() {
   }, [chestGold]);
 
   /** Right-click delete: removes the top thing at (x,y) — furniture (whole
-   *  footprint), then monster, then trap. */
+   *  footprint), then monster, then trap. (Doors are removed by re-clicking the
+   *  same edge with the Door tool.) */
   const removeAt = useCallback((x: number, y: number) => {
     const fi = furniture.findIndex(f => { const fp = footprint(f.kind, f.rot); return x >= f.x && x < f.x + fp.w && y >= f.y && y < f.y + fp.h; });
     if (fi >= 0) { setFurniture(furniture.filter((_, i) => i !== fi)); return; }
@@ -242,13 +249,31 @@ export default function HeroQuestSandbox() {
     if (traps.some(t => t.x === x && t.y === y)) { setTraps(traps.filter(t => !(t.x === x && t.y === y))); return; }
   }, [furniture, monsters, traps]);
 
+  // Fast lookup of which edges have a door (used to open walls in cellStyle).
+  const doorSet = useMemo(() => new Set(doors.map(d => `${d.x},${d.y},${d.v ? 'v' : 'h'}`)), [doors]);
+
+  /** Toggle a door on the wall edge of cell (x,y) nearest the click point. */
+  const placeDoor = useCallback((e: React.MouseEvent, x: number, y: number, secret: boolean) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const ox = (e.clientX - r.left) / r.width, oy = (e.clientY - r.top) / r.height;
+    const m = Math.min(oy, 1 - oy, ox, 1 - ox);
+    let dx = x, dy = y, v = false;
+    if (m === oy) { v = false; }                       // top edge of (x,y)
+    else if (m === 1 - oy) { dy = y + 1; v = false; }  // bottom = top of (x,y+1)
+    else if (m === ox) { v = true; }                   // left edge of (x,y)
+    else { dx = x + 1; v = true; }                     // right = left of (x+1,y)
+    setDoors(prev => {
+      const i = prev.findIndex(d => d.x === dx && d.y === dy && d.v === v);
+      if (i >= 0) { const c = prev.slice(); c.splice(i, 1); return c; }
+      return [...prev, { x: dx, y: dy, v, secret: secret || undefined }];
+    });
+  }, []);
+
   const applyTool = useCallback((x: number, y: number) => {
     switch (tool.t) {
       case 'rock':   setCellGlyph(x, y, '#'); break;
       case 'wall':   setCellGlyph(x, y, 'W'); break;
       case 'hall':   setCellGlyph(x, y, '.'); break;
-      case 'door':   setCellGlyph(x, y, '+'); break;
-      case 'secret': setCellGlyph(x, y, '*'); break;
       case 'room':   setCellGlyph(x, y, tool.letter); break;
       case 'erase':  setCellGlyph(x, y, '#'); break;
       case 'stairs': {
@@ -348,18 +373,23 @@ export default function HeroQuestSandbox() {
       return `  mob('${m.kind}', ${m.x}, ${m.y}, '${regionOf(m.x, m.y)}'${opts});`;
     }).join('\n');
     const trapLines = traps.map(t => `  trap('${t.kind}', ${t.x}, ${t.y});`).join('\n');
+    // Doors sit on a wall EDGE: top edge of (x,y), or left edge of (x,y).
+    const doorLines = doors.map(d => `  door(${d.x}, ${d.y}, '${d.v ? 'left' : 'top'}'${d.secret ? ', { secret: true }' : ''});`).join('\n');
     const startLine = `const startCells = [${starts.map(s => `{ x: ${s.x}, y: ${s.y} }`).join(', ')}];`;
     const text =
 `const QUEST_W = ${w};
 const QUEST_H = ${h};
 
-// ${rn} rooms (flood-filled). Glyphs: # rock · . hall · S stairs(1 space) · + door · * secret · a–p room
+// ${rn} rooms (flood-filled). Glyphs: # rock · . hall · S stairs(1 space) · W wall · a–p room
 const QUEST_MAP: string[] = [
 ${rows}
 ];
 
-// --- furniture ---
+// --- furniture: furn(kind, x, y, w, h, blocksLos, content?) ---
 ${furnLines || '  // (none)'}
+
+// --- doors (on wall edges): door(x, y, 'top'|'left', { secret? }) ---
+${doorLines || '  // (none)'}
 
 // --- monsters ---
 ${monLines || '  // (none)'}
@@ -370,27 +400,29 @@ ${trapLines || '  // (none)'}
 // --- start cells (heroes begin on the staircase) ---
 ${startLine}`;
     setExportText(text);
-  }, [grid, furniture, monsters, traps, starts, w, h]);
+  }, [grid, furniture, monsters, traps, doors, starts, w, h]);
 
   const cellStyle = (x: number, y: number): CSSProperties => {
     const g = grid[y][x];
     let bg = '#1a1410';
     if (g === '.') bg = '#d8c8a8';
     else if (g === 'S') bg = '#5eead4';
-    else if (g === '+') bg = '#b45309';
-    else if (g === '*') bg = '#6d28d9'; // secret door
     else if (g === 'W') bg = '#6b7280'; // wall (stone barrier)
     else if (ROOM_LETTERS.includes(g)) bg = ROOM_TINT[g] ?? '#e5e5e5';
     else bg = '#241a12'; // rock (unused this quest)
 
-    // Soft grid lines on floor; SOLID bold lines on room/rock walls (HeroQuest look).
-    const floor = (c?: string) => c === '.' || c === 'S' || c === '+' || c === '*' || (c !== undefined && ROOM_LETTERS.includes(c));
+    // Soft grid lines on floor; SOLID bold lines on room/rock walls — but a wall
+    // edge that carries a door is left OPEN (the door is drawn as an overlay).
+    const floor = (c?: string) => c === '.' || c === 'S' || (c !== undefined && ROOM_LETTERS.includes(c));
     const regionKey = (c?: string) => (c && ROOM_LETTERS.includes(c)) ? c : (c === '.' || c === 'S') ? '.' : 'x';
     const wallTo = (nx: number, ny: number) => {
       if (!floor(g)) return false;                                  // draw from floor side only
       const nb = grid[ny]?.[nx];
+      // door edge between this cell and the neighbour?
+      const key = ny === y - 1 ? `${x},${y},h` : ny === y + 1 ? `${x},${y + 1},h`
+        : nx === x - 1 ? `${x},${y},v` : `${x + 1},${y},v`;
+      if (doorSet.has(key)) return false;                           // door = opening
       if (!floor(nb)) return true;                                  // floor ↔ rock/wall/edge
-      if (g === '+' || g === '*' || nb === '+' || nb === '*') return false; // doorway opening
       const a = regionKey(g), b = regionKey(nb);
       if (a === '.' && b === '.') return false;                     // corridor ↔ corridor (open)
       return a !== b;                                               // room boundary
@@ -509,9 +541,9 @@ ${startLine}`;
             <Section title="Board">
               <div className="text-xs text-neutral-400">Size: <span className="font-semibold text-neutral-200">{w}×{h}</span> — locked</div>
               <div className="mt-2 flex flex-wrap gap-1">
-                <SmallBtn onClick={() => { const s = quest1State(); setW(s.w); setH(s.h); setGrid(s.grid); setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts); setTraps(s.traps ?? []); }}>★ Load Quest 1</SmallBtn>
-                <SmallBtn onClick={() => { if (confirm('Reset to the locked 30×23 board template? This clears everything you have placed (monsters, furniture, traps, stairs) and restores the default board.')) { setW(BOARD_W); setH(BOARD_H); setGrid(makeTemplateGrid()); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>↺ Reset to template</SmallBtn>
-                <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); } }}>Clear</SmallBtn>
+                <SmallBtn onClick={() => { const s = quest1State(); setW(s.w); setH(s.h); setGrid(s.grid); setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts); setTraps(s.traps ?? []); setDoors(s.doors ?? []); }}>★ Load Quest 1</SmallBtn>
+                <SmallBtn onClick={() => { if (confirm('Reset to the locked 30×23 board template? This clears everything you have placed and restores the default board.')) { setW(BOARD_W); setH(BOARD_H); setGrid(makeTemplateGrid()); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); setDoors([]); } }}>↺ Reset to template</SmallBtn>
+                <SmallBtn onClick={() => { if (confirm('Clear the whole map at the current size?')) { setGrid(makeGrid(w, h)); setFurniture([]); setMonsters([]); setStarts([]); setTraps([]); setDoors([]); } }}>Clear</SmallBtn>
               </div>
             </Section>
 
@@ -554,8 +586,12 @@ ${startLine}`;
                     key={`${x},${y}`}
                     style={cellStyle(x, y)}
                     title={mo?.name ? `${mo.name} (${x},${y})` : `${x},${y}`}
-                    onMouseDown={e => { if (e.button === 2) removeAt(x, y); else applyTool(x, y); }}
-                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'door' || tool.t === 'secret' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
+                    onMouseDown={e => {
+                      if (e.button === 2) { removeAt(x, y); return; }
+                      if (tool.t === 'door' || tool.t === 'secret') { placeDoor(e, x, y, tool.t === 'secret'); return; }
+                      applyTool(x, y);
+                    }}
+                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
                   >
                     {mo ? (
                       <span style={{
@@ -587,6 +623,16 @@ ${startLine}`;
                   </div>
                 );
               })}
+              {/* Doors — drawn ON the wall edge (never a square). Purple = secret. */}
+              {doors.map((d, i) => (
+                <div key={`door${i}`} style={{
+                  position: 'absolute', borderRadius: 2, pointerEvents: 'none',
+                  background: d.secret ? '#7c3aed' : '#d97706', boxShadow: '0 0 0 1px rgba(0,0,0,0.55)',
+                  ...(d.v
+                    ? { left: d.x * cell - 4, top: d.y * cell + cell * 0.16, width: 8, height: cell * 0.68 }
+                    : { left: d.x * cell + cell * 0.16, top: d.y * cell - 4, width: cell * 0.68, height: 8 }),
+                }} />
+              ))}
             </div>
           </div>
         </div>

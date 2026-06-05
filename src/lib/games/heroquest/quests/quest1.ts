@@ -50,7 +50,16 @@ export function buildQuest1Grid(): string[][] {
   }
   // stairs
   for (const s of QUEST1_STAIRS) grid[s.y][s.x] = 'S';
-  // one door per used room, on the first hall-facing edge found
+  return grid; // doors live on wall edges — see QUEST1_DOORS
+}
+
+export type Q1Door = { x: number; y: number; v: boolean; secret?: boolean };
+
+/** One door per used room, on the first hall-facing wall edge found. A door is
+ *  the top edge of (x,y) when v=false, or the left edge of (x,y) when v=true. */
+export const QUEST1_DOORS: Q1Door[] = (() => {
+  const grid = buildQuest1Grid();
+  const out: Q1Door[] = [];
   for (const [x0, y0, x1, y1] of USED_ROOMS) {
     let done = false;
     for (let y = y0; y <= y1 && !done; y++) {
@@ -58,13 +67,18 @@ export function buildQuest1Grid(): string[][] {
         const c = grid[y]?.[x];
         if (!isRoom(c) && c !== 'S') continue;
         for (const [dx, dy] of [[0, -1], [0, 1], [-1, 0], [1, 0]] as const) {
-          if (grid[y + dy]?.[x + dx] === '.') { grid[y + dy][x + dx] = '+'; done = true; break; }
+          if (grid[y + dy]?.[x + dx] !== '.') continue;
+          if (dy === -1) out.push({ x, y, v: false });
+          else if (dy === 1) out.push({ x, y: y + 1, v: false });
+          else if (dx === -1) out.push({ x, y, v: true });
+          else out.push({ x: x + 1, y, v: true });
+          done = true; break;
         }
       }
     }
   }
-  return grid;
-}
+  return out;
+})();
 
 export const QUEST1_FURNITURE: Q1Furn[] = [
   { kind: 'tomb', x: 11, y: 2 },                  // C: Fellmarg's tomb

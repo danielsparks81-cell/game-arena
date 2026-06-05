@@ -5,13 +5,14 @@
 // so the layout can be checked against the Quest Book. Source: quests/quest1.ts.
 
 import {
-  buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS,
+  buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS,
 } from '@/lib/games/heroquest/quests/quest1';
 
 const CELL = 23;
 const GRID = buildQuest1Grid();
 const W = (GRID[0]?.length ?? 30) * CELL;
 const H = GRID.length * CELL;
+const DOOR_SET = new Set(QUEST1_DOORS.map(d => `${d.x},${d.y},${d.v ? 'v' : 'h'}`));
 
 // green = goblinoids, yellow = undead, grey = dread/stone; label = first letter.
 const MON: Record<string, { c: string; t: string; label: string }> = {
@@ -26,15 +27,34 @@ const MON: Record<string, { c: string; t: string; label: string }> = {
   gargoyle:       { c: '#9ca3af', t: '#111827', label: 'G' },
 };
 const FURN_GLYPH: Record<string, string> = { tomb: '⚰', chest: '▣', weapon_rack: '⚔', rack: '☰', table: '▬' };
+// Footprints mirror the editor (w×h cells, los=blocks line of sight). Anything
+// not listed falls back to a 1×1 non-blocker.
+const FURN_SIZE: Record<string, { w: number; h: number; los: boolean }> = {
+  table: { w: 2, h: 3, los: false }, sorcerer_table: { w: 2, h: 3, los: false },
+  alchemist_bench: { w: 2, h: 3, los: false }, tomb: { w: 2, h: 3, los: false }, rack: { w: 2, h: 3, los: false },
+  chest: { w: 1, h: 1, los: false }, throne: { w: 1, h: 1, los: false }, altar: { w: 1, h: 1, los: false }, bench: { w: 1, h: 1, los: false },
+  bookshelf: { w: 1, h: 3, los: true }, fireplace: { w: 1, h: 3, los: true }, cupboard: { w: 1, h: 3, los: true }, weapon_rack: { w: 1, h: 3, los: true },
+};
+const furnSize = (k: string) => FURN_SIZE[k] ?? { w: 1, h: 1, los: false };
 
 const isRoom = (c?: string) => !!c && /[a-z]/.test(c);
-const isFloor = (c?: string) => !!c && (c === '.' || c === 'S' || c === '+' || isRoom(c));
-const regionKey = (c?: string) => (isRoom(c) ? c! : c === '.' || c === 'S' ? '.' : c === '+' ? 'door' : 'x');
+const isFloor = (c?: string) => !!c && (c === '.' || c === 'S' || isRoom(c));
+const regionKey = (c?: string) => (isRoom(c) ? c! : c === '.' || c === 'S' ? '.' : 'x');
+// A door carved into the wall between two cells opens it. A door is the top edge
+// of (x,y) when v=false, or the left edge of (x,y) when v=true — so the wall
+// below (x,y-1) and the wall right of (x-1,y) are the same edges.
+function doorOpen(x: number, y: number, nx: number, ny: number) {
+  if (ny === y - 1) return DOOR_SET.has(`${x},${y},h`);       // wall above (x,y)
+  if (ny === y + 1) return DOOR_SET.has(`${nx},${ny},h`);     // wall below = top of (nx,ny)
+  if (nx === x - 1) return DOOR_SET.has(`${x},${y},v`);       // wall left of (x,y)
+  if (nx === x + 1) return DOOR_SET.has(`${nx},${ny},v`);     // wall right = left of (nx,ny)
+  return false;
+}
 function wallBetween(x: number, y: number, nx: number, ny: number) {
   const a = GRID[y]?.[x], b = GRID[ny]?.[nx];
   if (!isFloor(a)) return false;
   if (!isFloor(b)) return true;
-  if (a === '+' || b === '+') return false;
+  if (doorOpen(x, y, nx, ny)) return false;
   const ra = regionKey(a), rb = regionKey(b);
   if (ra === '.' && rb === '.') return false;
   return ra !== rb;
@@ -62,7 +82,7 @@ function Board() {
   return (
     <svg viewBox={`-2 -2 ${W + 4} ${H + 4}`} className="w-full h-auto rounded-lg border border-stone-700 bg-black">
       {GRID.map((row, y) => row.map((c, x) => {
-        const fill = c === '#' || c === 'W' ? '#161311' : c === '+' ? '#b45309' : isRoom(c) ? '#e7e2d6' : c === 'S' ? '#e7e2d6' : '#cfc9ba';
+        const fill = c === '#' || c === 'W' ? '#161311' : isRoom(c) ? '#e7e2d6' : c === 'S' ? '#e7e2d6' : '#cfc9ba';
         return <rect key={`${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL} fill={fill} stroke="rgba(40,30,20,0.12)" strokeWidth="0.5" />;
       }))}
       {/* solid walls */}
@@ -77,14 +97,25 @@ function Board() {
         if (wallBetween(x, y, x + 1, y)) mk((x + 1) * CELL, y * CELL, (x + 1) * CELL, (y + 1) * CELL, `r${x},${y}`);
         return E.length ? <g key={`w${x},${y}`}>{E}</g> : null;
       }))}
+      {/* doors — sit on the wall edge, not on a square (orange bar) */}
+      {QUEST1_DOORS.map((d, i) => {
+        const x0 = d.x * CELL, y0 = d.y * CELL;
+        return d.v
+          ? <rect key={`d${i}`} x={x0 - 2.5} y={y0 + 4} width={5} height={CELL - 8} rx="1.5" fill="#d97706" stroke="#7c3a06" strokeWidth="0.8" />
+          : <rect key={`d${i}`} x={x0 + 4} y={y0 - 2.5} width={CELL - 8} height={5} rx="1.5" fill="#d97706" stroke="#7c3a06" strokeWidth="0.8" />;
+      })}
       <StairFan cells={QUEST1_STAIRS} />
-      {QUEST1_FURNITURE.map((f, i) => (
-        <g key={`f${i}`} transform={`translate(${f.x * CELL},${f.y * CELL})`}>
-          <rect x="2.5" y="2.5" width={CELL - 5} height={CELL - 5} rx="2" fill="#6b4423" stroke="#3f2a14" strokeWidth="1" />
-          <text x={CELL / 2} y={CELL / 2 + 4} textAnchor="middle" fontSize="12" fill="#fde68a">{FURN_GLYPH[f.kind] ?? '▦'}</text>
-          {f.gold != null && <text x={CELL / 2} y={CELL - 3} textAnchor="middle" fontSize="7" fontWeight="800" fill="#fde68a">{f.gold}</text>}
-        </g>
-      ))}
+      {QUEST1_FURNITURE.map((f, i) => {
+        const sz = furnSize(f.kind), w = sz.w * CELL, h = sz.h * CELL;
+        return (
+          <g key={`f${i}`} transform={`translate(${f.x * CELL},${f.y * CELL})`}>
+            <rect x="1.5" y="1.5" width={w - 3} height={h - 3} rx="2" fill="#6b4423"
+              stroke="#3f2a14" strokeWidth={sz.los ? 2 : 1} strokeDasharray={sz.los ? undefined : '3 2'} />
+            <text x={w / 2} y={h / 2 + 4} textAnchor="middle" fontSize="12" fill="#fde68a">{FURN_GLYPH[f.kind] ?? '▦'}</text>
+            {f.gold != null && <text x={w / 2} y={h - 4} textAnchor="middle" fontSize="7" fontWeight="800" fill="#fde68a">{f.gold}</text>}
+          </g>
+        );
+      })}
       {QUEST1_MONSTERS.map((m, i) => {
         const s = MON[m.kind] ?? { c: '#777', t: '#fff', label: '?' };
         return (
@@ -122,8 +153,8 @@ export default function QuestGallery() {
             <span><span className="inline-block w-3 h-3 align-middle bg-[#e7e2d6] border border-stone-500" /> room</span>
             <span><span className="inline-block w-3 h-3 align-middle bg-[#cfc9ba] border border-stone-500" /> hall</span>
             <span><span className="inline-block w-3 h-3 align-middle bg-[#161311] border border-stone-500" /> rock</span>
-            <span><span className="inline-block w-3 h-3 align-middle bg-[#b45309] border border-stone-500" /> door</span>
-            <span>gold ring = named (Verag / Guardian)</span>
+            <span><span className="inline-block w-3 h-1.5 align-middle bg-[#d97706]" /> door (on wall)</span>
+            <span>solid furniture = blocks line of sight · gold ring = named (Verag / Guardian)</span>
           </div>
         </div>
         <div className="text-sm">
