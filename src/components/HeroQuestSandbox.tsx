@@ -16,10 +16,12 @@
 //
 // State auto-saves to localStorage; nothing touches the server.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
 import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS } from '@/lib/games/heroquest/quests/quest1';
+import { FloorCell, StairsTile, FurnitureToken } from './heroquest/Art';
+import { ROOM_FLOORS, CORRIDOR_FLOOR, assignRoomFloors, type RoomFloor } from './heroquest/floors';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
 type Pt = { x: number; y: number };
@@ -84,6 +86,15 @@ const FURN_ICON: Record<FurnKind, string> = {
   throne: '🪑', tomb: '⚰️', altar: '🔯', bench: '🛋️', fireplace: '🔥',
   sorcerer_table: '🔮', alchemist_bench: '⚗️',
 };
+// Map the editor's furniture kinds onto the game's FurnitureToken art kinds (the
+// token kit doesn't have weapon_rack / sorcerer_table / alchemist_bench, so they
+// borrow the closest piece).
+type TokenFurnKind = 'chest' | 'table' | 'cupboard' | 'rack' | 'bookshelf' | 'throne' | 'tomb' | 'altar' | 'bench' | 'fireplace';
+const FURN_TOKEN_KIND: Record<FurnKind, TokenFurnKind> = {
+  chest: 'chest', table: 'table', cupboard: 'cupboard', rack: 'rack', weapon_rack: 'rack',
+  bookshelf: 'bookshelf', throne: 'throne', tomb: 'tomb', altar: 'altar', bench: 'bench',
+  fireplace: 'fireplace', sorcerer_table: 'table', alchemist_bench: 'bench',
+};
 const MON_ICON: Record<MonKind, string> = {
   goblin: '👺', orc: '👹', abomination: '🦎', skeleton: '💀', zombie: '🧟',
   mummy: '🧻', dread_warrior: '🛡️', gargoyle: '😈', dread_sorcerer: '🧙',
@@ -119,6 +130,35 @@ function makeGrid(w: number, h: number, fill: Glyph = '#'): Glyph[][] {
 /** The locked default board — the editor opens on this and Reset returns to it. */
 function makeTemplateGrid(): Glyph[][] {
   return TEMPLATE_BOARD.map(row => row.split(''));
+}
+
+/** Flood-fill connected blocks of the SAME room letter into distinct regions
+ *  (room_1, room_2, …) in scan order — mirrors the engine's board parser and the
+ *  export. Returns the per-cell region id grid plus the ordered region ids (used
+ *  to give every room its own floor look). */
+function floodRegions(grid: Glyph[][], w: number, h: number): { region: string[][]; order: string[] } {
+  const region: string[][] = grid.map(row => row.map(() => ''));
+  const order: string[] = [];
+  let rn = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const letter = grid[y]?.[x];
+      if (!letter || !ROOM_LETTERS.includes(letter) || region[y][x]) continue;
+      const id = `room_${++rn}`;
+      order.push(id);
+      const stack: [number, number][] = [[x, y]];
+      region[y][x] = id;
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          if (!region[ny][nx] && grid[ny][nx] === letter) { region[ny][nx] = id; stack.push([nx, ny]); }
+        }
+      }
+    }
+  }
+  return { region, order };
 }
 
 type SaveState = {
@@ -270,7 +310,7 @@ export default function HeroQuestSandbox() {
     if (traps.some(t => t.x === x && t.y === y)) { setTraps(traps.filter(t => !(t.x === x && t.y === y))); return; }
   }, [furniture, monsters, traps]);
 
-  // Fast lookup of which edges have a door (used to open walls in cellStyle).
+  // Fast lookup of which edges have a door (used to leave wall edges open).
   const doorSet = useMemo(() => new Set(doors.map(d => `${d.x},${d.y},${d.v ? 'v' : 'h'}`)), [doors]);
 
   /** Toggle a door on the wall edge of cell (x,y) nearest the click point. */
@@ -323,16 +363,10 @@ export default function HeroQuestSandbox() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tool, monsters, traps, monName, chestGold, furnRot, setCellGlyph, placeFurniture, occupied, grid, flash, w, h]);
 
-  const monAt = useMemo(() => {
-    const m = new Map<string, Mon>();
-    for (const mo of monsters) m.set(`${mo.x},${mo.y}`, mo);
-    return m;
-  }, [monsters]);
-  const trapAt = useMemo(() => {
-    const m = new Map<string, Trap>();
-    for (const t of traps) m.set(`${t.x},${t.y}`, t);
-    return m;
-  }, [traps]);
+  // Per-cell room regions (room_1…) + a unique floor look for each, so the
+  // authoring board renders with the SAME tiles as the in-game board.
+  const { region: regionGrid, order: regionOrder } = useMemo(() => floodRegions(grid, w, h), [grid, w, h]);
+  const roomFloor = useMemo(() => assignRoomFloors(regionOrder), [regionOrder]);
 
   // ---- Validation hints ----
   const warnings = useMemo(() => {
@@ -430,46 +464,6 @@ ${trapLines || '  // (none)'}
 ${startLine}`;
     setExportText(text);
   }, [grid, furniture, monsters, traps, doors, starts, w, h]);
-
-  const cellStyle = (x: number, y: number): CSSProperties => {
-    const g = grid[y][x];
-    let bg = '#1a1410';
-    if (g === '.') bg = '#d8c8a8';
-    else if (g === 'S') bg = '#5eead4';
-    else if (g === 'W') bg = '#6b7280'; // wall (stone barrier)
-    else if (ROOM_LETTERS.includes(g)) bg = ROOM_TINT[g] ?? '#e5e5e5';
-    else bg = '#241a12'; // rock (unused this quest)
-
-    // Soft grid lines on floor; SOLID bold lines on room/rock walls — but a wall
-    // edge that carries a door is left OPEN (the door is drawn as an overlay).
-    const floor = (c?: string) => c === '.' || c === 'S' || (c !== undefined && ROOM_LETTERS.includes(c));
-    const regionKey = (c?: string) => (c && ROOM_LETTERS.includes(c)) ? c : (c === '.' || c === 'S') ? '.' : 'x';
-    const wallTo = (nx: number, ny: number) => {
-      if (!floor(g)) return false;                                  // draw from floor side only
-      const nb = grid[ny]?.[nx];
-      // door edge between this cell and the neighbour?
-      const key = ny === y - 1 ? `${x},${y},h` : ny === y + 1 ? `${x},${y + 1},h`
-        : nx === x - 1 ? `${x},${y},v` : `${x + 1},${y},v`;
-      if (doorSet.has(key)) return false;                           // door = opening
-      if (!floor(nb)) return true;                                  // floor ↔ rock/wall/edge
-      const a = regionKey(g), b = regionKey(nb);
-      if (a === '.' && b === '.') return false;                     // corridor ↔ corridor (open)
-      return a !== b;                                               // room boundary
-    };
-    const sh: string[] = floor(g) ? ['inset 0 0 0 0.5px rgba(40,30,20,0.22)'] : [];
-    const wc = '#0c0a09';
-    if (wallTo(x, y - 1)) sh.push(`inset 0 2px 0 0 ${wc}`);
-    if (wallTo(x, y + 1)) sh.push(`inset 0 -2px 0 0 ${wc}`);
-    if (wallTo(x - 1, y)) sh.push(`inset 2px 0 0 0 ${wc}`);
-    if (wallTo(x + 1, y)) sh.push(`inset -2px 0 0 0 ${wc}`);
-
-    return {
-      width: cell, height: cell, background: bg,
-      boxShadow: sh.length ? sh.join(', ') : 'inset 0 0 0 0.5px rgba(0,0,0,0.2)',
-      fontSize: Math.round(cell * 0.5), lineHeight: `${cell}px`, textAlign: 'center',
-      cursor: 'pointer', userSelect: 'none', position: 'relative',
-    };
-  };
 
   return (
     <div
@@ -594,7 +588,7 @@ ${startLine}`;
             <div
               ref={gridRef}
               className="relative select-none rounded border border-neutral-700"
-              style={{ display: 'grid', gridTemplateColumns: `repeat(${w}, ${cell}px)` }}
+              style={{ display: 'grid', gridTemplateColumns: `repeat(${w}, ${cell}px)`, background: '#0a0805' }}
               onMouseDown={e => { if (e.button === 0) setPainting(true); }}
               onContextMenu={e => e.preventDefault()}
               onDragOver={e => { if (dragKind) e.preventDefault(); }}
@@ -607,14 +601,15 @@ ${startLine}`;
                 setDragKind(null);
               }}
             >
-              {grid.map((row, y) => row.map((_, x) => {
-                const mo = monAt.get(`${x},${y}`);
-                const tr = trapAt.get(`${x},${y}`);
+              {/* Floor tiles — the SAME art kit the players see in-game. */}
+              {grid.map((row, y) => row.map((g, x) => {
+                const rid = regionGrid[y]?.[x];
+                const fl = rid ? roomFloor.get(rid) ?? null : null;
                 return (
                   <div
                     key={`${x},${y}`}
-                    style={cellStyle(x, y)}
-                    title={mo?.name ? `${mo.name} (${x},${y})` : `${x},${y}`}
+                    title={`${x},${y}`}
+                    style={{ width: cell, height: cell, position: 'relative', overflow: 'hidden', cursor: 'pointer', userSelect: 'none' }}
                     onMouseDown={e => {
                       if (e.button === 2) { removeAt(x, y); return; }
                       if (tool.t === 'door' || tool.t === 'secret') { placeDoor(e, x, y, tool.t === 'secret'); return; }
@@ -622,45 +617,69 @@ ${startLine}`;
                     }}
                     onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
                   >
-                    {mo ? (
-                      <span style={{
-                        pointerEvents: 'none',
-                        position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-                        width: cell - 8, height: cell - 8, borderRadius: '50%',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        background: MON_DOT[mo.kind].bg, color: MON_DOT[mo.kind].fg,
-                        fontWeight: 800, fontSize: Math.round(cell * 0.42),
-                        boxShadow: mo.named ? '0 0 0 3px #f59e0b' : 'inset 0 0 0 1px rgba(0,0,0,0.4)',
-                      }}>{MON_DOT[mo.kind].letter}</span>)
-                      : tr ? <span style={{ opacity: 0.9, fontSize: Math.round(cell * 0.5) }}>{TRAP_ICON[tr.kind]}</span>
-                      : null}
+                    <FloorArt g={g} x={x} y={y} cell={cell} floor={fl} />
                   </div>
                 );
               }))}
-              {/* Furniture footprints (overlay). Solid border = blocks line of sight. */}
+
+              {/* Room / rock walls — bold dark edges (a door leaves its edge open). */}
+              <WallLayer grid={grid} region={regionGrid} doorSet={doorSet} cell={cell} w={w} h={h} />
+
+              {/* Furniture — game art sized to the footprint. Solid border = blocks
+                  line of sight, dashed = doesn't. */}
               {furniture.map((fu, i) => {
                 const fp = footprint(fu.kind, fu.rot);
+                const ts = Math.min(fp.w, fp.h) * cell;
                 return (
                   <div key={`fur${i}`} title={`${fu.kind} ${fp.w}×${fp.h}${fp.los ? ' (blocks LOS)' : ''}`} style={{
                     position: 'absolute', left: fu.x * cell, top: fu.y * cell, width: fp.w * cell, height: fp.h * cell,
-                    background: '#6b4423', border: fp.los ? '2px solid #241509' : '2px dashed #c79a63',
-                    borderRadius: 3, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    pointerEvents: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.55)', overflow: 'hidden',
+                    border: fp.los ? '2px solid #120c06' : '2px dashed #c79a63', borderRadius: 3,
+                    background: 'rgba(28,18,10,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    pointerEvents: 'none', boxShadow: '0 2px 5px rgba(0,0,0,0.6)', overflow: 'hidden', zIndex: 3,
                   }}>
-                    <span style={{ fontSize: Math.round(Math.min(fp.w, fp.h) * cell * 0.5) }}>{FURN_ICON[fu.kind]}</span>
-                    {fu.gold ? <span style={{ position: 'absolute', right: 3, bottom: 1, fontSize: Math.round(cell * 0.28), color: '#fde68a', fontWeight: 800 }}>{fu.gold}</span> : null}
+                    <FurnitureToken kind={FURN_TOKEN_KIND[fu.kind]} size={ts} />
+                    {fu.gold ? <span style={{ position: 'absolute', right: 3, bottom: 1, fontSize: Math.round(cell * 0.28), color: '#fde68a', fontWeight: 800, textShadow: '0 1px 2px #000' }}>{fu.gold}</span> : null}
                   </div>
                 );
               })}
-              {/* Doors — drawn ON the wall edge (never a square). Purple = secret. */}
-              {doors.map((d, i) => (
-                <div key={`door${i}`} style={{
-                  position: 'absolute', borderRadius: 2, pointerEvents: 'none',
-                  background: d.secret ? '#7c3aed' : '#d97706', boxShadow: '0 0 0 1px rgba(0,0,0,0.55)',
-                  ...(d.v
-                    ? { left: d.x * cell - 4, top: d.y * cell + cell * 0.16, width: 8, height: cell * 0.68 }
-                    : { left: d.x * cell + cell * 0.16, top: d.y * cell - 4, width: cell * 0.68, height: 8 }),
-                }} />
+
+              {/* Doors — on the wall edge (never a square). Purple = secret. */}
+              {doors.map((d, i) => {
+                const dt = Math.max(4, Math.round(cell * 0.2));
+                return (
+                  <div key={`door${i}`} style={{
+                    position: 'absolute', borderRadius: 2, pointerEvents: 'none', zIndex: 4,
+                    background: d.secret ? '#7c3aed' : '#d97706', boxShadow: '0 0 0 1px rgba(0,0,0,0.6)',
+                    ...(d.v
+                      ? { left: d.x * cell - dt / 2, top: d.y * cell + cell * 0.16, width: dt, height: cell * 0.68 }
+                      : { left: d.x * cell + cell * 0.16, top: d.y * cell - dt / 2, width: cell * 0.68, height: dt }),
+                  }} />
+                );
+              })}
+
+              {/* Traps */}
+              {traps.map((t, i) => (
+                <div key={`trap${i}`} style={{
+                  position: 'absolute', left: t.x * cell, top: t.y * cell, width: cell, height: cell,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  pointerEvents: 'none', zIndex: 3, fontSize: Math.round(cell * 0.5),
+                }}>{TRAP_ICON[t.kind]}</div>
+              ))}
+
+              {/* Monsters — coloured circle + first letter (gold ring = named). */}
+              {monsters.map((mo, i) => (
+                <div key={`mon${i}`} title={mo.name ? `${mo.name} (${mo.x},${mo.y})` : `${mo.kind} (${mo.x},${mo.y})`} style={{
+                  position: 'absolute', left: mo.x * cell, top: mo.y * cell, width: cell, height: cell,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5,
+                }}>
+                  <span style={{
+                    width: cell - 8, height: cell - 8, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: MON_DOT[mo.kind].bg, color: MON_DOT[mo.kind].fg,
+                    fontWeight: 800, fontSize: Math.round(cell * 0.42),
+                    boxShadow: mo.named ? '0 0 0 3px #f59e0b, 0 1px 3px rgba(0,0,0,0.6)' : 'inset 0 0 0 1px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.6)',
+                  }}>{MON_DOT[mo.kind].letter}</span>
+                </div>
               ))}
             </div>
           </div>
@@ -712,4 +731,63 @@ function SmallBtn({ onClick, children }: { onClick: () => void; children: ReactN
   return (
     <button onClick={onClick} className="rounded bg-neutral-800 px-2 py-1 text-xs text-neutral-200 transition hover:bg-neutral-700">{children}</button>
   );
+}
+
+/** The art for a single board cell — the SAME tiles the in-game board uses for
+ *  rooms, corridors and stairs, plus authoring-only fills for rock (near-black,
+ *  unused this quest) and a painted wall tile (hatched stone barrier). */
+function FloorArt({ g, x, y, cell, floor }: { g: string; x: number; y: number; cell: number; floor: RoomFloor | null }) {
+  if (g === 'S') return <StairsTile size={cell} />;
+  if (g === '.') return <FloorCell size={cell} gx={x} gy={y} style={CORRIDOR_FLOOR.style} tl={CORRIDOR_FLOOR.tl} br={CORRIDOR_FLOOR.br} />;
+  if (ROOM_LETTERS.includes(g)) {
+    const fl = floor ?? ROOM_FLOORS[0];
+    return <FloorCell size={cell} gx={x} gy={y} style={fl.style} tl={fl.tl} br={fl.br} />;
+  }
+  if (g === 'W') {
+    const s = Math.max(6, Math.round(cell / 3));
+    return <div style={{
+      width: cell, height: cell, background: '#565b63',
+      backgroundImage: 'repeating-linear-gradient(135deg, #6a7079 0, #6a7079 2px, transparent 2px, transparent 7px)',
+      backgroundSize: `${s}px ${s}px`, boxShadow: 'inset 0 0 0 1px #2f343b',
+    }} />;
+  }
+  // '#' rock — unused this quest; near-black so rooms/halls read as "the dungeon".
+  return <div style={{ width: cell, height: cell, background: '#13100c' }} />;
+}
+
+/** Bold dark walls on the LINES between cells — drawn wherever a room borders a
+ *  different region (another room, a corridor, rock or a wall tile), matching the
+ *  in-game board. A door on an edge leaves it open (the door bar is drawn on top). */
+function WallLayer({ grid, region, doorSet, cell, w, h }: {
+  grid: string[][]; region: string[][]; doorSet: Set<string>; cell: number; w: number; h: number;
+}) {
+  const T = Math.max(2, Math.round(cell * 0.11));
+  const wc = '#0c0a09';
+  const keyOf = (x: number, y: number) => {
+    const g = grid[y]?.[x];
+    if (g && ROOM_LETTERS.includes(g)) return region[y]?.[x] || 'room';
+    if (g === 'S') return 'stairs';   // the entry staircase (embedded in its room)
+    if (g === '.') return 'corridor';
+    if (g === 'W') return 'wall';
+    return ''; // rock / off-board
+  };
+  const wallEdge = (ax: number, ay: number, bx: number, by: number) => {
+    const a = keyOf(ax, ay), b = keyOf(bx, by);
+    if (a === b) return false;
+    // The staircase reads as part of its room: open to any room it touches, but
+    // walled against corridors / rock / wall tiles so it stays a tidy alcove.
+    const aS = a === 'stairs', bS = b === 'stairs';
+    if (aS || bS) return !((aS && b.startsWith('room')) || (bS && a.startsWith('room')));
+    return a.startsWith('room') || b.startsWith('room');
+  };
+  const segs: ReactNode[] = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (x + 1 < w && wallEdge(x, y, x + 1, y) && !doorSet.has(`${x + 1},${y},v`))
+        segs.push(<div key={`we${x},${y}`} style={{ position: 'absolute', left: (x + 1) * cell - T / 2, top: y * cell, width: T, height: cell, background: wc, borderRadius: 1, zIndex: 2, pointerEvents: 'none' }} />);
+      if (y + 1 < h && wallEdge(x, y, x, y + 1) && !doorSet.has(`${x},${y + 1},h`))
+        segs.push(<div key={`ws${x},${y}`} style={{ position: 'absolute', left: x * cell, top: (y + 1) * cell - T / 2, width: cell, height: T, background: wc, borderRadius: 1, zIndex: 2, pointerEvents: 'none' }} />);
+    }
+  }
+  return <>{segs}</>;
 }
