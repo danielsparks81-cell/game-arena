@@ -225,15 +225,22 @@ export default function HeroQuestSandbox() {
     });
   };
 
-  // Place (or toggle off) a furniture footprint anchored at (x,y). Used by both
-  // click-to-place and drag-and-drop from the palette.
+  // Place a furniture footprint anchored at (x,y) (drag-drop or click). Dedups an
+  // identical piece; remove pieces with right-click (removeAt).
   const placeFurniture = useCallback((kind: FurnKind, x: number, y: number, rot: number) => {
-    setFurniture(prev => {
-      const i = prev.findIndex(p => p.x === x && p.y === y && p.kind === kind);
-      if (i >= 0) { const c = prev.slice(); c.splice(i, 1); return c; }
-      return [...prev, { kind, x, y, rot, gold: kind === 'chest' && chestGold > 0 ? chestGold : undefined }];
-    });
+    setFurniture(prev => prev.some(p => p.x === x && p.y === y && p.kind === kind)
+      ? prev
+      : [...prev, { kind, x, y, rot, gold: kind === 'chest' && chestGold > 0 ? chestGold : undefined }]);
   }, [chestGold]);
+
+  /** Right-click delete: removes the top thing at (x,y) — furniture (whole
+   *  footprint), then monster, then trap. */
+  const removeAt = useCallback((x: number, y: number) => {
+    const fi = furniture.findIndex(f => { const fp = footprint(f.kind, f.rot); return x >= f.x && x < f.x + fp.w && y >= f.y && y < f.y + fp.h; });
+    if (fi >= 0) { setFurniture(furniture.filter((_, i) => i !== fi)); return; }
+    if (monsters.some(m => m.x === x && m.y === y)) { setMonsters(monsters.filter(m => !(m.x === x && m.y === y))); return; }
+    if (traps.some(t => t.x === x && t.y === y)) { setTraps(traps.filter(t => !(t.x === x && t.y === y))); return; }
+  }, [furniture, monsters, traps]);
 
   const applyTool = useCallback((x: number, y: number) => {
     switch (tool.t) {
@@ -527,7 +534,8 @@ ${startLine}`;
               ref={gridRef}
               className="relative select-none rounded border border-neutral-700"
               style={{ display: 'grid', gridTemplateColumns: `repeat(${w}, ${cell}px)` }}
-              onMouseDown={() => setPainting(true)}
+              onMouseDown={e => { if (e.button === 0) setPainting(true); }}
+              onContextMenu={e => e.preventDefault()}
               onDragOver={e => { if (dragKind) e.preventDefault(); }}
               onDrop={e => {
                 e.preventDefault();
@@ -546,11 +554,12 @@ ${startLine}`;
                     key={`${x},${y}`}
                     style={cellStyle(x, y)}
                     title={mo?.name ? `${mo.name} (${x},${y})` : `${x},${y}`}
-                    onMouseDown={() => applyTool(x, y)}
+                    onMouseDown={e => { if (e.button === 2) removeAt(x, y); else applyTool(x, y); }}
                     onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'door' || tool.t === 'secret' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
                   >
                     {mo ? (
                       <span style={{
+                        pointerEvents: 'none',
                         position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
                         width: cell - 8, height: cell - 8, borderRadius: '50%',
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
