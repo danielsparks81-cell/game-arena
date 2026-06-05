@@ -401,14 +401,16 @@ function doRollMove(state: HQState, hero: Hero): ApplyResult {
   return ok(s);
 }
 
-/** Spend the hero's one action for the turn. Enforces the movement rule —
- *  "move then act, OR act then move, but never move part-way, act, then finish
- *  moving": if the hero had already used some of their movement before acting,
- *  the remaining movement is forfeited. (Acting BEFORE moving leaves the full
- *  allowance, so act-then-move still works.) */
-function markActed(h: Hero) {
+/** Spend the hero's one action for the turn. Movement rule: ROLLING the
+ *  movement dice commits the hero to moving BEFORE acting — so once they've
+ *  rolled, taking an action ends their movement (any unused squares are
+ *  forfeited, whether they moved part-way or not at all). Acting BEFORE rolling
+ *  leaves them free to roll + move afterwards, so act-then-move still works. */
+function markActed(h: Hero, forfeitMove = true) {
   h.hasActed = true;
-  if (h.hasRolled && h.moveLeft < h.moveRolled) h.moveLeft = 0;
+  // Movement-granting spells (Swift Wind, Veil of Mist) pass forfeitMove=false so
+  // they can still hand out movement after the hero has rolled.
+  if (forfeitMove && h.hasRolled) h.moveLeft = 0;
 }
 
 /** The set of ROOM regions that currently have at least one revealed tile. Used
@@ -927,7 +929,9 @@ function doCastSpell(
 
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
-  markActed(h);
+  // Movement spells still grant movement after a roll; other spells follow the
+  // normal rule (acting after rolling forfeits remaining movement).
+  markActed(h, !(spell.id === 'swift_wind' || spell.id === 'veil_of_mist'));
   h.spellsCast.push(spell.id);
   pushLog(s, 'spell', `${h.username} casts ${spell.name}!`);
 

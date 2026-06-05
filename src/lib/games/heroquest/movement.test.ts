@@ -368,14 +368,26 @@ describe('heroquest: move-then-act vs act-then-move rule', () => {
     expect(g.heroes[0].moveLeft).toBe(0); // can't finish moving after acting
   });
 
-  it('act-then-move keeps the full movement allowance', () => {
+  it('act-then-move: acting BEFORE rolling lets you roll and move after', () => {
     const s = corridorSetup();
     s.heroes[1].at = { x: 7, y: 4 };
+    // Hasn't committed to moving yet (no roll), so acting first is allowed.
+    s.heroes[0].hasRolled = false; s.heroes[0].moveRolled = 0; s.heroes[0].moveLeft = 0;
     let g = unwrap(applyAction(s, 'p1', { kind: 'search_traps' }));
     expect(g.heroes[0].hasActed).toBe(true);
-    expect(g.heroes[0].moveLeft).toBe(6); // acted before moving → full move intact
+    expect(g.heroes[0].moveLeft).toBe(0); // not rolled yet
+    g = unwrap(applyAction(g, 'p1', { kind: 'roll_move' })); // can still roll after acting
+    expect(g.heroes[0].moveLeft).toBeGreaterThan(0);
     g = unwrap(applyAction(g, 'p1', { kind: 'move_to', at: { x: 3, y: 4 } }));
     expect(g.heroes[0].at).toEqual({ x: 3, y: 4 });
+  });
+
+  it('rolling then acting WITHOUT moving forfeits the movement', () => {
+    const s = corridorSetup(); // sets hasRolled + moveLeft = 6
+    s.heroes[1].at = { x: 7, y: 4 };
+    const g = unwrap(applyAction(s, 'p1', { kind: 'search_traps' }));
+    expect(g.heroes[0].hasActed).toBe(true);
+    expect(g.heroes[0].moveLeft).toBe(0); // committed to move by rolling, then acted → forfeit
   });
 });
 

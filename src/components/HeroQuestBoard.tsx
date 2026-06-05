@@ -241,8 +241,11 @@ function PlayingView({
           />
         ))}
 
-        {/* Dice panel sits right under the hero panels — always visible. */}
-        <DicePanel attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
+        {/* Dice panel sits right under the hero panels — always visible. The
+            roll overlay flies here on exit (targeted by this id). */}
+        <div id="hq-dice-panel">
+          <DicePanel attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
+        </div>
 
         {/* Chronicle takes the remaining height and scrolls internally so the
             buttons + hero panels + dice stay fixed and the page never scrolls. */}

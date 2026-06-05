@@ -27,6 +27,10 @@ export function DiceRollOverlay({ attack, defense, move }: {
   const prev = useRef<string>('');
   const first = useRef(true);
   const [phase, setPhase] = useState<'idle' | 'rolling' | 'settled' | 'leaving'>('idle');
+  // The roll flies to the real dice panel on exit — measured each time so it
+  // lands on the panel wherever the layout puts it.
+  const moverRef = useRef<HTMLDivElement>(null);
+  const [flyTo, setFlyTo] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
   useEffect(() => {
     // Don't replay an existing roll when the board first mounts (e.g. on reconnect).
@@ -35,8 +39,16 @@ export function DiceRollOverlay({ attack, defense, move }: {
     prev.current = sig;
     setPhase('rolling');
     const t1 = setTimeout(() => setPhase('settled'), 650);
-    const t2 = setTimeout(() => setPhase('leaving'), 1350);
-    const t3 = setTimeout(() => setPhase('idle'), 1750);
+    const t2 = setTimeout(() => {
+      // Measure where the dice panel is and aim the exit at its centre.
+      const el = moverRef.current, panel = document.getElementById('hq-dice-panel');
+      if (el && panel) {
+        const r = el.getBoundingClientRect(), p = panel.getBoundingClientRect();
+        setFlyTo({ x: (p.left + p.width / 2) - (r.left + r.width / 2), y: (p.top + p.height / 2) - (r.top + r.height / 2) });
+      }
+      setPhase('leaving');
+    }, 1350);
+    const t3 = setTimeout(() => setPhase('idle'), 1850);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
   }, [sig, hasRoll]);
 
@@ -52,9 +64,10 @@ export function DiceRollOverlay({ attack, defense, move }: {
         style={{ opacity: leaving ? 0 : 1 }}
       />
       <div
-        className="relative flex flex-col items-center gap-3 transition-all duration-[400ms] ease-in"
+        ref={moverRef}
+        className="relative flex flex-col items-center gap-3 transition-all duration-[450ms] ease-in"
         style={{
-          transform: leaving ? 'translate(-34%, 70%) scale(0.35)' : 'scale(1)',
+          transform: leaving ? `translate(${flyTo.x}px, ${flyTo.y}px) scale(0.3)` : 'scale(1)',
           opacity: leaving ? 0 : 1,
         }}
       >
