@@ -26,25 +26,56 @@ export const TILE_PX = 36;
 
 // Light grey "broken slate" flooring for the hallways/corridors.
 const CORRIDOR_FLOOR: { tl: string; br: string; style: FloorStyle } = { tl: '#9c9c98', br: '#6c6c68', style: 'slate' };
-// A varied set of (color, pattern) floor looks for rooms. The room coloring
-// spreads these across the board (and keeps touching rooms distinct), so the
-// dungeon reads like the printed board rather than one repeated tile.
+// A curated set of muted (colour, pattern) floor looks. There are MORE entries
+// than a quest has rooms, and every room is assigned its own entry, so no two
+// rooms ever render identical tiles (each colour is also paired with a distinct
+// pattern, and the order alternates warm/cool + pattern for neighbour contrast).
 const ROOM_FLOORS: { tl: string; br: string; style: FloorStyle }[] = [
   { tl: '#7a6147', br: '#4c3d2c', style: 'flag' },        // warm tan flagstone
   { tl: '#4e5e72', br: '#2e3b47', style: 'checker' },     // slate-blue checker
   { tl: '#566b4a', br: '#384630', style: 'brick' },       // moss-green brick
-  { tl: '#7a4c4c', br: '#472e2e', style: 'flag' },        // dusty red flag
-  { tl: '#5d4a6b', br: '#3c2f48', style: 'cobble' },      // purple cobble
-  { tl: '#7a7050', br: '#474230', style: 'diag' },        // olive diagonal
-  { tl: '#487a70', br: '#2e4844', style: 'flag' },        // teal flag
-  { tl: '#7a5650', br: '#473934', style: 'checker' },     // brown-rose checker
-  { tl: '#4f566b', br: '#333848', style: 'brick' },       // indigo brick
-  { tl: '#6f7a48', br: '#42472e', style: 'cobble' },      // yellow-green cobble
-  { tl: '#3f6b7a', br: '#2a4450', style: 'diag' },        // cyan diagonal
-  { tl: '#7a5a3a', br: '#4a3622', style: 'plank' },       // oak plank
-  { tl: '#6b4a5e', br: '#45303c', style: 'herringbone' }, // magenta herringbone
-  { tl: '#5a6b5a', br: '#384538', style: 'slate' },       // grey-green slate
+  { tl: '#7a4c4c', br: '#472e2e', style: 'cobble' },      // dusty-red cobble
+  { tl: '#5d4a6b', br: '#3c2f48', style: 'diag' },        // purple diagonal
+  { tl: '#7a7050', br: '#474230', style: 'herringbone' }, // olive herringbone
+  { tl: '#487a70', br: '#2e4844', style: 'plank' },       // teal plank
+  { tl: '#7a5650', br: '#473934', style: 'slate' },       // brown-rose slate
+  { tl: '#4f566b', br: '#333848', style: 'flag' },        // indigo flag
+  { tl: '#6f7a48', br: '#42472e', style: 'checker' },     // yellow-green checker
+  { tl: '#3f6b7a', br: '#2a4450', style: 'brick' },       // cyan brick
+  { tl: '#7a5a3a', br: '#4a3622', style: 'cobble' },      // oak cobble
+  { tl: '#6b4a5e', br: '#45303c', style: 'diag' },        // magenta diagonal
+  { tl: '#5a6b5a', br: '#384538', style: 'herringbone' }, // grey-green herringbone
+  { tl: '#5f676e', br: '#3a4046', style: 'plank' },       // steel plank
+  { tl: '#84563a', br: '#4e3120', style: 'slate' },       // rust slate
+  { tl: '#45506b', br: '#2b3248', style: 'flag' },        // deep-blue flag
+  { tl: '#69755c', br: '#424b38', style: 'checker' },     // sage checker
+  { tl: '#6a4658', br: '#432c38', style: 'brick' },       // plum brick
+  { tl: '#837049', br: '#4f422a', style: 'cobble' },      // ochre cobble
+  { tl: '#466b52', br: '#2c4434', style: 'diag' },        // forest diagonal
+  { tl: '#74474f', br: '#45292e', style: 'herringbone' }, // burgundy herringbone
+  { tl: '#4a6a6f', br: '#2d4246', style: 'plank' },       // slate-teal plank
+  { tl: '#6d5f72', br: '#423a47', style: 'slate' },       // mauve slate
 ];
+
+const FLOOR_STYLES: FloorStyle[] = ['flag', 'checker', 'brick', 'cobble', 'diag', 'herringbone', 'plank', 'slate'];
+
+/** Shift every RGB channel of a #rrggbb colour by d (clamped) — same hue, just
+ *  lighter/darker. Used to derive distinct shades without leaving the palette. */
+function shiftLightness(hex: string, d: number): string {
+  const m = hex.replace('#', '');
+  const ch = (i: number) => Math.max(0, Math.min(255, parseInt(m.slice(i, i + 2), 16) + d));
+  const hx = (v: number) => v.toString(16).padStart(2, '0');
+  return `#${hx(ch(0))}${hx(ch(2))}${hx(ch(4))}`;
+}
+
+/** Deterministic muted variation for the rare case of more rooms than palette
+ *  entries: nudge the shade and rotate to a different pattern so the room stays
+ *  in-aesthetic but never matches another room's tiles. */
+function varyFloor(base: { tl: string; br: string; style: FloorStyle }, tier: number) {
+  const d = (tier % 2 === 0 ? 1 : -1) * (10 + 6 * Math.floor((tier - 1) / 2));
+  const style = FLOOR_STYLES[(FLOOR_STYLES.indexOf(base.style) + tier) % FLOOR_STYLES.length];
+  return { tl: shiftLightness(base.tl, d), br: shiftLightness(base.br, d), style };
+}
 
 export type BoardCanvasProps = {
   state: HQState;
@@ -238,41 +269,28 @@ export default function HeroQuestBoardCanvas({
     return out;
   }, [isMyTurn, myHero, state.doors]);
 
-  // ---- Per-room flooring: greedy graph-coloring so that no two rooms that
-  // touch (orthogonally or diagonally) share the same shade. ----
-  const roomColorIdx = useMemo(() => {
+  // ---- Per-room flooring: every room gets its OWN (colour, pattern), so no two
+  // rooms ever render the same tiles. Rooms are assigned in room-number order
+  // straight down the palette; if a quest somehow has more rooms than palette
+  // entries, the extras get a deterministic muted variation (shifted shade +
+  // rotated pattern) so they stay unique rather than wrapping back to a repeat. ----
+  const roomFloor = useMemo(() => {
     const reg = (x: number, y: number) => state.tiles[y]?.[x]?.region ?? '';
-    const adj = new Map<string, Set<string>>();
     const rooms = new Set<string>();
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const r = reg(x, y);
-      if (!r.startsWith('room_')) continue;
-      rooms.add(r);
-      if (!adj.has(r)) adj.set(r, new Set());
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-        const nr = reg(x + dx, y + dy);
-        if (nr.startsWith('room_') && nr !== r) adj.get(r)!.add(nr);
-      }
+      if (r.startsWith('room_')) rooms.add(r);
     }
     const num = (r: string) => parseInt(r.slice('room_'.length), 10) || 0;
     const order = [...rooms].sort((a, b) => num(a) - num(b));
-    const color = new Map<string, number>();
     const N = ROOM_FLOORS.length;
-    const usage = new Array(N).fill(0);
-    for (const r of order) {
-      const taken = new Set<number>();
-      for (const nb of adj.get(r) ?? []) { const c = color.get(nb); if (c !== undefined) taken.add(c); }
-      // Pick the LEAST-used floor not used by a neighbor — spreads all the
-      // looks across the board while keeping touching rooms distinct.
-      let best = 0, bestUse = Infinity;
-      for (let i = 0; i < N; i++) {
-        if (taken.has(i)) continue;
-        if (usage[i] < bestUse) { bestUse = usage[i]; best = i; }
-      }
-      color.set(r, best);
-      usage[best]++;
-    }
-    return color;
+    const map = new Map<string, { tl: string; br: string; style: FloorStyle }>();
+    order.forEach((r, i) => {
+      const base = ROOM_FLOORS[i % N];
+      const tier = Math.floor(i / N);
+      map.set(r, tier === 0 ? base : varyFloor(base, tier));
+    });
+    return map;
   }, [state.tiles, W, H]);
 
   // Debug: illuminate the whole map (ignores fog + torchlight) so the full
@@ -380,8 +398,8 @@ export default function HeroQuestBoardCanvas({
             } else if (tile.kind === 'stairs') {
               tileArt = <StairsTile size={TILE_PX} />;
             } else if (tile.region.startsWith('room_')) {
-              // Each room a distinct (color, pattern), spread so neighbors differ.
-              const f = ROOM_FLOORS[(roomColorIdx.get(tile.region) ?? 0) % ROOM_FLOORS.length];
+              // Each room a UNIQUE (color, pattern) — no two rooms share tiles.
+              const f = roomFloor.get(tile.region) ?? ROOM_FLOORS[0];
               tileArt = <FloorCell size={TILE_PX} gx={x} gy={y} style={f.style} tl={f.tl} br={f.br} />;
             } else {
               // Corridors / stairway floor → light grey broken slate.
