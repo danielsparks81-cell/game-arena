@@ -63,10 +63,11 @@ describe('heroquest base board', () => {
 });
 
 describe('heroquest Quest 1 "The Trial" on the shared board', () => {
-  it('uses the shared board geometry', () => {
-    expect(QUEST1.width).toBe(BASE_BOARD.width);
-    expect(QUEST1.height).toBe(BASE_BOARD.height);
-    expect(QUEST1.startCells).toBe(BASE_BOARD.startCells);
+  it('uses the authored 30×23 board with 4 staircase starts', () => {
+    expect(QUEST1.width).toBe(30);
+    expect(QUEST1.height).toBe(23);
+    expect(QUEST1.startCells.length).toBe(4);
+    for (const c of QUEST1.startCells) expect(QUEST1.tiles[c.y][c.x]).toBe('stairs');
   });
 
   it('makes Verag the gargoyle objective', () => {
@@ -95,7 +96,9 @@ describe('heroquest Quest 1 "The Trial" on the shared board', () => {
 
   it('connects every room to the entrance through doors', () => {
     const reached = reachableRegions(QUEST1.startCells[0]);
-    for (const r of BASE_BOARD.rooms) {
+    const rooms = new Set<string>();
+    for (const row of QUEST1.regions) for (const r of row) if (r.startsWith('room_')) rooms.add(r);
+    for (const r of rooms) {
       expect(reached.has(r), `${r} reachable via doors`).toBe(true);
     }
   });

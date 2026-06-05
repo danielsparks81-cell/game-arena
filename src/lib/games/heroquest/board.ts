@@ -59,10 +59,13 @@ export type BaseBoard = {
 
 const ROOM_LETTERS = new Set(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
 
-/** Parse the ASCII board into tiles + regions, flood-filling each contiguous
- *  block of one room letter into a distinct room_N region. */
-export function buildBaseBoard(): BaseBoard {
-  const W = BOARD_W, H = BOARD_H;
+/** Parse any ASCII board into tiles + regions, flood-filling each contiguous
+ *  block of one room letter into a distinct room_N region. Glyphs: '.' hall ·
+ *  'S' stairs · 'a'..'j' room · everything else (incl. '#' rock and 'W' wall)
+ *  is impassable wall. Width/height are taken from the map. */
+export function parseAsciiBoard(map: string[]): BaseBoard {
+  const H = map.length;
+  const W = map[0]?.length ?? 0;
   const tiles: TileKind[][] = Array.from({ length: H }, () => new Array<TileKind>(W).fill('wall'));
   const regions: string[][] = Array.from({ length: H }, () => new Array<string>(W).fill(''));
   const letter: string[][] = Array.from({ length: H }, () => new Array<string>(W).fill(''));
@@ -70,7 +73,7 @@ export function buildBaseBoard(): BaseBoard {
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
-      const ch = BOARD_MAP[y][x] ?? '#';
+      const ch = map[y][x] ?? '#';
       if (ch === '.') { tiles[y][x] = 'floor'; regions[y][x] = 'corridor'; }
       // Stairs are walkable + flagged as a start/exit; their REGION is assigned
       // after flood-fill so they join the entrance room they sit in (heroes then
@@ -121,6 +124,11 @@ export function buildBaseBoard(): BaseBoard {
   for (const sc of startCells) regions[sc.y][sc.x] = stairRegion;
 
   return { width: W, height: H, tiles, regions, rooms, startCells };
+}
+
+/** The legacy shared 32×23 board (kept for tests / future quests). */
+export function buildBaseBoard(): BaseBoard {
+  return parseAsciiBoard(BOARD_MAP);
 }
 
 export const BASE_BOARD: BaseBoard = buildBaseBoard();

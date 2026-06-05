@@ -15,7 +15,7 @@ import {
   type Furniture as HQFurniture,
 } from '@/lib/games/heroquest';
 import {
-  FloorCell, StairsTile,
+  FloorCell, StairsFan,
   HeroToken, MonsterToken, FurnitureToken,
   HQ_COLORS,
 } from './Art';
@@ -232,6 +232,31 @@ export default function HeroQuestBoardCanvas({
     return assignRoomFloors([...rooms].sort((a, b) => num(a) - num(b)));
   }, [state.tiles, W, H]);
 
+  // Staircase footprint(s): each connected block of stair tiles is drawn as ONE
+  // classic fan (a 2×2 staircase reads as a single staircase). `revealed` gates
+  // it behind the fog like everything else.
+  const stairGroups = useMemo(() => {
+    const seen = state.tiles.map(r => r.map(() => false));
+    const groups: { x: number; y: number; w: number; h: number; revealed: boolean }[] = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (state.tiles[y][x].kind !== 'stairs' || seen[y][x]) continue;
+      let minX = x, maxX = x, minY = y, maxY = y, revealed = false;
+      const stack: [number, number][] = [[x, y]]; seen[y][x] = true;
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+        minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+        if (state.tiles[cy][cx].revealed) revealed = true;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx >= 0 && ny >= 0 && nx < W && ny < H && !seen[ny][nx] && state.tiles[ny][nx].kind === 'stairs') { seen[ny][nx] = true; stack.push([nx, ny]); }
+        }
+      }
+      groups.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1, revealed });
+    }
+    return groups;
+  }, [state.tiles, W, H]);
+
   // Debug: illuminate the whole map (ignores fog + torchlight) so the full
   // layout is visible while building/testing. Toggled by the ☀ button.
   const [litAll, setLitAll] = useState(false);
@@ -335,7 +360,8 @@ export default function HeroQuestBoardCanvas({
               // the hallways form the outer border — no surrounding brick.
               tileArt = null;
             } else if (tile.kind === 'stairs') {
-              tileArt = <StairsTile size={TILE_PX} />;
+              // Plain stone base; the staircase fan is drawn as one overlay below.
+              tileArt = <div style={{ width: TILE_PX, height: TILE_PX, background: '#5b636e' }} />;
             } else if (tile.region.startsWith('room_')) {
               // Each room a UNIQUE (color, pattern) — no two rooms share tiles.
               const f = roomFloor.get(tile.region) ?? ROOM_FLOORS[0];
@@ -413,6 +439,17 @@ export default function HeroQuestBoardCanvas({
           onOpenDoor={onOpenDoor}
           revealAll={litAll}
         />
+
+        {/* Staircase fan(s) — one classic fan per connected stair block (fog-gated). */}
+        {stairGroups.map((g, i) => (litAll || g.revealed) ? (
+          <div
+            key={`stairfan-${i}`}
+            className="pointer-events-none absolute"
+            style={{ left: g.x * TILE_PX, top: g.y * TILE_PX, width: g.w * TILE_PX, height: g.h * TILE_PX, zIndex: 2 }}
+          >
+            <StairsFan w={g.w * TILE_PX} h={g.h * TILE_PX} />
+          </div>
+        ) : null)}
 
         {/* Furniture layer */}
         {state.furniture.map(f =>

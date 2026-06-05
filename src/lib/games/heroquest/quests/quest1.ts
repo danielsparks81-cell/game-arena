@@ -14,7 +14,7 @@ export type Q1Furn = { kind: string; x: number; y: number; w: number; h: number;
 export type Q1Door = { x: number; y: number; v: boolean; secret?: boolean };
 
 // The authored 30×23 board. Glyphs: # rock · . hall · S stairs · W wall · a–p room.
-const QUEST1_MAP: string[] = [
+export const QUEST1_MAP: string[] = [
   '##############################',
   '##############################',
   'WWaaaabbbbcccc################',

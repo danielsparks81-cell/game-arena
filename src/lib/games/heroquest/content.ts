@@ -4,6 +4,8 @@
 // Designed to be data-only and immutable. The engine clones what it needs.
 
 import type {
+  Coord,
+  Furniture,
   Hero,
   HeroClass,
   Item,
@@ -13,7 +15,8 @@ import type {
   Spell,
   TreasureCard,
 } from './types';
-import { BASE_BOARD, generateConnectingDoors } from './board';
+import { parseAsciiBoard } from './board';
+import { QUEST1_MAP, QUEST1_FURNITURE, QUEST1_DOORS, QUEST1_MONSTERS } from './quests/quest1';
 
 // ============================================================================
 // Hero class defaults
@@ -200,65 +203,79 @@ export function buildTreasureDeck(): TreasureCard[] {
 }
 
 // ============================================================================
-// Quest 1 — "The Trial", laid out on the shared BASE_BOARD. Every quest reuses
-// the same fixed board (rooms + double-wide halls + entry staircase); a quest
-// just drops in its monsters, furniture, traps, and objective. Building quest
-// #2, #3, … is then a short list of placements, not a whole new map.
+// Quest 1 — "The Trial". The board, furniture, doors, monsters and staircase are
+// the layout authored in the Map Authoring sandbox (quests/quest1.ts), wired
+// into the playable engine 1:1. Quest-book content (Verag as the objective, the
+// guardian mummy, and the 84/120-gold chests) is attached on top.
 // ============================================================================
 
-function makeQuest1(): QuestDef {
-  // ---- Furniture (placed on board room cells) ----
-  const furniture: QuestDef['furniture'] = [];
-  let fn = 0;
-  const furn = (
-    kind: QuestDef['furniture'][number]['kind'],
-    x: number, y: number, blocksMove: boolean, blocksLos: boolean,
-    fixedContent?: QuestDef['furniture'][number]['fixedContent'],
-  ) => {
-    furniture.push({ id: `furn_${++fn}`, kind, cells: [{ x, y }], blocksMove, blocksLos, fixedContent });
-  };
-  // Faithful to Quest Book "Quest 1 — The Trial" (content adapted to our larger board):
-  //   A = weapons rack (chipped/rusted/broken — nothing the heroes want)
-  //   B = empty treasure chest
-  //   C = the mummy guardian of Fellmarg's tomb (placed with the monsters, below)
-  //   D = chest with 84 gold (first searcher)   E = chest with 120 gold (first searcher)
-  furn('rack',  12, 15, false, true,  { kind: 'nothing', flavor: 'The weapons here are chipped, rusted, and broken — nothing you would want.' }); // A (lower-centre room)
-  furn('chest', 20, 15, false, false, { kind: 'nothing', flavor: 'The chest is empty.' });                                                        // B (lower-right room)
-  furn('chest', 20, 3,  false, false, { kind: 'gold', amount: 84 });                                                                              // D (upper-right room)
-  furn('chest', 15, 8,  false, false, { kind: 'gold', amount: 120 });                                                                             // E (Verag's chamber)
-  furn('tomb',  11, 2,  true,  true);   // Fellmarg's tomb (upper-centre, guarded by the mummy)
-  furn('table', 5,  16, false, false);  // entrance-room furniture (flavour)
+const TRIAL_BOARD = parseAsciiBoard(QUEST1_MAP);
 
-  // ---- Monsters (spawn when their room is first revealed). roomId is read
-  //      straight from the shared board so placements just need a cell. ----
-  const monsters: QuestDef['monsters'] = [];
-  let mn = 0;
-  const mob = (
-    kind: MonsterKind, x: number, y: number,
-    // Named bosses (Ulag, Grak, Verag, …) override any of their stats.
-    opts?: { displayName?: string; bodyMax?: number; attack?: number; defense?: number; move?: number; mind?: number; gold?: number },
-  ) => {
-    const st = MONSTER_STATS[kind];
-    monsters.push({
-      id: `mon_${++mn}`, kind, at: { x, y },
-      bodyMax: opts?.bodyMax ?? st.bodyMax,
-      attack: opts?.attack ?? st.attack,
-      defense: opts?.defense ?? st.defense,
-      move: opts?.move ?? st.move,
-      mind: opts?.mind ?? st.mind,
-      displayName: opts?.displayName,
-      gold: opts?.gold ?? st.gold,
-      roomId: BASE_BOARD.regions[y][x],
-    });
+// Authored furniture kinds → the engine's furniture art kinds.
+const FURN_KIND: Record<string, Furniture['kind']> = {
+  chest: 'chest', table: 'table', cupboard: 'cupboard', rack: 'rack', weapon_rack: 'rack',
+  bookshelf: 'bookshelf', throne: 'throne', tomb: 'tomb', altar: 'altar', bench: 'bench',
+  fireplace: 'fireplace', sorcerer_table: 'table', alchemist_bench: 'bench',
+};
+
+function makeQuest1(): QuestDef {
+  const board = TRIAL_BOARD;
+
+  // ---- Furniture: expand each authored footprint into its cells. Furniture
+  //      blocks movement (you can't stand on it) and blocks LOS per the author's
+  //      flag. Quest-book contents ride on specific pieces (keyed by top-left). ----
+  const fixedContentAt = (x: number, y: number): Furniture['fixedContent'] | undefined => {
+    if (x === 13 && y === 9) return { kind: 'gold', amount: 120 };  // chest in Verag's chamber
+    if (x === 12 && y === 6) return { kind: 'gold', amount: 84 };   // chest in the tomb room
+    if (x === 20 && y === 19) return { kind: 'nothing', flavor: 'The chest is empty.' };
+    if (x === 13 && y === 18) return { kind: 'nothing', flavor: 'The weapons here are chipped, rusted, and broken — nothing you would want.' };
+    return undefined;
   };
-  // Goblins + orcs spread through the catacombs (faithful to the book's roster).
-  mob('goblin', 4, 2); mob('goblin', 5, 4); mob('goblin', 20, 4);  // a (upper-left) + c
-  mob('goblin', 4, 9); mob('goblin', 12, 17); mob('goblin', 14, 16); // d + i (room A)
-  mob('orc', 13, 16); mob('orc', 19, 17); mob('orc', 21, 9); mob('orc', 5, 9); // i, j, f, d
-  // Note C — the mummy guardian of Fellmarg's tomb rolls 4 Attack dice (instead of 3).
-  mob('mummy', 13, 3, { attack: 4, displayName: 'Guardian of Fellmarg’s Tomb' }); // b (upper-centre)
-  // Verag, a foul gargoyle, lairs in the central chamber.
-  mob('gargoyle', 13, 9, { displayName: 'Verag' }); // e (centre)
+  const furniture: QuestDef['furniture'] = QUEST1_FURNITURE.map((f, i) => {
+    const cells: Coord[] = [];
+    for (let dy = 0; dy < f.h; dy++) for (let dx = 0; dx < f.w; dx++) cells.push({ x: f.x + dx, y: f.y + dy });
+    return {
+      id: `furn_${i + 1}`,
+      kind: FURN_KIND[f.kind] ?? 'table',
+      cells,
+      blocksMove: true,
+      blocksLos: f.los,
+      fixedContent: fixedContentAt(f.x, f.y),
+    };
+  });
+
+  // ---- Monsters: stats from the chart; roomId read from the parsed board. The
+  //      lone gargoyle in the central chamber is Verag (the objective); the mummy
+  //      beside Fellmarg's tomb is its guardian (rolls 4 attack dice). ----
+  const monsters: QuestDef['monsters'] = QUEST1_MONSTERS.map((m, i) => {
+    const kind = m.kind as MonsterKind;
+    const st = MONSTER_STATS[kind];
+    const isVerag = kind === 'gargoyle' && m.x === 14 && m.y === 10;
+    const isGuardian = kind === 'mummy' && m.x === 10 && m.y === 5;
+    return {
+      id: `mon_${i + 1}`,
+      kind,
+      at: { x: m.x, y: m.y },
+      bodyMax: st.bodyMax,
+      attack: isGuardian ? 4 : st.attack,
+      defense: st.defense,
+      move: st.move,
+      mind: st.mind,
+      displayName: isVerag ? 'Verag' : isGuardian ? 'Guardian of Fellmarg’s Tomb' : undefined,
+      gold: st.gold,
+      roomId: board.regions[m.y][m.x],
+    };
+  });
+
+  // ---- Doors: each authored edge-door becomes a 1-cell crossing. v=true sits on
+  //      the LEFT edge of (x,y); v=false sits on the TOP edge of (x,y). ----
+  const doors: QuestDef['doors'] = QUEST1_DOORS.map((d, i) => ({
+    id: `door_${i + 1}`,
+    crossings: d.v
+      ? [{ a: { x: d.x, y: d.y }, b: { x: d.x - 1, y: d.y } }]
+      : [{ a: { x: d.x, y: d.y }, b: { x: d.x, y: d.y - 1 } }],
+    secret: !!d.secret,
+  }));
 
   return {
     id: 'the_trial',
@@ -269,20 +286,18 @@ function makeQuest1(): QuestDef {
       'destroy Verag, a foul gargoyle that hides in the catacombs. This quest is not easy, and ' +
       'you must work together in order to survive. This is your first step on the road to ' +
       'becoming true heroes. Tread carefully, my friends."',
-    width: BASE_BOARD.width,
-    height: BASE_BOARD.height,
-    tiles: BASE_BOARD.tiles,
-    regions: BASE_BOARD.regions,
-    // Auto-placed doors connect every walled room back to the corridors; refine
-    // per-quest later (or in the sandbox).
-    doors: generateConnectingDoors(),
+    width: board.width,
+    height: board.height,
+    tiles: board.tiles,
+    regions: board.regions,
+    doors,
     furniture,
     traps: [],
     monsters,
-    startCells: BASE_BOARD.startCells,
+    startCells: board.startCells,
     wanderingMonster: 'orc', // Quest 1's wandering monster is the Orc (book)
     winCondition: { kind: 'kill_and_exit', monsterDisplayName: 'Verag' },
-    reward: { kind: 'none' }, // Quest 1's reward is the gold in the chests (84 + 120)
+    reward: { kind: 'none' }, // the reward is the gold in the chests (84 + 120)
   };
 }
 
