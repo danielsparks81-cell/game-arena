@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import Link from 'next/link';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
 import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS } from '@/lib/games/heroquest/quests/quest1';
-import { FloorCell, StairsTile, FurnitureToken } from './heroquest/Art';
+import { FloorCell, StairsFan, FurnitureToken } from './heroquest/Art';
 import { ROOM_FLOORS, CORRIDOR_FLOOR, floorForIndex, type RoomFloor } from './heroquest/floors';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
@@ -446,6 +446,29 @@ export default function HeroQuestSandbox() {
     return out;
   }, [regionOrder, regionAnchor]);
 
+  // Staircase footprint(s): each connected block of 'S' is drawn as ONE fan
+  // overlay (a 2×2 staircase reads as a single staircase, not four tiles).
+  const stairBoxes = useMemo(() => {
+    const seen = grid.map(r => r.map(() => false));
+    const boxes: { x: number; y: number; w: number; h: number }[] = [];
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (grid[y]?.[x] !== 'S' || seen[y][x]) continue;
+      let minX = x, maxX = x, minY = y, maxY = y;
+      const stack: [number, number][] = [[x, y]]; seen[y][x] = true;
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        minX = Math.min(minX, cx); maxX = Math.max(maxX, cx);
+        minY = Math.min(minY, cy); maxY = Math.max(maxY, cy);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx >= 0 && ny >= 0 && nx < w && ny < h && !seen[ny][nx] && grid[ny][nx] === 'S') { seen[ny][nx] = true; stack.push([nx, ny]); }
+        }
+      }
+      boxes.push({ x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 });
+    }
+    return boxes;
+  }, [grid, w, h]);
+
   // ---- Validation hints ----
   const warnings = useMemo(() => {
     const out: string[] = [];
@@ -709,22 +732,43 @@ ${startLine}`;
                 );
               }))}
 
+              {/* Staircase — one classic fan across each 2×2 stair block. */}
+              {stairBoxes.map((b, i) => (
+                <div key={`stair${i}`} style={{ position: 'absolute', left: b.x * cell, top: b.y * cell, width: b.w * cell, height: b.h * cell, pointerEvents: 'none', zIndex: 1 }}>
+                  <StairsFan w={b.w * cell} h={b.h * cell} />
+                </div>
+              ))}
+
               {/* Room / rock walls — bold dark edges (a door leaves its edge open). */}
               <WallLayer grid={grid} region={regionGrid} doorSet={doorSet} cell={cell} w={w} h={h} />
 
-              {/* Furniture — game art sized to the footprint. Solid border = blocks
-                  line of sight, dashed = doesn't. */}
+              {/* Furniture — a solid material slab fills the WHOLE footprint (so it
+                  never looks like open floor you could step on), with the game art
+                  on top. Solid border = blocks line of sight, dashed = doesn't. */}
               {furniture.map((fu, i) => {
                 const fp = footprint(fu.kind, fu.rot);
-                const ts = Math.min(fp.w, fp.h) * cell;
+                const stone = fu.kind === 'tomb' || fu.kind === 'altar' || fu.kind === 'fireplace';
+                const ts = Math.min(fp.w, fp.h) * cell * 0.92;
+                const grain = Math.max(7, Math.round(cell * 0.45));
                 return (
                   <div key={`fur${i}`} title={`${fu.kind} ${fp.w}×${fp.h}${fp.los ? ' (blocks LOS)' : ''}`} style={{
                     position: 'absolute', left: fu.x * cell, top: fu.y * cell, width: fp.w * cell, height: fp.h * cell,
-                    border: fp.los ? '2px solid #120c06' : '2px dashed #c79a63', borderRadius: 3,
-                    background: 'rgba(28,18,10,0.30)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    pointerEvents: 'none', boxShadow: '0 2px 5px rgba(0,0,0,0.6)', overflow: 'hidden', zIndex: 3,
+                    border: fp.los ? '2px solid #100b05' : '2px dashed #e0b97f', borderRadius: 3,
+                    background: stone ? 'linear-gradient(135deg,#727781,#3a3f47)' : 'linear-gradient(135deg,#825c34,#46301a)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    pointerEvents: 'none', boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.65)',
+                    overflow: 'hidden', zIndex: 3,
                   }}>
-                    <FurnitureToken kind={FURN_TOKEN_KIND[fu.kind]} size={ts} />
+                    {/* faint grain/mortar so the slab isn't a flat block */}
+                    <div style={{
+                      position: 'absolute', inset: 0, opacity: 0.5,
+                      backgroundImage: stone
+                        ? `repeating-linear-gradient(90deg, rgba(255,255,255,0.06) 0 1px, transparent 1px ${grain}px)`
+                        : `repeating-linear-gradient(0deg, rgba(0,0,0,0.22) 0 1px, transparent 1px ${grain}px)`,
+                    }} />
+                    <div style={{ width: ts, height: ts, filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.55))' }}>
+                      <FurnitureToken kind={FURN_TOKEN_KIND[fu.kind]} size={ts} />
+                    </div>
                     {fu.gold ? <span style={{ position: 'absolute', right: 3, bottom: 1, fontSize: Math.round(cell * 0.28), color: '#fde68a', fontWeight: 800, textShadow: '0 1px 2px #000' }}>{fu.gold}</span> : null}
                   </div>
                 );
@@ -824,7 +868,9 @@ function SmallBtn({ onClick, children }: { onClick: () => void; children: ReactN
  *  rooms, corridors and stairs, plus authoring-only fills for rock (near-black,
  *  unused this quest) and a painted wall tile (hatched stone barrier). */
 function FloorArt({ g, x, y, cell, floor }: { g: string; x: number; y: number; cell: number; floor: RoomFloor | null }) {
-  if (g === 'S') return <StairsTile size={cell} />;
+  // Stairs get a plain stone base here; the staircase fan is drawn as one overlay
+  // across the whole 2×2 (see StairsLayer) so it reads as a single staircase.
+  if (g === 'S') return <div style={{ width: cell, height: cell, background: '#5b636e' }} />;
   if (g === '.') return <FloorCell size={cell} gx={x} gy={y} style={CORRIDOR_FLOOR.style} tl={CORRIDOR_FLOOR.tl} br={CORRIDOR_FLOOR.br} />;
   if (ROOM_LETTERS.includes(g)) {
     const fl = floor ?? ROOM_FLOORS[0];

@@ -7,6 +7,7 @@
 import {
   buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS,
 } from '@/lib/games/heroquest/quests/quest1';
+import { stairsFanEls } from './Art';
 
 const CELL = 23;
 const GRID = buildQuest1Grid();
@@ -95,18 +96,7 @@ function StairFan({ cells }: { cells: { x: number; y: number }[] }) {
   const minX = Math.min(...cells.map(c => c.x)), minY = Math.min(...cells.map(c => c.y));
   const maxX = Math.max(...cells.map(c => c.x)), maxY = Math.max(...cells.map(c => c.y));
   const x0 = minX * CELL, y0 = minY * CELL, w = (maxX - minX + 1) * CELL, h = (maxY - minY + 1) * CELL;
-  const R = Math.max(w, h), arcs = [];
-  for (let i = 1; i <= 6; i++) {
-    const r = (R * i) / 6;
-    arcs.push(<path key={i} d={`M ${x0 + r} ${y0} A ${r} ${r} 0 0 1 ${x0} ${y0 + r}`} fill="none" stroke="#475569" strokeWidth="1.2" />);
-  }
-  return (
-    <g>
-      <rect x={x0} y={y0} width={w} height={h} fill="#94a3b8" stroke="#1e3a5f" strokeWidth="2" />
-      {arcs}
-      <text x={x0 + w - 2} y={y0 + h - 3} textAnchor="end" fontSize="7" fontWeight="800" fill="#1e293b">STAIRS</text>
-    </g>
-  );
+  return <g transform={`translate(${x0},${y0})`}>{stairsFanEls(w, h)}</g>;
 }
 
 function Board() {
@@ -138,10 +128,11 @@ function Board() {
       <StairFan cells={QUEST1_STAIRS} />
       {QUEST1_FURNITURE.map((f, i) => {
         const w = f.w * CELL, h = f.h * CELL;
+        const stone = f.kind === 'tomb' || f.kind === 'altar' || f.kind === 'fireplace';
         return (
           <g key={`f${i}`} transform={`translate(${f.x * CELL},${f.y * CELL})`}>
-            <rect x="1.5" y="1.5" width={w - 3} height={h - 3} rx="2" fill="#6b4423"
-              stroke="#3f2a14" strokeWidth={f.los ? 2 : 1} strokeDasharray={f.los ? undefined : '3 2'} />
+            <rect x="1.5" y="1.5" width={w - 3} height={h - 3} rx="2" fill={stone ? '#565b63' : '#6b4423'}
+              stroke={stone ? '#2c3037' : '#3f2a14'} strokeWidth={f.los ? 2 : 1} strokeDasharray={f.los ? undefined : '3 2'} />
             <text x={w / 2} y={h / 2 + 4} textAnchor="middle" fontSize="12" fill="#fde68a">{FURN_GLYPH[f.kind] ?? '▦'}</text>
             {f.gold != null && <text x={w / 2} y={h - 4} textAnchor="middle" fontSize="7" fontWeight="800" fill="#fde68a">{f.gold}</text>}
           </g>

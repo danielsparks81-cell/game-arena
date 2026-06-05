@@ -232,6 +232,43 @@ export function StairsTile({ size }: { size: number }) {
   );
 }
 
+/** Classic HeroQuest spiral-staircase fan — concentric stone step-bands radiating
+ *  from the top-left corner over the whole w×h area (a 2×2 space drawn as one
+ *  staircase, not four tiles). Returns SVG elements so it can fill a standalone
+ *  <svg> (the editor/board overlay) or be dropped into an existing one (gallery). */
+export function stairsFanEls(w: number, h: number): React.ReactNode[] {
+  const R = Math.hypot(w, h);     // reach the far corner
+  const n = 7;                    // number of steps
+  const els: React.ReactNode[] = [
+    <rect key="base" width={w} height={h} fill="#5b636e" />,
+    <rect key="base2" width={w} height={h} fill="#262b32" opacity="0.4" />,
+  ];
+  for (let i = 0; i < n; i++) {
+    const ro = (R * (n - i)) / n, ri = (R * (n - i - 1)) / n;
+    els.push(
+      <path
+        key={`step${i}`}
+        d={`M ${ro} 0 A ${ro} ${ro} 0 0 1 0 ${ro} L 0 ${ri} A ${ri} ${ri} 0 0 0 ${ri} 0 Z`}
+        fill={i % 2 === 0 ? '#aab2bd' : '#828b96'}
+        stroke="#3a4049"
+        strokeWidth={Math.max(0.5, R * 0.007)}
+      />,
+    );
+  }
+  // warm landing glow at the foot of the stairs (far corner)
+  els.push(<circle key="glow" cx={w} cy={h} r={R * 0.28} fill={HQ_COLORS.torchGold} opacity="0.18" />);
+  return els;
+}
+
+/** The fan as a standalone tile (for an absolute-positioned overlay). */
+export function StairsFan({ w, h }: { w: number; h: number }) {
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block' }} aria-hidden>
+      {stairsFanEls(w, h)}
+    </svg>
+  );
+}
+
 /** Door tile — wooden plank with iron bands. */
 export function DoorTile({ size, open, horizontal }: { size: number; open: boolean; horizontal: boolean }) {
   const W = 40, H = 40;
