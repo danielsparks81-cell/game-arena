@@ -242,6 +242,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onClimbPit={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'climb_pit' }); })}
       onCastSpell={(spellId, opts) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'cast_spell', spellId, targetMonsterId: opts?.targetMonsterId, targetHeroIdx: opts?.targetHeroIdx }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'end_turn' }); })}
+      onZargonStep={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'zargon_step' }); })}
     />
   ),
 

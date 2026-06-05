@@ -333,6 +333,10 @@ export function applyAction(
     return ok(s);
   }
 
+  // Zargon's turn advances one monster at a time. Any client may request a step
+  // (the host drives it on a timer); it's a no-op unless it's Zargon's phase.
+  if (action.kind === 'zargon_step') return doZargonStep(state);
+
   // Mid-game gating: only the active player can act.
   if (state.phase !== 'heroes') return err('Wait for the engine to finish.');
   const hero = state.heroes[state.turnIndex];
@@ -1088,12 +1092,12 @@ function doCastSpell(
 function doEndTurn(state: HQState, hero: Hero): ApplyResult {
   const s = clone(state);
   endHeroTurn(s);
-  // After every hero has taken a turn → Zargon turn.
-  // Simple model: each hero turn ends individually; once turnIndex would
-  // wrap, Zargon plays.
+  // After the last hero's turn (turnIndex wraps to 0) → Zargon's turn, which now
+  // plays one monster at a time via zargon_step (the host ticks it). The next
+  // hero's "it is your turn" log is emitted when Zargon finishes.
   if (s.turnIndex === 0) {
-    runZargonTurn(s);
-    // After Zargon, the heroes go again (turnIndex stays at 0, fresh hero turn).
+    beginZargonTurn(s);
+    return ok(s);
   }
   if (s.phase !== 'finished') {
     pushLog(s, 'system', `It is ${s.heroes[s.turnIndex].username}'s turn.`);
@@ -1128,23 +1132,47 @@ function endHeroTurn(s: HQState): void {
 // Zargon (engine) turn
 // ============================================================================
 
-function runZargonTurn(s: HQState): void {
+/** Begin Zargon's turn. Monsters then act one at a time via zargon_step (the
+ *  host ticks it on a timer), so each monster's move/attack is visible. */
+function beginZargonTurn(s: HQState): void {
   if (s.phase !== 'heroes') return;
   s.phase = 'zargon';
   pushLog(s, 'zargon', '— Zargon\'s turn —');
+  s.zargonQueue = s.monsters.map(m => m.id);  // placement order
+  s.zargonActed = [];
+  s.zargonActiveId = null;
+  if (s.zargonQueue.length === 0) finishZargonTurn(s); // no monsters → straight back
+}
 
-  // Snapshot: monsters take turns in placement order.
-  const order = s.monsters.map(m => m.id);
-  for (const monId of order) {
-    const m = s.monsters.find(mm => mm.id === monId);
-    if (!m) continue;
-    runMonster(s, m);
-    // runMonster can flip the phase to 'finished' (TPK during a monster
-    // attack). Cast through TS's narrowing to allow the early-out.
-    if ((s.phase as Phase) === 'finished') break;
+/** Resolve ONE monster's action (spotlighting it), or end Zargon's turn when the
+ *  queue is empty. A no-op outside Zargon's phase. */
+function doZargonStep(state: HQState): ApplyResult {
+  if (state.phase !== 'zargon') return ok(state);
+  const s = clone(state);
+  const queue = s.zargonQueue ?? [];
+  if (queue.length === 0) { finishZargonTurn(s); return ok(s); }
+  const id = queue[0];
+  s.zargonQueue = queue.slice(1);
+  s.zargonActiveId = id;
+  (s.zargonActed ??= []).push(id);
+  const m = s.monsters.find(mm => mm.id === id);
+  if (m && m.body > 0) runMonster(s, m);
+  if ((s.phase as Phase) === 'finished') clearZargon(s);
+  return ok(s);
+}
+
+function finishZargonTurn(s: HQState): void {
+  clearZargon(s);
+  if ((s.phase as Phase) !== 'finished') {
+    s.phase = 'heroes';
+    pushLog(s, 'system', `It is ${s.heroes[s.turnIndex].username}'s turn.`);
   }
+}
 
-  if ((s.phase as Phase) !== 'finished') s.phase = 'heroes';
+function clearZargon(s: HQState): void {
+  s.zargonQueue = undefined;
+  s.zargonActiveId = null;
+  s.zargonActed = undefined;
 }
 
 function runMonster(s: HQState, m: Monster): void {

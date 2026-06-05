@@ -517,6 +517,10 @@ export default function HeroQuestBoardCanvas({
           // spell can't be wasted.
           const spellPick = spellTargetMonsters && isMyTurn && !!myHero && losToM;
           const targetable = spellPick || attackable;
+          // Zargon turn: the monster currently acting is spotlit; ones that have
+          // already acted this round are greyed out.
+          const zActive = state.zargonActiveId === m.id;
+          const zSpent = !zActive && (state.zargonActed?.includes(m.id) ?? false);
           return (
             <div
               key={m.id}
@@ -526,10 +530,11 @@ export default function HeroQuestBoardCanvas({
                 top:  m.at.y * TILE_PX,
                 width: TILE_PX,
                 height: TILE_PX,
-                zIndex: 5,
+                zIndex: zActive ? 6 : 5,
                 cursor: targetable && !disabled ? 'pointer' : 'default',
-                
-                transition: 'left 0.25s ease-out, top 0.25s ease-out',
+                opacity: zSpent ? 0.4 : 1,
+                filter: zSpent ? 'grayscale(0.85)' : undefined,
+                transition: 'left 0.25s ease-out, top 0.25s ease-out, opacity 0.3s ease',
               }}
               onClick={() => {
                 if (!targetable || disabled) return;
@@ -539,6 +544,16 @@ export default function HeroQuestBoardCanvas({
               title={`${m.displayName ?? MONSTER_STATS[m.kind]?.displayName ?? m.kind} — BP ${m.body}/${m.bodyMax}, Atk ${m.attack}, Def ${m.defense}, Move ${MONSTER_STATS[m.kind]?.move ?? m.move}, Mind ${MONSTER_STATS[m.kind]?.mind ?? 0}`}
             >
               <MonsterToken kind={m.kind} size={TILE_PX} />
+              {zActive && (
+                <div
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    boxShadow: '0 0 0 3px rgba(255,170,40,0.95), 0 0 16px rgba(255,170,40,0.7)',
+                    borderRadius: '50%',
+                    animation: 'hq-pulse 1s ease-in-out infinite',
+                  }}
+                />
+              )}
               {targetable && (
                 <div
                   className="pointer-events-none absolute inset-0"

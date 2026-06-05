@@ -694,7 +694,8 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'jump_trap'; trapId: string }
   | { game: 'heroquest'; kind: 'climb_pit' }
   | { game: 'heroquest'; kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
-  | { game: 'heroquest'; kind: 'end_turn' };
+  | { game: 'heroquest'; kind: 'end_turn' }
+  | { game: 'heroquest'; kind: 'zargon_step' };
 
 /**
  * Single entry point for every in-game action. Boards call this through the

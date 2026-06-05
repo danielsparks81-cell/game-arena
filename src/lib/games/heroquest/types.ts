@@ -360,6 +360,12 @@ export type HQState = {
    *  its monsters exactly ONCE. Without this, killed monsters re-appear every
    *  time the room is re-revealed (which happens on every hero move). */
   spawnedRooms?: string[];
+  /** Zargon's turn plays one monster at a time. zargonQueue = monsters still to
+   *  act; zargonActiveId = the one currently spotlit; zargonActed = those done
+   *  this round (greyed out). All cleared when Zargon's turn ends. */
+  zargonQueue?: string[];
+  zargonActiveId?: string | null;
+  zargonActed?: string[];
   /** Final result. */
   winner: Winner;
 };
@@ -397,7 +403,9 @@ export type HQAction =
   | { kind: 'jump_trap'; trapId: string }
   | { kind: 'climb_pit' }
   | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
-  | { kind: 'end_turn' };
+  | { kind: 'end_turn' }
+  /** Advance Zargon's turn by one monster (host-driven, on a timer). */
+  | { kind: 'zargon_step' };
 
 export type ApplyResult =
   | { ok: true; state: HQState }

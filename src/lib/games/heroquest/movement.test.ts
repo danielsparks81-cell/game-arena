@@ -20,6 +20,14 @@ function startedGame(): HQState {
   return s;
 }
 
+/** Zargon now plays one monster per zargon_step (host-ticked). Drain the whole
+ *  turn so tests can assert the end-of-Zargon state. */
+function drainZargon(s: HQState): HQState {
+  let g = s;
+  for (let i = 0; i < 200 && g.phase === 'zargon'; i++) g = unwrap(applyAction(g, 'p1', { kind: 'zargon_step' }));
+  return g;
+}
+
 /** A clear east–west floor corridor on row y, with heroes 0 & 1 placed so that
  *  hero 0 (active) is boxed in behind hero 1. */
 function corridorSetup(): HQState {
@@ -279,7 +287,7 @@ describe('heroquest monsters: orthogonal attacks only (rulebook p.20)', () => {
       attack: 3, defense: 2, move: 6, roomId: 'corridor',
     }];
     forceShields();
-    const out = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    const out = drainZargon(unwrap(applyAction(s, 'p1', { kind: 'end_turn' })));
     expect(out.monsters[0].at).toEqual({ x: 4, y: 4 }); // did NOT dance to a diagonal
     expect(out.lastRoll?.rolledBy).toBe('monster');      // it attacked
     expect(out.lastRoll?.faces.length).toBe(3);          // m.attack dice
@@ -296,7 +304,7 @@ describe('heroquest monsters: orthogonal attacks only (rulebook p.20)', () => {
       attack: 3, defense: 2, move: 6, roomId: 'corridor',
     }];
     forceShields();
-    const out = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    const out = drainZargon(unwrap(applyAction(s, 'p1', { kind: 'end_turn' })));
     expect(out.monsters[0].at).toEqual({ x: 4, y: 3 }); // stuck diagonal, couldn't close in
     expect(out.heroes[0].body).toBe(8);                 // no diagonal attack landed
   });

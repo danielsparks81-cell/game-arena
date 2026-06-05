@@ -45,6 +45,8 @@ export type HeroQuestBoardProps = {
   onClimbPit: () => void;
   onCastSpell: (spellId: string, opts?: { targetMonsterId?: string; targetHeroIdx?: number }) => void;
   onEndTurn: () => void;
+  /** Advance Zargon's turn by one monster (the host drives this on a timer). */
+  onZargonStep: () => void;
 };
 
 export default function HeroQuestBoard(props: HeroQuestBoardProps) {
@@ -60,6 +62,17 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
       setBriefingShown(true);
     }
   }, [state.phase, briefingShown]);
+
+  // Drive Zargon's turn one monster at a time. The HOST ticks zargon_step on a
+  // timer; each step updates state (the next monster lights up), which re-runs
+  // this effect to schedule the following step. ~800ms gives each monster its
+  // moment. Non-host clients just watch the highlights move.
+  useEffect(() => {
+    if (state.phase !== 'zargon' || !props.isHost) return;
+    const t = setTimeout(() => props.onZargonStep(), 800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase, state.zargonActiveId, state.zargonQueue?.length, props.isHost]);
 
   if (state.phase === 'lobby') {
     return <HeroLobby
