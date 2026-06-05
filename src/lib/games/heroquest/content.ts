@@ -216,12 +216,12 @@ function makeQuest1(): QuestDef {
 
   // ---- Furniture: expand each authored footprint into its cells. Furniture
   //      blocks movement (you can't stand on it) and blocks LOS per the author's
-  //      flag. Quest-book contents ride on specific pieces (keyed by top-left). ----
-  const fixedContentAt = (x: number, y: number): Furniture['fixedContent'] | undefined => {
-    if (x === 13 && y === 9) return { kind: 'gold', amount: 120 };  // chest in Verag's chamber
-    if (x === 12 && y === 6) return { kind: 'gold', amount: 84 };   // chest in the tomb room
-    if (x === 20 && y === 19) return { kind: 'nothing', flavor: 'The chest is empty.' };
-    if (x === 13 && y === 18) return { kind: 'nothing', flavor: 'The weapons here are chipped, rusted, and broken — nothing you would want.' };
+  //      flag. Treasure gold rides on the authored chests; the empty chest and
+  //      chipped weapons rack get "nothing" flavor (which the editor can't set). ----
+  const fixedContentFor = (f: typeof QUEST1_FURNITURE[number]): Furniture['fixedContent'] | undefined => {
+    if (f.gold != null) return { kind: 'gold', amount: f.gold };
+    if (f.kind === 'chest' && f.x === 20 && f.y === 19) return { kind: 'nothing', flavor: 'The chest is empty.' };
+    if (f.kind === 'weapon_rack' && f.x === 13 && f.y === 18) return { kind: 'nothing', flavor: 'The weapons here are chipped, rusted, and broken — nothing you would want.' };
     return undefined;
   };
   const furniture: QuestDef['furniture'] = QUEST1_FURNITURE.map((f, i) => {
@@ -234,18 +234,17 @@ function makeQuest1(): QuestDef {
       facing: f.rot ?? 0,
       blocksMove: true,
       blocksLos: f.los,
-      fixedContent: fixedContentAt(f.x, f.y),
+      fixedContent: fixedContentFor(f),
     };
   });
 
-  // ---- Monsters: stats from the chart; roomId read from the parsed board. The
-  //      lone gargoyle in the central chamber is Verag (the objective); the mummy
-  //      beside Fellmarg's tomb is its guardian (rolls 4 attack dice). ----
+  // ---- Monsters: stats from the chart; roomId read from the parsed board.
+  //      Named bosses come straight from the authored data — Verag (the objective)
+  //      and the tomb Guardian, who as a named mummy rolls 4 attack dice. ----
   const monsters: QuestDef['monsters'] = QUEST1_MONSTERS.map((m, i) => {
     const kind = m.kind as MonsterKind;
     const st = MONSTER_STATS[kind];
-    const isVerag = kind === 'gargoyle' && m.x === 14 && m.y === 10;
-    const isGuardian = kind === 'mummy' && m.x === 10 && m.y === 5;
+    const isGuardian = kind === 'mummy' && !!m.name;
     return {
       id: `mon_${i + 1}`,
       kind,
@@ -255,7 +254,7 @@ function makeQuest1(): QuestDef {
       defense: st.defense,
       move: st.move,
       mind: st.mind,
-      displayName: isVerag ? 'Verag' : isGuardian ? 'Guardian of Fellmarg’s Tomb' : undefined,
+      displayName: m.name,
       gold: st.gold,
       roomId: board.regions[m.y][m.x],
     };

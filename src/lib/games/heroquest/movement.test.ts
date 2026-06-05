@@ -436,9 +436,8 @@ describe('heroquest Quest 1 content fidelity (vs the Quest Book)', () => {
   });
 
   it('has a mummy guardian that rolls 4 Attack dice (note C)', () => {
-    const guardian = QUEST1.monsters.find(m => m.displayName === 'Guardian of Fellmarg’s Tomb');
+    const guardian = QUEST1.monsters.find(m => m.kind === 'mummy' && !!m.displayName);
     expect(guardian).toBeDefined();
-    expect(guardian!.kind).toBe('mummy');
     expect(guardian!.attack).toBe(4);
   });
 
