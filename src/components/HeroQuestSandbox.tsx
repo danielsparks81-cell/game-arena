@@ -195,7 +195,7 @@ function normalizeToBoard(s: SaveState): SaveState {
  *  user's Quest Book read; exact cells are a first pass to nudge). */
 function quest1State(): SaveState {
   const grid = buildQuest1Grid();
-  const furniture: Furn[] = QUEST1_FURNITURE.map(f => ({ kind: f.kind as FurnKind, x: f.x, y: f.y, gold: f.gold }));
+  const furniture: Furn[] = QUEST1_FURNITURE.map(f => ({ kind: f.kind as FurnKind, x: f.x, y: f.y, rot: f.rot ?? 0, gold: f.gold }));
   const monsters: Mon[] = QUEST1_MONSTERS.map(m => ({ kind: m.kind as MonKind, x: m.x, y: m.y, named: !!m.name, name: m.name }));
   const starts: Pt[] = QUEST1_STAIRS.map(s => ({ x: s.x, y: s.y }));
   const doors: Door[] = QUEST1_DOORS.map(d => ({ x: d.x, y: d.y, v: d.v, secret: d.secret }));

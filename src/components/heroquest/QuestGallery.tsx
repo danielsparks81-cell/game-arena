@@ -1,8 +1,8 @@
 'use client';
 
-// HeroQuest quest review — renders Quest 1 "The Trial" on the locked 30×23 board
-// (rooms + monsters + furniture + stairs + doors + this quest's rock), read-only,
-// so the layout can be checked against the Quest Book. Source: quests/quest1.ts.
+// HeroQuest quest review — renders the finalized Quest 1 "The Trial" layout on
+// the locked 30×23 board (rooms + monsters + furniture + stairs + doors + rock),
+// read-only, so it can be checked against the Quest Book. Source: quests/quest1.ts.
 
 import {
   buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS,
@@ -26,38 +26,69 @@ const MON: Record<string, { c: string; t: string; label: string }> = {
   dread_sorcerer: { c: '#9ca3af', t: '#111827', label: 'S' },
   gargoyle:       { c: '#9ca3af', t: '#111827', label: 'G' },
 };
-const FURN_GLYPH: Record<string, string> = { tomb: '⚰', chest: '▣', weapon_rack: '⚔', rack: '☰', table: '▬' };
-// Footprints mirror the editor (w×h cells, los=blocks line of sight). Anything
-// not listed falls back to a 1×1 non-blocker.
-const FURN_SIZE: Record<string, { w: number; h: number; los: boolean }> = {
-  table: { w: 2, h: 3, los: false }, sorcerer_table: { w: 2, h: 3, los: false },
-  alchemist_bench: { w: 2, h: 3, los: false }, tomb: { w: 2, h: 3, los: false }, rack: { w: 2, h: 3, los: false },
-  chest: { w: 1, h: 1, los: false }, throne: { w: 1, h: 1, los: false }, altar: { w: 1, h: 1, los: false }, bench: { w: 1, h: 1, los: false },
-  bookshelf: { w: 1, h: 3, los: true }, fireplace: { w: 1, h: 3, los: true }, cupboard: { w: 1, h: 3, los: true }, weapon_rack: { w: 1, h: 3, los: true },
+const FURN_GLYPH: Record<string, string> = {
+  tomb: '⚰', chest: '▣', weapon_rack: '⚔', rack: '☰', table: '▬', throne: '♟',
+  fireplace: '🔥', bookshelf: '▤', cupboard: '▥', sorcerer_table: '✶', alchemist_bench: '⚗',
 };
-const furnSize = (k: string) => FURN_SIZE[k] ?? { w: 1, h: 1, los: false };
 
 const isRoom = (c?: string) => !!c && /[a-z]/.test(c);
 const isFloor = (c?: string) => !!c && (c === '.' || c === 'S' || isRoom(c));
-const regionKey = (c?: string) => (isRoom(c) ? c! : c === '.' || c === 'S' ? '.' : 'x');
-// A door carved into the wall between two cells opens it. A door is the top edge
-// of (x,y) when v=false, or the left edge of (x,y) when v=true — so the wall
-// below (x,y-1) and the wall right of (x-1,y) are the same edges.
+
+// Flood-fill connected blocks of the same room letter into regions (room_1…),
+// so two rooms that reuse a letter are still distinct. Mirrors the editor.
+function floodRegions(grid: string[][]) {
+  const h = grid.length, w = grid[0]?.length ?? 0;
+  const region: string[][] = grid.map(r => r.map(() => ''));
+  const order: string[] = [];
+  let rn = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const letter = grid[y][x];
+      if (!isRoom(letter) || region[y][x]) continue;
+      const id = `room_${++rn}`;
+      order.push(id);
+      const stack: [number, number][] = [[x, y]];
+      region[y][x] = id;
+      while (stack.length) {
+        const [cx, cy] = stack.pop()!;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = cx + dx, ny = cy + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          if (!region[ny][nx] && grid[ny][nx] === letter) { region[ny][nx] = id; stack.push([nx, ny]); }
+        }
+      }
+    }
+  }
+  return { region, order };
+}
+const { region: REGION, order: ROOM_ORDER } = floodRegions(GRID);
+
+// Region key per cell: a room's id, or 'stairs' / 'corridor' / 'wall' / '' (rock).
+function regionKeyAt(x: number, y: number) {
+  const c = GRID[y]?.[x];
+  if (isRoom(c)) return REGION[y][x] || 'room';
+  if (c === 'S') return 'stairs';
+  if (c === '.') return 'corridor';
+  if (c === 'W') return 'wall';
+  return '';
+}
+// A door carved into the wall between two cells opens it (top edge of (x,y) when
+// v=false, left edge when v=true).
 function doorOpen(x: number, y: number, nx: number, ny: number) {
-  if (ny === y - 1) return DOOR_SET.has(`${x},${y},h`);       // wall above (x,y)
-  if (ny === y + 1) return DOOR_SET.has(`${nx},${ny},h`);     // wall below = top of (nx,ny)
-  if (nx === x - 1) return DOOR_SET.has(`${x},${y},v`);       // wall left of (x,y)
-  if (nx === x + 1) return DOOR_SET.has(`${nx},${ny},v`);     // wall right = left of (nx,ny)
+  if (ny === y - 1) return DOOR_SET.has(`${x},${y},h`);
+  if (ny === y + 1) return DOOR_SET.has(`${nx},${ny},h`);
+  if (nx === x - 1) return DOOR_SET.has(`${x},${y},v`);
+  if (nx === x + 1) return DOOR_SET.has(`${nx},${ny},v`);
   return false;
 }
 function wallBetween(x: number, y: number, nx: number, ny: number) {
-  const a = GRID[y]?.[x], b = GRID[ny]?.[nx];
-  if (!isFloor(a)) return false;
-  if (!isFloor(b)) return true;
+  const a = regionKeyAt(x, y), b = regionKeyAt(nx, ny);
+  if (a === b) return false;
   if (doorOpen(x, y, nx, ny)) return false;
-  const ra = regionKey(a), rb = regionKey(b);
-  if (ra === '.' && rb === '.') return false;
-  return ra !== rb;
+  // Stairs read as part of their room: open to a room, walled against the rest.
+  const aS = a === 'stairs', bS = b === 'stairs';
+  if (aS || bS) return !((aS && b.startsWith('room')) || (bS && a.startsWith('room')));
+  return a.startsWith('room') || b.startsWith('room');
 }
 
 function StairFan({ cells }: { cells: { x: number; y: number }[] }) {
@@ -82,7 +113,7 @@ function Board() {
   return (
     <svg viewBox={`-2 -2 ${W + 4} ${H + 4}`} className="w-full h-auto rounded-lg border border-stone-700 bg-black">
       {GRID.map((row, y) => row.map((c, x) => {
-        const fill = c === '#' || c === 'W' ? '#161311' : isRoom(c) ? '#e7e2d6' : c === 'S' ? '#e7e2d6' : '#cfc9ba';
+        const fill = c === '#' ? '#161311' : c === 'W' ? '#46413a' : isRoom(c) || c === 'S' ? '#e7e2d6' : '#cfc9ba';
         return <rect key={`${x},${y}`} x={x * CELL} y={y * CELL} width={CELL} height={CELL} fill={fill} stroke="rgba(40,30,20,0.12)" strokeWidth="0.5" />;
       }))}
       {/* solid walls */}
@@ -106,11 +137,11 @@ function Board() {
       })}
       <StairFan cells={QUEST1_STAIRS} />
       {QUEST1_FURNITURE.map((f, i) => {
-        const sz = furnSize(f.kind), w = sz.w * CELL, h = sz.h * CELL;
+        const w = f.w * CELL, h = f.h * CELL;
         return (
           <g key={`f${i}`} transform={`translate(${f.x * CELL},${f.y * CELL})`}>
             <rect x="1.5" y="1.5" width={w - 3} height={h - 3} rx="2" fill="#6b4423"
-              stroke="#3f2a14" strokeWidth={sz.los ? 2 : 1} strokeDasharray={sz.los ? undefined : '3 2'} />
+              stroke="#3f2a14" strokeWidth={f.los ? 2 : 1} strokeDasharray={f.los ? undefined : '3 2'} />
             <text x={w / 2} y={h / 2 + 4} textAnchor="middle" fontSize="12" fill="#fde68a">{FURN_GLYPH[f.kind] ?? '▦'}</text>
             {f.gold != null && <text x={w / 2} y={h - 4} textAnchor="middle" fontSize="7" fontWeight="800" fill="#fde68a">{f.gold}</text>}
           </g>
@@ -129,12 +160,25 @@ function Board() {
   );
 }
 
-const ROOMS: [string, string][] = [
-  ['9', 'staircase + 4 hero starts'], ['A', '2 skeletons'], ['B', 'Guardian mummy + 2 zombies'],
-  ['C', "Fellmarg's tomb + 84-gold chest + mummy + 2 skeletons"], ['3', 'goblin + orc'], ['4', '2 goblins'],
-  ['5', 'Verag + 2 orcs + dread warrior + 120-gold chest'], ['6', 'goblin + orc'], ['10', '2 orcs'],
-  ['G', 'weapon rack + goblin + abomination'], ['H', '2 dread warriors + empty chest'],
-];
+// ---- Derived "room contents" (so the table never goes stale) ----
+const nice = (k: string) => k.replace(/_/g, ' ');
+function summarize(kinds: string[]): string {
+  const counts = new Map<string, number>();
+  for (const k of kinds) counts.set(k, (counts.get(k) ?? 0) + 1);
+  return [...counts].map(([k, n]) => (n > 1 ? `${n}× ${nice(k)}` : nice(k))).join(', ');
+}
+function furnRegion(f: { x: number; y: number; w: number; h: number }) {
+  for (let dy = 0; dy < f.h; dy++) for (let dx = 0; dx < f.w; dx++) {
+    const r = REGION[f.y + dy]?.[f.x + dx];
+    if (r) return r;
+  }
+  return '';
+}
+const ROOM_ROWS = ROOM_ORDER.map((rid, i) => {
+  const mons = QUEST1_MONSTERS.filter(m => REGION[m.y]?.[m.x] === rid).map(m => m.kind);
+  const furns = QUEST1_FURNITURE.filter(f => furnRegion(f) === rid).map(f => f.kind);
+  return { label: `Room ${i + 1}`, mons, furns };
+}).filter(r => r.mons.length || r.furns.length);
 
 export default function QuestGallery() {
   return (
@@ -142,8 +186,8 @@ export default function QuestGallery() {
       <div>
         <h2 className="text-xl font-bold text-amber-200">Quest 1 — The Trial</h2>
         <p className="text-sm text-stone-400">
-          On the locked 30×23 board. The shaded right side is <strong className="text-stone-200">rock</strong> (unused this
-          quest); doors are auto-placed and can be nudged in Map Authoring.
+          The finalized layout on the locked 30×23 board. Unused areas are{' '}
+          <strong className="text-stone-200">rock</strong>; doors sit on the walls. Tweak it in Map Authoring → ★ Load Quest 1.
         </p>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4">
@@ -153,24 +197,33 @@ export default function QuestGallery() {
             <span><span className="inline-block w-3 h-3 align-middle bg-[#e7e2d6] border border-stone-500" /> room</span>
             <span><span className="inline-block w-3 h-3 align-middle bg-[#cfc9ba] border border-stone-500" /> hall</span>
             <span><span className="inline-block w-3 h-3 align-middle bg-[#161311] border border-stone-500" /> rock</span>
+            <span><span className="inline-block w-3 h-3 align-middle bg-[#46413a] border border-stone-500" /> wall</span>
             <span><span className="inline-block w-3 h-1.5 align-middle bg-[#d97706]" /> door (on wall)</span>
-            <span>solid furniture = blocks line of sight · gold ring = named (Verag / Guardian)</span>
+            <span>solid furniture outline = blocks line of sight</span>
           </div>
         </div>
         <div className="text-sm">
           <h3 className="font-semibold text-amber-300 mb-1">Room contents</h3>
           <table className="w-full text-stone-300">
             <tbody>
-              {ROOMS.map(([r, t]) => (
-                <tr key={r} className="border-b border-stone-800">
-                  <td className="py-1 pr-2 font-bold text-amber-200 align-top">{r}</td>
-                  <td className="py-1">{t}</td>
+              <tr className="border-b border-stone-800">
+                <td className="py-1 pr-2 font-bold text-amber-200 align-top whitespace-nowrap">Stairs</td>
+                <td className="py-1">4 hero start squares</td>
+              </tr>
+              {ROOM_ROWS.map(r => (
+                <tr key={r.label} className="border-b border-stone-800">
+                  <td className="py-1 pr-2 font-bold text-amber-200 align-top whitespace-nowrap">{r.label}</td>
+                  <td className="py-1">
+                    {[r.mons.length ? summarize(r.mons) : '', r.furns.length ? summarize(r.furns) : '']
+                      .filter(Boolean).join(' · ') || '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="mt-3 text-xs text-stone-500">
-            To tweak exact squares or doors: Map Authoring tab → ★ Load Quest 1, then nudge with the brushes.
+            Rooms are numbered in reading order (top-left → bottom-right). {QUEST1_MONSTERS.length} monsters,
+            {' '}{QUEST1_FURNITURE.length} furniture pieces placed.
           </p>
         </div>
       </div>
