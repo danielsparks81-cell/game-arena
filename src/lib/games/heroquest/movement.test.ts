@@ -457,7 +457,7 @@ describe('heroquest Quest 1 content fidelity (vs the Quest Book)', () => {
     expect(gold).toEqual([84, 120]);
     const empties = QUEST1.furniture.filter(f => f.fixedContent?.kind === 'nothing');
     expect(empties.some(f => f.kind === 'chest')).toBe(true);   // empty chest (B)
-    expect(empties.some(f => f.kind === 'rack')).toBe(true);    // useless weapons rack (A)
+    expect(empties.some(f => f.kind === 'weapon_rack')).toBe(true);    // useless weapons rack (A)
   });
 
   it('has no traps or secret doors (Zargon says so)', () => {

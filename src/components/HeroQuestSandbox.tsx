@@ -43,7 +43,7 @@ type Trap = { kind: TrapKind; x: number; y: number };
 type Door = { x: number; y: number; v: boolean; secret?: boolean };
 
 type Tool =
-  | { t: 'rock' } | { t: 'wall' } | { t: 'hall' } | { t: 'stairs' } | { t: 'door' } | { t: 'secret' } | { t: 'erase' }
+  | { t: 'rock' } | { t: 'wall' } | { t: 'hall' } | { t: 'stairs' } | { t: 'door' } | { t: 'secret' } | { t: 'erase' } | { t: 'default' }
   | { t: 'room'; letter: string }
   | { t: 'furniture'; kind: FurnKind }
   | { t: 'monster'; kind: MonKind; named: boolean }
@@ -73,7 +73,7 @@ function footprint(kind: FurnKind, rot = 0) {
 }
 
 const ROOM_LETTERS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p'];
-const FURN_KINDS: FurnKind[] = ['table', 'chest', 'bookshelf', 'sorcerer_table', 'alchemist_bench', 'throne', 'fireplace', 'cupboard', 'tomb', 'rack', 'weapon_rack', 'altar', 'bench'];
+const FURN_KINDS: FurnKind[] = ['table', 'chest', 'bookshelf', 'sorcerer_table', 'alchemist_bench', 'throne', 'fireplace', 'cupboard', 'tomb', 'rack', 'weapon_rack'];
 const MON_KINDS: MonKind[] = ['goblin', 'orc', 'abomination', 'skeleton', 'zombie', 'mummy', 'dread_warrior', 'gargoyle', 'dread_sorcerer'];
 const TRAP_KINDS: TrapKind[] = ['pit', 'spear', 'falling_block'];
 
@@ -124,6 +124,10 @@ function makeGrid(w: number, h: number, fill: Glyph = '#'): Glyph[][] {
 function makeTemplateGrid(): Glyph[][] {
   return TEMPLATE_BOARD.map(row => row.split(''));
 }
+
+/** The canonical Quest 1 terrain — the per-square "Default tile" tool restores
+ *  a cell to its value here (fixing an accidental erase/paint). */
+const QUEST1_DEFAULT_GRID: Glyph[][] = buildQuest1Grid();
 
 /** Flood-fill connected blocks of the SAME room letter into distinct regions
  *  (room_1, room_2, …) in scan order — mirrors the engine's board parser and the
@@ -350,6 +354,17 @@ export default function HeroQuestSandbox() {
     if (traps.some(t => t.x === x && t.y === y)) { setTraps(traps.filter(t => !(t.x === x && t.y === y))); return; }
   }, [furniture, monsters, traps]);
 
+  /** "Default tile" tool: restore one square to the canonical Quest 1 terrain and
+   *  clear anything sitting on it (furniture/monster/trap, and a door on its top
+   *  or left edge). Fixes an accidental erase/paint without resetting the map. */
+  const resetCellToDefault = useCallback((x: number, y: number) => {
+    setCellGlyph(x, y, QUEST1_DEFAULT_GRID[y]?.[x] ?? '#');
+    setFurniture(prev => prev.filter(f => { const fp = footprint(f.kind, f.rot); return !(x >= f.x && x < f.x + fp.w && y >= f.y && y < f.y + fp.h); }));
+    setMonsters(prev => prev.filter(m => !(m.x === x && m.y === y)));
+    setTraps(prev => prev.filter(t => !(t.x === x && t.y === y)));
+    setDoors(prev => prev.filter(d => !(d.x === x && d.y === y)));
+  }, [setCellGlyph]);
+
   // Fast lookup of which edges have a door (used to leave wall edges open).
   const doorSet = useMemo(() => new Set(doors.map(d => `${d.x},${d.y},${d.v ? 'v' : 'h'}`)), [doors]);
 
@@ -377,6 +392,7 @@ export default function HeroQuestSandbox() {
       case 'hall':   setCellGlyph(x, y, '.'); break;
       case 'room':   setCellGlyph(x, y, tool.letter); break;
       case 'erase':  setCellGlyph(x, y, '#'); break;
+      case 'default': resetCellToDefault(x, y); break;
       case 'stairs': {
         // The staircase is one 2×2 space; stamp 'S' on it and make those the starts.
         const cells = [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]].filter(([cx, cy]) => cx < w && cy < h);
@@ -401,7 +417,7 @@ export default function HeroQuestSandbox() {
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tool, monsters, traps, monName, chestGold, furnRot, setCellGlyph, placeFurniture, occupied, grid, flash, w, h]);
+  }, [tool, monsters, traps, monName, chestGold, furnRot, setCellGlyph, placeFurniture, resetCellToDefault, occupied, grid, flash, w, h]);
 
   // Per-cell room regions (room_1…) + a unique floor look for each, so the
   // authoring board renders with the SAME tiles as the in-game board.
@@ -569,11 +585,6 @@ ${startLine}`;
         <h1 className="text-base font-semibold">HeroQuest — Map Sandbox</h1>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => { if (confirm('Return the board to the default Quest 1 layout? This replaces what is currently on the board (you can Undo it).')) { snapshot(); const s = quest1State(); setW(s.w); setH(s.h); setGrid(s.grid); setFurniture(s.furniture); setMonsters(s.monsters); setStarts(s.starts); setTraps(s.traps ?? []); setDoors(s.doors ?? []); } }}
-            title="Reload the default Quest 1 board"
-            className="rounded px-2.5 py-1 text-sm font-medium bg-amber-700/80 text-amber-50 transition hover:bg-amber-600"
-          >↩ Return to default</button>
-          <button
             onClick={undo}
             disabled={!canUndo}
             title="Undo last change (Ctrl/Cmd+Z)"
@@ -595,7 +606,9 @@ ${startLine}`;
                 <ToolBtn active={tool.t === 'secret'} onClick={() => setTool({ t: 'secret' })}>Secret door</ToolBtn>
                 <ToolBtn active={tool.t === 'stairs'} onClick={() => setTool({ t: 'stairs' })}>Stairs 2×2</ToolBtn>
                 <ToolBtn active={tool.t === 'erase'} onClick={() => setTool({ t: 'erase' })}>Erase → rock</ToolBtn>
+                <ToolBtn active={tool.t === 'default'} onClick={() => setTool({ t: 'default' })}>↩ Default tile</ToolBtn>
               </div>
+              {tool.t === 'default' && <div className="mt-1 text-[10px] text-neutral-500">Click a square to restore its default terrain and clear what&apos;s on it.</div>}
             </Section>
 
             <Section title="Room floor">
@@ -617,7 +630,7 @@ ${startLine}`;
                   <input type="number" min={0} value={chestGold} onChange={e => setChestGold(Math.max(0, +e.target.value || 0))} className="w-14 rounded bg-neutral-800 px-1 py-0.5" /></label>
                 <button onClick={() => setFurnRot(r => (r + 1) % 4)} className="rounded bg-neutral-700 px-2 py-1 font-medium hover:bg-neutral-600">⟳ Rotate {furnRot * 90}°</button>
               </div>
-              <div className="grid grid-cols-2 gap-1">
+              <div className="grid grid-cols-1 gap-1">
                 {FURN_KINDS.map(k => {
                   const s = FURN_SIZE[k];
                   const active = tool.t === 'furniture' && tool.kind === k;
@@ -625,10 +638,10 @@ ${startLine}`;
                     <button key={k} draggable
                       onDragStart={() => setDragKind(k)}
                       onClick={() => setTool({ t: 'furniture', kind: k })}
-                      className={`flex items-center gap-1 rounded px-2 py-1.5 text-left text-xs transition cursor-grab active:cursor-grabbing ${active ? 'bg-emerald-500 text-neutral-950' : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700'}`}>
-                      <span>{FURN_ICON[k]}</span>
-                      <span className="flex-1 truncate">{k.replace('_', ' ')}</span>
-                      <span className={active ? 'text-neutral-800' : 'text-neutral-400'}>{s.w}×{s.h}{s.los ? '◾' : ''}</span>
+                      className={`flex items-center gap-2 rounded px-2.5 py-2 text-left text-sm transition cursor-grab active:cursor-grabbing ${active ? 'bg-emerald-500 text-neutral-950' : 'bg-neutral-800 text-neutral-200 hover:bg-neutral-700'}`}>
+                      <span className="text-base">{FURN_ICON[k]}</span>
+                      <span className="flex-1 capitalize">{k.replace('_', ' ')}</span>
+                      <span className={`text-xs ${active ? 'text-neutral-800' : 'text-neutral-400'}`}>{s.w}×{s.h}{s.los ? ' ◾' : ''}</span>
                     </button>
                   );
                 })}
@@ -723,7 +736,7 @@ ${startLine}`;
                       if (tool.t === 'door' || tool.t === 'secret') { placeDoor(e, x, y, tool.t === 'secret'); return; }
                       applyTool(x, y);
                     }}
-                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'room' || tool.t === 'erase')) applyTool(x, y); }}
+                    onMouseEnter={() => { if (painting && (tool.t === 'rock' || tool.t === 'wall' || tool.t === 'hall' || tool.t === 'room' || tool.t === 'erase' || tool.t === 'default')) applyTool(x, y); }}
                   >
                     <FloorArt g={g} x={x} y={y} cell={cell} floor={fl} />
                   </div>

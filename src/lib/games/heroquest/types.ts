@@ -48,7 +48,8 @@ export type Door = {
     (bookshelf), some blocks movement entirely (throne). */
 export type Furniture = {
   id: string;
-  kind: 'chest' | 'table' | 'cupboard' | 'rack' | 'bookshelf' | 'throne' | 'tomb' | 'altar' | 'bench' | 'fireplace';
+  kind: 'chest' | 'table' | 'cupboard' | 'rack' | 'bookshelf' | 'throne' | 'tomb' | 'altar'
+    | 'bench' | 'fireplace' | 'weapon_rack' | 'sorcerer_table' | 'alchemist_bench';
   cells: Coord[];
   /** Orientation 0..3 (90° each) — which way a tall piece faces, for art. */
   facing?: number;

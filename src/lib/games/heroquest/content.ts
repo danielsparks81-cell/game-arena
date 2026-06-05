@@ -211,13 +211,6 @@ export function buildTreasureDeck(): TreasureCard[] {
 
 const TRIAL_BOARD = parseAsciiBoard(QUEST1_MAP);
 
-// Authored furniture kinds → the engine's furniture art kinds.
-const FURN_KIND: Record<string, Furniture['kind']> = {
-  chest: 'chest', table: 'table', cupboard: 'cupboard', rack: 'rack', weapon_rack: 'rack',
-  bookshelf: 'bookshelf', throne: 'throne', tomb: 'tomb', altar: 'altar', bench: 'bench',
-  fireplace: 'fireplace', sorcerer_table: 'table', alchemist_bench: 'bench',
-};
-
 function makeQuest1(): QuestDef {
   const board = TRIAL_BOARD;
 
@@ -236,7 +229,7 @@ function makeQuest1(): QuestDef {
     for (let dy = 0; dy < f.h; dy++) for (let dx = 0; dx < f.w; dx++) cells.push({ x: f.x + dx, y: f.y + dy });
     return {
       id: `furn_${i + 1}`,
-      kind: FURN_KIND[f.kind] ?? 'table',
+      kind: f.kind as Furniture['kind'],
       cells,
       facing: f.rot ?? 0,
       blocksMove: true,
