@@ -222,22 +222,43 @@ export default function HeroQuestSandbox() {
     });
   }, []);
 
-  const toggleList = <T extends Pt>(list: T[], setList: (f: (l: T[]) => T[]) => void, item: T, max?: number) => {
-    setList(l => {
-      const idx = l.findIndex(p => p.x === item.x && p.y === item.y);
-      if (idx >= 0) { const c = l.slice(); c.splice(idx, 1); return c; }
-      const c = [...l, item];
-      return max && c.length > max ? c.slice(c.length - max) : c;
-    });
-  };
+  // Cells already covered by a placed item (furniture footprint, monster, or
+  // trap). Items must never overlap — stacking corrupts the exported quest — so
+  // every placement checks here first.
+  const occupied = useMemo(() => {
+    const s = new Set<string>();
+    for (const f of furniture) {
+      const fp = footprint(f.kind, f.rot);
+      for (let dy = 0; dy < fp.h; dy++) for (let dx = 0; dx < fp.w; dx++) s.add(`${f.x + dx},${f.y + dy}`);
+    }
+    for (const m of monsters) s.add(`${m.x},${m.y}`);
+    for (const t of traps) s.add(`${t.x},${t.y}`);
+    return s;
+  }, [furniture, monsters, traps]);
 
-  // Place a furniture footprint anchored at (x,y) (drag-drop or click). Dedups an
-  // identical piece; remove pieces with right-click (removeAt).
+  // Brief on-screen note when a placement is refused (auto-clears after ~2s).
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flash = useCallback((msg: string) => {
+    setNotice(msg);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 2000);
+  }, []);
+
+  // Place a furniture footprint anchored at (x,y) (drag-drop or click). Refuses if
+  // the footprint would run off the board or cover an existing item / the
+  // staircase — overlapping pieces break the map. Remove with right-click.
   const placeFurniture = useCallback((kind: FurnKind, x: number, y: number, rot: number) => {
-    setFurniture(prev => prev.some(p => p.x === x && p.y === y && p.kind === kind)
-      ? prev
-      : [...prev, { kind, x, y, rot, gold: kind === 'chest' && chestGold > 0 ? chestGold : undefined }]);
-  }, [chestGold]);
+    const fp = footprint(kind, rot);
+    for (let dy = 0; dy < fp.h; dy++) {
+      for (let dx = 0; dx < fp.w; dx++) {
+        const cx = x + dx, cy = y + dy;
+        if (cx >= BOARD_W || cy >= BOARD_H) { flash('Doesn’t fit — runs off the board.'); return; }
+        if (occupied.has(`${cx},${cy}`) || grid[cy]?.[cx] === 'S') { flash('Space is taken — items can’t overlap.'); return; }
+      }
+    }
+    setFurniture(prev => [...prev, { kind, x, y, rot, gold: kind === 'chest' && chestGold > 0 ? chestGold : undefined }]);
+  }, [occupied, grid, chestGold, flash]);
 
   /** Right-click delete: removes the top thing at (x,y) — furniture (whole
    *  footprint), then monster, then trap. (Doors are removed by re-clicking the
@@ -279,20 +300,28 @@ export default function HeroQuestSandbox() {
       case 'stairs': {
         // The staircase is one 2×2 space; stamp 'S' on it and make those the starts.
         const cells = [[x, y], [x + 1, y], [x, y + 1], [x + 1, y + 1]].filter(([cx, cy]) => cx < w && cy < h);
+        if (cells.some(([cx, cy]) => occupied.has(`${cx},${cy}`))) { flash('Clear the 2×2 first — something is in the way.'); break; }
         setGrid(prev => { const n = prev.map(r => r.slice()); for (const [cx, cy] of cells) n[cy][cx] = 'S'; return n; });
         setStarts(cells.map(([cx, cy]) => ({ x: cx, y: cy })));
         break;
       }
       case 'furniture': placeFurniture(tool.kind, x, y, furnRot); break;
-      case 'monster':
-        toggleList(monsters, setMonsters, { kind: tool.kind, x, y, named: tool.named, name: tool.named ? (monName.trim() || 'Boss') : undefined });
+      case 'monster': {
+        // Click a monster to remove it; otherwise place, but never onto another item.
+        if (monsters.some(m => m.x === x && m.y === y)) { setMonsters(monsters.filter(m => !(m.x === x && m.y === y))); break; }
+        if (occupied.has(`${x},${y}`) || grid[y]?.[x] === 'S') { flash('Space is taken — items can’t overlap.'); break; }
+        setMonsters([...monsters, { kind: tool.kind, x, y, named: tool.named, name: tool.named ? (monName.trim() || 'Boss') : undefined }]);
         break;
-      case 'trap':
-        toggleList(traps, setTraps, { kind: tool.kind, x, y });
+      }
+      case 'trap': {
+        if (traps.some(t => t.x === x && t.y === y)) { setTraps(traps.filter(t => !(t.x === x && t.y === y))); break; }
+        if (occupied.has(`${x},${y}`) || grid[y]?.[x] === 'S') { flash('Space is taken — items can’t overlap.'); break; }
+        setTraps([...traps, { kind: tool.kind, x, y }]);
         break;
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tool, monsters, traps, monName, chestGold, furnRot, setCellGlyph, placeFurniture, w, h]);
+  }, [tool, monsters, traps, monName, chestGold, furnRot, setCellGlyph, placeFurniture, occupied, grid, flash, w, h]);
 
   const monAt = useMemo(() => {
     const m = new Map<string, Mon>();
@@ -636,6 +665,13 @@ ${startLine}`;
             </div>
           </div>
         </div>
+
+        {/* Placement-refused toast (overlapping items would break the map) */}
+        {notice && (
+          <div className="pointer-events-none fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-md bg-rose-600/95 px-3 py-1.5 text-sm font-medium text-white shadow-lg">
+            {notice}
+          </div>
+        )}
 
         {/* Export output — overlay so it doesn't disturb the fitted layout */}
         {exportText && (
