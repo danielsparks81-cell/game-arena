@@ -60,17 +60,22 @@ function varyFloor(base: RoomFloor, tier: number): RoomFloor {
   return { tl: shiftLightness(base.tl, d), br: shiftLightness(base.br, d), style };
 }
 
+/** The floor look for the i-th room "slot" — the palette in order, wrapping past
+ *  its length with a unique muted variation so slot i is always distinct. */
+export function floorForIndex(i: number): RoomFloor {
+  const N = ROOM_FLOORS.length;
+  const base = ROOM_FLOORS[i % N];
+  const tier = Math.floor(i / N);
+  return tier === 0 ? base : varyFloor(base, tier);
+}
+
 /** Assign each room region its own floor look. `orderedRegions` must be the
  *  region ids (e.g. room_1, room_2, …) in a stable order (by room number); each
- *  gets the next palette entry, wrapping with a unique variation if there are
- *  somehow more rooms than entries. */
+ *  gets the next palette slot. Used by the in-game board, whose regions are
+ *  fixed; the editor uses a stable per-room cache instead (rooms come and go as
+ *  you paint, and re-indexing every room on each stroke would make them flash). */
 export function assignRoomFloors(orderedRegions: string[]): Map<string, RoomFloor> {
-  const N = ROOM_FLOORS.length;
   const map = new Map<string, RoomFloor>();
-  orderedRegions.forEach((r, i) => {
-    const base = ROOM_FLOORS[i % N];
-    const tier = Math.floor(i / N);
-    map.set(r, tier === 0 ? base : varyFloor(base, tier));
-  });
+  orderedRegions.forEach((r, i) => map.set(r, floorForIndex(i)));
   return map;
 }

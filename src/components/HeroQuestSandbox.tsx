@@ -21,7 +21,7 @@ import Link from 'next/link';
 import { TEMPLATE_BOARD } from '@/lib/games/heroquest/quests/templateBoard';
 import { buildQuest1Grid, QUEST1_MONSTERS, QUEST1_FURNITURE, QUEST1_STAIRS, QUEST1_DOORS } from '@/lib/games/heroquest/quests/quest1';
 import { FloorCell, StairsTile, FurnitureToken } from './heroquest/Art';
-import { ROOM_FLOORS, CORRIDOR_FLOOR, assignRoomFloors, type RoomFloor } from './heroquest/floors';
+import { ROOM_FLOORS, CORRIDOR_FLOOR, floorForIndex, type RoomFloor } from './heroquest/floors';
 
 type Glyph = string; // '#', '.', 'S', '+', '*'(secret door), or a room letter 'a'..'p'
 type Pt = { x: number; y: number };
@@ -134,11 +134,13 @@ function makeTemplateGrid(): Glyph[][] {
 
 /** Flood-fill connected blocks of the SAME room letter into distinct regions
  *  (room_1, room_2, …) in scan order — mirrors the engine's board parser and the
- *  export. Returns the per-cell region id grid plus the ordered region ids (used
- *  to give every room its own floor look). */
-function floodRegions(grid: Glyph[][], w: number, h: number): { region: string[][]; order: string[] } {
+ *  export. Returns the per-cell region id grid, the ordered region ids, and each
+ *  region's ANCHOR cell (the top-left-most cell, "x,y") — a stable identity used
+ *  to keep a room's floor colour fixed as you edit elsewhere. */
+function floodRegions(grid: Glyph[][], w: number, h: number): { region: string[][]; order: string[]; anchor: Map<string, string> } {
   const region: string[][] = grid.map(row => row.map(() => ''));
   const order: string[] = [];
+  const anchor = new Map<string, string>();
   let rn = 0;
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -146,6 +148,7 @@ function floodRegions(grid: Glyph[][], w: number, h: number): { region: string[]
       if (!letter || !ROOM_LETTERS.includes(letter) || region[y][x]) continue;
       const id = `room_${++rn}`;
       order.push(id);
+      anchor.set(id, `${x},${y}`);
       const stack: [number, number][] = [[x, y]];
       region[y][x] = id;
       while (stack.length) {
@@ -158,7 +161,7 @@ function floodRegions(grid: Glyph[][], w: number, h: number): { region: string[]
       }
     }
   }
-  return { region, order };
+  return { region, order, anchor };
 }
 
 type SaveState = {
@@ -365,8 +368,39 @@ export default function HeroQuestSandbox() {
 
   // Per-cell room regions (room_1…) + a unique floor look for each, so the
   // authoring board renders with the SAME tiles as the in-game board.
-  const { region: regionGrid, order: regionOrder } = useMemo(() => floodRegions(grid, w, h), [grid, w, h]);
-  const roomFloor = useMemo(() => assignRoomFloors(regionOrder), [regionOrder]);
+  const { region: regionGrid, order: regionOrder, anchor: regionAnchor } =
+    useMemo(() => floodRegions(grid, w, h), [grid, w, h]);
+
+  // Stable room → floor assignment. A room is identified by its anchor cell, and
+  // a cache keeps that room's palette slot fixed across edits — so painting rock
+  // over the unused area (or anywhere) never recolours the other rooms. Only a
+  // genuinely NEW room draws a fresh, still-unique slot.
+  const floorCacheRef = useRef<Map<string, number>>(new Map());
+  const roomFloor = useMemo(() => {
+    const cache = floorCacheRef.current;
+    const used = new Set<number>();
+    const idx = new Map<string, number>();      // regionId -> palette slot
+    const fresh: string[] = [];
+    for (const rid of regionOrder) {
+      const slot = cache.get(regionAnchor.get(rid)!);
+      if (slot !== undefined && !used.has(slot)) { idx.set(rid, slot); used.add(slot); }
+      else fresh.push(rid);
+    }
+    let probe = 0;
+    for (const rid of fresh) {
+      while (used.has(probe)) probe++;
+      idx.set(rid, probe); used.add(probe);
+    }
+    const next = new Map<string, number>();
+    const out = new Map<string, RoomFloor>();
+    for (const rid of regionOrder) {
+      const slot = idx.get(rid)!;
+      next.set(regionAnchor.get(rid)!, slot);
+      out.set(rid, floorForIndex(slot));
+    }
+    floorCacheRef.current = next;   // prune stale anchors, keep current ones
+    return out;
+  }, [regionOrder, regionAnchor]);
 
   // ---- Validation hints ----
   const warnings = useMemo(() => {
