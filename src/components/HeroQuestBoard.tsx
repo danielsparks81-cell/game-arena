@@ -384,6 +384,19 @@ function ActionPanel({
   onJumpTrap: (trapId: string) => void;
 }) {
   const [spellMenu, setSpellMenu] = useState(false);
+  // Optimistic "I've spent my action" flag. The game is server-authoritative,
+  // so hero.hasActed only flips after the move round-trips through Supabase —
+  // leaving a window where a player could fire a second action (e.g. click all
+  // three searches) before the real state arrives. We grey the action buttons
+  // immediately on click, and let the authoritative `acted` take over once it
+  // lands. Reset whenever the turn or the confirmed acted-state changes.
+  const [optimisticActed, setOptimisticActed] = useState(false);
+  const acted = (myHero?.hasActed ?? false) || optimisticActed;
+  useEffect(() => {
+    // When the server confirms the action (hasActed=true) or a new turn begins
+    // (hasActed=false) or the turn passes to someone else, drop the optimism.
+    setOptimisticActed(false);
+  }, [myHero?.hasActed, isMyTurn]);
 
   // For spectators / between-turns, render a quieter status line.
   if (!myHero) {
@@ -395,7 +408,8 @@ function ActionPanel({
   }
 
   const canAct = isMyTurn && !disabled && myHero.body > 0;
-  const acted = myHero.hasActed;
+  // Wrap an action-committing click so the whole action bar greys out at once.
+  const act = (fn: () => void) => { setOptimisticActed(true); fn(); };
   const moveText = myHero.hasRolled ? `Move ${myHero.moveLeft}/${myHero.moveRolled}` : 'Roll movement';
   const spells = myHero.spells ?? [];
 
@@ -404,15 +418,15 @@ function ActionPanel({
       <div className="grid grid-cols-2 gap-1.5">
         <ActionButton label={moveText} icon="🎲" onClick={onRollMove} disabled={!canAct || myHero.hasRolled || myHero.inPit} flavor="amber"
           tip="Roll 3d4 for movement, then drag your hero square by square (no diagonals). You don't have to use it all." />
-        <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && onAttack(adjacentMonsterId)} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose"
+        <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && act(() => onAttack(adjacentMonsterId))} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose"
           tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
-        <ActionButton label="Search treasure" icon="💰" onClick={onSearchTreasure} disabled={!canAct || acted} flavor="emerald"
+        <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)} disabled={!canAct || acted} flavor="emerald"
           tip="Search the room you're in for treasure — only if no monsters are in it, and once per hero per room." />
-        <ActionButton label="Search traps" icon="🪤" onClick={onSearchTraps} disabled={!canAct || acted} flavor="orange"
+        <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)} disabled={!canAct || acted} flavor="orange"
           tip="Reveal any hidden traps in your room or corridor (only if no monsters are visible). Search before you loot a chest!" />
-        <ActionButton label="Secret doors" icon="🚪" onClick={onSearchSecrets} disabled={!canAct || acted} flavor="indigo"
+        <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)} disabled={!canAct || acted} flavor="indigo"
           tip="Search your room or corridor for hidden doors (only if no monsters are visible)." />
-        <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && onDisarmTrap(disarmableTrapId)} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
+        <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && act(() => onDisarmTrap(disarmableTrapId))} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
           tip="Disarm an adjacent discovered trap. The Dwarf is best at it; everyone else needs a Tool Kit." />
         {/* Jumping is part of movement, not an action — never gated by `acted`. */}
         <ActionButton label="Jump trap" icon="🤸" onClick={() => jumpableTrapId && onJumpTrap(jumpableTrapId)} disabled={!canAct || !jumpableTrapId} flavor="amber"
@@ -426,7 +440,14 @@ function ActionPanel({
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => { onCastSpellClick(s.id); setSpellMenu(false); }}
+                  onClick={() => {
+                    // Area spells resolve at once → grey the bar immediately.
+                    // Targeted spells enter board-targeting first, so we let the
+                    // server confirm the spent action when the target is picked.
+                    if (s.target === 'area') setOptimisticActed(true);
+                    onCastSpellClick(s.id);
+                    setSpellMenu(false);
+                  }}
                   className="block w-full rounded px-2 py-1 text-left text-xs text-amber-100 transition hover:bg-amber-800/40"
                 >
                   <span className="font-semibold">{s.name}</span>
