@@ -1663,14 +1663,16 @@ function revealLineOfSightForHero(s: HQState, h: Hero): void {
   spawnRevealedRooms(s);
 }
 
-/** Reveal the corridor/stairs cells a figure standing at `origin` can see by
- *  looking down the passages: straight rays in the 4 cardinal directions, each
- *  branching one level into perpendicular side passages it passes. Stops at
- *  rock, room boundaries, and closed/secret doors; a 'blocked' (W) cell is shown
- *  but not seen past. */
+/** Reveal the corridor/stairs cells a figure standing at `origin` can SEE in a
+ *  straight line: cast a ray in each of the 4 cardinal directions and reveal
+ *  cells until the view is blocked. Heroes do NOT see around corners — only down
+ *  the passages directly in front of them — so a hero standing AT a junction
+ *  still lights both arms (each is its own straight ray), but a hero one square
+ *  away from a side passage does not. Stops at rock, room boundaries, and
+ *  closed/secret doors; a 'blocked' (W) cell is shown but not seen past. */
 function revealCorridorSection(s: HQState, origin: Coord): void {
-  const castRay = (fromX: number, fromY: number, dx: number, dy: number, branch: boolean): void => {
-    let cx = fromX, cy = fromY;
+  const castRay = (dx: number, dy: number): void => {
+    let cx = origin.x, cy = origin.y;
     for (;;) {
       const nx = cx + dx, ny = cy + dy;
       if (!inBounds(s, { x: nx, y: ny })) return;
@@ -1681,17 +1683,10 @@ function revealCorridorSection(s: HQState, origin: Coord): void {
       if (t.region.startsWith('room_')) return;      // never reveal a room by looking
       t.revealed = true;                             // corridor / stairs / blocked cell
       if (t.kind === 'blocked') return;              // a wall section: shown, but opaque
-      if (branch) {
-        // Glance down the side passages branching off this corridor cell.
-        if (dx !== 0) { castRay(nx, ny, 0, 1, false); castRay(nx, ny, 0, -1, false); }
-        else          { castRay(nx, ny, 1, 0, false); castRay(nx, ny, -1, 0, false); }
-      }
       cx = nx; cy = ny;
     }
   };
-  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-    castRay(origin.x, origin.y, dx, dy, true);
-  }
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) castRay(dx, dy);
 }
 
 /** Instantiate the monsters of every room that has become visible. Idempotent
