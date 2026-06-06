@@ -285,7 +285,7 @@ function PlayingView({
 
         {/* Chronicle takes the remaining height and scrolls internally so the
             buttons + hero panels + dice stay fixed and the page never scrolls. */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1">
           <LogView state={state} />
         </div>
       </div>
@@ -492,16 +492,26 @@ function ActionButton({ label, icon, onClick, disabled, flavor, tip }: {
 // ============================================================================
 
 function LogView({ state }: { state: HQState }) {
-  const recent = state.log.slice(-12);
+  // The chronicle keeps the FULL history of the quest — every roll, move,
+  // attack, search, spell, reveal and Zargon action — not just the tail. The
+  // list scrolls inside its panel and auto-pins to the newest entry.
+  const endRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' });
+  }, [state.log.length]);
   return (
-    <div className="rounded-lg border border-amber-900/40 bg-black/70 p-2">
-      <div className="mb-1 px-1 text-[10px] uppercase tracking-widest text-amber-200/60" style={{ fontFamily: 'serif' }}>
-        Chronicle
+    <div className="flex h-full min-h-0 flex-col rounded-lg border border-amber-900/40 bg-black/70 p-2">
+      <div className="mb-1 flex items-baseline justify-between px-1">
+        <span className="text-[10px] uppercase tracking-widest text-amber-200/60" style={{ fontFamily: 'serif' }}>
+          Chronicle
+        </span>
+        <span className="text-[9px] text-amber-200/30">{state.log.length} entries</span>
       </div>
-      <ul className="max-h-32 space-y-0.5 overflow-auto px-1 text-xs">
-        {recent.map(e => (
+      <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-1 text-xs">
+        {state.log.map(e => (
           <li
             key={e.seq}
+            className={e.tag === 'note' ? 'italic' : undefined}
             style={{
               color:
                 e.tag === 'combat' ? '#fda4af' :
@@ -510,6 +520,9 @@ function LogView({ state }: { state: HQState }) {
                 e.tag === 'spell' ? '#c4b5fd' :
                 e.tag === 'reveal' ? '#fbbf24' :
                 e.tag === 'zargon' ? '#fb7185' :
+                e.tag === 'spawn' ? '#f0abfc' :
+                e.tag === 'trap' ? '#fdba74' :
+                e.tag === 'note' ? '#fcd34d' :
                 e.tag === 'move' ? '#cbd5e1' :
                 '#e5e5e5',
             }}
@@ -517,6 +530,7 @@ function LogView({ state }: { state: HQState }) {
             {e.text}
           </li>
         ))}
+        <li ref={endRef} aria-hidden className="h-0" />
       </ul>
     </div>
   );

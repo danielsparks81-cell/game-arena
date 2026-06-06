@@ -559,7 +559,9 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
 
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
+  const before = h.moveLeft;
   walkPath(s, h, path);
+  logMovement(s, h, before);
   if (s.tiles[h.at.y][h.at.x].kind === 'stairs') maybeFinishOnExit(s);
   return ok(s);
 }
@@ -573,9 +575,24 @@ function doMovePath(state: HQState, hero: Hero, path: Coord[]): ApplyResult {
   if (!Array.isArray(path) || path.length === 0) return err('No path to walk.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
+  const before = h.moveLeft;
   walkPath(s, h, path); // walkPath snaps off a shared final square itself
+  logMovement(s, h, before);
   if (s.tiles[h.at.y][h.at.x].kind === 'stairs') maybeFinishOnExit(s);
   return ok(s);
+}
+
+/** Record a completed move in the chronicle: how far the hero actually walked
+ *  (walkPath may stop short on a trap or a fresh reveal) and where they ended
+ *  up. Keeps the log a faithful record of every move, not just the dice roll. */
+function logMovement(s: HQState, h: Hero, moveLeftBefore: number): void {
+  const used = moveLeftBefore - h.moveLeft;
+  if (used <= 0) return;
+  const region = s.tiles[h.at.y]?.[h.at.x]?.region ?? '';
+  const where = s.tiles[h.at.y]?.[h.at.x]?.kind === 'stairs' ? ' onto the stairway'
+    : region.startsWith('room_') ? ' into the chamber'
+    : ' along the passage';
+  pushLog(s, 'move', `${h.username} moves ${used} square${used > 1 ? 's' : ''}${where}.`);
 }
 
 /** Shortest orthogonal path (list of squares to ENTER, ending at dest) from the
