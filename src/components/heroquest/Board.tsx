@@ -159,7 +159,9 @@ export default function HeroQuestBoardCanvas({
   }, [state.furniture]);
 
   // Rendered (walking) positions — tokens step square-by-square along their path.
-  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: h.playerId, x: h.at.x, y: h.at.y })), state.tiles);
+  // Key by seat, NOT playerId: in solo / 2-player games one player owns several
+  // heroes, so playerIds repeat. Seat (0..3) is always unique per hero.
+  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: String(h.seat), x: h.at.x, y: h.at.y })), state.tiles);
   const monPos = useSteppedPositions(state.monsters.map(m => ({ id: m.id, x: m.at.x, y: m.at.y })), state.tiles);
 
   // ---- Spell animation: when a new cast lands (lastSpellFx.seq changes), fire a
@@ -660,11 +662,11 @@ export default function HeroQuestBoardCanvas({
           const isActive = activeHero?.playerId === h.playerId;
           return (
             <div
-              key={h.playerId}
+              key={h.seat}
               className="pointer-events-none absolute"
               style={{
-                left: (heroPos[h.playerId]?.x ?? h.at.x) * TILE_PX,
-                top:  (heroPos[h.playerId]?.y ?? h.at.y) * TILE_PX,
+                left: (heroPos[String(h.seat)]?.x ?? h.at.x) * TILE_PX,
+                top:  (heroPos[String(h.seat)]?.y ?? h.at.y) * TILE_PX,
                 width: TILE_PX,
                 height: TILE_PX,
                 zIndex: 6,
@@ -704,8 +706,8 @@ export default function HeroQuestBoardCanvas({
             key={`torch-${h.seat}`}
             className="pointer-events-none absolute"
             style={{
-              left: (heroPos[h.playerId]?.x ?? h.at.x) * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
-              top:  (heroPos[h.playerId]?.y ?? h.at.y) * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
+              left: (heroPos[String(h.seat)]?.x ?? h.at.x) * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
+              top:  (heroPos[String(h.seat)]?.y ?? h.at.y) * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
               width: TILE_PX * 10,
               height: TILE_PX * 10,
               borderRadius: '50%',
