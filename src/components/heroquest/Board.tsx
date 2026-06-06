@@ -30,7 +30,12 @@ export const TILE_PX = 36;
 // unit's logical target each render, we BFS a path through walkable tiles and
 // advance the rendered position one cell at a time. ─────────────────────────
 type RPos = { x: number; y: number };
-function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos): RPos[] {
+/** Predicate: is movement between two ORTHOGONALLY-adjacent cells blocked by a
+ *  wall edge or a closed door? Walls/doors live on the lines between cells, so a
+ *  tile-only BFS would happily walk through them — the animation must respect the
+ *  same edges the engine does, or figures appear to clip through walls. */
+type EdgeBlocked = (ax: number, ay: number, bx: number, by: number) => boolean;
+function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos, edgeBlocked: EdgeBlocked): RPos[] {
   if (from.x === to.x && from.y === to.y) return [];
   const H = tiles.length, W = tiles[0]?.length ?? 0;
   const walk = (x: number, y: number) => { const t = tiles[y]?.[x]; return !!t && (t.kind === 'floor' || t.kind === 'stairs'); };
@@ -44,6 +49,7 @@ function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos): RPos[] {
       const nx = c.x + dx, ny = c.y + dy, k = `${nx},${ny}`;
       if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen.has(k)) continue;
       if (!walk(nx, ny) && !(nx === to.x && ny === to.y)) continue;
+      if (edgeBlocked(c.x, c.y, nx, ny)) continue; // don't cross walls / closed doors
       seen.add(k); prev.set(k, `${c.x},${c.y}`); q.push({ x: nx, y: ny });
     }
   }
@@ -54,7 +60,7 @@ function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos): RPos[] {
 }
 
 /** Rendered positions that lag the logical ones, walking one cell at a time. */
-function useSteppedPositions(units: { id: string; x: number; y: number }[], tiles: { kind: string }[][]): Record<string, RPos> {
+function useSteppedPositions(units: { id: string; x: number; y: number }[], tiles: { kind: string }[][], edgeBlocked: EdgeBlocked): Record<string, RPos> {
   const pos = useRef<Record<string, RPos>>({});
   const path = useRef<Record<string, RPos[]>>({});
   const target = useRef<Record<string, string>>({});
@@ -66,7 +72,7 @@ function useSteppedPositions(units: { id: string; x: number; y: number }[], tile
     if (target.current[u.id] !== tk) {
       target.current[u.id] = tk;
       const cur = path.current[u.id]?.length ? path.current[u.id][path.current[u.id].length - 1] : pos.current[u.id];
-      path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y });
+      path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked);
     }
   }
   for (const id of Object.keys(pos.current)) if (!units.some(u => u.id === id)) { delete pos.current[id]; delete path.current[id]; delete target.current[id]; }
@@ -159,10 +165,14 @@ export default function HeroQuestBoardCanvas({
   }, [state.furniture]);
 
   // Rendered (walking) positions — tokens step square-by-square along their path.
+  // Walk-animation edge gate: never cross a wall edge or a closed door. (Phase
+  // walls is irrelevant for the animation — figures should always look like they
+  // use the doorways.)
+  const animEdgeBlocked = (ax: number, ay: number, bx: number, by: number) => edgeBlocksMove(ax, ay, bx, by, false);
   // Key by seat, NOT playerId: in solo / 2-player games one player owns several
   // heroes, so playerIds repeat. Seat (0..3) is always unique per hero.
-  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: String(h.seat), x: h.at.x, y: h.at.y })), state.tiles);
-  const monPos = useSteppedPositions(state.monsters.map(m => ({ id: m.id, x: m.at.x, y: m.at.y })), state.tiles);
+  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: String(h.seat), x: h.at.x, y: h.at.y })), state.tiles, animEdgeBlocked);
+  const monPos = useSteppedPositions(state.monsters.map(m => ({ id: m.id, x: m.at.x, y: m.at.y })), state.tiles, animEdgeBlocked);
 
   // ---- Spell animation: when a new cast lands (lastSpellFx.seq changes), fire a
   // travelling orb from caster → target plus a burst ring at the target, then
