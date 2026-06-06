@@ -162,6 +162,21 @@ export default function HeroQuestBoardCanvas({
   const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: h.playerId, x: h.at.x, y: h.at.y })), state.tiles);
   const monPos = useSteppedPositions(state.monsters.map(m => ({ id: m.id, x: m.at.x, y: m.at.y })), state.tiles);
 
+  // ---- Spell animation: when a new cast lands (lastSpellFx.seq changes), fire a
+  // travelling orb from caster → target plus a burst ring at the target, then
+  // clear it after the animation runs (~1.1s). ----
+  const fx = state.lastSpellFx;
+  const fxSeqRef = useRef<number>(-1);
+  const [activeFx, setActiveFx] = useState<typeof fx>(null);
+  useEffect(() => {
+    if (fx && fx.seq !== fxSeqRef.current) {
+      fxSeqRef.current = fx.seq;
+      setActiveFx(fx);
+      const t = setTimeout(() => setActiveFx(null), 1100);
+      return () => clearTimeout(t);
+    }
+  }, [fx]);
+
   // ---- Movement highlight: every square reachable within the movement roll. ----
   // BFS along orthogonal steps that passes THROUGH friendly heroes (transit, per
   // the rules) but is blocked by monsters, walls, move-blocking furniture, and
@@ -700,6 +715,9 @@ export default function HeroQuestBoardCanvas({
             }}
           />
         ))}
+
+        {/* Spell animation overlay — orb flies caster → target, burst at target. */}
+        {activeFx && <SpellFx fx={activeFx} />}
       </div>
       </div>
 
@@ -709,7 +727,82 @@ export default function HeroQuestBoardCanvas({
           0%, 100% { opacity: 1; }
           50% { opacity: 0.45; }
         }
+        @keyframes hq-spellorb {
+          0%   { left: var(--fx-x0); top: var(--fx-y0); opacity: 0; transform: scale(0.4); }
+          15%  { opacity: 1; transform: scale(1); }
+          100% { left: var(--fx-x1); top: var(--fx-y1); opacity: 1; transform: scale(1); }
+        }
+        @keyframes hq-spellburst {
+          0%   { opacity: 0; transform: scale(0.2); }
+          55%  { opacity: 0; transform: scale(0.2); }
+          70%  { opacity: 0.9; transform: scale(0.8); }
+          100% { opacity: 0; transform: scale(2.2); }
+        }
+        @keyframes hq-spelltrail {
+          0%, 55% { opacity: 0; }
+          70%     { opacity: 0.7; }
+          100%    { opacity: 0; }
+        }
       `}</style>
+    </div>
+  );
+}
+
+// Element → glow colour for spell effects. Falls back to arcane violet.
+const ELEMENT_COLOR: Record<string, { core: string; glow: string }> = {
+  fire:  { core: '#ffd27a', glow: '#ff5a1f' },
+  air:   { core: '#eafcff', glow: '#7fe3ff' },
+  water: { core: '#bfe6ff', glow: '#2f7dff' },
+  earth: { core: '#dff0c0', glow: '#4aa83a' },
+};
+
+/** A single spell cast: an orb travels from caster to target, then bursts. */
+function SpellFx({ fx }: { fx: { seq: number; element: string; from: Coord; to: Coord } }) {
+  const c = ELEMENT_COLOR[fx.element] ?? { core: '#e7d6ff', glow: '#8a4dff' };
+  const cx = (p: Coord) => p.x * TILE_PX + TILE_PX / 2;
+  const cy = (p: Coord) => p.y * TILE_PX + TILE_PX / 2;
+  const orb = TILE_PX * 0.5;
+  const vars = {
+    // CSS custom props position the orb's centre; subtract half its size.
+    '--fx-x0': `${cx(fx.from) - orb / 2}px`,
+    '--fx-y0': `${cy(fx.from) - orb / 2}px`,
+    '--fx-x1': `${cx(fx.to) - orb / 2}px`,
+    '--fx-y1': `${cy(fx.to) - orb / 2}px`,
+  } as CSSProperties;
+  const burst = TILE_PX * 1.4;
+  return (
+    <div className="pointer-events-none absolute inset-0" style={{ zIndex: 8, ...vars }}>
+      {/* Travelling orb */}
+      <div
+        className="absolute"
+        style={{
+          width: orb, height: orb, borderRadius: '50%',
+          background: `radial-gradient(circle, ${c.core} 0%, ${c.glow} 55%, rgba(0,0,0,0) 75%)`,
+          boxShadow: `0 0 14px 4px ${c.glow}`,
+          animation: 'hq-spellorb 0.85s ease-in forwards',
+        }}
+      />
+      {/* Burst ring at the target */}
+      <div
+        className="absolute"
+        style={{
+          left: cx(fx.to) - burst / 2, top: cy(fx.to) - burst / 2,
+          width: burst, height: burst, borderRadius: '50%',
+          border: `3px solid ${c.core}`,
+          boxShadow: `0 0 18px 6px ${c.glow}`,
+          animation: 'hq-spellburst 1.1s ease-out forwards',
+        }}
+      />
+      {/* Soft impact flash at the target */}
+      <div
+        className="absolute"
+        style={{
+          left: cx(fx.to) - burst / 2, top: cy(fx.to) - burst / 2,
+          width: burst, height: burst, borderRadius: '50%',
+          background: `radial-gradient(circle, ${c.core} 0%, ${c.glow} 40%, rgba(0,0,0,0) 70%)`,
+          animation: 'hq-spelltrail 1.1s ease-out forwards',
+        }}
+      />
     </div>
   );
 }

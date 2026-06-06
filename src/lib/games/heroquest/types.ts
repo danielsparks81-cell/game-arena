@@ -352,6 +352,9 @@ export type HQState = {
   /** Most recent movement roll (the 3d4 faces). Shown by the dice panel when a
    *  hero rolls movement; cleared when a combat/other roll happens. */
   lastMoveRoll: number[] | null;
+  /** Most recent spell cast — drives the board's spell animation (a bolt/burst
+   *  from caster to target, coloured by element). Identified by `seq`. */
+  lastSpellFx?: { seq: number; element: string; from: Coord; to: Coord } | null;
   /** Pending UI prompt — set when the engine needs the active hero (or
       Zargon-as-engine, in our case it's always the active hero) to make a
       choice that can't be auto-resolved. v1 keeps this small. */

@@ -939,6 +939,18 @@ function doCastSpell(
   h.spellsCast.push(spell.id);
   pushLog(s, 'spell', `${h.username} casts ${spell.name}!`);
 
+  // Record where the spell flies for the board animation: caster → target
+  // (monster / hero), or the caster's own square for self / area spells.
+  let fxTo = { ...h.at };
+  if (spell.target === 'monster' && action.targetMonsterId) {
+    const tm = s.monsters.find(mm => mm.id === action.targetMonsterId);
+    if (tm) fxTo = { ...tm.at };
+  } else if (spell.target === 'hero' && action.targetHeroIdx != null) {
+    const th = s.heroes[action.targetHeroIdx];
+    if (th) fxTo = { ...th.at };
+  }
+  s.lastSpellFx = { seq: s.logSeq, element: spell.element, from: { ...h.at }, to: fxTo };
+
   // v1 effect resolution (minimal — covers the most useful subset).
   switch (spell.id) {
     case 'heal_body_w':
