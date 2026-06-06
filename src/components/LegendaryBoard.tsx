@@ -196,25 +196,9 @@ export default function LegendaryBoard({
   // UI affordances so they show as disabled instead of just erroring on click.
   const actionsLockedByHeal = !!state.thisTurn.healedThisTurn;
 
-  // ----- Lobby phase: full setup screen -----
-  if (state.phase === 'lobby') {
-    return (
-      <LegendarySetup
-        state={state}
-        isHost={isHost}
-        disabled={disabled}
-        onStart={onStart}
-        onSetMastermind={onSetMastermind}
-        onSetScheme={onSetScheme}
-        onSetHeroClasses={onSetHeroClasses}
-        onRandomizeHeroes={onRandomizeHeroes}
-        onSetVillainGroups={onSetVillainGroups}
-        onSetHenchmanGroups={onSetHenchmanGroups}
-        onRandomizeVillains={onRandomizeVillains}
-        onRandomizeHenchmen={onRandomizeHenchmen}
-      />
-    );
-  }
+  // NOTE: the lobby/setup early-return lives AFTER all hooks below — returning
+  // here would call fewer hooks during the lobby than during play, which breaks
+  // the Rules of Hooks and throws on the lobby→playing transition.
 
   // ----- Floaters / sound on log delta (same pattern as Spellduel) -----
   const lastSeenIdx = useRef(state.log.length);
@@ -639,6 +623,28 @@ export default function LegendaryBoard({
     }
   };
   const hasStarters = !!me?.hand.some(c => STARTER_IDS.has(c.cardId));
+
+  // ----- Lobby phase: full setup screen -----
+  // Placed AFTER every hook above so the hook count is identical in lobby and in
+  // play (Rules of Hooks); only the returned tree differs.
+  if (state.phase === 'lobby') {
+    return (
+      <LegendarySetup
+        state={state}
+        isHost={isHost}
+        disabled={disabled}
+        onStart={onStart}
+        onSetMastermind={onSetMastermind}
+        onSetScheme={onSetScheme}
+        onSetHeroClasses={onSetHeroClasses}
+        onRandomizeHeroes={onRandomizeHeroes}
+        onSetVillainGroups={onSetVillainGroups}
+        onSetHenchmanGroups={onSetHenchmanGroups}
+        onRandomizeVillains={onRandomizeVillains}
+        onRandomizeHenchmen={onRandomizeHenchmen}
+      />
+    );
+  }
 
   return (
     <div className="flex w-full flex-col gap-3">

@@ -73,7 +73,13 @@ export default function GameViewport({
       // `safe center` keeps it centered when it fits but falls back to the
       // start edge when it overflows (e.g. Recent Actions expanded), so the
       // content is never clipped and stays scroll-reachable.
-      style={{ width: '100%', height: heightCss, overflow: 'auto', display: 'flex', alignItems: 'safe center', justifyContent: 'safe center' }}
+      // `scrollbar-gutter: stable` permanently reserves the vertical scrollbar's
+      // space so clientWidth does NOT change when the scrollbar appears. Without
+      // it, tall content (e.g. the Legendary setup screen) sits right at the
+      // height boundary where the scrollbar toggles on/off — each toggle changes
+      // clientWidth, which recomputes the fit-scale, which re-toggles the
+      // scrollbar: an infinite loop that reads on screen as flicker.
+      style={{ width: '100%', height: heightCss, overflow: 'auto', scrollbarGutter: 'stable', display: 'flex', alignItems: 'safe center', justifyContent: 'safe center' }}
     >
       {/* Sizer reserves the SCALED footprint so the transformed game centers and
           the scroll area is correct. */}
