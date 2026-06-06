@@ -64,7 +64,7 @@ export const NICK_FURY_PURE_FURY: HeroCardDef = {
   cost: 8,
   classes: ['tech'],
   teams: ['shield-officer'],
-  text: 'Defeat any Villain or Mastermind whose [strike] is less than the number of [shield] Heroes in the KO pile.',
+  text: 'You may defeat a Villain or Mastermind whose [strike] is less than the number of [shield] Heroes in the KO pile.',
   onPlay: [
     { kind: 'defeat_villain_under_shield_ko_count' },
   ],

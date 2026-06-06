@@ -162,6 +162,7 @@ export default function LegendaryBoard({
     pendingChoice.kind !== 'escape_ko_hq_hero' &&
     pendingChoice.kind !== 'order_top_of_deck' &&
     pendingChoice.kind !== 'choose_city_villain_for_bystander' &&
+    pendingChoice.kind !== 'pure_fury_defeat_target' &&
     pendingChoice.kind !== 'look_top_two_ko_one_return_one' &&
     pendingChoice.kind !== 'look_top_three_ko_discard_return';
   // Binary choices don't require card selection — the player just clicks
@@ -185,6 +186,10 @@ export default function LegendaryBoard({
   const isSoloTwistTuck               = isMyTurn && pendingChoice?.kind === 'solo_twist_tuck_hero';
   const isEscapeKoHqHero              = isMyTurn && pendingChoice?.kind === 'escape_ko_hq_hero';
   const isChooseCityBystanderTarget   = isMyTurn && pendingChoice?.kind === 'choose_city_villain_for_bystander';
+  // Pure Fury: pick ONE city Villain/Henchman or the Mastermind with Attack
+  // below the frozen [shield]-KO count to defeat for free.
+  const isPureFuryTarget              = isMyTurn && pendingChoice?.kind === 'pure_fury_defeat_target';
+  const pureFuryCount                = pendingChoice?.kind === 'pure_fury_defeat_target' ? pendingChoice.shieldKoCount : 0;
   const isLookTopTwoChoice            = isMyTurn && pendingChoice?.kind === 'look_top_two_ko_one_return_one';
   const isLookTopThreeChoice          = isMyTurn && pendingChoice?.kind === 'look_top_three_ko_discard_return';
   const isOrderTopOfDeck              = isMyTurn && pendingChoice?.kind === 'order_top_of_deck';
@@ -708,6 +713,12 @@ export default function LegendaryBoard({
                 onFight={onFightMastermind}
                 bystanderCount={state.mastermind.bystanders?.length ?? 0}
                 hitFlash={mmHitFlash}
+                onPureFurySelect={
+                  isPureFuryTarget && mmDef.kind === 'mastermind'
+                  && mmDef.attack < pureFuryCount && (state.mastermind.tactics?.length ?? 0) > 0
+                    ? () => onResolveChoice('mastermind')
+                    : undefined
+                }
               />
             </div>
           </div>
@@ -834,6 +845,14 @@ export default function LegendaryBoard({
                         onMoveDest={isMoveVillainSelectDest ? () => onResolveChoice(`slot:${slot}`) : undefined}
                         // Deadpool "Here, Hold This" — click a villain to assign the bystander
                         onBystanderSelect={isChooseCityBystanderTarget && visibleCard ? () => onResolveChoice(visibleCard.instanceId) : undefined}
+                        // Nick Fury "Pure Fury" — click an eligible (Attack < count) villain/henchman to defeat it
+                        onPureFurySelect={(() => {
+                          if (!isPureFuryTarget || !visibleCard) return undefined;
+                          const d = CARDS[visibleCard.cardId];
+                          if (!d || (d.kind !== 'villain' && d.kind !== 'henchman')) return undefined;
+                          if (d.attack >= pureFuryCount) return undefined;
+                          return () => onResolveChoice(visibleCard.instanceId);
+                        })()}
                       />
                     </div>
                   </div>
@@ -1075,6 +1094,8 @@ export default function LegendaryBoard({
             ? 'border-emerald-500 bg-emerald-950/50'
             : pendingChoice.kind === 'choose_city_villain_for_bystander'
             ? 'border-amber-500 bg-amber-950/50'
+            : pendingChoice.kind === 'pure_fury_defeat_target'
+            ? 'border-rose-500 bg-rose-950/50'
             : pendingChoice.kind === 'look_top_two_ko_one_return_one'
             ? 'border-rose-500 bg-rose-950/50'
             : pendingChoice.kind === 'melter_decide_card'
@@ -1114,6 +1135,8 @@ export default function LegendaryBoard({
                   ? 'text-emerald-300'
                   : pendingChoice.kind === 'choose_city_villain_for_bystander'
                   ? 'text-amber-300'
+                  : pendingChoice.kind === 'pure_fury_defeat_target'
+                  ? 'text-rose-300'
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
                   ? 'text-rose-300'
                   : pendingChoice.kind === 'melter_decide_card'
@@ -1173,6 +1196,8 @@ export default function LegendaryBoard({
                   ? `📚 Order ${(pendingChoice as { queue: CardInstance[] }).queue.length} card${(pendingChoice as { queue: CardInstance[] }).queue.length === 1 ? '' : 's'} for the top of your deck — click in the order you want them drawn`
                   : pendingChoice.kind === 'choose_city_villain_for_bystander'
                   ? '👤 Here, Hold This — click a Villain or Henchman in the city to capture the Bystander'
+                  : pendingChoice.kind === 'pure_fury_defeat_target'
+                  ? `🔥 Pure Fury — click ONE Villain/Henchman in the city or the Mastermind (Attack below ${pureFuryCount}) to defeat it`
                   : pendingChoice.kind === 'look_top_two_ko_one_return_one'
                   ? '🤖 Doombot Legion — click one of the revealed cards below to KO it (the other returns to your deck)'
                   : pendingChoice.kind === 'melter_decide_card'
@@ -1939,7 +1964,7 @@ function CitySlot({
   card, slot, isLast, attack, locationDebuff = 0, disabled, onFight, attachedBystanders,
   strikePerBystander = 0, portalBonus = 0, skrullHeroStrike, hasPortal = false,
   freeBystanderFightAvailable = false, fightCityFreeAvailable = false,
-  onMoveSelect, onMoveDest, onBystanderSelect,
+  onMoveSelect, onMoveDest, onBystanderSelect, onPureFurySelect,
   attachedHeroName, attachedHeroCost, attachedHeroCardId, killbotStrike, fightConditionMet = true,
 }: {
   card: CardInstance | null;
@@ -1970,6 +1995,9 @@ function CitySlot({
   onMoveDest?: () => void;
   /** Deadpool "Here, Hold This": click this villain to assign the bystander. */
   onBystanderSelect?: () => void;
+  /** Nick Fury "Pure Fury": click this eligible villain/henchman to defeat it
+   *  for free. Only set when the card's Attack is below the [shield]-KO count. */
+  onPureFurySelect?: () => void;
   /** Skrull attach mechanic — name and cost of the Hero tucked under this villain. */
   attachedHeroName?: string;
   attachedHeroCost?: number;
@@ -2085,6 +2113,23 @@ function CitySlot({
           : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} />
         }
         <span className="sr-only">Assign bystander to {def.name}</span>
+      </button>
+    );
+  }
+
+  // Nick Fury – Pure Fury: this villain/henchman is an eligible free-defeat target.
+  if (onPureFurySelect) {
+    return (
+      <button
+        type="button"
+        onClick={onPureFurySelect}
+        className="block w-full -translate-y-1 rounded-lg ring-2 ring-rose-500 transition hover:-translate-y-2 hover:ring-rose-300"
+      >
+        {def.kind === 'villain'
+          ? <VillainCardArt  def={def} wide attachedBystanders={attachedBystanders} />
+          : <HenchmanCardArt def={def} wide attachedBystanders={attachedBystanders} />
+        }
+        <span className="sr-only">Defeat {def.name} with Pure Fury</span>
       </button>
     );
   }
@@ -2664,7 +2709,7 @@ function SchemeZone({
  *  the sandbox MastermindCardArt: crimson border, name/label/alwaysLeads/strike
  *  text. Tactic progress bar stays at the bottom. */
 function MastermindZone({
-  mmDef, tacticsLeft, attack, mastermindAttackDebuff = 0, portalBonus = 0, isMyTurn, disabled, onFight, bystanderCount = 0, hitFlash = false,
+  mmDef, tacticsLeft, attack, mastermindAttackDebuff = 0, portalBonus = 0, isMyTurn, disabled, onFight, bystanderCount = 0, hitFlash = false, onPureFurySelect,
 }: {
   mmDef: ReturnType<typeof getCard>;
   /** How many Tactic cards are still face-down (= hits left to win). */
@@ -2682,26 +2727,32 @@ function MastermindZone({
   bystanderCount?: number;
   /** When true, briefly flashes gold to show a Tactic was just taken. */
   hitFlash?: boolean;
+  /** Nick Fury "Pure Fury": when set, this Mastermind is an eligible free-defeat
+   *  target — clicking takes a Tactic at no attack cost (overrides the normal
+   *  fight gate). */
+  onPureFurySelect?: () => void;
 }) {
   if (mmDef.kind !== 'mastermind') {
     return <div className="h-full rounded-lg border border-dashed border-neutral-800" />;
   }
   const totalTactics = mmDef.hits;
   const effectiveRequired = Math.max(0, mmDef.attack + portalBonus - mastermindAttackDebuff);
-  const canHit = isMyTurn && !disabled && attack >= effectiveRequired && tacticsLeft > 0;
+  const pureFury = !!onPureFurySelect;
+  const canHit = pureFury || (isMyTurn && !disabled && attack >= effectiveRequired && tacticsLeft > 0);
   // Border is always bright crimson (matches scheme panel's always-bright violet).
-  // Briefly override to gold when a hit lands.
-  const borderColor = hitFlash ? '#f59e0b' : '#DC143C';
+  // Briefly override to gold when a hit lands; rose-glow while a Pure Fury pick
+  // is offered so the player sees it's a free target.
+  const borderColor = hitFlash ? '#f59e0b' : pureFury ? '#fb7185' : '#DC143C';
 
   return (
     <button
       type="button"
       disabled={!canHit}
-      onClick={onFight}
+      onClick={pureFury ? onPureFurySelect : onFight}
       style={{ borderWidth: 2, borderColor, borderStyle: 'solid' }}
       className={`relative flex h-full w-full flex-col rounded-lg bg-gradient-to-br from-red-950/40 to-neutral-950/40 p-2 text-left transition-all duration-150 ${
         hitFlash ? 'shadow-lg shadow-amber-500/60' : ''
-      } ${canHit ? 'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-rose-700/50' : ''}`}
+      } ${pureFury ? 'ring-2 ring-rose-500 hover:-translate-y-0.5' : ''} ${canHit && !pureFury ? 'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-rose-700/50' : ''}`}
     >
       {/* Name */}
       <div className="truncate text-[15px] font-bold leading-tight text-white">

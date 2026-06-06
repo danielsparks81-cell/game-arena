@@ -754,6 +754,12 @@ export type PendingChoice =
   /** Deadpool – Here, Hold This: player clicks a Villain or Henchman in the
    *  city to assign a captured Bystander (mandatory — must pick a target). */
   | { kind: 'choose_city_villain_for_bystander'; bystander: CardInstance }
+  /** Nick Fury – Pure Fury: "You may defeat ONE Villain/Henchman in the city OR
+   *  the Mastermind whose Attack is less than the number of [shield] Heroes in
+   *  the KO pile." The player clicks a single eligible target (city card's
+   *  instanceId, or the synthetic id 'mastermind'); skippable ("may"). The
+   *  threshold is frozen here so it can't drift while the choice is open. */
+  | { kind: 'pure_fury_defeat_target'; shieldKoCount: number }
   /** Doombot Legion Fight: two cards peeked from the deck are shown; the player
    *  clicks one to KO — the other is automatically returned to the top of the
    *  deck. Mandatory (no skip). */

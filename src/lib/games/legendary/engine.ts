@@ -976,6 +976,109 @@ function bumpPlayedCounters(turn: TurnState, def: HeroCardDef): void {
   turn.heroNameCounts[def.className] = (turn.heroNameCounts[def.className] ?? 0) + 1;
 }
 
+// ---------------- Free-defeat helpers (Pure Fury) ----------------
+
+/** Defeat the city Villain/Henchman at `slot` at no attack cost — awarding the
+ *  card and any attached bystanders, running its fight effects, and rescuing
+ *  on-kill bystanders, exactly as a normal defeat would. */
+function defeatCityCardFree(state: LegendaryState, me: PlayerState, slot: number): void {
+  const card = state.city[slot];
+  if (!card) return;
+  const def = getCard(card.cardId);
+  if (def.kind !== 'villain' && def.kind !== 'henchman') return;
+
+  state.city[slot] = null;
+  me.victoryPile.push(card);
+
+  const attached = state.cityBystanders[card.instanceId] ?? [];
+  if (attached.length > 0) {
+    for (const b of attached) me.victoryPile.push(b);
+    delete state.cityBystanders[card.instanceId];
+    pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: attached.length });
+    applyRescueBonuses(state, me, attached.length);
+  }
+  if (def.kind === 'villain' && def.fight) {
+    for (const e of def.fight) resolveEffect(state, me, e);
+  }
+  if (state.thisTurn.rescueBystandersOnKillCount > 0) {
+    const n = state.thisTurn.rescueBystandersOnKillCount;
+    let rescued = 0;
+    for (let j = 0; j < n; j++) {
+      const b = state.bystanderDeck.shift();
+      if (!b) break;
+      me.victoryPile.push(b); rescued++;
+    }
+    if (rescued > 0) {
+      pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+      applyRescueBonuses(state, me, rescued);
+    }
+  }
+  pushLog(state, {
+    kind: 'villain_defeated', seat: me.seat, username: me.username,
+    cardId: def.cardId, cardName: def.name, vp: def.vp,
+  });
+  recomputeVp(me);
+}
+
+/** Take ONE Tactic from the Mastermind at no attack cost — mirrors a normal
+ *  Mastermind fight: award the Tactic, rescue any held bystanders, run the
+ *  Tactic's fight effects, and check the all-tactics win. */
+function hitMastermindFree(state: LegendaryState, me: PlayerState): void {
+  const mmDef = getCard(state.mastermind.cardId);
+  if (mmDef.kind !== 'mastermind' || state.mastermind.tactics.length === 0) return;
+  state.mastermind.hitsTaken++;
+  const tacticIdx = Math.floor(Math.random() * state.mastermind.tactics.length);
+  const [tacticCard] = state.mastermind.tactics.splice(tacticIdx, 1);
+  const tacticDef = getCard(tacticCard.cardId);
+  if (tacticDef.kind !== 'tactic') return;
+  me.victoryPile.push(tacticCard);
+  if (state.mastermind.bystanders.length > 0) {
+    const count = state.mastermind.bystanders.length;
+    for (const b of state.mastermind.bystanders) me.victoryPile.push(b);
+    state.mastermind.bystanders = [];
+    pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count });
+    applyRescueBonuses(state, me, count);
+  }
+  const others = state.players.filter(p => p.playerId !== me.playerId);
+  for (const eff of tacticDef.fightOthers ?? []) {
+    for (const p of others) {
+      if (eff.kind === 'discard_from_hand') {
+        if (p.hand.length > 0) {
+          p.pendingHandDiscard = (p.pendingHandDiscard ?? 0) + eff.up_to;
+          pushLog(state, { kind: 'system', text: `${p.username} must discard ${eff.up_to} card${eff.up_to === 1 ? '' : 's'} at the start of their next turn — ${tacticDef.name}.` });
+        }
+      } else { resolveEffect(state, p, eff); }
+    }
+  }
+  for (const eff of tacticDef.fightSelf ?? []) resolveEffect(state, me, eff);
+  if (state.thisTurn.rescueBystandersOnKillCount > 0) {
+    const n = state.thisTurn.rescueBystandersOnKillCount;
+    let rescued = 0;
+    for (let j = 0; j < n; j++) {
+      const b = state.bystanderDeck.shift();
+      if (!b) break;
+      me.victoryPile.push(b); rescued++;
+    }
+    if (rescued > 0) {
+      pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
+      applyRescueBonuses(state, me, rescued);
+    }
+  }
+  pushLog(state, {
+    kind: 'mastermind_hit', seat: me.seat, username: me.username,
+    tacticName: tacticDef.name, tacticVp: tacticDef.vp,
+    tacticsRemaining: state.mastermind.tactics.length,
+    tacticCardId: tacticDef.cardId,
+    tacticText: tacticDef.text ?? '',
+  });
+  if (state.mastermind.tactics.length === 0) {
+    state.pendingResult = 'win';
+    pushLog(state, { kind: 'system',
+      text: `All Tactics defeated — ${mmDef.name} is vanquished! Finish your turn for bonus VP.` });
+  }
+  recomputeVp(me);
+}
+
 // ---------------- Effect resolver ----------------
 
 function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): void {
@@ -1412,110 +1515,33 @@ function resolveEffect(state: LegendaryState, me: PlayerState, effect: Effect): 
       return;
     }
     case 'defeat_villain_under_shield_ko_count': {
+      // Pure Fury: "You MAY defeat ONE Villain/Henchman in the city OR the
+      // Mastermind whose Attack is less than the number of [shield] Heroes in
+      // the KO pile." We set a single-target choice; the player picks exactly
+      // one eligible target (or skips). Defeating ALL of them — the old
+      // behaviour — was a bug.
       const shieldTeams = SHIELD_TEAMS;
       const shieldKoCount = state.ko.filter(c => {
         const d = getCard(c.cardId);
         return d.kind === 'hero' && (d as HeroCardDef).teams.some(t => shieldTeams.has(t));
       }).length;
-      if (shieldKoCount === 0) return;
-
-      // Auto-defeat all eligible city villains (no attack cost).
-      for (let i = 0; i < state.city.length; i++) {
-        const card = state.city[i];
-        if (!card) continue;
-        const def = getCard(card.cardId);
-        if (def.kind !== 'villain' && def.kind !== 'henchman') continue;
-        if (def.attack >= shieldKoCount) continue;
-
-        state.city[i] = null;
-        me.victoryPile.push(card);
-
-        const attached = state.cityBystanders[card.instanceId] ?? [];
-        if (attached.length > 0) {
-          for (const b of attached) me.victoryPile.push(b);
-          delete state.cityBystanders[card.instanceId];
-          pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: attached.length });
-          applyRescueBonuses(state, me, attached.length);
-        }
-        if (def.kind === 'villain' && def.fight) {
-          for (const e of def.fight) resolveEffect(state, me, e);
-        }
-        if (state.thisTurn.rescueBystandersOnKillCount > 0) {
-          const n = state.thisTurn.rescueBystandersOnKillCount;
-          let rescued = 0;
-          for (let j = 0; j < n; j++) {
-            const b = state.bystanderDeck.shift();
-            if (!b) break; // bystander deck exhausted
-            me.victoryPile.push(b); rescued++;
-          }
-          if (rescued > 0) {
-            pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
-            applyRescueBonuses(state, me, rescued);
-          }
-        }
-        pushLog(state, {
-          kind: 'villain_defeated', seat: me.seat, username: me.username,
-          cardId: def.cardId, cardName: def.name, vp: def.vp,
-        });
+      if (shieldKoCount === 0) {
+        pushLog(state, { kind: 'system', text: `${me.username} plays Pure Fury, but no S.H.I.E.L.D. Heroes sit in the KO pile — nothing can be defeated.` });
+        return;
       }
-
-      // Also hit the mastermind once for free if its attack is under the count.
+      const cityEligible = state.city.some(c => {
+        if (!c) return false;
+        const d = getCard(c.cardId);
+        return (d.kind === 'villain' || d.kind === 'henchman') && d.attack < shieldKoCount;
+      });
       const mmDef = getCard(state.mastermind.cardId);
-      if (mmDef.kind === 'mastermind' && mmDef.attack < shieldKoCount && state.mastermind.tactics.length > 0) {
-        state.mastermind.hitsTaken++;
-        const tacticIdx = Math.floor(Math.random() * state.mastermind.tactics.length);
-        const [tacticCard] = state.mastermind.tactics.splice(tacticIdx, 1);
-        const tacticDef = getCard(tacticCard.cardId);
-        if (tacticDef.kind === 'tactic') {
-          me.victoryPile.push(tacticCard);
-          if (state.mastermind.bystanders.length > 0) {
-            const count = state.mastermind.bystanders.length;
-            for (const b of state.mastermind.bystanders) me.victoryPile.push(b);
-            state.mastermind.bystanders = [];
-            pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count });
-            applyRescueBonuses(state, me, count);
-          }
-          const others = state.players.filter(p => p.playerId !== me.playerId);
-          for (const eff of tacticDef.fightOthers ?? []) {
-            for (const p of others) {
-              if (eff.kind === 'discard_from_hand') {
-                // Defer so each player CHOOSES their discard at their next turn.
-                if (p.hand.length > 0) {
-                  p.pendingHandDiscard = (p.pendingHandDiscard ?? 0) + eff.up_to;
-                  pushLog(state, { kind: 'system', text: `${p.username} must discard ${eff.up_to} card${eff.up_to === 1 ? '' : 's'} at the start of their next turn — ${tacticDef.name}.` });
-                }
-              } else { resolveEffect(state, p, eff); }
-            }
-          }
-          for (const eff of tacticDef.fightSelf ?? []) resolveEffect(state, me, eff);
-          if (state.thisTurn.rescueBystandersOnKillCount > 0) {
-            const n = state.thisTurn.rescueBystandersOnKillCount;
-            let rescued = 0;
-            for (let j = 0; j < n; j++) {
-              const b = state.bystanderDeck.shift();
-              if (!b) break; // bystander deck exhausted
-              me.victoryPile.push(b); rescued++;
-            }
-            if (rescued > 0) {
-              pushLog(state, { kind: 'bystander_rescued', seat: me.seat, username: me.username, count: rescued });
-              applyRescueBonuses(state, me, rescued);
-            }
-          }
-          pushLog(state, {
-            kind: 'mastermind_hit', seat: me.seat, username: me.username,
-            tacticName: tacticDef.name, tacticVp: tacticDef.vp,
-            tacticsRemaining: state.mastermind.tactics.length,
-            tacticCardId: tacticDef.cardId,
-            tacticText: tacticDef.text ?? '',
-          });
-          if (state.mastermind.tactics.length === 0) {
-            state.pendingResult = 'win';
-            pushLog(state, { kind: 'system',
-              text: `All four Tactics defeated — ${mmDef.name} is vanquished! Finish your turn for bonus VP.` });
-          }
-        }
+      const mmEligible = mmDef.kind === 'mastermind' && mmDef.attack < shieldKoCount && state.mastermind.tactics.length > 0;
+      if (!cityEligible && !mmEligible) {
+        pushLog(state, { kind: 'system', text: `${me.username} plays Pure Fury (${shieldKoCount} S.H.I.E.L.D. in KO), but no Villain or Mastermind has a low enough Attack.` });
+        return;
       }
-      recomputeVp(me);
+      state.thisTurn.pendingChoice = { kind: 'pure_fury_defeat_target', shieldKoCount };
+      pushLog(state, { kind: 'system', text: `${me.username} plays Pure Fury — choose ONE Villain, Henchman, or the Mastermind with Attack below ${shieldKoCount} to defeat.` });
       return;
     }
 
@@ -3264,6 +3290,30 @@ function doResolveChoice(
     return state;
   }
 
+  // ── Nick Fury "Pure Fury": player clicked ONE target to defeat for free ──
+  if (choice.kind === 'pure_fury_defeat_target') {
+    const count = choice.shieldKoCount;
+    if (instanceId === 'mastermind') {
+      const mmDef = getCard(state.mastermind.cardId);
+      if (mmDef.kind !== 'mastermind' || mmDef.attack >= count || state.mastermind.tactics.length === 0) {
+        return { error: 'That Mastermind is not a legal Pure Fury target' };
+      }
+      hitMastermindFree(state, me);
+      state.thisTurn.pendingChoice = undefined;
+      return state;
+    }
+    const slot = state.city.findIndex(c => c?.instanceId === instanceId);
+    if (slot < 0) return { error: 'That card is not in the city' };
+    const def = getCard(state.city[slot]!.cardId);
+    if (def.kind !== 'villain' && def.kind !== 'henchman') {
+      return { error: 'Choose a Villain or Henchman' };
+    }
+    if (def.attack >= count) return { error: 'That target\'s Attack is not low enough' };
+    defeatCityCardFree(state, me, slot);
+    state.thisTurn.pendingChoice = undefined;
+    return state;
+  }
+
   // ── Doombot Legion: player picks one of the two peeked cards to KO ─────────
   if (choice.kind === 'look_top_two_ko_one_return_one') {
     const koIdx = choice.cards.findIndex(c => c.instanceId === instanceId);
@@ -3706,6 +3756,12 @@ function doSkipChoice(state: LegendaryState): LegendaryState | { error: string }
   if (choice.kind === 'copy_played_hero') {
     const me = state.players[state.currentPlayerIdx];
     pushLog(state, { kind: 'system', text: `${me.username} chose not to copy.` });
+    return state;
+  }
+  // Pure Fury: player declined to defeat a target ("may").
+  if (choice.kind === 'pure_fury_defeat_target') {
+    const me = state.players[state.currentPlayerIdx];
+    pushLog(state, { kind: 'system', text: `${me.username} declined Pure Fury's free defeat.` });
     return state;
   }
   // Storm – Spinning Cyclone step 1: player chose not to move any villain.

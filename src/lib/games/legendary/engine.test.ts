@@ -772,4 +772,44 @@ describe('legendary: single-level undo', () => {
   });
 });
 
+describe('legendary: Nick Fury — Pure Fury', () => {
+  it('defeats exactly ONE chosen target, not every eligible villain', () => {
+    const s = freshSinglePlayerGame();
+    const me = s.players[0];
+
+    // Two henchmen in the city. Henchmen have no fight effects, so resolving
+    // the choice won't chain into a fresh pendingChoice.
+    const hench = s.villainDeck.filter(c => getCard(c.cardId).kind === 'henchman');
+    if (hench.length < 2) { expect(true).toBe(true); return; } // no henchmen this game → skip
+    const a = hench[0], b = hench[1];
+    const atkA = (getCard(a.cardId) as { attack: number }).attack;
+    const atkB = (getCard(b.cardId) as { attack: number }).attack;
+    const threshold = Math.max(atkA, atkB) + 1; // both eligible (attack < threshold)
+
+    // All starter deck cards carry the [shield] icon, so seeding the KO pile
+    // from the deck sets the S.H.I.E.L.D.-KO count directly.
+    if (me.deck.length < threshold) { expect(true).toBe(true); return; }
+    s.ko.push(...me.deck.splice(0, threshold));
+
+    s.villainDeck = s.villainDeck.filter(c => c.instanceId !== a.instanceId && c.instanceId !== b.instanceId);
+    s.city[0] = a;
+    s.city[1] = b;
+
+    // Play Pure Fury from hand.
+    me.hand.push({ instanceId: 'pf-test', cardId: 'nick_fury_pure_fury' });
+    const afterPlay = applyAction(s, 'alice', { kind: 'play_card', instanceId: 'pf-test' }) as LegendaryState;
+
+    // It must ASK which target to defeat — not auto-defeat anything.
+    expect(afterPlay.thisTurn.pendingChoice?.kind).toBe('pure_fury_defeat_target');
+    expect(afterPlay.city.filter(c => c?.instanceId === a.instanceId || c?.instanceId === b.instanceId)).toHaveLength(2);
+
+    // Choose henchman A → only A is defeated; B stays in the city.
+    const after = applyAction(afterPlay, 'alice', { kind: 'resolve_choice', instanceId: a.instanceId }) as LegendaryState;
+    expect(after.thisTurn.pendingChoice).toBeUndefined();
+    expect(after.city.find(c => c?.instanceId === a.instanceId)).toBeFalsy();   // A defeated
+    expect(after.city.find(c => c?.instanceId === b.instanceId)).toBeTruthy();  // B survives
+    expect(after.players[0].victoryPile.some(c => c.instanceId === a.instanceId)).toBe(true);
+  });
+});
+
 void CITY_SIZE;
