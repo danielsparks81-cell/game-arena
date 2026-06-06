@@ -26,7 +26,9 @@ export function DiceRollOverlay({ attack, defense, move }: {
   const sig = JSON.stringify([move, attack?.faces ?? null, defense?.faces ?? null]);
   const prev = useRef<string>('');
   const first = useRef(true);
-  const [phase, setPhase] = useState<'idle' | 'rolling' | 'settled' | 'leaving'>('idle');
+  // Combat resolves in two beats — the ATTACK dice roll and settle first, THEN
+  // the DEFENSE dice — so the exchange reads thematically. (Movement is one beat.)
+  const [phase, setPhase] = useState<'idle' | 'p1roll' | 'p1set' | 'p2roll' | 'p2set' | 'leaving'>('idle');
   // The roll flies to the real dice panel on exit — measured each time so it
   // lands on the panel wherever the layout puts it.
   const moverRef = useRef<HTMLDivElement>(null);
@@ -37,25 +39,38 @@ export function DiceRollOverlay({ attack, defense, move }: {
     if (first.current) { first.current = false; prev.current = sig; return; }
     if (!hasRoll || sig === prev.current) return;
     prev.current = sig;
-    setPhase('rolling');
-    const t1 = setTimeout(() => setPhase('settled'), 650);
-    const t2 = setTimeout(() => {
-      // Measure where the dice panel is and aim the exit at its centre.
+    const showMoveNow = !!move && move.length > 0;
+    const twoBeat = !showMoveNow && !!attack && !!defense;
+    const flyOut = () => {
       const el = moverRef.current, panel = document.getElementById('hq-dice-panel');
       if (el && panel) {
         const r = el.getBoundingClientRect(), p = panel.getBoundingClientRect();
         setFlyTo({ x: (p.left + p.width / 2) - (r.left + r.width / 2), y: (p.top + p.height / 2) - (r.top + r.height / 2) });
       }
       setPhase('leaving');
-    }, 1350);
-    const t3 = setTimeout(() => setPhase('idle'), 1850);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+    };
+    setPhase('p1roll');
+    const ts: ReturnType<typeof setTimeout>[] = [];
+    ts.push(setTimeout(() => setPhase('p1set'), 700));
+    if (twoBeat) {
+      ts.push(setTimeout(() => setPhase('p2roll'), 1350));
+      ts.push(setTimeout(() => setPhase('p2set'), 2050));
+      ts.push(setTimeout(flyOut, 2750));
+      ts.push(setTimeout(() => setPhase('idle'), 3250));
+    } else {
+      ts.push(setTimeout(flyOut, 1350));
+      ts.push(setTimeout(() => setPhase('idle'), 1850));
+    }
+    return () => ts.forEach(clearTimeout);
   }, [sig, hasRoll]);
 
   if (phase === 'idle') return null;
-  const rolling = phase === 'rolling';
   const leaving = phase === 'leaving';
   const showMove = !!move && move.length > 0;
+  const p1Rolling = phase === 'p1roll';
+  const defRolling = phase === 'p2roll';
+  // Defense is revealed only after the attack has settled.
+  const showDef = !!defense && (phase === 'p2roll' || phase === 'p2set' || phase === 'leaving');
 
   return (
     <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center overflow-hidden">
@@ -73,26 +88,26 @@ export function DiceRollOverlay({ attack, defense, move }: {
       >
         {showMove ? (
           <>
-            <OverlayLabel text={`Movement — ${rolling ? '…' : move!.reduce((a, b) => a + b, 0)} squares`} />
+            <OverlayLabel text={`Movement — ${p1Rolling ? '…' : move!.reduce((a, b) => a + b, 0)} squares`} />
             <div className="flex items-center gap-3">
-              {move!.map((n, i) => <OverlayNumberDie key={i} n={n} rolling={rolling} delay={i * 0.06} />)}
+              {move!.map((n, i) => <OverlayNumberDie key={i} n={n} rolling={p1Rolling} delay={i * 0.06} />)}
             </div>
           </>
         ) : (
           <>
             {attack && (
               <div className="flex flex-col items-center gap-1.5">
-                <OverlayLabel text={`${attack.rolledBy === 'hero' ? 'Attack' : 'Monster attack'} — ${rolling ? '…' : `${attack.skulls} hit${attack.skulls !== 1 ? 's' : ''}`}`} />
+                <OverlayLabel text={`${attack.rolledBy === 'hero' ? 'Attack' : 'Monster attack'} — ${p1Rolling ? '…' : `${attack.skulls} hit${attack.skulls !== 1 ? 's' : ''}`}`} />
                 <div className="flex items-center gap-2">
-                  {attack.faces.map((f, i) => <OverlayCombatDie key={i} face={f} rolling={rolling} delay={i * 0.05} />)}
+                  {attack.faces.map((f, i) => <OverlayCombatDie key={i} face={f} rolling={p1Rolling} delay={i * 0.05} />)}
                 </div>
               </div>
             )}
-            {defense && (
+            {showDef && defense && (
               <div className="flex flex-col items-center gap-1.5">
-                <OverlayLabel text={`${defense.rolledBy === 'hero' ? 'Defend' : 'Monster defend'} — ${rolling ? '…' : `${defense.blocks} block${defense.blocks !== 1 ? 's' : ''}`}`} sub />
+                <OverlayLabel text={`${defense.rolledBy === 'hero' ? 'Defend' : 'Monster defend'} — ${defRolling ? '…' : `${defense.blocks} block${defense.blocks !== 1 ? 's' : ''}`}`} sub />
                 <div className="flex items-center gap-2">
-                  {defense.faces.map((f, i) => <OverlayCombatDie key={i} face={f} rolling={rolling} delay={0.15 + i * 0.05} />)}
+                  {defense.faces.map((f, i) => <OverlayCombatDie key={i} face={f} rolling={defRolling} delay={i * 0.05} />)}
                 </div>
               </div>
             )}

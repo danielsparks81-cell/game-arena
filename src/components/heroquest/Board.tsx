@@ -25,6 +25,67 @@ import { safeAccent } from '@/lib/accentColors';
 
 export const TILE_PX = 36;
 
+// ── Stepped movement: figures WALK their path square-by-square instead of
+// sliding straight to the destination (which would cut across walls). Given a
+// unit's logical target each render, we BFS a path through walkable tiles and
+// advance the rendered position one cell at a time. ─────────────────────────
+type RPos = { x: number; y: number };
+function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos): RPos[] {
+  if (from.x === to.x && from.y === to.y) return [];
+  const H = tiles.length, W = tiles[0]?.length ?? 0;
+  const walk = (x: number, y: number) => { const t = tiles[y]?.[x]; return !!t && (t.kind === 'floor' || t.kind === 'stairs'); };
+  const prev = new Map<string, string>();
+  const seen = new Set<string>([`${from.x},${from.y}`]);
+  const q: RPos[] = [from];
+  while (q.length) {
+    const c = q.shift()!;
+    if (c.x === to.x && c.y === to.y) break;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = c.x + dx, ny = c.y + dy, k = `${nx},${ny}`;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H || seen.has(k)) continue;
+      if (!walk(nx, ny) && !(nx === to.x && ny === to.y)) continue;
+      seen.add(k); prev.set(k, `${c.x},${c.y}`); q.push({ x: nx, y: ny });
+    }
+  }
+  if (!seen.has(`${to.x},${to.y}`)) return [to]; // unreachable on foot → just snap
+  const path: RPos[] = []; let cur = `${to.x},${to.y}`;
+  while (cur && cur !== `${from.x},${from.y}`) { const [x, y] = cur.split(',').map(Number); path.unshift({ x, y }); cur = prev.get(cur)!; }
+  return path;
+}
+
+/** Rendered positions that lag the logical ones, walking one cell at a time. */
+function useSteppedPositions(units: { id: string; x: number; y: number }[], tiles: { kind: string }[][]): Record<string, RPos> {
+  const pos = useRef<Record<string, RPos>>({});
+  const path = useRef<Record<string, RPos[]>>({});
+  const target = useRef<Record<string, string>>({});
+  const [, force] = useState(0);
+  // Recompute paths whenever a unit's logical target changes.
+  for (const u of units) {
+    const tk = `${u.x},${u.y}`;
+    if (!pos.current[u.id]) { pos.current[u.id] = { x: u.x, y: u.y }; target.current[u.id] = tk; continue; }
+    if (target.current[u.id] !== tk) {
+      target.current[u.id] = tk;
+      const cur = path.current[u.id]?.length ? path.current[u.id][path.current[u.id].length - 1] : pos.current[u.id];
+      path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y });
+    }
+  }
+  for (const id of Object.keys(pos.current)) if (!units.some(u => u.id === id)) { delete pos.current[id]; delete path.current[id]; delete target.current[id]; }
+  useEffect(() => {
+    const iv = setInterval(() => {
+      let changed = false;
+      for (const id of Object.keys(path.current)) {
+        const p = path.current[id];
+        if (p && p.length) { pos.current[id] = p.shift()!; changed = true; }
+      }
+      if (changed) force(c => c + 1);
+    }, 150);
+    return () => clearInterval(iv);
+  }, []);
+  const out: Record<string, RPos> = {};
+  for (const u of units) out[u.id] = pos.current[u.id] ?? { x: u.x, y: u.y };
+  return out;
+}
+
 export type BoardCanvasProps = {
   state: HQState;
   currentUserId: string;
@@ -96,6 +157,10 @@ export default function HeroQuestBoardCanvas({
     for (const f of state.furniture) for (const c of f.cells) map.set(`${c.x},${c.y}`, f);
     return map;
   }, [state.furniture]);
+
+  // Rendered (walking) positions — tokens step square-by-square along their path.
+  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: h.playerId, x: h.at.x, y: h.at.y })), state.tiles);
+  const monPos = useSteppedPositions(state.monsters.map(m => ({ id: m.id, x: m.at.x, y: m.at.y })), state.tiles);
 
   // ---- Movement highlight: every square reachable within the movement roll. ----
   // BFS along orthogonal steps that passes THROUGH friendly heroes (transit, per
@@ -526,8 +591,8 @@ export default function HeroQuestBoardCanvas({
               key={m.id}
               className="absolute"
               style={{
-                left: m.at.x * TILE_PX,
-                top:  m.at.y * TILE_PX,
+                left: (monPos[m.id]?.x ?? m.at.x) * TILE_PX,
+                top:  (monPos[m.id]?.y ?? m.at.y) * TILE_PX,
                 width: TILE_PX,
                 height: TILE_PX,
                 zIndex: zActive ? 6 : 5,
@@ -583,8 +648,8 @@ export default function HeroQuestBoardCanvas({
               key={h.playerId}
               className="pointer-events-none absolute"
               style={{
-                left: h.at.x * TILE_PX,
-                top:  h.at.y * TILE_PX,
+                left: (heroPos[h.playerId]?.x ?? h.at.x) * TILE_PX,
+                top:  (heroPos[h.playerId]?.y ?? h.at.y) * TILE_PX,
                 width: TILE_PX,
                 height: TILE_PX,
                 zIndex: 6,
@@ -624,8 +689,8 @@ export default function HeroQuestBoardCanvas({
             key={`torch-${h.seat}`}
             className="pointer-events-none absolute"
             style={{
-              left: h.at.x * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
-              top:  h.at.y * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
+              left: (heroPos[h.playerId]?.x ?? h.at.x) * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
+              top:  (heroPos[h.playerId]?.y ?? h.at.y) * TILE_PX + TILE_PX / 2 - TILE_PX * 5,
               width: TILE_PX * 10,
               height: TILE_PX * 10,
               borderRadius: '50%',

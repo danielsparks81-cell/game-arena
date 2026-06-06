@@ -70,7 +70,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
   // moment. Non-host clients just watch the highlights move.
   useEffect(() => {
     if (state.phase !== 'zargon' || !props.isHost) return;
-    const t = setTimeout(() => props.onZargonStep(), 800);
+    const t = setTimeout(() => props.onZargonStep(), 1500); // slow enough to follow each monster
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase, state.zargonActiveId, state.zargonQueue?.length, props.isHost]);

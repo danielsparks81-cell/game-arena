@@ -257,7 +257,7 @@ describe('heroquest disarm: faithful odds (rulebook pp.19–20)', () => {
   });
 });
 
-describe('heroquest monsters: orthogonal attacks only (rulebook p.20)', () => {
+describe('heroquest monsters: melee attacks (orthogonal + diagonal house rule)', () => {
   afterEach(() => vi.restoreAllMocks());
   const forceShields = () => vi.spyOn(Math, 'random').mockReturnValue(0.9);
 
@@ -293,20 +293,17 @@ describe('heroquest monsters: orthogonal attacks only (rulebook p.20)', () => {
     expect(out.lastRoll?.faces.length).toBe(3);          // m.attack dice
   });
 
-  it('a monster diagonal to a hero with no orthogonal approach cannot attack', () => {
+  it('a monster diagonally adjacent to a hero attacks (house rule: monsters strike diagonally)', () => {
     const s = zargonSetup();
     s.heroes[0].at = { x: 5, y: 4 };
-    // Wall off the two squares that would let the monster reach orthogonal range.
-    s.tiles[3][5] = { kind: 'wall', region: 'corridor', revealed: true };
-    s.tiles[4][4] = { kind: 'wall', region: 'corridor', revealed: true };
     s.monsters = [{
-      id: 'm', kind: 'orc', at: { x: 4, y: 3 }, body: 1, bodyMax: 1,
+      id: 'm', kind: 'orc', at: { x: 4, y: 3 }, body: 1, bodyMax: 1, // diagonal to the hero
       attack: 3, defense: 2, move: 6, roomId: 'corridor',
     }];
     forceShields();
     const out = drainZargon(unwrap(applyAction(s, 'p1', { kind: 'end_turn' })));
-    expect(out.monsters[0].at).toEqual({ x: 4, y: 3 }); // stuck diagonal, couldn't close in
-    expect(out.heroes[0].body).toBe(8);                 // no diagonal attack landed
+    expect(out.monsters[0].at).toEqual({ x: 4, y: 3 }); // already adjacent → strikes from its square
+    expect(out.lastRoll?.rolledBy).toBe('monster');      // it attacked diagonally
   });
 });
 
