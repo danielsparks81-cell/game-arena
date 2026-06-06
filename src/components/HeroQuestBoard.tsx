@@ -264,22 +264,25 @@ function PlayingView({
           onJumpTrap={onJumpTrap}
         />
 
-        {/* One panel per hero in the party (the active hero is highlighted). */}
+        {/* One panel per hero in the party (the active hero is highlighted).
+            shrink-0 keeps each panel its natural size so the column is static. */}
         {state.heroes.map(h => (
-          <CharacterSheet
-            key={`${h.playerId}-${h.seat}`}
-            compact
-            hero={h}
-            isActive={h.seat === active?.seat}
-            isMyTurn={isMyTurn}
-            isMine={h.playerId === currentUserId}
-            onCastSpell={handleSpellClick}
-          />
+          <div key={`${h.playerId}-${h.seat}`} className="shrink-0">
+            <CharacterSheet
+              compact
+              hero={h}
+              isActive={h.seat === active?.seat}
+              isMyTurn={isMyTurn}
+              isMine={h.playerId === currentUserId}
+              onCastSpell={handleSpellClick}
+            />
+          </div>
         ))}
 
-        {/* Dice panel sits right under the hero panels — always visible. The
-            roll overlay flies here on exit (targeted by this id). */}
-        <div id="hq-dice-panel">
+        {/* Dice panel sits right under the hero panels — always visible and a
+            fixed size (shrink-0) so the column never jumps. The roll overlay
+            flies here on exit (targeted by this id). */}
+        <div id="hq-dice-panel" className="shrink-0">
           <DicePanel attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
         </div>
 
@@ -414,9 +417,12 @@ function ActionPanel({
   const spells = myHero.spells ?? [];
 
   return (
-    <div className="rounded-lg border border-amber-900/50 bg-neutral-900/70 p-2">
-      <div className="grid grid-cols-2 gap-1.5">
+    <div className="shrink-0 rounded-lg border border-amber-900/50 bg-neutral-900/70 p-2">
+      {/* Icon-only action grid — labels live in the tooltip / screen-reader text.
+          The roll die carries a small badge with movement remaining once rolled. */}
+      <div className="grid grid-cols-4 gap-2">
         <ActionButton label={moveText} icon="🎲" onClick={onRollMove} disabled={!canAct || myHero.hasRolled || myHero.inPit} flavor="amber"
+          badge={myHero.hasRolled ? `${myHero.moveLeft}/${myHero.moveRolled}` : undefined}
           tip="Roll 3d4 for movement, then drag your hero square by square (no diagonals). You don't have to use it all." />
         <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && act(() => onAttack(adjacentMonsterId))} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose"
           tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
@@ -431,7 +437,7 @@ function ActionPanel({
         {/* Jumping is part of movement, not an action — never gated by `acted`. */}
         <ActionButton label="Jump trap" icon="🤸" onClick={() => jumpableTrapId && onJumpTrap(jumpableTrapId)} disabled={!canAct || !jumpableTrapId} flavor="amber"
           tip="Leap over a discovered trap (needs 2+ movement and a clear landing). A shield clears it; a skull springs it. Not an action." />
-        <div className="relative w-full">
+        <div className="relative">
           <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo"
             tip="Cast one of your spells (Elf/Wizard) at anything you can see. Each spell can be cast once per quest." />
           {spellMenu && spells.length > 0 && (
@@ -458,19 +464,34 @@ function ActionPanel({
           )}
         </div>
       </div>
-      <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-        {myHero.inPit
-          ? <ActionButton label="Climb out (-2)" icon="⬆️" onClick={onClimbPit} disabled={!canAct || myHero.moveLeft < 2} flavor="orange"
-              tip="Climb out of the pit you fell into (costs 2 movement)." />
-          : <div />}
-        <ActionButton label="End turn" icon="▶" onClick={onEndTurn} disabled={!canAct} flavor="slate"
-          tip="Finish your turn and pass to the next hero (then Zargon moves the monsters)." />
+      {/* Climb (only when in a pit) + End Turn — End Turn spans the rest. */}
+      <div className="mt-2 grid grid-cols-4 gap-2">
+        {myHero.inPit && (
+          <ActionButton wide label="Climb out (costs 2 movement)" icon="⬆️" onClick={onClimbPit} disabled={!canAct || myHero.moveLeft < 2} flavor="orange"
+            tip="Climb out of the pit you fell into (costs 2 movement)." />
+        )}
+        <div className={myHero.inPit ? 'col-span-3' : 'col-span-4'}>
+          <ActionButton wide label="End turn" icon="⏭️" onClick={onEndTurn} disabled={!canAct} flavor="slate"
+            tip="Finish your turn and pass to the next hero (then Zargon moves the monsters)." />
+        </div>
       </div>
     </div>
   );
 }
 
-function ActionButton({ label, icon, onClick, disabled, flavor, tip }: {
+const ACTION_FLAVORS: Record<'amber' | 'emerald' | 'rose' | 'indigo' | 'orange' | 'slate', { from: string; to: string; border: string }> = {
+  amber:   { from: '#8a5a08', to: '#3a2408', border: '#d4a043' },
+  emerald: { from: '#1a5a3a', to: '#0a2a1a', border: '#43c084' },
+  rose:    { from: '#7a1a3a', to: '#3a0a18', border: '#d04a6a' },
+  indigo:  { from: '#1a2a7a', to: '#0a103a', border: '#4a60d0' },
+  orange:  { from: '#8a4a08', to: '#3a2008', border: '#d4783a' },
+  slate:   { from: '#3a3a3a', to: '#1a1a1a', border: '#7a7a7a' },
+};
+
+/** Large icon-only action button. The label lives only in the tooltip + an
+ *  sr-only span (kept for accessibility); an optional corner badge surfaces a
+ *  live number such as movement remaining. `wide` stretches it (End Turn). */
+function ActionButton({ label, icon, onClick, disabled, flavor, tip, badge, wide = false }: {
   label: string;
   icon: string;
   onClick: () => void;
@@ -478,32 +499,35 @@ function ActionButton({ label, icon, onClick, disabled, flavor, tip }: {
   flavor: 'amber' | 'emerald' | 'rose' | 'indigo' | 'orange' | 'slate';
   /** Hover tooltip explaining what the action does (for new players). */
   tip?: string;
+  /** Small corner badge (e.g. movement squares left). */
+  badge?: string;
+  /** Stretch full width + shorter (used for End Turn). */
+  wide?: boolean;
 }) {
-  const FLAVORS: Record<typeof flavor, { from: string; to: string; border: string }> = {
-    amber:   { from: '#8a5a08', to: '#3a2408', border: '#d4a043' },
-    emerald: { from: '#1a5a3a', to: '#0a2a1a', border: '#43c084' },
-    rose:    { from: '#7a1a3a', to: '#3a0a18', border: '#d04a6a' },
-    indigo:  { from: '#1a2a7a', to: '#0a103a', border: '#4a60d0' },
-    orange:  { from: '#8a4a08', to: '#3a2008', border: '#d4783a' },
-    slate:   { from: '#3a3a3a', to: '#1a1a1a', border: '#7a7a7a' },
-  };
-  const f = FLAVORS[flavor];
+  const f = ACTION_FLAVORS[flavor];
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      title={tip}
-      className="flex w-full items-center justify-center gap-1 rounded border px-1.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition disabled:cursor-not-allowed disabled:opacity-30 hover:shadow-md"
+      title={tip ?? label}
+      aria-label={label}
+      className={`relative flex w-full items-center justify-center rounded-lg border-2 transition disabled:cursor-not-allowed disabled:opacity-30 hover:-translate-y-0.5 hover:shadow-lg ${
+        wide ? 'h-11' : 'h-16'
+      }`}
       style={{
         background: `linear-gradient(180deg, ${f.from} 0%, ${f.to} 100%)`,
         borderColor: f.border,
         color: '#fff7e0',
-        fontFamily: 'Georgia, serif',
-        textShadow: '0 1px 1px rgba(0,0,0,0.6)',
+        textShadow: '0 1px 2px rgba(0,0,0,0.7)',
       }}
     >
-      <span className="text-sm leading-none">{icon}</span>
-      <span className="truncate">{label}</span>
+      <span className={wide ? 'text-2xl leading-none' : 'text-3xl leading-none'}>{icon}</span>
+      {badge && (
+        <span className="absolute bottom-0.5 right-1 rounded bg-black/75 px-1 text-[11px] font-bold leading-tight text-amber-100">
+          {badge}
+        </span>
+      )}
+      <span className="sr-only">{label}</span>
     </button>
   );
 }

@@ -177,16 +177,21 @@ export default function DicePanel({
   defense: DiceRoll | null;
   move: number[] | null;
 }) {
+  // The panel always reserves the SAME footprint (min-h) so the left column
+  // never grows or shrinks as rolls come and go — the dice area stays "full
+  // size" whether it's empty, showing movement, or showing a combat exchange.
+  const FRAME = 'flex min-h-[8.5rem] flex-col justify-center rounded-lg border border-amber-900/50 bg-gradient-to-b from-amber-950/40 to-black p-2';
+
   // Movement roll takes priority — it's the most recent thing that happened.
   if (move && move.length > 0) {
     const total = move.reduce((a, b) => a + b, 0);
     return (
-      <div className="rounded-lg border border-amber-900/50 bg-gradient-to-b from-amber-950/40 to-black p-2">
+      <div className={FRAME}>
         <div className="mb-1 flex items-center justify-between">
           <div className="text-[10px] uppercase tracking-widest text-amber-200/80" style={{ fontFamily: 'serif' }}>Movement</div>
           <div className="text-[10px] uppercase tracking-wider text-amber-200/90">{total} squares</div>
         </div>
-        <div className="flex items-center justify-center gap-2">
+        <div className="flex flex-1 items-center justify-center gap-2">
           {move.map((n, i) => <NumberDie key={i} n={n} />)}
         </div>
       </div>
@@ -195,14 +200,14 @@ export default function DicePanel({
 
   if (!attack) {
     return (
-      <div className="rounded-lg border border-amber-900/50 bg-neutral-900 px-3 py-2 text-xs text-amber-200/40 text-center">
+      <div className={`${FRAME} items-center text-center text-xs text-amber-200/40`}>
         Roll movement or attack to see the dice here.
       </div>
     );
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-amber-900/50 bg-gradient-to-b from-amber-950/40 to-black p-2">
+    <div className={`${FRAME} gap-2`}>
       <CombatRow label={attack.rolledBy === 'hero' ? 'Hero attack' : 'Monster attack'} roll={attack} metric="skulls" />
       {defense && (
         <CombatRow label={defense.rolledBy === 'hero' ? 'Hero defend' : 'Monster defend'} roll={defense} metric="blocks" />
