@@ -1563,35 +1563,6 @@ export function hasLineOfSight(s: HQState, a: Coord, b: Coord): boolean {
   return true;
 }
 
-/** Visibility for LOOKING & REVEALING (the PHYSICAL PLAYER's view) — separate
- *  from character line of sight. Stricter so the reveal doesn't leak: you can't
- *  peek diagonally past a wall corner, and you can't see THROUGH a room (its
- *  walls stop the line). Used only to decide which hallway tiles to place. */
-function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
-  const cells = bresenham(a, b);
-  for (let i = 1; i < cells.length; i++) {
-    const prev = cells[i - 1], c = cells[i];
-    const ortho = Math.abs(prev.x - c.x) + Math.abs(prev.y - c.y) === 1;
-    if (ortho) {
-      if (edgeBlocksSight(s, prev, c)) return false;
-    } else {
-      // No peeking around a corner: a diagonal is blocked if EITHER corner edge
-      // is a wall, or either corner cell is solid rock.
-      const e1 = edgeBlocksSight(s, prev, { x: c.x, y: prev.y });
-      const e2 = edgeBlocksSight(s, prev, { x: prev.x, y: c.y });
-      if (e1 || e2) return false;
-      if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' || s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;
-    }
-    if (i < cells.length - 1) {
-      if (!inBounds(s, c)) return false;
-      const t = s.tiles[c.y][c.x];
-      if (t.kind === 'wall' || t.kind === 'blocked') return false;
-      if (t.region.startsWith('room_')) return false; // can't see through a room
-    }
-  }
-  return true;
-}
-
 function bresenham(a: Coord, b: Coord): Coord[] {
   const out: Coord[] = [];
   let x0 = a.x, y0 = a.y;
@@ -1678,24 +1649,49 @@ function revealLineOfSightForHero(s: HQState, h: Hero): void {
   const region = s.tiles[h.at.y]?.[h.at.x]?.region ?? '';
   if (region.startsWith('room_')) revealRegion(s, region);
 
-  // Look down hallways: reveal non-room cells (corridor / stairs / blocked) that
-  // are in a straight, unobstructed line of sight — all the way until a wall,
-  // but never a room interior (rooms reveal only when their door is opened).
-  for (let y = 0; y < s.tiles.length; y++) {
-    for (let x = 0; x < s.tiles[0].length; x++) {
-      const t = s.tiles[y][x];
-      if (t.revealed) continue;
-      if (t.kind === 'wall') continue;
-      if (t.region.startsWith('room_')) continue; // never reveal a room by looking
-      if (x === h.at.x && y === h.at.y) continue;
-      if (!revealVisible(s, h.at, { x, y })) continue;
-      t.revealed = true;
-    }
-  }
+  // Look down hallways. A corridor is revealed as a connected SECTION: cast a
+  // straight ray in each cardinal direction, and at every corridor cell the ray
+  // passes, also glance down any side passage that branches off it. This is how
+  // looking works at a junction — when you can see the corner of a passage, you
+  // can see down the arm that turns there (the case players expect when standing
+  // at or beside a corner). Rooms are never revealed this way — only by opening
+  // their door — so room surprises (and their monsters) are preserved.
+  revealCorridorSection(s, h.at);
 
   // Spawn monsters for any room that's now revealed (your own room, or one whose
   // door was just opened).
   spawnRevealedRooms(s);
+}
+
+/** Reveal the corridor/stairs cells a figure standing at `origin` can see by
+ *  looking down the passages: straight rays in the 4 cardinal directions, each
+ *  branching one level into perpendicular side passages it passes. Stops at
+ *  rock, room boundaries, and closed/secret doors; a 'blocked' (W) cell is shown
+ *  but not seen past. */
+function revealCorridorSection(s: HQState, origin: Coord): void {
+  const castRay = (fromX: number, fromY: number, dx: number, dy: number, branch: boolean): void => {
+    let cx = fromX, cy = fromY;
+    for (;;) {
+      const nx = cx + dx, ny = cy + dy;
+      if (!inBounds(s, { x: nx, y: ny })) return;
+      // A wall or closed/secret door on the edge stops the look.
+      if (edgeBlocksSight(s, { x: cx, y: cy }, { x: nx, y: ny })) return;
+      const t = s.tiles[ny][nx];
+      if (t.kind === 'wall') return;                 // solid rock — see nothing past it
+      if (t.region.startsWith('room_')) return;      // never reveal a room by looking
+      t.revealed = true;                             // corridor / stairs / blocked cell
+      if (t.kind === 'blocked') return;              // a wall section: shown, but opaque
+      if (branch) {
+        // Glance down the side passages branching off this corridor cell.
+        if (dx !== 0) { castRay(nx, ny, 0, 1, false); castRay(nx, ny, 0, -1, false); }
+        else          { castRay(nx, ny, 1, 0, false); castRay(nx, ny, -1, 0, false); }
+      }
+      cx = nx; cy = ny;
+    }
+  };
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    castRay(origin.x, origin.y, dx, dy, true);
+  }
 }
 
 /** Instantiate the monsters of every room that has become visible. Idempotent
