@@ -122,6 +122,41 @@ function PlayingView({
   const isMyTurn = active?.playerId === currentUserId;
   const focusHero = active;
 
+  // Board display state — held at the pre-attack snapshot during dice animations
+  // so monster HP / death isn't revealed on the map before the dice settle.
+  // The dice panel and overlay always use the live `state`; only the board canvas
+  // uses `boardState`. Non-combat state changes (movement, doors, turn changes)
+  // apply immediately. Combat rolls are delayed to match the overlay duration.
+  const [boardState, setBoardState] = useState<typeof state>(state);
+  const latestStateRef = useRef(state);
+  const combatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCombatSigRef = useRef('');
+  useEffect(() => {
+    latestStateRef.current = state;
+    // Detect a new combat roll (attack/defense dice — not movement).
+    const sig = (state.lastRoll?.faces ?? []).join(',') + '|' + (state.lastDefenseRoll?.faces ?? []).join(',');
+    const isNewCombat = sig !== lastCombatSigRef.current && (state.lastRoll != null || state.lastDefenseRoll != null);
+    if (isNewCombat) {
+      lastCombatSigRef.current = sig;
+      // Delay board update to match the overlay animation:
+      //   two-beat (attack + defense): idle at 3250 ms → wait 3450 ms
+      //   single-beat (attack only): idle at 1850 ms → wait 2050 ms
+      const ms = state.lastRoll != null && state.lastDefenseRoll != null ? 3450 : 2050;
+      if (combatTimerRef.current) clearTimeout(combatTimerRef.current);
+      combatTimerRef.current = setTimeout(() => {
+        setBoardState(latestStateRef.current);
+        combatTimerRef.current = null;
+      }, ms);
+      // Don't update boardState now — keep showing the pre-attack board
+    } else if (combatTimerRef.current === null) {
+      // No animation in progress — apply state changes immediately
+      setBoardState(state);
+    }
+    // If a timer IS running and a non-combat state update arrives (e.g. turn
+    // advances automatically), latestStateRef is updated so the timer will
+    // pick up the latest state when it fires.
+  }, [state]);
+
   // Spell targeting: clicking a spell that needs a target parks it here until
   // the player picks a monster (on the board) or a hero (from the picker bar).
   // 'area' spells resolve immediately with no pick.
@@ -352,7 +387,7 @@ function PlayingView({
       {/* Map fills the right column. The roll overlay pops up over it. */}
       <div className="relative min-h-0 min-w-0">
         <HeroQuestBoardCanvas
-          state={state}
+          state={boardState}
           currentUserId={currentUserId}
           disabled={disabled || !isMyTurn}
           onMoveTo={onMoveTo}
