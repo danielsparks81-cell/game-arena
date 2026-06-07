@@ -178,6 +178,15 @@ function PlayingView({
     ),
   );
 
+  // Track per-hero per-region search exhaustion so buttons grey out once used.
+  // The engine also enforces these server-side, but greying the button prevents
+  // the "action appears consumed" UX bug (optimisticActed sticks when the engine
+  // returns an error and hasActed never changes).
+  const heroInRoom = heroRegion.startsWith('room_');
+  const alreadySearchedTreasure = !heroInRoom || (focusHero?.searchedRooms ?? []).includes(heroRegion);
+  const alreadySearchedTraps    = heroRegion.length > 0 && (focusHero?.searchedTraps   ?? []).includes(heroRegion);
+  const alreadySearchedSecrets  = heroRegion.length > 0 && (focusHero?.searchedSecrets ?? []).includes(heroRegion);
+
   // Heroes the active hero can pass a potion to: alive, orthogonally adjacent
   // (Manhattan dist === 1), and no monster adjacent to EITHER party.
   // Computed once and passed down to the active hero's CharacterSheet so the
@@ -285,6 +294,9 @@ function PlayingView({
           myHero={focusHero}
           disabled={disabled}
           monstersInMyRoom={monstersInMyRoom}
+          alreadySearchedTreasure={alreadySearchedTreasure}
+          alreadySearchedTraps={alreadySearchedTraps}
+          alreadySearchedSecrets={alreadySearchedSecrets}
           onRollMove={onRollMove}
           onSearchTreasure={onSearchTreasure}
           onSearchTraps={onSearchTraps}
@@ -407,6 +419,7 @@ function TurnBanner({
 
 function ActionPanel({
   isMyTurn, myHero, disabled, monstersInMyRoom,
+  alreadySearchedTreasure, alreadySearchedTraps, alreadySearchedSecrets,
   onRollMove, onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onEndTurn,
   adjacentMonsterId, onAttack, onCastSpellClick,
   disarmableTrapId, onDisarmTrap, jumpableTrapId, onJumpTrap,
@@ -416,6 +429,12 @@ function ActionPanel({
   disabled: boolean;
   /** True when any living monster is in the same room/region — blocks all searches. */
   monstersInMyRoom: boolean;
+  /** True when this hero has already searched for treasure in the current room. */
+  alreadySearchedTreasure: boolean;
+  /** True when this hero has already searched for traps in the current region. */
+  alreadySearchedTraps: boolean;
+  /** True when this hero has already searched for secret doors in the current region. */
+  alreadySearchedSecrets: boolean;
   onRollMove: () => void;
   onSearchTreasure: () => void;
   onSearchTraps: () => void;
@@ -477,12 +496,21 @@ function ActionPanel({
           tip="Roll 3d4 for movement, then drag your hero square by square (no diagonals). You don't have to use it all." />
         <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && act(() => onAttack(adjacentMonsterId))} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose"
           tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
-        <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)} disabled={!canAct || acted || monstersInMyRoom} flavor="emerald"
-          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!' : 'Search the room you\'re in for treasure — only once per hero per room.'} />
-        <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)} disabled={!canAct || acted || monstersInMyRoom} flavor="orange"
-          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!' : 'Reveal any hidden traps in your room or corridor. Search before you loot a chest!'} />
-        <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)} disabled={!canAct || acted || monstersInMyRoom} flavor="indigo"
-          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!' : 'Search your room or corridor for hidden doors.'} />
+        <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)}
+          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTreasure} flavor="emerald"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
+            : alreadySearchedTreasure ? 'You have already searched this room for treasure.'
+            : 'Search the room you\'re in for treasure — only once per hero per room.'} />
+        <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)}
+          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTraps} flavor="orange"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
+            : alreadySearchedTraps ? 'You have already searched this area for traps.'
+            : 'Reveal any hidden traps in your room or corridor. Search before you loot a chest!'} />
+        <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)}
+          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedSecrets} flavor="indigo"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
+            : alreadySearchedSecrets ? 'You have already searched this area for secret doors.'
+            : 'Search your room or corridor for hidden doors.'} />
         <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && act(() => onDisarmTrap(disarmableTrapId))} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
           tip="Disarm an adjacent discovered trap. The Dwarf is best at it; everyone else needs a Tool Kit." />
         {/* Jumping is part of movement, not an action — never gated by `acted`. */}
