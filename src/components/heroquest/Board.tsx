@@ -266,6 +266,22 @@ export default function HeroQuestBoardCanvas({
   const dragPathRef = useRef<Coord[]>([]);
   useEffect(() => { dragPathRef.current = dragPath; }, [dragPath]);
 
+  // Cumulative movement cost at each step of the drag path.
+  // Stair→stair transitions are free (cost 0), so the displayed number on each
+  // tile is the actual movement budget consumed — not the step index.
+  const dragPathCosts = useMemo(() => {
+    if (!myHero || dragPath.length === 0) return [] as number[];
+    let prev: Coord = myHero.at;
+    let cost = 0;
+    return dragPath.map(c => {
+      const fromStairs = state.tiles[prev.y]?.[prev.x]?.kind === 'stairs';
+      const toStairs   = state.tiles[c.y]?.[c.x]?.kind === 'stairs';
+      cost += (fromStairs && toStairs) ? 0 : 1;
+      prev = c;
+      return cost;
+    });
+  }, [dragPath, myHero, state.tiles]);
+
   const canStep = (from: Coord, to: Coord): boolean => {
     if (!myHero) return false;
     const phaseWalls = !!myHero.phaseWalls;
@@ -566,14 +582,17 @@ export default function HeroQuestBoardCanvas({
                     }}
                   />
                 )}
-                {/* Drag path trail + step number */}
+                {/* Drag path trail + movement cost label.
+                    Shows cumulative movement budget consumed, NOT step index —
+                    stair→stair steps cost 0 so a tile that's the 3rd step in
+                    the path may correctly show "2" or even "0". */}
                 {dragStep >= 0 && (
                   <div
                     className="pointer-events-none absolute inset-0 flex items-center justify-center"
                     style={{ background: 'rgba(80,200,255,0.28)', boxShadow: 'inset 0 0 0 2px rgba(120,220,255,0.9)' }}
                   >
                     <span className="font-bold text-white" style={{ fontSize: TILE_PX * 0.4, textShadow: '0 1px 2px #000' }}>
-                      {dragStep + 1}
+                      {dragPathCosts[dragStep] ?? dragStep + 1}
                     </span>
                   </div>
                 )}
