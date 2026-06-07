@@ -59,8 +59,16 @@ function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos, edgeBlocked:
   return path;
 }
 
-/** Rendered positions that lag the logical ones, walking one cell at a time. */
-function useSteppedPositions(units: { id: string; x: number; y: number }[], tiles: { kind: string }[][], edgeBlocked: EdgeBlocked): Record<string, RPos> {
+/** Rendered positions that lag the logical ones, walking one cell at a time.
+ *  `overridePath` lets the caller inject an explicit animation path for one unit
+ *  (used for drag-move so the token walks the traced route, not a BFS shortcut).
+ *  The ref is consumed (cleared) once the override path is installed. */
+function useSteppedPositions(
+  units: { id: string; x: number; y: number }[],
+  tiles: { kind: string }[][],
+  edgeBlocked: EdgeBlocked,
+  overridePath?: React.MutableRefObject<{ id: string; path: RPos[] } | null>,
+): Record<string, RPos> {
   const pos = useRef<Record<string, RPos>>({});
   const path = useRef<Record<string, RPos[]>>({});
   const target = useRef<Record<string, string>>({});
@@ -72,7 +80,21 @@ function useSteppedPositions(units: { id: string; x: number; y: number }[], tile
     if (target.current[u.id] !== tk) {
       target.current[u.id] = tk;
       const cur = path.current[u.id]?.length ? path.current[u.id][path.current[u.id].length - 1] : pos.current[u.id];
-      path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked);
+      // Use an explicit override path if it was committed for this unit and ends
+      // at (or passes through) the new logical target.  Slice to the target cell
+      // so early engine stops (trap springs, room reveals) animate correctly.
+      const ov = overridePath?.current;
+      if (ov && ov.id === u.id) {
+        const idx = ov.path.findIndex(p => p.x === u.x && p.y === u.y);
+        if (idx >= 0) {
+          path.current[u.id] = ov.path.slice(0, idx + 1);
+        } else {
+          path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked);
+        }
+        overridePath!.current = null; // consume — one use per commit
+      } else {
+        path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked);
+      }
     }
   }
   for (const id of Object.keys(pos.current)) if (!units.some(u => u.id === id)) { delete pos.current[id]; delete path.current[id]; delete target.current[id]; }
@@ -169,9 +191,12 @@ export default function HeroQuestBoardCanvas({
   // walls is irrelevant for the animation — figures should always look like they
   // use the doorways.)
   const animEdgeBlocked = (ax: number, ay: number, bx: number, by: number) => edgeBlocksMove(ax, ay, bx, by, false);
+  // When a drag move is committed we store the exact path here so the animation
+  // follows the traced route rather than a BFS shortcut.
+  const committedDragPath = useRef<{ id: string; path: RPos[] } | null>(null);
   // Key by seat, NOT playerId: in solo / 2-player games one player owns several
   // heroes, so playerIds repeat. Seat (0..3) is always unique per hero.
-  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: String(h.seat), x: h.at.x, y: h.at.y })), state.tiles, animEdgeBlocked);
+  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: String(h.seat), x: h.at.x, y: h.at.y })), state.tiles, animEdgeBlocked, committedDragPath);
   const monPos = useSteppedPositions(state.monsters.map(m => ({ id: m.id, x: m.at.x, y: m.at.y })), state.tiles, animEdgeBlocked);
 
   // ---- Spell animation: when a new cast lands (lastSpellFx.seq changes), fire a
@@ -271,6 +296,19 @@ export default function HeroQuestBoardCanvas({
       const [x, y] = cellEl.dataset.hqcell.split(',').map(Number);
       return { x, y };
     };
+    // Compute the movement cost of a path from `start`, counting stair→stair
+    // steps as 0 (matching the engine's pathCost logic in walkPath).
+    const dragCost = (path: Coord[]): number => {
+      let prev: Coord = start;
+      let cost = 0;
+      for (const c of path) {
+        const fromStairs = state.tiles[prev.y]?.[prev.x]?.kind === 'stairs';
+        const toStairs   = state.tiles[c.y]?.[c.x]?.kind === 'stairs';
+        cost += (fromStairs && toStairs) ? 0 : 1;
+        prev = c;
+      }
+      return cost;
+    };
     const onMove = (e: PointerEvent) => {
       const cell = cellAt(e);
       if (!cell) return;
@@ -280,17 +318,25 @@ export default function HeroQuestBoardCanvas({
         // Backtrack: dragging onto the previous square removes the last step.
         const beforeLast = prev.length > 1 ? prev[prev.length - 2] : start;
         if (cell.x === beforeLast.x && cell.y === beforeLast.y) return prev.slice(0, -1);
-        if (prev.length >= myHero.moveLeft) return prev;        // out of movement
         if (prev.some(p => p.x === cell.x && p.y === cell.y)) return prev; // no loops
         if (!canStep(last, cell)) return prev;
-        return [...prev, cell];
+        // Gate on COST not path LENGTH — stair→stair steps are free so the hero
+        // should be able to trace across the whole stairway without burning movement.
+        const newPath = [...prev, cell];
+        if (dragCost(newPath) > myHero.moveLeft) return prev;
+        return newPath;
       });
     };
     const onUp = () => {
       setDragging(false);
       const p = dragPathRef.current;
       setDragPath([]);
-      if (p.length > 0) onMovePath(p);
+      if (p.length > 0) {
+        // Store the committed path so the animation follows the exact traced route
+        // rather than a BFS shortcut found by bfsWalk.
+        committedDragPath.current = { id: String(myHero.seat), path: [...p] };
+        onMovePath(p);
+      }
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);

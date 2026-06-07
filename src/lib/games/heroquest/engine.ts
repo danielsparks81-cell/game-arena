@@ -1497,11 +1497,17 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
         s.lastTreasureFx = { seq: s.logSeq, kind: 'wandering', label: 'Wandering Monster!', subtitle: 'No monster for this quest', isGood: false };
         return;
       }
-      // Spawn adjacent to the hero on first free cell.
+      // Spawn adjacent to the hero on the first free cell, strongly preferring
+      // cells in the same room/region.  This matters for the treasure-search
+      // block check: `doSearchTreasure` gates on monsters whose tile.region
+      // matches the room — a wandering monster that lands in an adjacent corridor
+      // tile would bypass that check and let the next hero search anyway.
+      const heroRegion = s.tiles[h.at.y][h.at.x].region;
       const adj = adjacentCells(h.at).filter(c =>
         inBounds(s, c) && isPassable(s, c, /*forHero*/ false) && !cellOccupied(s, c, false),
       );
-      const spawnAt = adj[0] ?? h.at;
+      const sameRegion = adj.filter(c => s.tiles[c.y]?.[c.x]?.region === heroRegion);
+      const spawnAt = (sameRegion[0] ?? adj[0]) ?? h.at;
       const stats = monsterStats(kind);
       const mId = `wand_${s.logSeq + 1}_${Math.floor(Math.random() * 1e6)}`;
       const newMonster: Monster = {

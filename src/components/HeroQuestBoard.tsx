@@ -162,6 +162,14 @@ function PlayingView({
       (h.seat === focusHero?.seat || (!!focusHero && hasLineOfSight(state, focusHero.at, h.at))),
     );
 
+  // True when any living monster occupies the same room/region as the active hero.
+  // Rulebook: you cannot search for treasure, traps, or secret doors while monsters
+  // are in the room — all three search actions are blocked simultaneously.
+  const heroRegion = focusHero ? (state.tiles[focusHero.at.y]?.[focusHero.at.x]?.region ?? '') : '';
+  const monstersInMyRoom = heroRegion.length > 0 && state.monsters.some(
+    m => m.body > 0 && (state.tiles[m.at.y]?.[m.at.x]?.region ?? '') === heroRegion,
+  );
+
   // First monster orthogonally adjacent to the active hero — the Attack button's
   // target (you can still click any monster on the board directly).
   const adjacentMonsterId = (() => {
@@ -251,6 +259,7 @@ function PlayingView({
           isMyTurn={isMyTurn}
           myHero={focusHero}
           disabled={disabled}
+          monstersInMyRoom={monstersInMyRoom}
           onRollMove={onRollMove}
           onSearchTreasure={onSearchTreasure}
           onSearchTraps={onSearchTraps}
@@ -370,7 +379,7 @@ function TurnBanner({
 // ============================================================================
 
 function ActionPanel({
-  isMyTurn, myHero, disabled,
+  isMyTurn, myHero, disabled, monstersInMyRoom,
   onRollMove, onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onEndTurn,
   adjacentMonsterId, onAttack, onCastSpellClick,
   disarmableTrapId, onDisarmTrap, jumpableTrapId, onJumpTrap,
@@ -378,6 +387,8 @@ function ActionPanel({
   isMyTurn: boolean;
   myHero: ReturnType<HQState['heroes']['find']>;
   disabled: boolean;
+  /** True when any living monster is in the same room/region — blocks all searches. */
+  monstersInMyRoom: boolean;
   onRollMove: () => void;
   onSearchTreasure: () => void;
   onSearchTraps: () => void;
@@ -439,12 +450,12 @@ function ActionPanel({
           tip="Roll 3d4 for movement, then drag your hero square by square (no diagonals). You don't have to use it all." />
         <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && act(() => onAttack(adjacentMonsterId))} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose"
           tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
-        <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)} disabled={!canAct || acted} flavor="emerald"
-          tip="Search the room you're in for treasure — only if no monsters are in it, and once per hero per room." />
-        <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)} disabled={!canAct || acted} flavor="orange"
-          tip="Reveal any hidden traps in your room or corridor (only if no monsters are visible). Search before you loot a chest!" />
-        <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)} disabled={!canAct || acted} flavor="indigo"
-          tip="Search your room or corridor for hidden doors (only if no monsters are visible)." />
+        <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)} disabled={!canAct || acted || monstersInMyRoom} flavor="emerald"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!' : 'Search the room you\'re in for treasure — only once per hero per room.'} />
+        <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)} disabled={!canAct || acted || monstersInMyRoom} flavor="orange"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!' : 'Reveal any hidden traps in your room or corridor. Search before you loot a chest!'} />
+        <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)} disabled={!canAct || acted || monstersInMyRoom} flavor="indigo"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!' : 'Search your room or corridor for hidden doors.'} />
         <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && act(() => onDisarmTrap(disarmableTrapId))} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
           tip="Disarm an adjacent discovered trap. The Dwarf is best at it; everyone else needs a Tool Kit." />
         {/* Jumping is part of movement, not an action — never gated by `acted`. */}
