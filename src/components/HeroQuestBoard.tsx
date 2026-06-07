@@ -168,6 +168,20 @@ function PlayingView({
     if (pendingSpell && (!isMyTurn || !focusHero || focusHero.hasActed)) setPendingSpell(null);
   }, [pendingSpell, isMyTurn, focusHero]);
 
+  // Potion pass mode: the player clicks 🤝 in the character sheet to start board-
+  // select mode, then clicks a hero token on the board to complete the pass.
+  // Esc cancels at any time; the mode also auto-clears when the turn ends.
+  const [passingPotionId, setPassingPotionId] = useState<string | null>(null);
+  useEffect(() => {
+    if (passingPotionId && !isMyTurn) setPassingPotionId(null);
+  }, [passingPotionId, isMyTurn]);
+  useEffect(() => {
+    if (!passingPotionId) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setPassingPotionId(null); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [passingPotionId]);
+
   // Narration: read the Quest-Book "special notes" aloud as their rooms reveal.
   const { enabled: narrate, setEnabled: setNarrate, supported: narrateSupported } = useNarration();
   const lastNoteSeq = useRef<number | null>(null);
@@ -238,6 +252,9 @@ function PlayingView({
         blocked: !noMonsterAdjacentToPasser || state.monsters.some(m => m.body > 0 &&
           Math.abs(m.at.x - h.at.x) + Math.abs(m.at.y - h.at.y) === 1),
       }));
+  // Unblocked seats only — these are the hero tokens that glow on the board
+  // during pass mode so the player can click them to complete the pass.
+  const passTargetSeats = new Set(passTargets.filter(t => !t.blocked).map(t => t.hero.seat));
 
   // First monster orthogonally adjacent to the active hero — the Attack button's
   // target (you can still click any monster on the board directly).
@@ -332,6 +349,7 @@ function PlayingView({
           alreadySearchedTreasure={alreadySearchedTreasure}
           alreadySearchedTraps={alreadySearchedTraps}
           alreadySearchedSecrets={alreadySearchedSecrets}
+          deckSize={state.treasureDeck.length}
           onRollMove={onRollMove}
           onSearchTreasure={onSearchTreasure}
           onSearchTraps={onSearchTraps}
@@ -360,15 +378,11 @@ function PlayingView({
               onCastSpell={handleSpellClick}
               onUsePotion={onUsePotion}
               passTargets={h.seat === active?.seat ? passTargets : []}
-              onPassPotion={onPassPotion}
+              passingPotionId={h.seat === active?.seat ? passingPotionId : null}
+              onStartPass={h.seat === active?.seat ? (id) => setPassingPotionId(id) : undefined}
             />
           </div>
         ))}
-
-        {/* Treasure deck status — shows remaining card count so players can
-            gauge how "hot" the deck is. Only 14 good cards can be permanently
-            removed; the 10 cycling cards (hazard + wandering) always return. */}
-        <TreasurePanel deckSize={state.treasureDeck.length} />
 
         {/* Dice panel sits right under the hero panels — always visible and a
             fixed size (shrink-0) so the column never jumps. The roll overlay
@@ -396,6 +410,8 @@ function PlayingView({
           onAttack={onAttack}
           spellTargetMonsters={pendingSpell?.target === 'monster'}
           onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
+          passTargetSeats={passingPotionId ? passTargetSeats : undefined}
+          onPassToHero={(seat) => { if (passingPotionId) { onPassPotion(passingPotionId, seat); setPassingPotionId(null); } }}
         />
         <DiceRollOverlay attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
         <TreasureCardOverlay fx={state.lastTreasureFx} />
@@ -455,6 +471,7 @@ function TurnBanner({
 function ActionPanel({
   isMyTurn, myHero, disabled, monstersInMyRoom,
   alreadySearchedTreasure, alreadySearchedTraps, alreadySearchedSecrets,
+  deckSize,
   onRollMove, onSearchTreasure, onSearchTraps, onSearchSecrets, onClimbPit, onEndTurn,
   adjacentMonsterId, onAttack, onCastSpellClick,
   disarmableTrapId, onDisarmTrap, jumpableTrapId, onJumpTrap,
@@ -470,6 +487,8 @@ function ActionPanel({
   alreadySearchedTraps: boolean;
   /** True when this hero has already searched for secret doors in the current region. */
   alreadySearchedSecrets: boolean;
+  /** Current size of the treasure deck (drives the good-card % badge). */
+  deckSize: number;
   onRollMove: () => void;
   onSearchTreasure: () => void;
   onSearchTraps: () => void;
@@ -521,6 +540,16 @@ function ActionPanel({
   const moveText = myHero.hasRolled ? `Move ${myHero.moveLeft}/${myHero.moveRolled}` : 'Roll movement';
   const spells = myHero.spells ?? [];
 
+  // Treasure deck odds — shown as a badge on the Search Treasure button.
+  // 24 cards total: 14 permanently-removable good cards (gold/gems/potions) +
+  // 10 cycling cards (hazard + wandering monster) that always return to the deck.
+  const DECK_GOOD_MAX = 14;
+  const DECK_MIN      = 10; // cycling cards never leave
+  const deckGood      = Math.max(0, deckSize - DECK_MIN);
+  // % of the CURRENT deck that is good (i.e. your odds of drawing a reward)
+  const deckGoodPct   = deckSize > 0 ? Math.round(deckGood / deckSize * 100) : 0;
+  const deckBadge     = `${deckGoodPct}%`;
+
   return (
     <div className="shrink-0 rounded-lg border border-amber-900/50 bg-neutral-900/70 p-2">
       {/* Icon-only action grid — labels live in the tooltip / screen-reader text.
@@ -533,9 +562,10 @@ function ActionPanel({
           tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
         <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)}
           disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTreasure} flavor="emerald"
+          badge={deckBadge}
           tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
             : alreadySearchedTreasure ? 'You have already searched this room for treasure.'
-            : 'Search the room you\'re in for treasure — only once per hero per room.'} />
+            : `Search for treasure — ${deckGood} of ${DECK_GOOD_MAX} good cards remain (${deckGoodPct}% chance of a reward). Once per hero per room.`} />
         <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)}
           disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTraps} flavor="orange"
           tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
@@ -643,44 +673,6 @@ function ActionButton({ label, icon, onClick, disabled, flavor, tip, badge, wide
       )}
       <span className="sr-only">{label}</span>
     </button>
-  );
-}
-
-// ============================================================================
-// Treasure deck panel
-// ============================================================================
-
-function TreasurePanel({ deckSize }: { deckSize: number }) {
-  // The deck starts at 24 cards. 14 good cards can be permanently removed
-  // (4 gold + 2 gem + 2 jewels + 6 potions). The remaining 10 (4 hazard +
-  // 6 wandering) cycle back to the bottom, so the minimum deck size is 10.
-  const TOTAL = 24;
-  const MIN   = 10;  // cycling cards never leave
-  const good  = Math.max(0, deckSize - MIN);  // good cards still available
-  const goodMax = TOTAL - MIN;                // 14 when fresh
-  const pct   = goodMax > 0 ? good / goodMax : 0;
-
-  const barColor = pct > 0.6 ? 'bg-emerald-500' : pct > 0.3 ? 'bg-amber-500' : 'bg-rose-500';
-
-  return (
-    <div className="shrink-0 rounded-lg border border-amber-900/40 bg-gradient-to-b from-amber-950/30 to-black/40 px-3 py-2">
-      <div className="mb-1.5 flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-amber-300/70">
-          <span>💰</span> Treasure Deck
-        </span>
-        <span className="text-xs font-bold text-amber-200">{deckSize} cards</span>
-      </div>
-      {/* Progress bar: shows fraction of permanently-removable (good) cards still in deck */}
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${barColor}`}
-          style={{ width: `${Math.max(4, pct * 100)}%` }}
-        />
-      </div>
-      <div className="mt-1 text-[9px] text-amber-200/40">
-        {good > 0 ? `${good} good card${good !== 1 ? 's' : ''} remaining` : 'Only hazards remain'}
-      </div>
-    </div>
   );
 }
 

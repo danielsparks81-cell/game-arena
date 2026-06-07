@@ -127,11 +127,16 @@ export type BoardCanvasProps = {
    *  clickable and routes to onPickMonster instead of the normal attack flow. */
   spellTargetMonsters?: boolean;
   onPickMonster?: (monsterId: string) => void;
+  /** When set, the board is in potion-pass mode: hero tokens whose seat is in
+   *  this set are clickable targets; clicking one completes the pass. */
+  passTargetSeats?: Set<number>;
+  onPassToHero?: (seat: number) => void;
 };
 
 export default function HeroQuestBoardCanvas({
   state, currentUserId, disabled, onMoveTo, onMovePath, onOpenDoor, onAttack,
   spellTargetMonsters = false, onPickMonster,
+  passTargetSeats, onPassToHero,
 }: BoardCanvasProps) {
   const W = state.quest.width;
   const H = state.quest.height;
@@ -202,17 +207,31 @@ export default function HeroQuestBoardCanvas({
   // ---- Spell animation: when a new cast lands (lastSpellFx.seq changes), fire a
   // travelling orb from caster → target plus a burst ring at the target, then
   // clear it after the animation runs (~1.1s). ----
+  //
+  // IMPORTANT: the timer is ref-managed, NOT returned as an effect cleanup.
+  // React fires the cleanup from the previous effect run before each subsequent
+  // run. If boardState updates (for any non-combat reason) while the 1100ms
+  // timer is ticking, `fx` gets a new object reference with the same seq —
+  // which retriggers the effect, which fires the cleanup, which kills the timer.
+  // By tracking the timer in a ref and returning no cleanup from the effect, the
+  // timer survives between effect re-runs and `activeFx` correctly clears itself.
   const fx = state.lastSpellFx;
   const fxSeqRef = useRef<number>(-1);
+  const fxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [activeFx, setActiveFx] = useState<typeof fx>(null);
   useEffect(() => {
-    if (fx && fx.seq !== fxSeqRef.current) {
-      fxSeqRef.current = fx.seq;
-      setActiveFx(fx);
-      const t = setTimeout(() => setActiveFx(null), 1100);
-      return () => clearTimeout(t);
-    }
+    if (!fx || fx.seq === fxSeqRef.current) return;
+    fxSeqRef.current = fx.seq;
+    setActiveFx(fx);
+    if (fxTimerRef.current) clearTimeout(fxTimerRef.current);
+    fxTimerRef.current = setTimeout(() => {
+      setActiveFx(null);
+      fxTimerRef.current = null;
+    }, 1100);
+    // No cleanup return — the timer is owned by the ref, not by React's cleanup cycle.
   }, [fx]);
+  // Unmount safety: cancel any in-flight timer.
+  useEffect(() => () => { if (fxTimerRef.current) clearTimeout(fxTimerRef.current); }, []);
 
   // ---- Movement highlight: every square reachable within the movement roll. ----
   // BFS along orthogonal steps that passes THROUGH friendly heroes (transit, per
@@ -260,7 +279,8 @@ export default function HeroQuestBoardCanvas({
   // ---- Drag movement: press on your hero and drag over squares to trace a path
   // (one orthogonal step per square). Release to walk it — the engine stops the
   // hero the moment it springs a trap or a new area comes into view. ----
-  const canDrag = isMyTurn && !disabled && !!myHero && myHero.hasRolled && myHero.moveLeft > 0 && !myHero.inPit && !spellTargetMonsters;
+  const passMode = (passTargetSeats?.size ?? 0) > 0;
+  const canDrag = isMyTurn && !disabled && !!myHero && myHero.hasRolled && myHero.moveLeft > 0 && !myHero.inPit && !spellTargetMonsters && !passMode;
   const [dragging, setDragging] = useState(false);
   const [dragPath, setDragPath] = useState<Coord[]>([]);
   const dragPathRef = useRef<Coord[]>([]);
@@ -739,19 +759,25 @@ export default function HeroQuestBoardCanvas({
         {state.heroes.map(h => {
           if (h.body <= 0) return null;
           const isActive = activeHero?.playerId === h.playerId;
+          const isPassTarget = passMode && (passTargetSeats?.has(h.seat) ?? false);
+          const isPassSelf   = passMode && !isPassTarget; // the passer or a non-target hero
           return (
             <div
               key={h.seat}
-              className="pointer-events-none absolute"
+              className={`absolute ${isPassTarget ? 'pointer-events-auto cursor-pointer' : 'pointer-events-none'}`}
               style={{
                 left: (heroPos[String(h.seat)]?.x ?? h.at.x) * TILE_PX,
                 top:  (heroPos[String(h.seat)]?.y ?? h.at.y) * TILE_PX,
                 width: TILE_PX,
                 height: TILE_PX,
                 zIndex: 6,
-                transition: 'left 0.18s ease-out, top 0.18s ease-out',
+                opacity: isPassSelf ? 0.45 : 1,
+                transition: 'left 0.18s ease-out, top 0.18s ease-out, opacity 0.15s',
               }}
-              title={`${h.username} — BP ${h.body}/${h.bodyMax}`}
+              title={isPassTarget
+                ? `Pass to ${h.username} (${h.klass})`
+                : `${h.username} — BP ${h.body}/${h.bodyMax}`}
+              onClick={() => isPassTarget && onPassToHero?.(h.seat)}
             >
               <HeroToken
                 klass={h.klass}
@@ -759,12 +785,24 @@ export default function HeroQuestBoardCanvas({
                 color={safeAccent(h.accent_color)}
                 ring={isActive ? safeAccent(h.accent_color) : undefined}
               />
-              {isActive && (
+              {/* Active hero glow ring */}
+              {isActive && !passMode && (
                 <div
                   className="pointer-events-none absolute inset-0"
                   style={{
                     boxShadow: `0 0 0 2px ${safeAccent(h.accent_color)}, 0 0 18px ${safeAccent(h.accent_color)}`,
                     borderRadius: '50%',
+                  }}
+                />
+              )}
+              {/* Pass-target: pulsing green selection ring */}
+              {isPassTarget && (
+                <div
+                  className="pointer-events-none absolute inset-0"
+                  style={{
+                    boxShadow: '0 0 0 2px #34d399, 0 0 14px #34d399',
+                    borderRadius: '50%',
+                    animation: 'hq-pulse 1.1s ease-in-out infinite',
                   }}
                 />
               )}
@@ -811,7 +849,8 @@ export default function HeroQuestBoardCanvas({
         @keyframes hq-spellorb {
           0%   { left: var(--fx-x0); top: var(--fx-y0); opacity: 0; transform: scale(0.4); }
           15%  { opacity: 1; transform: scale(1); }
-          100% { left: var(--fx-x1); top: var(--fx-y1); opacity: 1; transform: scale(1); }
+          77%  { left: var(--fx-x1); top: var(--fx-y1); opacity: 1; transform: scale(1.1); }
+          100% { left: var(--fx-x1); top: var(--fx-y1); opacity: 0; transform: scale(0.3); }
         }
         @keyframes hq-spellburst {
           0%   { opacity: 0; transform: scale(0.2); }

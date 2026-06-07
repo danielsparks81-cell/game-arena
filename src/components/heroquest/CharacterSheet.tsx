@@ -4,7 +4,7 @@
 // parchment-styled hero sheet: portrait, banner, BP hearts, MP brains,
 // attack/defense badges, gold purse, inventory grid, spell cards.
 
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   type HQState,
   type Hero,
@@ -35,7 +35,7 @@ export type PassTarget = { hero: Hero; blocked: boolean };
 
 export default function CharacterSheet({
   hero, isActive, isMyTurn, isMine, onCastSpell, onUsePotion,
-  passTargets = [], onPassPotion, compact = false,
+  passTargets = [], passingPotionId = null, onStartPass, compact = false,
 }: {
   hero: Hero;
   isActive: boolean;
@@ -45,7 +45,10 @@ export default function CharacterSheet({
   onUsePotion?: (potionId: string) => void;
   /** Adjacent living heroes the passer can offer this potion to (active hero only). */
   passTargets?: PassTarget[];
-  onPassPotion?: (potionId: string, toHeroSeat: number) => void;
+  /** Which potion is currently in board-select pass mode (null = none). */
+  passingPotionId?: string | null;
+  /** Called with the potion id to start board-select mode, or null to cancel. */
+  onStartPass?: (potionId: string | null) => void;
   /** Compact: header + stat band only (no equipment / spell grids) so several
    *  heroes can stack as a party of panels. */
   compact?: boolean;
@@ -106,7 +109,8 @@ export default function CharacterSheet({
               canUse={isMine && isActive}
               onUse={onUsePotion}
               passTargets={passTargets}
-              onPassPotion={onPassPotion}
+              passingPotionId={passingPotionId}
+              onStartPass={onStartPass}
             />
           </div>
         )}
@@ -184,7 +188,8 @@ export default function CharacterSheet({
                   canUse={isMine && isActive}
                   onUse={onUsePotion}
                   passTargets={passTargets}
-                  onPassPotion={onPassPotion}
+                  passingPotionId={passingPotionId}
+                  onStartPass={onStartPass}
                 />
               </div>
             </>
@@ -358,22 +363,20 @@ const POTION_COLOR: Record<HeldPotion['effect'], { bg: string; border: string; t
 
 /** Small row of held potion pills — each shows an icon + short name and can be
  *  clicked to use the potion during the hero's turn. When passTargets are
- *  provided (active hero only), a 🤝 button opens a small picker to hand the
- *  potion to an adjacent hero. */
-function PotionRow({ potions, hero, canUse, onUse, passTargets = [], onPassPotion }: {
+ *  provided (active hero only), a 🤝 button enters board-select mode: the
+ *  player then clicks a hero token on the board to complete the pass. */
+function PotionRow({ potions, hero, canUse, onUse, passTargets = [], passingPotionId = null, onStartPass }: {
   potions: HeldPotion[] | undefined;
   hero: Hero;
   canUse: boolean;
   onUse?: (potionId: string) => void;
   passTargets?: PassTarget[];
-  onPassPotion?: (potionId: string, toHeroSeat: number) => void;
+  passingPotionId?: string | null;
+  onStartPass?: (potionId: string | null) => void;
 }) {
-  // Track which potion's pass-picker is open (null = none)
-  const [passingPotionId, setPassingPotionId] = useState<string | null>(null);
-
   if (!potions || potions.length === 0) return null;
 
-  const showPassBtn = canUse && passTargets.length > 0 && onPassPotion;
+  const showPassBtn = canUse && passTargets.length > 0 && onStartPass;
 
   return (
     <div className="flex flex-col gap-1">
@@ -386,9 +389,9 @@ function PotionRow({ potions, hero, canUse, onUse, passTargets = [], onPassPotio
             ? 'Heroic Brew must be drunk before attacking'
             : p.description
           : p.description;
-        const pickerOpen = passingPotionId === p.id;
+        const isSelectingThis = passingPotionId === p.id;
         return (
-          <div key={p.id} className="flex flex-wrap items-center gap-1">
+          <div key={p.id} className="flex items-center gap-1">
             {/* Drink button */}
             <button
               onClick={() => !disabled && onUse?.(p.id)}
@@ -402,51 +405,25 @@ function PotionRow({ potions, hero, canUse, onUse, passTargets = [], onPassPotio
               <span>{p.name}</span>
             </button>
 
-            {/* Pass toggle button — only shown when adjacent heroes exist */}
+            {/* Pass button — clicking enters board-select mode; clicking again cancels */}
             {showPassBtn && (
               <button
-                onClick={() => setPassingPotionId(pickerOpen ? null : p.id)}
-                title="Pass this potion to an adjacent hero"
+                onClick={() => onStartPass(isSelectingThis ? null : p.id)}
+                title={isSelectingThis ? 'Cancel pass — press Esc or click again' : 'Pass to an adjacent hero — click their token on the board'}
                 className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition
-                  border-amber-600/60 bg-amber-900/20 text-amber-200
                   cursor-pointer hover:brightness-125
-                  ${pickerOpen ? 'ring-1 ring-amber-400' : ''}`}
+                  ${isSelectingThis
+                    ? 'border-emerald-400 bg-emerald-900/40 text-emerald-200 ring-1 ring-emerald-400'
+                    : 'border-amber-600/60 bg-amber-900/20 text-amber-200'
+                  }`}
               >
                 🤝
               </button>
             )}
 
-            {/* Pass picker dropdown */}
-            {pickerOpen && (
-              <div className="flex flex-wrap gap-1 w-full mt-0.5 pl-1">
-                {passTargets.map(({ hero: target, blocked }) => (
-                  <button
-                    key={target.seat}
-                    disabled={blocked}
-                    onClick={() => {
-                      if (!blocked) {
-                        onPassPotion!(p.id, target.seat);
-                        setPassingPotionId(null);
-                      }
-                    }}
-                    title={
-                      blocked
-                        ? 'Cannot pass — a monster is adjacent to one of you'
-                        : `Pass to ${target.username}`
-                    }
-                    className={`flex items-center gap-1 rounded border border-amber-600/40
-                      bg-amber-950/20 px-1.5 py-0.5 text-[10px] font-semibold
-                      transition text-amber-100
-                      ${blocked
-                        ? 'cursor-default opacity-40'
-                        : 'cursor-pointer hover:brightness-125'
-                      }`}
-                  >
-                    <span>→</span>
-                    <span>{target.username}</span>
-                  </button>
-                ))}
-              </div>
+            {/* Inline hint when this potion is in pass-select mode */}
+            {isSelectingThis && (
+              <span className="text-[9px] text-emerald-300 italic">click a hero</span>
             )}
           </div>
         );
