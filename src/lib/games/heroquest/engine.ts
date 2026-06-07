@@ -1649,14 +1649,14 @@ function revealLineOfSightForHero(s: HQState, h: Hero): void {
   const region = s.tiles[h.at.y]?.[h.at.x]?.region ?? '';
   if (region.startsWith('room_')) revealRegion(s, region);
 
-  // Look down hallways using true line of sight (straight AND diagonal), so the
-  // FULL width of a passage lights up — a hero in a 2-wide hall sees the whole
-  // hall, not just their own row. A tile is revealed if an unobstructed line can
-  // be drawn to it; the line stops at solid rock, 'blocked' (W) wall sections,
-  // closed/secret doors, LOS-blocking furniture, and room interiors (rooms only
-  // reveal when their door is opened, preserving the ambush). Diagonal sight is
-  // generous — it may graze a wall corner (corner peeking allowed) — but it can
-  // never cut THROUGH a wall or a room.
+  // Look down hallways using the LOOKING-&-REVEALING view (revealVisible), which
+  // covers straight AND diagonal lines so the FULL width of a passage lights up
+  // (a hero in a 2-wide hall sees the whole hall, not just their own row), but
+  // uses the STRICT diagonal rule — a diagonal is blocked if EITHER flanking
+  // corner is a wall — so it never peeks around a corner. (This is deliberately
+  // stricter than character line of sight; see the heroquest-vision skill.) The
+  // line also stops at rock, 'blocked' (W) sections, closed/secret doors,
+  // LOS-furniture, and room interiors — rooms reveal only via their door.
   for (let y = 0; y < s.tiles.length; y++) {
     for (let x = 0; x < s.tiles[0].length; x++) {
       const t = s.tiles[y][x];
@@ -1673,11 +1673,15 @@ function revealLineOfSightForHero(s: HQState, h: Hero): void {
   spawnRevealedRooms(s);
 }
 
-/** Reveal-visibility from `a` to `b`: an unobstructed straight or diagonal line,
- *  with the same lenient diagonal rule as character line of sight (a diagonal is
- *  blocked only when BOTH corner edges are walls — so corner peeking is allowed).
+/** Reveal-visibility from `a` to `b` — the LOOKING-&-REVEALING view. An
+ *  unobstructed straight or diagonal line, but with the STRICT diagonal rule:
+ *  a diagonal is blocked if EITHER flanking corner edge OR either flanking
+ *  corner cell is a wall, so you can never peek around a corner. (Deliberately
+ *  stricter than character line of sight — see the heroquest-vision skill.)
  *  Unlike hasLineOfSight this is for LOOKING at terrain, so figures never block
- *  it, and it stops on room interiors (you can't see through a room). */
+ *  it, and it stops on room interiors (you can't see through a room). Diagonals
+ *  through an OPEN passage are still fine — there's no wall corner there — so a
+ *  2-wide hall lights up fully. */
 function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
   const cells = bresenham(a, b);
   for (let i = 1; i < cells.length; i++) {
@@ -1686,11 +1690,12 @@ function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
     if (ortho) {
       if (edgeBlocksSight(s, prev, c)) return false;
     } else {
-      // Diagonal: blocked only if BOTH flanking edges are walls (corner peeking
-      // allowed — a single grazed corner still lets the line through).
+      // Diagonal: blocked if EITHER flanking edge is a wall/closed door OR
+      // either flanking cell is solid rock (no peeking around a corner).
       const e1 = edgeBlocksSight(s, prev, { x: c.x, y: prev.y });
       const e2 = edgeBlocksSight(s, prev, { x: prev.x, y: c.y });
-      if (e1 && e2) return false;
+      if (e1 || e2) return false;
+      if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' || s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;
     }
     // Intermediate cells (not the endpoint) stop the line on solid terrain.
     if (i < cells.length - 1) {
