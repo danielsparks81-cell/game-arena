@@ -88,10 +88,14 @@ export default function CharacterSheet({
         {hero.items.length > 0 && <div className="px-2 pb-1"><CompactItems hero={hero} /></div>}
         {(hero.foundPotions?.length ?? 0) > 0 && (
           <div className="px-2 pb-1">
+            {/* canUse is gated on isActive (this hero's own turn), NOT isMyTurn.
+                isMyTurn is true for ALL heroes owned by the current player when
+                any of them is up — using isActive keeps buttons live only for
+                the hero whose turn it actually is. */}
             <PotionRow
               potions={hero.foundPotions}
               hero={hero}
-              canUse={isMine && isMyTurn}
+              canUse={isMine && isActive}
               onUse={onUsePotion}
             />
           </div>

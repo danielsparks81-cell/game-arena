@@ -165,9 +165,16 @@ function PlayingView({
   // True when any living monster occupies the same room/region as the active hero.
   // Rulebook: you cannot search for treasure, traps, or secret doors while monsters
   // are in the room — all three search actions are blocked simultaneously.
+  // We check BOTH the monster's physical tile region AND its roomId field.
+  // A wandering monster may spawn on an adjacent corridor tile (if all room cells
+  // are occupied) — its tile-region would differ from the hero's room, but its
+  // roomId is always set to the triggering hero's room region at spawn time.
   const heroRegion = focusHero ? (state.tiles[focusHero.at.y]?.[focusHero.at.x]?.region ?? '') : '';
   const monstersInMyRoom = heroRegion.length > 0 && state.monsters.some(
-    m => m.body > 0 && (state.tiles[m.at.y]?.[m.at.x]?.region ?? '') === heroRegion,
+    m => m.body > 0 && (
+      (state.tiles[m.at.y]?.[m.at.x]?.region ?? '') === heroRegion ||
+      m.roomId === heroRegion
+    ),
   );
 
   // First monster orthogonally adjacent to the active hero — the Attack button's

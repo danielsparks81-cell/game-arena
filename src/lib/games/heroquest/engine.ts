@@ -740,7 +740,11 @@ function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
   // Treasure can only be searched in a room with no monsters IN it (rulebook
   // p.15) — unlike trap/secret-door searches, monsters merely visible down a
   // corridor don't block looting a cleared room.
-  if (state.monsters.some(m => state.tiles[m.at.y]?.[m.at.x]?.region === room)) {
+  // Check both tile-region (normal monsters) AND roomId (wandering monsters that
+  // spawned in an adjacent corridor tile but logically belong to this room).
+  if (state.monsters.some(m =>
+    state.tiles[m.at.y]?.[m.at.x]?.region === room || m.roomId === room,
+  )) {
     return err('You cannot search a room for treasure while monsters are in it.');
   }
 
