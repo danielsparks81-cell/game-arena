@@ -72,8 +72,27 @@ export function DiceRollOverlay({ attack, defense, move }: {
   // Defense is revealed only after the attack has settled.
   const showDef = !!defense && (phase === 'p2roll' || phase === 'p2set' || phase === 'leaving');
 
+  // Attack result burst: shown once the attack dice settle, stays until overlay flies away.
+  const showAttackBurst = attack && !p1Rolling && !showMove;
+  const isCrit = !!attack && attack.skulls === attack.faces.length && attack.faces.length > 0 && attack.skulls > 0;
+
   return (
     <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center overflow-hidden">
+      <style>{`
+        @keyframes hq-burst-pop {
+          0%   { transform: scale(0.2); opacity: 0; }
+          60%  { transform: scale(1.18); opacity: 1; }
+          100% { transform: scale(1);   opacity: 1; }
+        }
+        @keyframes hq-crit-in {
+          0%   { transform: translateY(10px) scale(0.8); opacity: 0; }
+          100% { transform: translateY(0)    scale(1);   opacity: 1; }
+        }
+        @keyframes hq-crit-glow {
+          0%   { text-shadow: 0 0 8px #f87171, 0 0 20px #f87171; }
+          100% { text-shadow: 0 0 18px #fb923c, 0 0 40px #fb923c, 0 0 4px #fff; }
+        }
+      `}</style>
       <div
         className="absolute inset-0 bg-black/35 transition-opacity duration-300"
         style={{ opacity: leaving ? 0 : 1 }}
@@ -103,6 +122,53 @@ export function DiceRollOverlay({ attack, defense, move }: {
                 </div>
               </div>
             )}
+
+            {/* Attack result burst — pops in once the dice settle */}
+            {showAttackBurst && (
+              <div className="flex flex-col items-center gap-1" style={{ animation: 'hq-burst-pop 0.38s cubic-bezier(.2,1.4,.4,1) both' }}>
+                {/* Big skull count */}
+                <div
+                  style={{
+                    fontSize: 80,
+                    lineHeight: 1,
+                    fontFamily: 'Georgia, serif',
+                    fontWeight: 900,
+                    color: attack!.skulls === 0 ? '#94a3b8' : isCrit ? '#f87171' : '#fbbf24',
+                    textShadow: isCrit
+                      ? '0 0 18px #f87171, 0 0 40px #f87171'
+                      : attack!.skulls > 0
+                        ? '0 0 12px #f59e0b, 0 2px 6px rgba(0,0,0,0.8)'
+                        : '0 2px 4px rgba(0,0,0,0.6)',
+                  }}
+                >
+                  {attack!.skulls === 0 ? '–' : attack!.skulls}
+                  <span style={{ fontSize: 48, marginLeft: 6 }}>{attack!.skulls === 0 ? '🛡️' : '💀'}</span>
+                </div>
+                {/* Critical label */}
+                {isCrit && (
+                  <div
+                    style={{
+                      fontFamily: 'Georgia, serif',
+                      fontWeight: 900,
+                      fontSize: 18,
+                      letterSpacing: '0.15em',
+                      textTransform: 'uppercase',
+                      color: '#f87171',
+                      animation: 'hq-crit-in 0.25s 0.25s ease-out both, hq-crit-glow 0.6s 0.5s ease-in-out infinite alternate',
+                    }}
+                  >
+                    ⚡ Critical Strike!! ⚡
+                  </div>
+                )}
+                {/* Miss label */}
+                {attack!.skulls === 0 && (
+                  <div style={{ fontFamily: 'Georgia, serif', fontSize: 15, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#94a3b8' }}>
+                    No hits
+                  </div>
+                )}
+              </div>
+            )}
+
             {showDef && defense && (
               <div className="flex flex-col items-center gap-1.5">
                 <OverlayLabel text={`${defense.rolledBy === 'hero' ? 'Defend' : 'Monster defend'} — ${defRolling ? '…' : `${defense.blocks} block${defense.blocks !== 1 ? 's' : ''}`}`} sub />
