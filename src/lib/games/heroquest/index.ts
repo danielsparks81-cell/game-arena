@@ -29,6 +29,7 @@ export type {
   Spell,
   Item,
   TreasureCard,
+  TreasureFx,
   DiceRoll,
   DieFace,
   LogEntry,

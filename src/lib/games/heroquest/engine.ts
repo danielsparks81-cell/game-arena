@@ -738,7 +738,11 @@ function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   h.searchedRooms.push(room);
-  markActed(h);
+  // NOTE: markActed is called per-case in resolveTreasureCard (and below for
+  // fixed content). Wandering Monster is the ONLY card that does NOT end the
+  // hero's action — the rulebook is explicit: the monster "attacks immediately"
+  // but the hero's turn continues.
+
   // Quest-defined fixed content overrides the deck for the FIRST hero to search.
   const fixedFurn = s.furniture.find(f =>
     !f.searched
@@ -747,23 +751,28 @@ function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
   );
   if (fixedFurn) {
     fixedFurn.searched = true;
+    markActed(h); // fixed content always ends the turn
     if (fixedFurn.fixedContent!.kind === 'gold') {
       h.gold += fixedFurn.fixedContent!.amount;
       pushLog(s, 'search', `${heroLabel(h)} searches the ${fixedFurn.kind} and finds ${fixedFurn.fixedContent!.amount} gold!`);
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'fixed', label: `${fixedFurn.fixedContent!.amount} Gold!`, subtitle: 'From the chest', isGood: true };
     } else if (fixedFurn.fixedContent!.kind === 'nothing') {
-      pushLog(s, 'search', `${heroLabel(h)} searches the ${fixedFurn.kind}: ${fixedFurn.fixedContent!.flavor}`);
+      pushLog(s, 'search', `${heroLabel(h)} searches the ${fixedFurn.kind}: ${(fixedFurn.fixedContent as { flavor: string }).flavor}`);
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'fixed', label: 'Empty!', subtitle: (fixedFurn.fixedContent as { flavor: string }).flavor, isGood: false };
     } else if (fixedFurn.fixedContent!.kind === 'item') {
       pushLog(s, 'search', `${heroLabel(h)} finds an item: ${fixedFurn.fixedContent!.itemId}.`);
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'fixed', label: 'Item Found!', isGood: true };
     }
     return ok(s);
   }
   // Otherwise draw a treasure card.
   const card = drawTreasureCard(s);
   if (!card) {
+    markActed(h);
     pushLog(s, 'search', `${heroLabel(h)} finds nothing of value (deck exhausted).`);
     return ok(s);
   }
-  resolveTreasureCard(s, h, card);
+  resolveTreasureCard(s, h, card); // handles markActed and lastTreasureFx internally
   return ok(s);
 }
 
@@ -1361,66 +1370,101 @@ function maybeFinishOnExit(s: HQState): void {
 // ============================================================================
 
 function drawTreasureCard(s: HQState): TreasureCard | null {
-  if (s.treasureDeck.length === 0) {
-    if (s.treasureDiscard.length === 0) return null;
-    s.treasureDeck = shuffle(s.treasureDiscard);
-    s.treasureDiscard = [];
-  }
+  // Hazard and Wandering Monster cards cycle back to the BOTTOM of the deck
+  // after resolution — so the deck never truly empties under normal play (the
+  // 10 cycling cards keep circulating). If somehow all cards have been
+  // permanently removed (14 good cards gone AND all 10 cycling cards also
+  // missing), we return null as a safety net.
   return s.treasureDeck.shift() ?? null;
 }
 
 function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
   switch (card.kind) {
     case 'gold':
+      markActed(h);
       h.gold += card.amount;
       pushLog(s, 'search', `${heroLabel(h)} finds ${card.amount} gold!`);
+      s.treasureDiscard.push(card);  // permanently removed from play
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'gold', label: `${card.amount} Gold!`, subtitle: 'Added to your purse', isGood: true };
       return;
     case 'gem':
-      h.gold += card.value;  // v1 simplification: gem auto-converts to gold value
+      markActed(h);
+      h.gold += card.value;
       pushLog(s, 'search', `${heroLabel(h)} finds a gem worth ${card.value} gold!`);
+      s.treasureDiscard.push(card);
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'gem', label: 'Gem!', subtitle: `Worth ${card.value} gold`, isGood: true };
       return;
-    case 'potion':
-      // v1: auto-applied on draw (heal).
+    case 'jewels':
+      markActed(h);
+      h.gold += card.value;
+      pushLog(s, 'search', `${heroLabel(h)} finds jewels worth ${card.value} gold!`);
+      s.treasureDiscard.push(card);
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'jewels', label: 'Jewels!', subtitle: `Worth ${card.value} gold`, isGood: true };
+      return;
+    case 'potion': {
+      markActed(h);
       const restored = Math.min(h.bodyMax - h.body, card.amount);
       h.body += restored;
       pushLog(s, 'search', `${heroLabel(h)} finds a ${card.name} and drinks it (+${restored} BP).`);
       s.treasureDiscard.push(card);
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'potion', label: card.name, subtitle: `+${restored} Body Point${restored !== 1 ? 's' : ''}`, isGood: true };
       return;
+    }
     case 'hazard':
+      markActed(h);  // hazard ends the hero's action
       h.body = Math.max(0, h.body - card.bpLoss);
-      pushLog(s, 'search', `${heroLabel(h)}: ${card.flavor} (-${card.bpLoss} BP)`);
-      s.treasureDiscard.push(card);
+      pushLog(s, 'search', `${heroLabel(h)}: ${card.flavor} (−${card.bpLoss} BP)`);
+      s.treasureDeck.push(card);  // returned to BOTTOM of deck — cycles back
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'hazard', label: 'Hazard!', subtitle: `${card.flavor} — −${card.bpLoss} BP`, isGood: false };
       checkHeroDeath(s, h);
       return;
     case 'wandering': {
+      // Wandering Monster does NOT end the hero's action (rulebook: the monster
+      // attacks immediately but the hero's turn then continues normally).
+      s.treasureDeck.push(card);  // returned to BOTTOM of deck — cycles back
       const kind = s.quest.wanderingMonster;
       if (!kind) {
         pushLog(s, 'search', `${heroLabel(h)} hears danger… but no monster appears.`);
-        s.treasureDiscard.push(card);
+        s.lastTreasureFx = { seq: s.logSeq, kind: 'wandering', label: 'Wandering Monster!', subtitle: 'No monster for this quest', isGood: false };
         return;
       }
       // Spawn adjacent to the hero on first free cell.
       const adj = adjacentCells(h.at).filter(c =>
         inBounds(s, c) && isPassable(s, c, /*forHero*/ false) && !cellOccupied(s, c, false),
       );
-      const at = adj[0] ?? h.at;
+      const spawnAt = adj[0] ?? h.at;
       const stats = monsterStats(kind);
-      const id = `wand_${s.logSeq + 1}_${Math.floor(Math.random() * 1e6)}`;
-      const m: Monster = {
-        id,
-        kind,
-        at,
-        body: stats.bodyMax,
-        bodyMax: stats.bodyMax,
-        attack: stats.attack,
-        defense: stats.defense,
-        move: stats.move,
+      const mId = `wand_${s.logSeq + 1}_${Math.floor(Math.random() * 1e6)}`;
+      const newMonster: Monster = {
+        id: mId, kind,
+        at: spawnAt,
+        body: stats.bodyMax, bodyMax: stats.bodyMax,
+        attack: stats.attack, defense: stats.defense, move: stats.move,
         gold: stats.gold,
         roomId: s.tiles[h.at.y][h.at.x].region,
       };
-      s.monsters.push(m);
+      s.monsters.push(newMonster);
       pushLog(s, 'spawn', `A wandering ${stats.displayName} appears next to ${heroLabel(h)}!`);
-      s.treasureDiscard.push(card);
+      // Immediate attack — the monster strikes the hero before they can react.
+      const atk = rollDice(newMonster.attack, 'monster');
+      const defBonus = h.defenseBonus ?? 0;
+      const def = rollDice(Math.max(1, h.defense + defBonus - (h.inPit ? 1 : 0)), 'hero');
+      const damage = Math.max(0, atk.skulls - def.blocks);
+      h.body = Math.max(0, h.body - damage);
+      const combatLine = damage > 0
+        ? `${atk.skulls} skulls vs ${def.blocks} blocks — ${heroLabel(h)} loses ${damage} BP`
+        : `${atk.skulls} skulls vs ${def.blocks} blocks — No damage`;
+      pushLog(s, 'combat',
+        `${stats.displayName} attacks ${heroLabel(h)} immediately! ${combatLine}.`,
+      );
+      checkHeroDeath(s, h);
+      s.lastTreasureFx = {
+        seq: s.logSeq,
+        kind: 'wandering',
+        label: `${stats.displayName}!`,
+        subtitle: combatLine,
+        isGood: false,
+      };
       return;
     }
   }

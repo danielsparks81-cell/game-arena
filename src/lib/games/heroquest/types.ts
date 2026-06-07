@@ -267,11 +267,26 @@ export type WinCondition =
 
 /** A single treasure card. */
 export type TreasureCard =
-  | { id: string; kind: 'gold'; amount: number }
-  | { id: string; kind: 'gem'; value: number }
-  | { id: string; kind: 'potion'; name: string; effect: 'heal'; amount: number }
-  | { id: string; kind: 'hazard'; flavor: string; bpLoss: number }
+  | { id: string; kind: 'gold';     amount: number }
+  | { id: string; kind: 'gem';      value: number }
+  | { id: string; kind: 'jewels';   value: number }
+  | { id: string; kind: 'potion';   name: string; effect: 'heal'; amount: number }
+  | { id: string; kind: 'hazard';   flavor: string; bpLoss: number }
   | { id: string; kind: 'wandering' };
+
+/** Data needed to render the treasure-card-reveal animation on the client. */
+export type TreasureFx = {
+  /** Monotone counter — only fire the animation when seq changes. */
+  seq: number;
+  /** Which card type was drawn (or 'fixed' for quest-defined chest content). */
+  kind: 'gold' | 'gem' | 'jewels' | 'potion' | 'hazard' | 'wandering' | 'fixed';
+  /** Main heading shown on the revealed card face. */
+  label: string;
+  /** Optional second line (value, flavor text, or combat result). */
+  subtitle?: string;
+  /** True = play a positive sound; false = play a negative sound. */
+  isGood: boolean;
+};
 
 // ============================================================================
 // Combat dice
@@ -355,6 +370,9 @@ export type HQState = {
   /** Most recent spell cast — drives the board's spell animation (a bolt/burst
    *  from caster to target, coloured by element). Identified by `seq`. */
   lastSpellFx?: { seq: number; element: string; from: Coord; to: Coord } | null;
+  /** Most recent treasure card draw — drives the card-flip reveal animation.
+   *  Keyed on `seq` so the UI only fires once per draw. */
+  lastTreasureFx?: TreasureFx | null;
   /** Pending UI prompt — set when the engine needs the active hero (or
       Zargon-as-engine, in our case it's always the active hero) to make a
       choice that can't be auto-resolved. v1 keeps this small. */

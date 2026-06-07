@@ -17,6 +17,7 @@ import HeroLobby from './heroquest/HeroLobby';
 import HeroQuestBoardCanvas from './heroquest/Board';
 import CharacterSheet from './heroquest/CharacterSheet';
 import DicePanel, { DiceRollOverlay } from './heroquest/DicePanel';
+import { TreasureCardOverlay } from './heroquest/TreasureCardOverlay';
 import QuestBriefing from './heroquest/QuestBriefing';
 import { HeartIcon, CoinIcon } from './heroquest/Art';
 import { useNarration, speak } from './heroquest/narration';
@@ -279,6 +280,11 @@ function PlayingView({
           </div>
         ))}
 
+        {/* Treasure deck status — shows remaining card count so players can
+            gauge how "hot" the deck is. Only 14 good cards can be permanently
+            removed; the 10 cycling cards (hazard + wandering) always return. */}
+        <TreasurePanel deckSize={state.treasureDeck.length} />
+
         {/* Dice panel sits right under the hero panels — always visible and a
             fixed size (shrink-0) so the column never jumps. The roll overlay
             flies here on exit (targeted by this id). */}
@@ -307,6 +313,7 @@ function PlayingView({
           onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
         />
         <DiceRollOverlay attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
+        <TreasureCardOverlay fx={state.lastTreasureFx} />
       </div>
     </div>
   );
@@ -533,6 +540,44 @@ function ActionButton({ label, icon, onClick, disabled, flavor, tip, badge, wide
       )}
       <span className="sr-only">{label}</span>
     </button>
+  );
+}
+
+// ============================================================================
+// Treasure deck panel
+// ============================================================================
+
+function TreasurePanel({ deckSize }: { deckSize: number }) {
+  // The deck starts at 24 cards. 14 good cards can be permanently removed
+  // (4 gold + 2 gem + 2 jewels + 6 potions). The remaining 10 (4 hazard +
+  // 6 wandering) cycle back to the bottom, so the minimum deck size is 10.
+  const TOTAL = 24;
+  const MIN   = 10;  // cycling cards never leave
+  const good  = Math.max(0, deckSize - MIN);  // good cards still available
+  const goodMax = TOTAL - MIN;                // 14 when fresh
+  const pct   = goodMax > 0 ? good / goodMax : 0;
+
+  const barColor = pct > 0.6 ? 'bg-emerald-500' : pct > 0.3 ? 'bg-amber-500' : 'bg-rose-500';
+
+  return (
+    <div className="shrink-0 rounded-lg border border-amber-900/40 bg-gradient-to-b from-amber-950/30 to-black/40 px-3 py-2">
+      <div className="mb-1.5 flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-amber-300/70">
+          <span>💰</span> Treasure Deck
+        </span>
+        <span className="text-xs font-bold text-amber-200">{deckSize} cards</span>
+      </div>
+      {/* Progress bar: shows fraction of permanently-removable (good) cards still in deck */}
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-800">
+        <div
+          className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+          style={{ width: `${Math.max(4, pct * 100)}%` }}
+        />
+      </div>
+      <div className="mt-1 text-[9px] text-amber-200/40">
+        {good > 0 ? `${good} good card${good !== 1 ? 's' : ''} remaining` : 'Only hazards remain'}
+      </div>
+    </div>
   );
 }
 

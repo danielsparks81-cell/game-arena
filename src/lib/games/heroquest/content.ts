@@ -173,33 +173,56 @@ export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
 };
 
 // ============================================================================
-// Treasure deck (v1: 18 cards)
+// Treasure deck — 24 cards (faithful to the HeroQuest rulebook)
+//
+// Composition:
+//   Gold    ×4 (15,15,25,25)  — permanently removed when drawn
+//   Gem     ×2 (35,35)        — permanently removed when drawn
+//   Jewels  ×2 (50,50)        — permanently removed when drawn
+//   Potion  ×6 (4 unique)     — permanently removed when drawn
+//   Hazard  ×4                — returned to BOTTOM of deck, ends turn
+//   Wandering Monster ×6      — returned to BOTTOM of deck, does NOT end turn
+//
+// Hazard/Wandering cards cycle back, so over time the proportion of bad cards
+// rises as good cards are permanently consumed.
 // ============================================================================
 
 export function buildTreasureDeck(): TreasureCard[] {
   let n = 0;
   const id = () => `tr_${++n}`;
   const deck: TreasureCard[] = [
-    { id: id(), kind: 'gold', amount: 25 },
-    { id: id(), kind: 'gold', amount: 50 },
-    { id: id(), kind: 'gold', amount: 75 },
-    { id: id(), kind: 'gold', amount: 100 },
-    { id: id(), kind: 'gold', amount: 50 },
-    { id: id(), kind: 'gold', amount: 25 },
-    { id: id(), kind: 'gem', value: 50 },
-    { id: id(), kind: 'gem', value: 75 },
-    { id: id(), kind: 'potion', name: 'Heroic Brew', effect: 'heal', amount: 4 },
-    { id: id(), kind: 'potion', name: 'Healing Draught', effect: 'heal', amount: 4 }, // placeholder treasure deck (pending real cards); real Holy Water is an equipment item (kills undead)
-    { id: id(), kind: 'potion', name: 'Healing Salve', effect: 'heal', amount: 2 },
-    { id: id(), kind: 'hazard', flavor: 'You slip and twist an ankle.', bpLoss: 1 },
-    { id: id(), kind: 'hazard', flavor: 'A loose stone gives way.', bpLoss: 1 },
+    // ── Gold (4 cards, permanently removed) ─────────────────────────────────
+    { id: id(), kind: 'gold',   amount: 15 },
+    { id: id(), kind: 'gold',   amount: 15 },
+    { id: id(), kind: 'gold',   amount: 25 },
+    { id: id(), kind: 'gold',   amount: 25 },
+    // ── Gem (2 cards, permanently removed) ──────────────────────────────────
+    { id: id(), kind: 'gem',    value: 35 },
+    { id: id(), kind: 'gem',    value: 35 },
+    // ── Jewels (2 cards, permanently removed) ────────────────────────────────
+    { id: id(), kind: 'jewels', value: 50 },
+    { id: id(), kind: 'jewels', value: 50 },
+    // ── Potions (6 cards, 4 unique, permanently removed) ─────────────────────
+    { id: id(), kind: 'potion', name: 'Heroic Brew',    effect: 'heal', amount: 4 },
+    { id: id(), kind: 'potion', name: 'Heroic Brew',    effect: 'heal', amount: 4 },
+    { id: id(), kind: 'potion', name: 'Healing Draught',effect: 'heal', amount: 3 },
+    { id: id(), kind: 'potion', name: 'Healing Draught',effect: 'heal', amount: 3 },
+    { id: id(), kind: 'potion', name: 'Healing Salve',  effect: 'heal', amount: 2 },
+    { id: id(), kind: 'potion', name: 'Tonic',          effect: 'heal', amount: 1 },
+    // ── Hazard (4 cards, returned to bottom of deck) ─────────────────────────
+    { id: id(), kind: 'hazard', flavor: 'You slip and twist an ankle.',  bpLoss: 1 },
+    { id: id(), kind: 'hazard', flavor: 'A loose stone gives way.',      bpLoss: 1 },
+    { id: id(), kind: 'hazard', flavor: 'A rusty blade nicks your hand.', bpLoss: 1 },
+    { id: id(), kind: 'hazard', flavor: 'Disturbed dust fills your lungs.', bpLoss: 1 },
+    // ── Wandering Monster (6 cards, returned to bottom of deck) ──────────────
     { id: id(), kind: 'wandering' },
     { id: id(), kind: 'wandering' },
     { id: id(), kind: 'wandering' },
-    { id: id(), kind: 'gold', amount: 50 },
-    { id: id(), kind: 'gold', amount: 25 },
+    { id: id(), kind: 'wandering' },
+    { id: id(), kind: 'wandering' },
+    { id: id(), kind: 'wandering' },
   ];
-  return deck;
+  return deck; // caller must shuffle before use
 }
 
 // ============================================================================
