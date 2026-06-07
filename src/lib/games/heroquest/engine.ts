@@ -329,7 +329,7 @@ export function applyAction(
     for (const h of s.heroes) revealLineOfSightForHero(s, h);
     pushLog(s, 'system', `Quest "${s.quest.name}" begins.`);
     pushLog(s, 'system', s.quest.briefing);
-    pushLog(s, 'system', `It is ${s.heroes[0].username}'s turn (${HERO_DEFAULTS[s.heroes[0].klass].name}).`);
+    pushLog(s, 'system', `It is ${heroLabel(s.heroes[0])}'s turn.`);
     return ok(s);
   }
 
@@ -401,7 +401,7 @@ function doRollMove(state: HQState, hero: Hero): ApplyResult {
   s.lastMoveRoll = [d1, d2, d3];
   s.lastRoll = null;
   s.lastDefenseRoll = null;
-  pushLog(s, 'move', `${h.username} rolls ${d1}+${d2}+${d3} = ${total} squares of movement.`);
+  pushLog(s, 'move', `${heroLabel(h)} rolls ${d1}+${d2}+${d3} = ${total} squares of movement.`);
   return ok(s);
 }
 
@@ -452,20 +452,25 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
   };
 
   for (const sq of path) {
-    if (h.moveLeft <= 0) break;
     const adx = Math.abs(sq.x - from.x), ady = Math.abs(sq.y - from.y);
     if (adx + ady !== 1) break;                              // orthogonal single step only
     if (!inBounds(s, sq)) break;
     if (!h.phaseWalls && (!isPassable(s, sq, /*forHero*/ true) || edgeBlocksMove(s, from, sq, false))) break;
     if (s.monsters.some(m => m.at.x === sq.x && m.at.y === sq.y)) break; // monsters block
 
+    // The 2×2 stairway is ONE logical space: moving BETWEEN stair squares is
+    // free, so stepping off from the back corner costs 1, not 2. Any step that
+    // leaves or enters the stairway costs 1.
+    const cameFrom: Coord = { ...from };
+    const cost = isStairs(cameFrom) && isStairs(sq) ? 0 : 1;
+    if (cost > h.moveLeft) break;                            // can't afford this step
+
     const roomsBefore = revealedRoomRegions(s);
     const monstersBefore = s.monsters.length;
-    const cameFrom: Coord = { ...from };
     h.at = { ...sq };
-    h.moveLeft -= 1;
+    h.moveLeft -= cost;
     from = { ...sq };
-    spentSinceSafe += 1;
+    spentSinceSafe += cost;
 
     // Trap on entry → resolve by kind (rulebook pp.17–18). Most outcomes stop the
     // hero; a *dodged* spear lets the walk continue (falls through below).
@@ -479,7 +484,7 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
         h.inPit = true;
         h.body = Math.max(0, h.body - 1);
         h.moveLeft = 0;
-        pushLog(s, 'trap', `${h.username} stumbles into a pit trap! (-1 BP)`);
+        pushLog(s, 'trap', `${heroLabel(h)} stumbles into a pit trap! (-1 BP)`);
         checkHeroDeath(s, h);
         revealLineOfSightForHero(s, h);
         settle();
@@ -496,7 +501,7 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
         h.at = { ...cameFrom };
         h.moveLeft = 0;
         pushLog(s, 'trap',
-          `${h.username} springs a falling block! The ceiling caves in` +
+          `${heroLabel(h)} springs a falling block! The ceiling caves in` +
           (roll.skulls > 0 ? ` (-${roll.skulls} BP)` : ' (no damage)') +
           ' — the square is sealed.');
         checkHeroDeath(s, h);
@@ -511,13 +516,13 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
       if (roll.faces[0] === 'skull') {
         h.body = Math.max(0, h.body - 1);
         h.moveLeft = 0;
-        pushLog(s, 'trap', `${h.username} is struck by a spear trap! (-1 BP)`);
+        pushLog(s, 'trap', `${heroLabel(h)} is struck by a spear trap! (-1 BP)`);
         checkHeroDeath(s, h);
         revealLineOfSightForHero(s, h);
         settle();
         return;
       }
-      pushLog(s, 'trap', `${h.username} dodges a spear trap — it snaps shut, harmless.`);
+      pushLog(s, 'trap', `${heroLabel(h)} dodges a spear trap — it snaps shut, harmless.`);
       // fall through: the dodge counts as a normal step and the walk continues.
     }
 
@@ -527,7 +532,7 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
     // Stop if a NEW room comes into view (its monsters are placed) or monsters
     // otherwise appear — so the player can react.
     if (revealedRoomRegions(s).size > roomsBefore.size || s.monsters.length > monstersBefore) {
-      pushLog(s, 'reveal', `${h.username} rounds the corner — a new area comes into view.`);
+      pushLog(s, 'reveal', `${heroLabel(h)} rounds the corner — a new area comes into view.`);
       settle();
       return;
     }
@@ -555,7 +560,7 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
 
   const path = findPath(state, hero, dest);
   if (!path) return err('There is no clear path there (no diagonals; rooms are entered only through doors).');
-  if (path.length > hero.moveLeft) return err('That square is out of reach.');
+  if (pathCost(state, hero.at, path) > hero.moveLeft) return err('That square is out of reach.');
 
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
@@ -592,7 +597,17 @@ function logMovement(s: HQState, h: Hero, moveLeftBefore: number): void {
   const where = s.tiles[h.at.y]?.[h.at.x]?.kind === 'stairs' ? ' onto the stairway'
     : region.startsWith('room_') ? ' into the chamber'
     : ' along the passage';
-  pushLog(s, 'move', `${h.username} moves ${used} square${used > 1 ? 's' : ''}${where}.`);
+  pushLog(s, 'move', `${heroLabel(h)} moves ${used} square${used > 1 ? 's' : ''}${where}.`);
+}
+
+/** Movement cost of walking `path` starting from `start`. The 2×2 stairway is
+ *  one logical space, so any step between two stair squares is free; every other
+ *  step costs 1. (Matches walkPath's per-step cost.) */
+function pathCost(s: HQState, start: Coord, path: Coord[]): number {
+  const isStairs = (c: Coord) => s.tiles[c.y]?.[c.x]?.kind === 'stairs';
+  let prev = start, total = 0;
+  for (const c of path) { total += isStairs(prev) && isStairs(c) ? 0 : 1; prev = c; }
+  return total;
 }
 
 /** Shortest orthogonal path (list of squares to ENTER, ending at dest) from the
@@ -651,7 +666,7 @@ function doOpenDoor(state: HQState, hero: Hero, doorId: string): ApplyResult {
     }
   }
   revealLineOfSightForHero(s, s.heroes[s.turnIndex]);
-  pushLog(s, 'reveal', `${hero.username} opens a door — the chamber beyond is revealed!`);
+  pushLog(s, 'reveal', `${heroLabel(hero)} opens a door — the chamber beyond is revealed!`);
   return ok(s);
 }
 
@@ -686,7 +701,7 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   const damage = Math.max(0, atk.skulls - def.blocks);
   m.body -= damage;
   pushLog(s, 'combat',
-    `${h.username} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
+    `${heroLabel(h)} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
     (bonus > 0 ? ` (Courage +${bonus} dice)` : '') + '. ' +
     (damage > 0 ? `${monsterDisplay(m)} takes ${damage} BP.` : 'No damage.'),
   );
@@ -694,7 +709,7 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
     pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
     if (m.gold) {
       h.gold += m.gold;
-      pushLog(s, 'system', `${h.username} loots ${m.gold} gold from the fallen ${monsterDisplay(m)}.`);
+      pushLog(s, 'system', `${heroLabel(h)} loots ${m.gold} gold from the fallen ${monsterDisplay(m)}.`);
     }
     s.monsters = s.monsters.filter(mm => mm.id !== m.id);
   }
@@ -734,18 +749,18 @@ function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
     fixedFurn.searched = true;
     if (fixedFurn.fixedContent!.kind === 'gold') {
       h.gold += fixedFurn.fixedContent!.amount;
-      pushLog(s, 'search', `${h.username} searches the ${fixedFurn.kind} and finds ${fixedFurn.fixedContent!.amount} gold!`);
+      pushLog(s, 'search', `${heroLabel(h)} searches the ${fixedFurn.kind} and finds ${fixedFurn.fixedContent!.amount} gold!`);
     } else if (fixedFurn.fixedContent!.kind === 'nothing') {
-      pushLog(s, 'search', `${h.username} searches the ${fixedFurn.kind}: ${fixedFurn.fixedContent!.flavor}`);
+      pushLog(s, 'search', `${heroLabel(h)} searches the ${fixedFurn.kind}: ${fixedFurn.fixedContent!.flavor}`);
     } else if (fixedFurn.fixedContent!.kind === 'item') {
-      pushLog(s, 'search', `${h.username} finds an item: ${fixedFurn.fixedContent!.itemId}.`);
+      pushLog(s, 'search', `${heroLabel(h)} finds an item: ${fixedFurn.fixedContent!.itemId}.`);
     }
     return ok(s);
   }
   // Otherwise draw a treasure card.
   const card = drawTreasureCard(s);
   if (!card) {
-    pushLog(s, 'search', `${h.username} finds nothing of value (deck exhausted).`);
+    pushLog(s, 'search', `${heroLabel(h)} finds nothing of value (deck exhausted).`);
     return ok(s);
   }
   resolveTreasureCard(s, h, card);
@@ -769,8 +784,8 @@ function doSearchTraps(state: HQState, hero: Hero): ApplyResult {
     if (tRegion === region) { t.revealed = true; found += 1; }
   }
   pushLog(s, 'search', found > 0
-    ? `${h.username} searches for traps and uncovers ${found}!`
-    : `${h.username} searches for traps but finds none.`,
+    ? `${heroLabel(h)} searches for traps and uncovers ${found}!`
+    : `${heroLabel(h)} searches for traps but finds none.`,
   );
   return ok(s);
 }
@@ -795,8 +810,8 @@ function doSearchSecrets(state: HQState, hero: Hero): ApplyResult {
     if (inRegion) { d.found = true; found += 1; }
   }
   pushLog(s, 'search', found > 0
-    ? `${h.username} discovers ${found} secret door${found > 1 ? 's' : ''}!`
-    : `${h.username} searches for secret doors but finds none.`,
+    ? `${heroLabel(h)} discovers ${found} secret door${found > 1 ? 's' : ''}!`
+    : `${heroLabel(h)} searches for secret doors but finds none.`,
   );
   return ok(s);
 }
@@ -827,10 +842,10 @@ function doDisarmTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
   t.triggered = true;
   if (sprung) {
     h.body = Math.max(0, h.body - 1);
-    pushLog(s, 'trap', `${h.username} fumbles the disarm — the ${t.kind} trap triggers! (-1 BP)`);
+    pushLog(s, 'trap', `${heroLabel(h)} fumbles the disarm — the ${t.kind} trap triggers! (-1 BP)`);
     checkHeroDeath(s, h);
   } else {
-    pushLog(s, 'trap', `${h.username} carefully disarms the ${t.kind} trap.`);
+    pushLog(s, 'trap', `${heroLabel(h)} carefully disarms the ${t.kind} trap.`);
   }
   return ok(s);
 }
@@ -877,7 +892,7 @@ function doJumpTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
   if (roll.faces[0] !== 'skull') {
     h.at = { ...land };
     h.moveLeft -= 2;
-    pushLog(s, 'trap', `${h.username} leaps clear over the ${kindName} trap!`);
+    pushLog(s, 'trap', `${heroLabel(h)} leaps clear over the ${kindName} trap!`);
     revealLineOfSightForHero(s, h);
     if (s.tiles[h.at.y][h.at.x].kind === 'stairs') maybeFinishOnExit(s);
     return ok(s);
@@ -889,19 +904,19 @@ function doJumpTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
     h.at = { ...t.at };
     h.inPit = true;
     h.body = Math.max(0, h.body - 1);
-    pushLog(s, 'trap', `${h.username} misjudges the leap and drops into the pit! (-1 BP)`);
+    pushLog(s, 'trap', `${heroLabel(h)} misjudges the leap and drops into the pit! (-1 BP)`);
   } else if (t.kind === 'falling_block') {
     const fb = rollDice(3, 'hero');
     h.body = Math.max(0, h.body - fb.skulls);
     s.tiles[t.at.y][t.at.x] = { ...s.tiles[t.at.y][t.at.x], kind: 'blocked', revealed: true };
     h.at = { ...cameFrom };
     pushLog(s, 'trap',
-      `${h.username} triggers the falling block mid-leap!` +
+      `${heroLabel(h)} triggers the falling block mid-leap!` +
       (fb.skulls > 0 ? ` (-${fb.skulls} BP)` : ' (no damage)') + ' The square is sealed.');
   } else {
     h.at = { ...t.at };
     h.body = Math.max(0, h.body - 1);
-    pushLog(s, 'trap', `${h.username} is struck by the spear mid-leap! (-1 BP)`);
+    pushLog(s, 'trap', `${heroLabel(h)} is struck by the spear mid-leap! (-1 BP)`);
   }
   h.moveLeft = 0;
   checkHeroDeath(s, h);
@@ -916,7 +931,7 @@ function doClimbPit(state: HQState, hero: Hero): ApplyResult {
   const h = s.heroes[s.turnIndex];
   h.inPit = false;
   h.moveLeft -= 2;
-  pushLog(s, 'move', `${h.username} climbs out of the pit.`);
+  pushLog(s, 'move', `${heroLabel(h)} climbs out of the pit.`);
   return ok(s);
 }
 
@@ -954,7 +969,7 @@ function doCastSpell(
   // normal rule (acting after rolling forfeits remaining movement).
   markActed(h, !(spell.id === 'swift_wind' || spell.id === 'veil_of_mist'));
   h.spellsCast.push(spell.id);
-  pushLog(s, 'spell', `${h.username} casts ${spell.name}!`);
+  pushLog(s, 'spell', `${heroLabel(h)} casts ${spell.name}!`);
 
   // Record where the spell flies for the board animation: caster → target
   // (monster / hero), or the caster's own square for self / area spells.
@@ -977,7 +992,7 @@ function doCastSpell(
         const heal = 4;
         const restored = Math.min(target.bodyMax - target.body, heal);
         target.body += restored;
-        pushLog(s, 'spell', `${target.username} regains ${restored} BP.`);
+        pushLog(s, 'spell', `${heroLabel(target)} regains ${restored} BP.`);
       }
       return ok(s);
     }
@@ -986,7 +1001,7 @@ function doCastSpell(
       if (target) {
         const restored = Math.min(target.bodyMax - target.body, 2);
         target.body += restored;
-        pushLog(s, 'spell', `${target.username} regains ${restored} BP.`);
+        pushLog(s, 'spell', `${heroLabel(target)} regains ${restored} BP.`);
       }
       return ok(s);
     }
@@ -1064,7 +1079,7 @@ function doCastSpell(
         target.hasRolled = true;
       }
       target.moveLeft += target.moveRolled;
-      pushLog(s, 'spell', `${target.username} is swept along by a swift wind — movement doubled (${target.moveLeft} squares left)!`);
+      pushLog(s, 'spell', `${heroLabel(target)} is swept along by a swift wind — movement doubled (${target.moveLeft} squares left)!`);
       return ok(s);
     }
 
@@ -1076,7 +1091,7 @@ function doCastSpell(
       if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target is no longer able to move.`); return ok(s); }
       target.hasRolled = true;
       target.moveLeft += 10;
-      pushLog(s, 'spell', `${target.username} vanishes into a veil of mist — +10 squares of movement to slip away.`);
+      pushLog(s, 'spell', `${heroLabel(target)} vanishes into a veil of mist — +10 squares of movement to slip away.`);
       return ok(s);
     }
 
@@ -1088,7 +1103,7 @@ function doCastSpell(
       if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
       target.attackBonus = (target.attackBonus ?? 0) + 2;
       target.extraAttack = true;
-      pushLog(s, 'spell', `${target.username} is emboldened — +2 attack dice and may strike at once!`);
+      pushLog(s, 'spell', `${heroLabel(target)} is emboldened — +2 attack dice and may strike at once!`);
       return ok(s);
     }
 
@@ -1098,7 +1113,7 @@ function doCastSpell(
       const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
       if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
       target.phaseWalls = true;
-      pushLog(s, 'spell', `${target.username} can pass through solid rock until the end of their turn.`);
+      pushLog(s, 'spell', `${heroLabel(target)} can pass through solid rock until the end of their turn.`);
       return ok(s);
     }
     case 'rock_skin': {
@@ -1107,7 +1122,7 @@ function doCastSpell(
       const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
       if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
       target.defenseBonus = (target.defenseBonus ?? 0) + 2;
-      pushLog(s, 'spell', `${target.username}'s skin turns to stone — +2 defense dice until their next turn.`);
+      pushLog(s, 'spell', `${heroLabel(target)}'s skin turns to stone — +2 defense dice until their next turn.`);
       return ok(s);
     }
 
@@ -1129,7 +1144,7 @@ function doEndTurn(state: HQState, hero: Hero): ApplyResult {
     return ok(s);
   }
   if (s.phase !== 'finished') {
-    pushLog(s, 'system', `It is ${s.heroes[s.turnIndex].username}'s turn.`);
+    pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
   }
   return ok(s);
 }
@@ -1194,7 +1209,7 @@ function finishZargonTurn(s: HQState): void {
   clearZargon(s);
   if ((s.phase as Phase) !== 'finished') {
     s.phase = 'heroes';
-    pushLog(s, 'system', `It is ${s.heroes[s.turnIndex].username}'s turn.`);
+    pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
   }
 }
 
@@ -1259,9 +1274,9 @@ function runMonster(s: HQState, m: Monster): void {
     const damage = Math.max(0, atk.skulls - def.blocks);
     target.body = Math.max(0, target.body - damage);
     pushLog(s, 'combat',
-      `${monsterDisplay(m)} attacks ${target.username} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
+      `${monsterDisplay(m)} attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
       (defBonus > 0 ? ` (Rock Skin +${defBonus} dice)` : '') + '. ' +
-      (damage > 0 ? `${target.username} loses ${damage} BP.` : 'No damage.'),
+      (damage > 0 ? `${heroLabel(target)} loses ${damage} BP.` : 'No damage.'),
     );
     checkHeroDeath(s, target);
   }
@@ -1269,7 +1284,7 @@ function runMonster(s: HQState, m: Monster): void {
 
 function checkHeroDeath(s: HQState, h: Hero): void {
   if (h.body > 0) return;
-  pushLog(s, 'death', `${h.username} has fallen!`);
+  pushLog(s, 'death', `${heroLabel(h)} has fallen!`);
   // All heroes dead → Zargon wins.
   if (s.heroes.every(x => x.body <= 0)) {
     s.phase = 'finished';
@@ -1358,29 +1373,29 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
   switch (card.kind) {
     case 'gold':
       h.gold += card.amount;
-      pushLog(s, 'search', `${h.username} finds ${card.amount} gold!`);
+      pushLog(s, 'search', `${heroLabel(h)} finds ${card.amount} gold!`);
       return;
     case 'gem':
       h.gold += card.value;  // v1 simplification: gem auto-converts to gold value
-      pushLog(s, 'search', `${h.username} finds a gem worth ${card.value} gold!`);
+      pushLog(s, 'search', `${heroLabel(h)} finds a gem worth ${card.value} gold!`);
       return;
     case 'potion':
       // v1: auto-applied on draw (heal).
       const restored = Math.min(h.bodyMax - h.body, card.amount);
       h.body += restored;
-      pushLog(s, 'search', `${h.username} finds a ${card.name} and drinks it (+${restored} BP).`);
+      pushLog(s, 'search', `${heroLabel(h)} finds a ${card.name} and drinks it (+${restored} BP).`);
       s.treasureDiscard.push(card);
       return;
     case 'hazard':
       h.body = Math.max(0, h.body - card.bpLoss);
-      pushLog(s, 'search', `${h.username}: ${card.flavor} (-${card.bpLoss} BP)`);
+      pushLog(s, 'search', `${heroLabel(h)}: ${card.flavor} (-${card.bpLoss} BP)`);
       s.treasureDiscard.push(card);
       checkHeroDeath(s, h);
       return;
     case 'wandering': {
       const kind = s.quest.wanderingMonster;
       if (!kind) {
-        pushLog(s, 'search', `${h.username} hears danger… but no monster appears.`);
+        pushLog(s, 'search', `${heroLabel(h)} hears danger… but no monster appears.`);
         s.treasureDiscard.push(card);
         return;
       }
@@ -1404,7 +1419,7 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
         roomId: s.tiles[h.at.y][h.at.x].region,
       };
       s.monsters.push(m);
-      pushLog(s, 'spawn', `A wandering ${stats.displayName} appears next to ${h.username}!`);
+      pushLog(s, 'spawn', `A wandering ${stats.displayName} appears next to ${heroLabel(h)}!`);
       s.treasureDiscard.push(card);
       return;
     }
@@ -1590,6 +1605,11 @@ function rollDice(n: number, who: 'hero' | 'monster'): DiceRoll {
 
 function monsterDisplay(m: Monster): string {
   return m.displayName ?? MONSTER_STATS[m.kind]?.displayName ?? capitalize(m.kind.replace('_', ' '));
+}
+/** Chronicle label for a hero — always "Player - Class" (e.g. "Makros - Wizard")
+ *  so the log is unambiguous when one player controls several heroes. */
+function heroLabel(h: Hero): string {
+  return `${h.username} - ${HERO_DEFAULTS[h.klass].name}`;
 }
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);

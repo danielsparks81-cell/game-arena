@@ -584,3 +584,35 @@ describe('heroquest win condition: kill-and-exit gating', () => {
     expect(next.winner).toBe('heroes');
   });
 });
+
+describe('heroquest: the staircase is ONE logical space', () => {
+  // Clear the three teammates off the stairs so hero 0 moves freely.
+  function soloStairs(at: { x: number; y: number }, moveLeft: number): HQState {
+    const s: HQState = JSON.parse(JSON.stringify(startedGame()));
+    s.heroes[1].at = { x: 29, y: 1 };
+    s.heroes[2].at = { x: 29, y: 2 };
+    s.heroes[3].at = { x: 29, y: 3 };
+    s.heroes[0].at = { ...at };
+    s.heroes[0].hasRolled = true;
+    s.heroes[0].moveLeft = moveLeft;
+    s.turnIndex = 0;
+    return s;
+  }
+
+  it('stepping off the back stair corner costs 1 movement, not 2', () => {
+    // (2,18) is the far stair corner; (4,18) is a room cell two GRID steps away
+    // but only ONE logical step off the stairway: (2,18)->(3,18) within the
+    // stairs is free, then (3,18)->(4,18) off the stairs = 1.
+    const s = soloStairs({ x: 2, y: 18 }, 1);
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 4, y: 18 } }));
+    expect(out.heroes[0].at).toEqual({ x: 4, y: 18 });
+    expect(out.heroes[0].moveLeft).toBe(0);
+  });
+
+  it('repositioning WITHIN the stairway is free (0 movement spent)', () => {
+    const s = soloStairs({ x: 2, y: 17 }, 1);
+    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 18 } }));
+    expect(out.heroes[0].at).toEqual({ x: 3, y: 18 });
+    expect(out.heroes[0].moveLeft).toBe(1); // still on the stairs → nothing spent
+  });
+});

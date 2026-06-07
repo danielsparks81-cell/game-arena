@@ -396,10 +396,14 @@ function ActionPanel({
   const [optimisticActed, setOptimisticActed] = useState(false);
   const acted = (myHero?.hasActed ?? false) || optimisticActed;
   useEffect(() => {
-    // When the server confirms the action (hasActed=true) or a new turn begins
-    // (hasActed=false) or the turn passes to someone else, drop the optimism.
+    // Drop the optimism when the server confirms the action (hasActed=true), a
+    // new turn begins, or the turn passes to a DIFFERENT hero. Keying on the
+    // hero's seat is essential: with one player controlling all four heroes,
+    // hasActed (false→false) and isMyTurn (true→true) don't change as the turn
+    // hands off, so without `seat` the flag would carry over and wrongly grey
+    // out the next hero's actions.
     setOptimisticActed(false);
-  }, [myHero?.hasActed, isMyTurn]);
+  }, [myHero?.seat, myHero?.hasActed, isMyTurn]);
 
   // For spectators / between-turns, render a quieter status line.
   if (!myHero) {

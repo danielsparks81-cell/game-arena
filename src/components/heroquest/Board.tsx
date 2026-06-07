@@ -206,12 +206,11 @@ export default function HeroQuestBoardCanvas({
     while (queue.length > 0) {
       const cur = queue.shift()!;
       const d = dist.get(`${cur.x},${cur.y}`)!;
-      if (d >= myHero.moveLeft) continue;
+      const curIsStairs = state.tiles[cur.y][cur.x].kind === 'stairs';
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         const nx = cur.x + dx, ny = cur.y + dy;
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         const key = `${nx},${ny}`;
-        if (dist.has(key)) continue;
         const t = state.tiles[ny][nx];
         if (!phaseWalls) {
           if (t.kind === 'wall' || t.kind === 'blocked') continue;
@@ -219,7 +218,12 @@ export default function HeroQuestBoardCanvas({
         }
         if (edgeBlocksMove(cur.x, cur.y, nx, ny, phaseWalls)) continue;  // walls / closed doors
         if (monsterByCell.has(key)) continue;        // monsters block
-        dist.set(key, d + 1);
+        // The 2×2 stairway is ONE space: moving between stair squares is free.
+        const nd = d + (curIsStairs && t.kind === 'stairs' ? 0 : 1);
+        if (nd > myHero.moveLeft) continue;          // out of range
+        const prevD = dist.get(key);
+        if (prevD !== undefined && prevD <= nd) continue; // already reached as cheap or cheaper
+        dist.set(key, nd);
         queue.push({ x: nx, y: ny });
         if (!heroByCell.has(key)) out.add(key);      // can only STOP on an empty cell
       }
