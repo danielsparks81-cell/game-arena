@@ -127,6 +127,10 @@ export type BoardCanvasProps = {
    *  clickable and routes to onPickMonster instead of the normal attack flow. */
   spellTargetMonsters?: boolean;
   onPickMonster?: (monsterId: string) => void;
+  /** When true (Genie door-open mode), every revealed closed door is highlighted
+   *  and clickable — routes to onPickDoor instead of the normal open-door flow. */
+  spellTargetDoor?: boolean;
+  onPickDoor?: (doorId: string) => void;
   /** When set, the board is in potion-pass mode: hero tokens whose seat is in
    *  this set are clickable targets; clicking one completes the pass. */
   passTargetSeats?: Set<number>;
@@ -136,6 +140,7 @@ export type BoardCanvasProps = {
 export default function HeroQuestBoardCanvas({
   state, currentUserId, disabled, onMoveTo, onMovePath, onOpenDoor, onAttack,
   spellTargetMonsters = false, onPickMonster,
+  spellTargetDoor = false, onPickDoor,
   passTargetSeats, onPassToHero,
 }: BoardCanvasProps) {
   const W = state.quest.width;
@@ -629,6 +634,8 @@ export default function HeroQuestBoardCanvas({
           openable={openableDoors}
           disabled={disabled}
           onOpenDoor={onOpenDoor}
+          spellTargetDoor={spellTargetDoor}
+          onPickDoor={onPickDoor}
           revealAll={litAll}
         />
 
@@ -949,7 +956,9 @@ function ZoomBtn({ onClick, title, active, children }: {
 // ============================================================================
 
 function WallDoorOverlay({
-  state, isWallEdge, doorAtEdge, openable, disabled, onOpenDoor, revealAll = false,
+  state, isWallEdge, doorAtEdge, openable, disabled, onOpenDoor,
+  spellTargetDoor = false, onPickDoor,
+  revealAll = false,
 }: {
   state: HQState;
   isWallEdge: (ax: number, ay: number, bx: number, by: number) => boolean;
@@ -957,6 +966,9 @@ function WallDoorOverlay({
   openable: HQDoor[];
   disabled: boolean;
   onOpenDoor: (id: string) => void;
+  /** Genie spell door-pick mode: highlight every closed revealed door. */
+  spellTargetDoor?: boolean;
+  onPickDoor?: (id: string) => void;
   /** Debug blueprint mode: draw every wall/door regardless of fog. */
   revealAll?: boolean;
 }) {
@@ -977,8 +989,15 @@ function WallDoorOverlay({
         const door = doorAtEdge(x, y, x + 1, y);
         const hidden = door?.secret && !door.found;
         if (door && !hidden) {
+          const spellPick = spellTargetDoor && !door.open;
           segments.push(<DoorSeg key={`d-e-${x}-${y}`} vertical left={(x + 1) * TILE_PX} top={y * TILE_PX}
-            open={door.open} openable={openableIds.has(door.id)} disabled={disabled} onOpen={() => onOpenDoor(door.id)} />);
+            open={door.open}
+            openable={spellPick ? false : openableIds.has(door.id)}
+            spellPick={spellPick}
+            disabled={disabled}
+            onOpen={() => onOpenDoor(door.id)}
+            onSpellPick={() => onPickDoor?.(door.id)}
+          />);
         } else if (isWallEdge(x, y, x + 1, y)) {
           wall(`w-e-${x}-${y}`, { left: (x + 1) * TILE_PX - T / 2, top: y * TILE_PX, width: T, height: TILE_PX });
         }
@@ -988,8 +1007,15 @@ function WallDoorOverlay({
         const door = doorAtEdge(x, y, x, y + 1);
         const hidden = door?.secret && !door.found;
         if (door && !hidden) {
+          const spellPick = spellTargetDoor && !door.open;
           segments.push(<DoorSeg key={`d-s-${x}-${y}`} left={x * TILE_PX} top={(y + 1) * TILE_PX}
-            open={door.open} openable={openableIds.has(door.id)} disabled={disabled} onOpen={() => onOpenDoor(door.id)} />);
+            open={door.open}
+            openable={spellPick ? false : openableIds.has(door.id)}
+            spellPick={spellPick}
+            disabled={disabled}
+            onOpen={() => onOpenDoor(door.id)}
+            onSpellPick={() => onPickDoor?.(door.id)}
+          />);
         } else if (isWallEdge(x, y, x, y + 1)) {
           wall(`w-s-${x}-${y}`, { left: x * TILE_PX, top: (y + 1) * TILE_PX - T / 2, width: TILE_PX, height: T });
         }
@@ -1000,15 +1026,19 @@ function WallDoorOverlay({
 }
 
 function DoorSeg({
-  left, top, vertical = false, open, openable, disabled, onOpen,
+  left, top, vertical = false, open, openable, spellPick = false, disabled, onOpen, onSpellPick,
 }: {
   left: number; top: number; vertical?: boolean; open: boolean;
-  openable: boolean; disabled: boolean; onOpen: () => void;
+  openable: boolean; spellPick?: boolean; disabled: boolean;
+  onOpen: () => void; onSpellPick?: () => void;
 }) {
   const len = TILE_PX, thick = 8;
   const box: CSSProperties = vertical
     ? { left: left - thick / 2, top, width: thick, height: len }
     : { left, top: top - thick / 2, width: len, height: thick };
+  const glow = openable ? '0 0 8px 2px rgba(255,160,40,0.9)'
+    : spellPick ? '0 0 10px 3px rgba(100,180,255,0.9)' : undefined;
+  const clickable = (openable || spellPick) && !disabled;
   return (
     <div
       className="absolute"
@@ -1016,13 +1046,18 @@ function DoorSeg({
         ...box,
         zIndex: 4,
         borderRadius: 2,
-        background: open ? 'rgba(120,90,40,0.25)' : '#9a4a18',
-        border: open ? '1px dashed rgba(180,140,80,0.6)' : '1.5px solid #4a2008',
-        boxShadow: openable && !open ? '0 0 8px 2px rgba(255,160,40,0.9)' : undefined,
-        cursor: openable && !disabled ? 'pointer' : 'default',
+        background: open ? 'rgba(120,90,40,0.25)' : spellPick ? '#1a4a9a' : '#9a4a18',
+        border: open ? '1px dashed rgba(180,140,80,0.6)'
+          : spellPick ? '1.5px solid #4a80d8' : '1.5px solid #4a2008',
+        boxShadow: glow,
+        cursor: clickable ? 'pointer' : 'default',
       }}
-      onClick={() => { if (openable && !disabled) onOpen(); }}
-      title={open ? 'Open doorway' : openable ? 'Closed door — click to open' : 'Closed door'}
+      onClick={() => {
+        if (disabled) return;
+        if (spellPick) onSpellPick?.();
+        else if (openable) onOpen();
+      }}
+      title={open ? 'Open doorway' : spellPick ? 'Click to open with the Genie' : openable ? 'Closed door — click to open' : 'Closed door'}
     />
   );
 }

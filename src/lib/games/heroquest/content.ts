@@ -111,21 +111,21 @@ export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
 
 export const SPELLS: Spell[] = [
   // Air
-  { id: 'genie',       name: 'Genie',         element: 'air',   target: 'monster', text: 'Summon a genie to strike a monster you can see (4 attack dice).' },
-  { id: 'tempest',     name: 'Tempest',       element: 'air',   target: 'area',    text: 'Up to 2 monsters next to you lose their next turn.' },
-  { id: 'swift_wind',  name: 'Swift Wind',    element: 'air',   target: 'hero',    text: 'Target hero moves with double movement this turn.' },
+  { id: 'genie',       name: 'Genie',         element: 'air',   target: 'genie',   text: 'Open any door on the board, OR attack any visible monster with 5 combat dice.' },
+  { id: 'tempest',     name: 'Tempest',        element: 'air',   target: 'monster', text: 'Target monster misses its next turn.' },
+  { id: 'swift_wind',  name: 'Swift Wind',     element: 'air',   target: 'hero',    text: 'Target hero rolls twice as many movement dice as normal on their next move.' },
   // Water
-  { id: 'veil_of_mist', name: 'Veil of Mist', element: 'water', target: 'hero',    text: 'Target hero gains +10 squares of movement to slip away.' },
-  { id: 'heal_body_w', name: 'Heal Body',     element: 'water', target: 'hero',    text: 'Restore up to 4 BP to target.' },
-  { id: 'water_heal',  name: 'Water of Healing', element: 'water', target: 'hero', text: 'Restore up to 2 BP to target.' },
+  { id: 'veil_of_mist', name: 'Veil of Mist', element: 'water', target: 'hero',    text: 'Target hero may move through monster-occupied squares on their next move.' },
+  { id: 'sleep',        name: 'Sleep',         element: 'water', target: 'monster', text: 'Put a monster into a deep sleep. Each Zargon turn it rolls 1d6 per Mind Point — if any die shows 6 it wakes up. Cannot be cast on undead.' },
+  { id: 'water_heal',   name: 'Water of Healing', element: 'water', target: 'hero', text: 'Restore up to 4 lost Body Points to target.' },
   // Fire
-  { id: 'ball_of_flame', name: 'Ball of Flame', element: 'fire', target: 'monster', text: 'Ranged 2-die attack on any LOS target.' },
-  { id: 'courage',     name: 'Courage',       element: 'fire',  target: 'hero',    text: 'Target hero strikes at once with +2 attack dice.' },
-  { id: 'fire_of_wrath', name: 'Fire of Wrath', element: 'fire', target: 'monster', text: 'Adjacent target takes 1 BP. No defense allowed.' },
+  { id: 'ball_of_flame', name: 'Ball of Flame', element: 'fire', target: 'monster', text: 'Deal 2 BP of damage to any visible monster. Monster then rolls 2d6 — each 6 reduces the damage by 1.' },
+  { id: 'courage',      name: 'Courage',        element: 'fire',  target: 'hero',   text: 'Target hero rolls 2 extra combat dice on their next attack.' },
+  { id: 'fire_of_wrath', name: 'Fire of Wrath', element: 'fire', target: 'monster', text: 'Deal 1 BP of damage to any visible monster. Monster then rolls 1d6 — a 6 reduces the damage by 1.' },
   // Earth
-  { id: 'pass_rock',   name: 'Pass Through Rock', element: 'earth', target: 'hero', text: 'Target hero moves through walls & furniture this turn.' },
-  { id: 'heal_body_e', name: 'Heal Body',     element: 'earth', target: 'hero',    text: 'Restore up to 4 BP to target.' },
-  { id: 'rock_skin',   name: 'Rock Skin',     element: 'earth', target: 'hero',    text: 'Target hero gains +2 defense dice until their next turn.' },
+  { id: 'pass_rock',   name: 'Pass Through Rock', element: 'earth', target: 'hero', text: 'Target hero moves through walls and solid rock on their next move.' },
+  { id: 'heal_body_e', name: 'Heal Body',          element: 'earth', target: 'hero', text: 'Restore up to 4 lost Body Points to target.' },
+  { id: 'rock_skin',   name: 'Rock Skin',           element: 'earth', target: 'hero', text: 'Target hero gains +1 defense die. Broken only when the hero suffers 1 Body Point of damage.' },
 ];
 
 /** Per-element spell groups (3 each). */

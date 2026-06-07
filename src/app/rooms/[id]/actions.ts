@@ -693,7 +693,7 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'disarm_trap'; trapId: string }
   | { game: 'heroquest'; kind: 'jump_trap'; trapId: string }
   | { game: 'heroquest'; kind: 'climb_pit' }
-  | { game: 'heroquest'; kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
+  | { game: 'heroquest'; kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number; targetDoorId?: string }
   | { game: 'heroquest'; kind: 'use_potion'; potionId: string }
   | { game: 'heroquest'; kind: 'pass_potion'; potionId: string; toHeroSeat: number }
   | { game: 'heroquest'; kind: 'end_turn' }

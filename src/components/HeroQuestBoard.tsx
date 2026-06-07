@@ -48,7 +48,7 @@ export type HeroQuestBoardProps = {
   onDisarmTrap: (trapId: string) => void;
   onJumpTrap: (trapId: string) => void;
   onClimbPit: () => void;
-  onCastSpell: (spellId: string, opts?: { targetMonsterId?: string; targetHeroIdx?: number }) => void;
+  onCastSpell: (spellId: string, opts?: { targetMonsterId?: string; targetHeroIdx?: number; targetDoorId?: string }) => void;
   onUsePotion: (potionId: string) => void;
   onPassPotion: (potionId: string, toHeroSeat: number) => void;
   onEndTurn: () => void;
@@ -193,7 +193,8 @@ function PlayingView({
   // Spell targeting: clicking a spell that needs a target parks it here until
   // the player picks a monster (on the board) or a hero (from the picker bar).
   // 'area' spells resolve immediately with no pick.
-  const [pendingSpell, setPendingSpell] = useState<{ id: string; name: string; target: 'monster' | 'hero' } | null>(null);
+  // 'genie' spells show a mode-choice first (door vs monster); then mode becomes 'door' or 'monster'.
+  const [pendingSpell, setPendingSpell] = useState<{ id: string; name: string; target: 'monster' | 'hero' | 'genie' | 'door' } | null>(null);
 
   // Drop any pending target selection the moment it's no longer actionable
   // (turn passed, hero already acted, etc.).
@@ -232,7 +233,8 @@ function PlayingView({
     const spell = focusHero?.spells.find(s => s.id === spellId);
     if (!spell) return;
     if (spell.target === 'area') { onCastSpell(spellId); return; }
-    setPendingSpell({ id: spell.id, name: spell.name, target: spell.target });
+    // 'genie' shows a mode chooser (open door vs attack); everything else goes straight to target-pick.
+    setPendingSpell({ id: spell.id, name: spell.name, target: spell.target as 'monster' | 'hero' | 'genie' });
   };
 
   // Valid targets for a hero-target spell: yourself, plus any living ally you
@@ -352,6 +354,22 @@ function PlayingView({
             <span className="font-semibold">Casting {pendingSpell.name}:</span>
             {pendingSpell.target === 'monster' ? (
               <span className="text-amber-200/90">click a monster on the board to target it.</span>
+            ) : pendingSpell.target === 'door' ? (
+              <span className="text-amber-200/90">click any closed door on the board to open it.</span>
+            ) : pendingSpell.target === 'genie' ? (
+              <span className="flex flex-wrap items-center gap-2">
+                <span className="text-amber-200/90">choose the genie&apos;s task:</span>
+                <button
+                  type="button"
+                  onClick={() => setPendingSpell(ps => ps ? { ...ps, target: 'door' } : null)}
+                  className="rounded border border-amber-400/60 bg-neutral-900/60 px-2 py-0.5 text-xs font-medium text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20"
+                >🚪 Open a door</button>
+                <button
+                  type="button"
+                  onClick={() => setPendingSpell(ps => ps ? { ...ps, target: 'monster' } : null)}
+                  className="rounded border border-amber-400/60 bg-neutral-900/60 px-2 py-0.5 text-xs font-medium text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20"
+                >⚔️ Attack a monster</button>
+              </span>
             ) : (
               <span className="flex flex-wrap items-center gap-1.5">
                 <span className="text-amber-200/90">choose a hero —</span>
@@ -446,6 +464,8 @@ function PlayingView({
           onAttack={onAttack}
           spellTargetMonsters={pendingSpell?.target === 'monster'}
           onPickMonster={(monsterId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetMonsterId: monsterId }); setPendingSpell(null); } }}
+          spellTargetDoor={pendingSpell?.target === 'door'}
+          onPickDoor={(doorId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetDoorId: doorId }); setPendingSpell(null); } }}
           passTargetSeats={passingPotionId ? passTargetSeats : undefined}
           onPassToHero={(seat) => { if (passingPotionId) { onPassPotion(passingPotionId, seat); setPassingPotionId(null); } }}
         />

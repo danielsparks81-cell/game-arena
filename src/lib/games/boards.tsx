@@ -240,7 +240,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onDisarmTrap={(trapId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'disarm_trap', trapId }); })}
       onJumpTrap={(trapId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'jump_trap', trapId }); })}
       onClimbPit={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'climb_pit' }); })}
-      onCastSpell={(spellId, opts) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'cast_spell', spellId, targetMonsterId: opts?.targetMonsterId, targetHeroIdx: opts?.targetHeroIdx }); })}
+      onCastSpell={(spellId, opts) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'cast_spell', spellId, targetMonsterId: opts?.targetMonsterId, targetHeroIdx: opts?.targetHeroIdx, targetDoorId: opts?.targetDoorId }); })}
       onUsePotion={(potionId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'use_potion', potionId }); })}
       onPassPotion={(potionId, toHeroSeat) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'pass_potion', potionId, toHeroSeat }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'end_turn' }); })}

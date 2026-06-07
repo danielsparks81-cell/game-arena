@@ -96,8 +96,9 @@ export type Spell = {
   text: string;
   /** Who the spell targets — drives the cast UI:
    *  'monster' → pick a visible monster, 'hero' → pick a living hero (self or
-   *  ally), 'area' → resolves immediately with no pick (e.g. Tempest). */
-  target: 'monster' | 'hero' | 'area';
+   *  ally), 'area' → resolves immediately with no pick,
+   *  'genie' → player first chooses "open a door" OR "attack a monster". */
+  target: 'monster' | 'hero' | 'area' | 'genie';
 };
 
 /** Inventory item — kept simple for v1 (weapons grant attack dice, armor
@@ -178,12 +179,14 @@ export type Hero = {
   // survives the intervening Zargon turn and clears when the hero acts again.
   /** Courage: extra attack dice applied to the hero's next attack. */
   attackBonus?: number;
-  /** Courage: lets the hero make one attack even after using their action. */
+  /** Courage / Heroic Brew: lets the hero make one bonus attack after their action. */
   extraAttack?: boolean;
-  /** Rock Skin: extra defense dice until the hero's next turn. */
+  /** Rock Skin: extra defense die until the hero takes 1 BP of damage. */
   defenseBonus?: number;
   /** Pass Through Rock: movement ignores wall / furniture blockers this turn. */
   phaseWalls?: boolean;
+  /** Veil of Mist: hero may pass through monster-occupied squares this move. */
+  phaseMonsters?: boolean;
 };
 
 // ============================================================================
@@ -215,6 +218,9 @@ export type Monster = {
   roomId: string;
   /** Tempest: the monster loses its next Zargon turn (flag cleared when skipped). */
   stunned?: boolean;
+  /** Sleep: monster is asleep until a wake-up roll succeeds (1d6 per Mind Point; wake on any 6).
+   *  Immune: undead (skeleton, zombie, mummy). */
+  sleeping?: boolean;
 };
 
 // ============================================================================
@@ -471,7 +477,7 @@ export type HQAction =
   | { kind: 'disarm_trap'; trapId: string }
   | { kind: 'jump_trap'; trapId: string }
   | { kind: 'climb_pit' }
-  | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
+  | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number; targetDoorId?: string }
   | { kind: 'use_potion'; potionId: string }
   /** Pass a held potion to an adjacent living hero. Not an action — does not
    *  consume hasActed. Blocked while any monster is adjacent to either hero. */

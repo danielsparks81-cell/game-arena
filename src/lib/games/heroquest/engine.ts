@@ -557,7 +557,9 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
     if (adx + ady !== 1) break;                              // orthogonal single step only
     if (!inBounds(s, sq)) break;
     if (!h.phaseWalls && (!isPassable(s, sq, /*forHero*/ true) || edgeBlocksMove(s, from, sq, false))) break;
-    if (s.monsters.some(m => m.at.x === sq.x && m.at.y === sq.y)) break; // monsters block
+    // Veil of Mist: hero may walk through monster squares (but can't stop on one —
+    // that's enforced separately by doMovePath's final-dest check).
+    if (!h.phaseMonsters && s.monsters.some(m => m.at.x === sq.x && m.at.y === sq.y)) break;
 
     // The 2×2 stairway is ONE logical space: moving BETWEEN stair squares is
     // free, so stepping off from the back corner costs 1, not 2. Any step that
@@ -730,7 +732,9 @@ function findPath(s: HQState, hero: Hero, dest: Coord): Coord[] | null {
       if (!inBounds(s, n)) continue;
       if (!hero.phaseWalls && !isPassable(s, n, /*forHero*/ true)) continue;
       if (edgeBlocksMove(s, cur, n, !!hero.phaseWalls)) continue;
-      if (s.monsters.some(m => m.at.x === n.x && m.at.y === n.y)) continue; // monsters block
+      // Veil of Mist: hero may pass THROUGH monster squares but cannot stop there.
+      // The dest-stop check is enforced by doMoveTo/doMovePath, not here.
+      if (!hero.phaseMonsters && s.monsters.some(m => m.at.x === n.x && m.at.y === n.y)) continue;
       visited.add(key);
       prev.set(key, cur);
       if (key === destKey) {
@@ -1197,37 +1201,52 @@ function doCastSpell(
 
   // v1 effect resolution (minimal — covers the most useful subset).
   switch (spell.id) {
-    case 'heal_body_w':
     case 'heal_body_e': {
       const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
       if (target) {
-        const heal = 4;
-        const restored = Math.min(target.bodyMax - target.body, heal);
+        const restored = Math.min(target.bodyMax - target.body, 4);
         target.body += restored;
         pushLog(s, 'spell', `${heroLabel(target)} regains ${restored} BP.`);
       }
       return ok(s);
     }
+    case 'sleep': {
+      const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
+      if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
+      if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. Spell wasted.`); return ok(s); }
+      if (m.kind === 'skeleton' || m.kind === 'zombie' || m.kind === 'mummy') {
+        pushLog(s, 'spell', `…but undead cannot be put to sleep! The spell has no effect.`); return ok(s);
+      }
+      if (m.sleeping) { pushLog(s, 'spell', `${monsterDisplay(m)} is already asleep.`); return ok(s); }
+      m.sleeping = true;
+      pushLog(s, 'spell', `${monsterDisplay(m)} sinks into a deep magical sleep!`);
+      return ok(s);
+    }
     case 'water_heal': {
       const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
       if (target) {
-        const restored = Math.min(target.bodyMax - target.body, 2);
+        const restored = Math.min(target.bodyMax - target.body, 4);
         target.body += restored;
         pushLog(s, 'spell', `${heroLabel(target)} regains ${restored} BP.`);
       }
       return ok(s);
     }
     case 'fire_of_wrath': {
-      // Fire of Wrath is a melee-range touch — the monster must be orthogonally
-      // adjacent (Manhattan distance 1) and not separated by a wall edge.
+      // Fire of Wrath: 1 automatic BP to any visible monster. Monster then rolls
+      // 1d6 — on a 6 the damage is reduced by 1 (effectively blocked).
       const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
       if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
-      const mDist = Math.abs(h.at.x - m.at.x) + Math.abs(h.at.y - m.at.y);
-      if (mDist !== 1 || edgeBlocksMove(s, h.at, m.at, false)) {
-        pushLog(s, 'spell', `…but that monster is not adjacent. Fire of Wrath requires touch range.`); return ok(s);
+      if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. Spell wasted.`); return ok(s); }
+      const saveRoll = Math.floor(Math.random() * 6) + 1;
+      const saved = saveRoll === 6 ? 1 : 0;
+      const damage = Math.max(0, 1 - saved);
+      s.lastRoll = null; s.lastDefenseRoll = null; s.lastMoveRoll = null;
+      if (damage > 0) {
+        m.body -= damage;
+        pushLog(s, 'spell', `${monsterDisplay(m)} is scorched for ${damage} BP! (save roll: ${saveRoll})`);
+      } else {
+        pushLog(s, 'spell', `${monsterDisplay(m)} rolls a 6 on the save — the flame is resisted! (save roll: ${saveRoll})`);
       }
-      m.body -= 1;
-      pushLog(s, 'spell', `${monsterDisplay(m)} burns for 1 BP.`);
       if (m.body <= 0) {
         pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
         s.monsters = s.monsters.filter(mm => mm.id !== m.id);
@@ -1236,15 +1255,21 @@ function doCastSpell(
       return ok(s);
     }
     case 'ball_of_flame': {
+      // Ball of Flame: 2 automatic BP to any visible monster. Monster then rolls
+      // 2d6 — each 6 reduces the damage by 1 (min 0).
       const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
       if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
       if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. Spell wasted.`); return ok(s); }
-      const roll = rollDice(2, 'hero');
-      s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
-      const def = rollDice(m.defense, 'monster');
-      const damage = Math.max(0, roll.skulls - def.blocks);
+      const save1 = Math.floor(Math.random() * 6) + 1;
+      const save2 = Math.floor(Math.random() * 6) + 1;
+      const sixes = (save1 === 6 ? 1 : 0) + (save2 === 6 ? 1 : 0);
+      const damage = Math.max(0, 2 - sixes);
+      s.lastRoll = null; s.lastDefenseRoll = null; s.lastMoveRoll = null;
       m.body -= damage;
-      pushLog(s, 'spell', `${monsterDisplay(m)} takes ${damage} BP from the flames!`);
+      pushLog(s, 'spell',
+        `${monsterDisplay(m)} is engulfed — ${damage} BP damage! (save rolls: ${save1}, ${save2}` +
+        (sixes > 0 ? `; ${sixes} saved` : '') + `)`,
+      );
       if (m.body <= 0) {
         pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
         s.monsters = s.monsters.filter(mm => mm.id !== m.id);
@@ -1255,17 +1280,33 @@ function doCastSpell(
 
     // --- Air ----------------------------------------------------------------
     case 'genie': {
-      // A summoned genie does your bidding — modelled as a powerful 4-dice
-      // magical strike against a monster you can see.
+      // Dual-mode: open ANY door on the board (no adjacency needed), OR attack
+      // any visible monster with 5 combat dice (monster defends normally).
+      if (action.targetDoorId) {
+        const d = s.doors.find(dd => dd.id === action.targetDoorId);
+        if (!d) { pushLog(s, 'spell', `…but that door does not exist.`); return ok(s); }
+        if (d.open) { pushLog(s, 'spell', `…but that door is already open.`); return ok(s); }
+        d.open = true;
+        for (const c of d.crossings) {
+          for (const cell of [c.a, c.b]) {
+            const r = s.tiles[cell.y]?.[cell.x]?.region ?? '';
+            if (r.startsWith('room_')) { revealRegion(s, r); spawnRoomMonsters(s, r); }
+          }
+        }
+        revealLineOfSightForHero(s, h);
+        pushLog(s, 'spell', `The genie flings a door open — the chamber beyond is revealed!`);
+        return ok(s);
+      }
       const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
-      if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
+      if (!m) { pushLog(s, 'spell', `…but with no valid target, the genie vanishes.`); return ok(s); }
       if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. The genie returns to its lamp.`); return ok(s); }
-      const roll = rollDice(4, 'hero');
-      s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
-      const def = rollDice(m.defense, 'monster');
-      const damage = Math.max(0, roll.skulls - def.blocks);
-      m.body -= damage;
-      pushLog(s, 'spell', `The genie strikes ${monsterDisplay(m)} for ${damage} BP!`);
+      const genieRoll = rollDice(5, 'hero');
+      s.lastRoll = genieRoll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
+      const genieDef = rollDice(m.defense, 'monster');
+      s.lastDefenseRoll = genieDef;
+      const genieDmg = Math.max(0, genieRoll.skulls - genieDef.blocks);
+      m.body -= genieDmg;
+      pushLog(s, 'spell', `The genie strikes ${monsterDisplay(m)} for ${genieDmg} BP!`);
       if (m.body <= 0) {
         pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
         s.monsters = s.monsters.filter(mm => mm.id !== m.id);
@@ -1274,16 +1315,13 @@ function doCastSpell(
       return ok(s);
     }
     case 'tempest': {
-      // Up to two monsters on squares adjacent to the caster are robbed of
-      // their next turn.
-      const adjacent = s.monsters
-        .filter(mm => chebyshev(mm.at, h.at) === 1)
-        .slice(0, 2);
-      if (adjacent.length === 0) { pushLog(s, 'spell', `…but no monsters stand close enough. The tempest howls in vain.`); return ok(s); }
-      for (const mm of adjacent) {
-        mm.stunned = true;
-        pushLog(s, 'spell', `${monsterDisplay(mm)} is caught in the tempest and will lose its next turn!`);
-      }
+      // Envelops ONE monster of the hero's choice in a whirlwind — that monster
+      // misses its next turn.
+      const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
+      if (!m) { pushLog(s, 'spell', `…but with no valid target, the tempest dissipates.`); return ok(s); }
+      if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. The tempest blows past.`); return ok(s); }
+      m.stunned = true;
+      pushLog(s, 'spell', `${monsterDisplay(m)} is caught in a whirlwind and will lose its next turn!`);
       return ok(s);
     }
     case 'swift_wind': {
@@ -1303,25 +1341,24 @@ function doCastSpell(
 
     // --- Water --------------------------------------------------------------
     case 'veil_of_mist': {
-      // The target slips away in a veil of mist — a free burst of movement to
-      // reposition or escape, even if they had not rolled yet.
+      // Target hero may move through monster-occupied squares on their next move.
+      // Does NOT grant extra movement — the flag just makes monsters transparent
+      // to pathfinding/walking. It clears at end of their next turn.
       const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
-      if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target is no longer able to move.`); return ok(s); }
-      target.hasRolled = true;
-      target.moveLeft += 10;
-      pushLog(s, 'spell', `${heroLabel(target)} vanishes into a veil of mist — +10 squares of movement to slip away.`);
+      if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
+      target.phaseMonsters = true;
+      pushLog(s, 'spell', `${heroLabel(target)} is shrouded in mist — may pass through monster spaces on their next move.`);
       return ok(s);
     }
 
     // --- Fire ---------------------------------------------------------------
     case 'courage': {
-      // The target gains +2 attack dice and may make one attack even though
-      // the caster's action was spent on the spell.
+      // Target hero gains +2 attack dice on their NEXT attack. The caster's
+      // action is spent on the spell; the buff carries into the target's next turn.
       const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
       if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
       target.attackBonus = (target.attackBonus ?? 0) + 2;
-      target.extraAttack = true;
-      pushLog(s, 'spell', `${heroLabel(target)} is emboldened — +2 attack dice and may strike at once!`);
+      pushLog(s, 'spell', `${heroLabel(target)} is emboldened — +2 attack dice on their next attack!`);
       return ok(s);
     }
 
@@ -1335,12 +1372,12 @@ function doCastSpell(
       return ok(s);
     }
     case 'rock_skin': {
-      // The target gains +2 defense dice until their next turn (survives the
-      // upcoming Zargon turn).
+      // Target hero gains +1 defense die. This bonus is only removed the moment
+      // the hero actually suffers 1 BP of damage — NOT at turn end.
       const target = action.targetHeroIdx != null ? s.heroes[action.targetHeroIdx] : h;
       if (!target || target.body <= 0) { pushLog(s, 'spell', `…but the target has fallen.`); return ok(s); }
-      target.defenseBonus = (target.defenseBonus ?? 0) + 2;
-      pushLog(s, 'spell', `${heroLabel(target)}'s skin turns to stone — +2 defense dice until their next turn.`);
+      target.defenseBonus = (target.defenseBonus ?? 0) + 1;
+      pushLog(s, 'spell', `${heroLabel(target)}'s skin turns to stone — +1 defense die until they take damage.`);
       return ok(s);
     }
 
@@ -1378,10 +1415,11 @@ function endHeroTurn(s: HQState): void {
   // through the upcoming Zargon turn and clears when the hero's next turn
   // begins. Similarly, Potion of Defense (potionDefBonus) persists until the
   // hero is actually hit — it is NOT cleared at turn end.
-  h.attackBonus    = 0;  // Courage spell
+  h.attackBonus    = 0;  // Courage: +2 dice carries into same turn only
   h.potionAtkBonus = 0;  // Potion of Strength (unused strength potion expires at turn end)
   h.extraAttack    = false;
   h.phaseWalls     = false;
+  h.phaseMonsters  = false; // Veil of Mist: clears after the hero's move turn
   // Advance to next hero, skipping dead heroes.
   let next = s.turnIndex;
   for (let i = 0; i < s.heroes.length; i++) {
@@ -1389,8 +1427,8 @@ function endHeroTurn(s: HQState): void {
     if (s.heroes[next].body > 0) break;
   }
   s.turnIndex = next;
-  // Rock Skin lasts "until your next turn" — clear it as that hero begins.
-  s.heroes[next].defenseBonus = 0;
+  // Rock Skin (defenseBonus) is NOT cleared here — it persists until the hero
+  // actually takes damage. See the monster-attack logic in runMonster.
 }
 
 // ============================================================================
@@ -1446,6 +1484,27 @@ function runMonster(s: HQState, m: Monster): void {
     m.stunned = false;
     pushLog(s, 'zargon', `${monsterDisplay(m)} is dazed by the tempest and cannot act.`);
     return;
+  }
+  // Sleep: roll 1d6 per Mind Point at the start of the monster's turn.
+  // If any die shows a 6 the spell breaks (monster wakes but still skips this turn).
+  if (m.sleeping) {
+    const mindPoints = m.mind ?? 0;
+    if (mindPoints === 0) {
+      // No mind — sleep is unbreakable by nature (undead have mind 0 but can't be
+      // slept, so this branch only fires for hypothetical mind-0 non-undead).
+      pushLog(s, 'zargon', `${monsterDisplay(m)} remains in a deep, dreamless sleep.`);
+      return;
+    }
+    const wakeRolls: number[] = [];
+    for (let i = 0; i < mindPoints; i++) wakeRolls.push(Math.floor(Math.random() * 6) + 1);
+    const woke = wakeRolls.some(r => r === 6);
+    if (woke) {
+      m.sleeping = false;
+      pushLog(s, 'zargon', `${monsterDisplay(m)} jolts awake! (rolls: ${wakeRolls.join(', ')}) — but loses this turn.`);
+    } else {
+      pushLog(s, 'zargon', `${monsterDisplay(m)} stirs but cannot wake. (rolls: ${wakeRolls.join(', ')})`);
+    }
+    return; // Waking up counts as the monster's turn.
   }
   // Find the nearest LIVING hero by Chebyshev distance (not strict pathfinding
   // — v1 keeps it simple). Then walk toward them up to `m.move` steps,
@@ -1507,9 +1566,11 @@ function runMonster(s: HQState, m: Monster): void {
     const defBonus = rockBonus + potDefBonus;
     const def = rollDice(Math.max(1, target.defense + defBonus - (target.inPit ? 1 : 0)), 'hero');
     s.lastDefenseRoll = def;
-    target.potionDefBonus = 0;  // consumed — Rock Skin (defenseBonus) is NOT cleared here
+    target.potionDefBonus = 0;  // consumed on this roll
     const damage = Math.max(0, atk.skulls - def.blocks);
     target.body = Math.max(0, target.body - damage);
+    // Rock Skin (defenseBonus): broken the first time the hero suffers any damage.
+    if (damage > 0) target.defenseBonus = 0;
     const defNote = rockBonus > 0 && potDefBonus > 0
       ? ` (Rock Skin +${rockBonus}, Defense potion +${potDefBonus} dice)`
       : rockBonus > 0 ? ` (Rock Skin +${rockBonus} dice)`
