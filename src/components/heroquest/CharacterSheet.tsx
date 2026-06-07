@@ -4,7 +4,7 @@
 // parchment-styled hero sheet: portrait, banner, BP hearts, MP brains,
 // attack/defense badges, gold purse, inventory grid, spell cards.
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   type HQState,
   type Hero,
@@ -29,8 +29,13 @@ const PARCHMENT_BG = `
   linear-gradient(135deg, #d8b884 0%, #b8945a 100%)
 `;
 
+/** Pass-target descriptor: a living adjacent hero and whether the pass is
+ *  currently blocked (monster adjacent to either the passer or the receiver). */
+export type PassTarget = { hero: Hero; blocked: boolean };
+
 export default function CharacterSheet({
-  hero, isActive, isMyTurn, isMine, onCastSpell, onUsePotion, compact = false,
+  hero, isActive, isMyTurn, isMine, onCastSpell, onUsePotion,
+  passTargets = [], onPassPotion, compact = false,
 }: {
   hero: Hero;
   isActive: boolean;
@@ -38,6 +43,9 @@ export default function CharacterSheet({
   isMine: boolean;
   onCastSpell: (spellId: string) => void;
   onUsePotion?: (potionId: string) => void;
+  /** Adjacent living heroes the passer can offer this potion to (active hero only). */
+  passTargets?: PassTarget[];
+  onPassPotion?: (potionId: string, toHeroSeat: number) => void;
   /** Compact: header + stat band only (no equipment / spell grids) so several
    *  heroes can stack as a party of panels. */
   compact?: boolean;
@@ -97,6 +105,8 @@ export default function CharacterSheet({
               hero={hero}
               canUse={isMine && isActive}
               onUse={onUsePotion}
+              passTargets={passTargets}
+              onPassPotion={onPassPotion}
             />
           </div>
         )}
@@ -171,8 +181,10 @@ export default function CharacterSheet({
                 <PotionRow
                   potions={hero.foundPotions}
                   hero={hero}
-                  canUse={isMine && isMyTurn}
+                  canUse={isMine && isActive}
                   onUse={onUsePotion}
+                  passTargets={passTargets}
+                  onPassPotion={onPassPotion}
                 />
               </div>
             </>
@@ -345,16 +357,26 @@ const POTION_COLOR: Record<HeldPotion['effect'], { bg: string; border: string; t
 };
 
 /** Small row of held potion pills — each shows an icon + short name and can be
- *  clicked to use the potion during the hero's turn. */
-function PotionRow({ potions, hero, canUse, onUse }: {
+ *  clicked to use the potion during the hero's turn. When passTargets are
+ *  provided (active hero only), a 🤝 button opens a small picker to hand the
+ *  potion to an adjacent hero. */
+function PotionRow({ potions, hero, canUse, onUse, passTargets = [], onPassPotion }: {
   potions: HeldPotion[] | undefined;
   hero: Hero;
   canUse: boolean;
   onUse?: (potionId: string) => void;
+  passTargets?: PassTarget[];
+  onPassPotion?: (potionId: string, toHeroSeat: number) => void;
 }) {
+  // Track which potion's pass-picker is open (null = none)
+  const [passingPotionId, setPassingPotionId] = useState<string | null>(null);
+
   if (!potions || potions.length === 0) return null;
+
+  const showPassBtn = canUse && passTargets.length > 0 && onPassPotion;
+
   return (
-    <div className="flex flex-wrap gap-1">
+    <div className="flex flex-col gap-1">
       {potions.map(p => {
         const col = POTION_COLOR[p.effect];
         // Heroic Brew: disable if hero has already acted (must drink before attacking)
@@ -364,19 +386,69 @@ function PotionRow({ potions, hero, canUse, onUse }: {
             ? 'Heroic Brew must be drunk before attacking'
             : p.description
           : p.description;
+        const pickerOpen = passingPotionId === p.id;
         return (
-          <button
-            key={p.id}
-            onClick={() => !disabled && onUse?.(p.id)}
-            disabled={disabled}
-            title={tip}
-            className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold transition
-              ${col.bg} ${col.border} ${col.text}
-              ${disabled ? 'cursor-default opacity-50' : 'cursor-pointer hover:brightness-125'}`}
-          >
-            <span>{POTION_ICON[p.effect]}</span>
-            <span>{p.name}</span>
-          </button>
+          <div key={p.id} className="flex flex-wrap items-center gap-1">
+            {/* Drink button */}
+            <button
+              onClick={() => !disabled && onUse?.(p.id)}
+              disabled={disabled}
+              title={tip}
+              className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold transition
+                ${col.bg} ${col.border} ${col.text}
+                ${disabled ? 'cursor-default opacity-50' : 'cursor-pointer hover:brightness-125'}`}
+            >
+              <span>{POTION_ICON[p.effect]}</span>
+              <span>{p.name}</span>
+            </button>
+
+            {/* Pass toggle button — only shown when adjacent heroes exist */}
+            {showPassBtn && (
+              <button
+                onClick={() => setPassingPotionId(pickerOpen ? null : p.id)}
+                title="Pass this potion to an adjacent hero"
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold transition
+                  border-amber-600/60 bg-amber-900/20 text-amber-200
+                  cursor-pointer hover:brightness-125
+                  ${pickerOpen ? 'ring-1 ring-amber-400' : ''}`}
+              >
+                🤝
+              </button>
+            )}
+
+            {/* Pass picker dropdown */}
+            {pickerOpen && (
+              <div className="flex flex-wrap gap-1 w-full mt-0.5 pl-1">
+                {passTargets.map(({ hero: target, blocked }) => (
+                  <button
+                    key={target.seat}
+                    disabled={blocked}
+                    onClick={() => {
+                      if (!blocked) {
+                        onPassPotion!(p.id, target.seat);
+                        setPassingPotionId(null);
+                      }
+                    }}
+                    title={
+                      blocked
+                        ? 'Cannot pass — a monster is adjacent to one of you'
+                        : `Pass to ${target.username}`
+                    }
+                    className={`flex items-center gap-1 rounded border border-amber-600/40
+                      bg-amber-950/20 px-1.5 py-0.5 text-[10px] font-semibold
+                      transition text-amber-100
+                      ${blocked
+                        ? 'cursor-default opacity-40'
+                        : 'cursor-pointer hover:brightness-125'
+                      }`}
+                  >
+                    <span>→</span>
+                    <span>{target.username}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         );
       })}
     </div>

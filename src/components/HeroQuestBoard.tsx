@@ -47,6 +47,7 @@ export type HeroQuestBoardProps = {
   onClimbPit: () => void;
   onCastSpell: (spellId: string, opts?: { targetMonsterId?: string; targetHeroIdx?: number }) => void;
   onUsePotion: (potionId: string) => void;
+  onPassPotion: (potionId: string, toHeroSeat: number) => void;
   onEndTurn: () => void;
   /** Advance Zargon's turn by one monster (the host drives this on a timer). */
   onZargonStep: () => void;
@@ -110,7 +111,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
 function PlayingView({
   state, currentUserId, disabled,
   onRollMove, onMoveTo, onMovePath, onOpenDoor, onAttack,
-  onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onJumpTrap, onClimbPit, onCastSpell, onUsePotion, onEndTurn,
+  onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onJumpTrap, onClimbPit, onCastSpell, onUsePotion, onPassPotion, onEndTurn,
   onShowBriefing,
 }: HeroQuestBoardProps & { onShowBriefing: () => void }) {
   // The sheet always shows the ACTIVE hero (whoever's up). Since players
@@ -176,6 +177,23 @@ function PlayingView({
       m.roomId === heroRegion
     ),
   );
+
+  // Heroes the active hero can pass a potion to: alive, orthogonally adjacent
+  // (Manhattan dist === 1), and no monster adjacent to EITHER party.
+  // Computed once and passed down to the active hero's CharacterSheet so the
+  // PotionRow can offer a "pass to" picker without needing full state access.
+  const noMonsterAdjacentToPasser = focusHero ? !state.monsters.some(m => m.body > 0 &&
+    Math.abs(m.at.x - focusHero.at.x) + Math.abs(m.at.y - focusHero.at.y) === 1) : false;
+  const passTargets: Array<{ hero: (typeof state.heroes)[0]; blocked: boolean }> = !focusHero ? [] :
+    state.heroes
+      .filter(h => h.seat !== focusHero.seat && h.body > 0 &&
+        Math.abs(h.at.x - focusHero.at.x) + Math.abs(h.at.y - focusHero.at.y) === 1)
+      .map(h => ({
+        hero: h,
+        // Blocked if a monster is adjacent to the receiver, or to the passer.
+        blocked: !noMonsterAdjacentToPasser || state.monsters.some(m => m.body > 0 &&
+          Math.abs(m.at.x - h.at.x) + Math.abs(m.at.y - h.at.y) === 1),
+      }));
 
   // First monster orthogonally adjacent to the active hero — the Attack button's
   // target (you can still click any monster on the board directly).
@@ -294,6 +312,8 @@ function PlayingView({
               isMine={h.playerId === currentUserId}
               onCastSpell={handleSpellClick}
               onUsePotion={onUsePotion}
+              passTargets={h.seat === active?.seat ? passTargets : []}
+              onPassPotion={onPassPotion}
             />
           </div>
         ))}

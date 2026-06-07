@@ -306,9 +306,11 @@ export function applyAction(
     const s = initialState();
     state.heroes.forEach((old, i) => {
       if (!s.heroes[i]) return;
-      s.heroes[i].playerId = old.playerId;
-      s.heroes[i].username = old.username;
+      s.heroes[i].playerId    = old.playerId;
+      s.heroes[i].username    = old.username;
       s.heroes[i].accent_color = old.accent_color;
+      // Potions are persistent between quests — carry them over to the new quest.
+      if (old.foundPotions?.length) s.heroes[i].foundPotions = [...old.foundPotions];
     });
     // Auto-fill any unclaimed hero slots by cycling through claimed players.
     // With 1 player → that player owns all 4. With 2 players → round-robin
@@ -358,6 +360,7 @@ export function applyAction(
   if (action.kind === 'climb_pit')       return doClimbPit(state, hero);
   if (action.kind === 'cast_spell')      return doCastSpell(state, hero, action);
   if (action.kind === 'use_potion')      return doUsePotion(state, hero, action.potionId);
+  if (action.kind === 'pass_potion')     return doPassPotion(state, hero, action.potionId, action.toHeroSeat);
   if (action.kind === 'end_turn')        return doEndTurn(state, hero);
 
   return err('Unknown action.');
@@ -832,6 +835,47 @@ function doUsePotion(state: HQState, hero: Hero, potionId: string): ApplyResult 
     }
   }
   // Drinking a potion does NOT consume the hero's action.
+  return ok(s);
+}
+
+/** Pass a held potion from the active hero to an adjacent living hero.
+ *  Rulebook: potions may be passed between adjacent heroes as a free action
+ *  (does NOT call markActed) on the passer's turn, provided no monster is
+ *  orthogonally adjacent to either the passer or the receiver. */
+function doPassPotion(state: HQState, hero: Hero, potionId: string, toHeroSeat: number): ApplyResult {
+  const potion = hero.foundPotions?.find(p => p.id === potionId);
+  if (!potion) return err('You do not have that potion.');
+
+  const receiver = state.heroes.find(h => h.seat === toHeroSeat);
+  if (!receiver || receiver.seat === hero.seat) return err('Invalid target hero.');
+  if (receiver.body <= 0) return err('Cannot pass to a dead hero.');
+
+  // Must be orthogonally adjacent (no diagonals).
+  const dist = Math.abs(receiver.at.x - hero.at.x) + Math.abs(receiver.at.y - hero.at.y);
+  if (dist !== 1) return err('You can only pass a potion to an adjacent hero.');
+
+  // No monster may be orthogonally adjacent to the passer.
+  const adjToPasser = state.monsters.some(m => m.body > 0 &&
+    Math.abs(m.at.x - hero.at.x) + Math.abs(m.at.y - hero.at.y) === 1,
+  );
+  if (adjToPasser) return err('You cannot pass while a monster is adjacent to you.');
+
+  // No monster may be orthogonally adjacent to the receiver.
+  const adjToReceiver = state.monsters.some(m => m.body > 0 &&
+    Math.abs(m.at.x - receiver.at.x) + Math.abs(m.at.y - receiver.at.y) === 1,
+  );
+  if (adjToReceiver) return err(`Cannot pass — a monster is adjacent to ${receiver.username}.`);
+
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];                              // passer (the active hero)
+  const r = s.heroes.find(x => x.seat === toHeroSeat)!;        // receiver
+
+  h.foundPotions = h.foundPotions.filter(p => p.id !== potionId);
+  if (!r.foundPotions) r.foundPotions = [];
+  r.foundPotions.push({ ...potion });
+
+  pushLog(s, 'search', `${heroLabel(h)} passes the ${potion.name} to ${heroLabel(r)}.`);
+  // Passing is a free action — does NOT consume the hero's turn action.
   return ok(s);
 }
 

@@ -450,6 +450,9 @@ export type HQAction =
   | { kind: 'climb_pit' }
   | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
   | { kind: 'use_potion'; potionId: string }
+  /** Pass a held potion to an adjacent living hero. Not an action — does not
+   *  consume hasActed. Blocked while any monster is adjacent to either hero. */
+  | { kind: 'pass_potion'; potionId: string; toHeroSeat: number }
   | { kind: 'end_turn' }
   /** Advance Zargon's turn by one monster (host-driven, on a timer). */
   | { kind: 'zargon_step' };
