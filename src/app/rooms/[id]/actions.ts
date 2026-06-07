@@ -697,7 +697,8 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'use_potion'; potionId: string }
   | { game: 'heroquest'; kind: 'pass_potion'; potionId: string; toHeroSeat: number }
   | { game: 'heroquest'; kind: 'end_turn' }
-  | { game: 'heroquest'; kind: 'zargon_step' };
+  | { game: 'heroquest'; kind: 'zargon_step' }
+  | { game: 'heroquest'; kind: 'death_save'; choice: 'potion' | 'spell' | 'decline' };
 
 /**
  * Single entry point for every in-game action. Boards call this through the

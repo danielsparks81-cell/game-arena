@@ -336,6 +336,10 @@ export function applyAction(
     return ok(s);
   }
 
+  // Death-save prompt: must be resolved before any other action proceeds.
+  if (action.kind === 'death_save') return doDeathSave(state, playerId, action.choice);
+  if (state.pendingDeathSave) return err('A hero is at death\'s door — resolve the death save first.');
+
   // Zargon's turn advances one monster at a time. Any client may request a step
   // (the host drives it on a timer); it's a no-op unless it's Zargon's phase.
   if (action.kind === 'zargon_step') return doZargonStep(state);
@@ -1420,15 +1424,114 @@ function runMonster(s: HQState, m: Monster): void {
   }
 }
 
-function checkHeroDeath(s: HQState, h: Hero): void {
-  if (h.body > 0) return;
-  pushLog(s, 'death', `${heroLabel(h)} has fallen!`);
-  // All heroes dead → Zargon wins.
+const HEALING_SPELL_IDS = ['heal_body_w', 'heal_body_e', 'water_heal'];
+
+/** Permanently kill a hero and check the all-dead lose condition. */
+function killHero(s: HQState, h: Hero): void {
+  // body is already 0 — nothing else to clear
   if (s.heroes.every(x => x.body <= 0)) {
     s.phase = 'finished';
     s.winner = 'zargon';
     pushLog(s, 'system', 'All heroes have perished. The quest is lost.');
   }
+}
+
+/**
+ * Called wherever a hero reaches 0 BP.
+ * If the hero has a Potion of Healing or an uncast healing spell, pause the
+ * game with pendingDeathSave so the player can choose.  Otherwise kill them.
+ */
+function checkHeroDeath(s: HQState, h: Hero): void {
+  if (h.body > 0) return;
+
+  // Already waiting on a save for this hero — don't double-set.
+  if (s.pendingDeathSave?.heroIdx === s.heroes.indexOf(h)) return;
+
+  const heroIdx = s.heroes.indexOf(h);
+
+  const healPotion = h.foundPotions?.find(p => p.effect === 'heal_d6') ?? null;
+  const canPotion  = healPotion !== null;
+
+  const healSpell = h.spells?.find(sp => HEALING_SPELL_IDS.includes(sp.id) && !h.spellsCast?.includes(sp.id)) ?? null;
+  const canSpell  = !h.hasActed && healSpell !== null;
+
+  pushLog(s, 'death', `${heroLabel(h)} has fallen!`);
+
+  if (canPotion || canSpell) {
+    s.pendingDeathSave = {
+      heroIdx,
+      canPotion,
+      canSpell,
+      spellId: healSpell?.id ?? null,
+    };
+    if (canPotion && canSpell) {
+      pushLog(s, 'system', `${heroLabel(h)} can drink a Potion of Healing or cast a healing spell to survive!`);
+    } else if (canPotion) {
+      pushLog(s, 'system', `${heroLabel(h)} can drink a Potion of Healing to survive!`);
+    } else {
+      pushLog(s, 'system', `${heroLabel(h)} can cast a healing spell to survive!`);
+    }
+    return;
+  }
+
+  // No save available — die immediately.
+  killHero(s, h);
+}
+
+function doDeathSave(state: HQState, playerId: string, choice: 'potion' | 'spell' | 'decline'): ApplyResult {
+  if (!state.pendingDeathSave) return err('No death save is pending.');
+
+  const { heroIdx, canPotion, canSpell } = state.pendingDeathSave;
+  const dying = state.heroes[heroIdx];
+  if (!dying) return err('Invalid hero index in death save.');
+
+  // Only the dying hero's player can resolve this.
+  if (dying.playerId !== playerId) return err('Only the fallen hero\'s player can resolve this.');
+
+  const s = clone(state);
+  const h = s.heroes[heroIdx];
+
+  s.pendingDeathSave = null;
+
+  if (choice === 'potion') {
+    if (!canPotion) return err('No Potion of Healing available.');
+    const potion = h.foundPotions?.find(p => p.effect === 'heal_d6');
+    if (!potion) return err('No Potion of Healing found.');
+    h.foundPotions = h.foundPotions.filter(p => p.id !== potion.id);
+    const roll = 1 + Math.floor(Math.random() * 6);
+    const restored = Math.min(h.bodyMax - h.body, roll);
+    h.body = Math.max(h.body + restored, 1); // guarantee at least 1 BP
+    pushLog(s, 'search',
+      `${heroLabel(h)} desperately drinks a Potion of Healing — rolled a ${roll}, restored to ${h.body} BP!`,
+    );
+    return ok(s);
+  }
+
+  if (choice === 'spell') {
+    if (!canSpell) return err('No healing spell available.');
+    const healSpell = h.spells?.find(sp => HEALING_SPELL_IDS.includes(sp.id) && !h.spellsCast?.includes(sp.id));
+    if (!healSpell) return err('No uncast healing spell found.');
+
+    // Resolve the heal (same amounts as doCastSpell):
+    let restored = 0;
+    if (healSpell.id === 'heal_body_w' || healSpell.id === 'heal_body_e') {
+      restored = Math.min(h.bodyMax - h.body, 4);
+    } else if (healSpell.id === 'water_heal') {
+      restored = Math.min(h.bodyMax - h.body, 2);
+    }
+    h.body = Math.max(h.body + restored, 1); // guarantee at least 1 BP
+    h.spellsCast = [...(h.spellsCast ?? []), healSpell.id];
+    h.hasActed = true; // casting costs the hero's action
+    pushLog(s, 'spell',
+      `${heroLabel(h)} casts ${healSpell.name} at death's door — restored to ${h.body} BP!`,
+    );
+    return ok(s);
+  }
+
+  // choice === 'decline'
+  pushLog(s, 'death', `${heroLabel(h)} accepts their fate.`);
+  killHero(s, h);
+  return ok(s);
 }
 
 // ============================================================================

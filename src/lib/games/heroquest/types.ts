@@ -412,6 +412,15 @@ export type HQState = {
   zargonQueue?: string[];
   zargonActiveId?: string | null;
   zargonActed?: string[];
+  /** Set when a hero is reduced to 0 BP but has a healing potion or healing
+   *  spell available. The hero's player must resolve this before play resumes.
+   *  Zargon's timer pauses; all other actions are rejected while this is set. */
+  pendingDeathSave?: {
+    heroIdx: number;
+    canPotion: boolean;  // has a Potion of Healing in foundPotions
+    canSpell:  boolean;  // has an uncast healing spell
+    spellId:   string | null; // first available healing spell id (for display)
+  } | null;
   /** Final result. */
   winner: Winner;
 };
@@ -454,6 +463,10 @@ export type HQAction =
    *  consume hasActed. Blocked while any monster is adjacent to either hero. */
   | { kind: 'pass_potion'; potionId: string; toHeroSeat: number }
   | { kind: 'end_turn' }
+  /** Resolve a death-save prompt (hero reduced to 0 BP with a save option).
+   *  'potion' — drink the Potion of Healing; 'spell' — cast the healing spell;
+   *  'decline' — accept death (hero falls). */
+  | { kind: 'death_save'; choice: 'potion' | 'spell' | 'decline' }
   /** Advance Zargon's turn by one monster (host-driven, on a timer). */
   | { kind: 'zargon_step' };
 

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   type HQState,
+  type Hero,
   type HeroClass,
   type Coord,
   HERO_DEFAULTS,
@@ -51,6 +52,8 @@ export type HeroQuestBoardProps = {
   onEndTurn: () => void;
   /** Advance Zargon's turn by one monster (the host drives this on a timer). */
   onZargonStep: () => void;
+  /** Resolve a 0-BP death-save prompt. */
+  onDeathSave: (choice: 'potion' | 'spell' | 'decline') => void;
 };
 
 export default function HeroQuestBoard(props: HeroQuestBoardProps) {
@@ -73,10 +76,11 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
   // moment. Non-host clients just watch the highlights move.
   useEffect(() => {
     if (state.phase !== 'zargon' || !props.isHost) return;
+    if (state.pendingDeathSave) return; // wait for the hero's player to resolve the save
     const t = setTimeout(() => props.onZargonStep(), 1500); // slow enough to follow each monster
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.phase, state.zargonActiveId, state.zargonQueue?.length, props.isHost]);
+  }, [state.phase, state.zargonActiveId, state.zargonQueue?.length, props.isHost, state.pendingDeathSave]);
 
   if (state.phase === 'lobby') {
     return <HeroLobby
@@ -94,10 +98,25 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
     return <FinishedView state={state} />;
   }
 
+  const dyingHero = state.pendingDeathSave
+    ? state.heroes[state.pendingDeathSave.heroIdx]
+    : null;
+  const isMyDeathSave = dyingHero?.playerId === props.currentUserId;
+
   return (
     <>
       {briefingOpen && (
         <QuestBriefing quest={state.quest} onClose={() => setBriefingOpen(false)} />
+      )}
+      {state.pendingDeathSave && dyingHero && (
+        <DeathSaveModal
+          hero={dyingHero}
+          canPotion={state.pendingDeathSave.canPotion}
+          canSpell={state.pendingDeathSave.canSpell}
+          spellId={state.pendingDeathSave.spellId}
+          isMyHero={isMyDeathSave}
+          onChoice={props.onDeathSave}
+        />
       )}
       <PlayingView {...props} onShowBriefing={() => setBriefingOpen(true)} />
     </>
@@ -774,6 +793,78 @@ function FinishedView({ state }: { state: HQState }) {
         </ul>
       </div>
       <LogView state={state} />
+    </div>
+  );
+}
+
+// ============================================================================
+// Death-save modal
+// ============================================================================
+
+function DeathSaveModal({
+  hero, canPotion, canSpell, spellId, isMyHero, onChoice,
+}: {
+  hero: Hero;
+  canPotion: boolean;
+  canSpell: boolean;
+  spellId: string | null;
+  isMyHero: boolean;
+  onChoice: (choice: 'potion' | 'spell' | 'decline') => void;
+}) {
+  const heroName = HERO_DEFAULTS[hero.klass].name;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.75)' }}
+    >
+      <div
+        className="mx-4 max-w-sm w-full rounded-2xl border-4 p-6 text-center shadow-2xl"
+        style={{
+          borderColor: '#8a1010',
+          background: 'radial-gradient(ellipse at top, #4a0808 0%, #150202 100%)',
+          color: '#fda4af',
+          fontFamily: 'Georgia, serif',
+        }}
+      >
+        <div className="text-3xl mb-2">💀</div>
+        <div className="text-xl font-bold uppercase tracking-widest mb-1" style={{ color: '#ff6666', textShadow: '0 2px 4px rgba(0,0,0,0.7)' }}>
+          {heroName} has fallen!
+        </div>
+        <div className="text-sm mb-4 text-rose-200/80">
+          {isMyHero
+            ? 'You are at 0 Body Points. Spend a resource to survive?'
+            : `${heroName} is at death's door — waiting for their player to decide…`}
+        </div>
+
+        {isMyHero && (
+          <div className="flex flex-col gap-2">
+            {canPotion && (
+              <button
+                className="rounded-lg border border-amber-600/60 bg-amber-900/50 px-4 py-2 text-sm text-amber-200 transition hover:bg-amber-800/70 active:scale-95"
+                onClick={() => onChoice('potion')}
+              >
+                🧪 Drink Potion of Healing (restore 1–6 BP)
+              </button>
+            )}
+            {canSpell && (
+              <button
+                className="rounded-lg border border-sky-600/60 bg-sky-900/50 px-4 py-2 text-sm text-sky-200 transition hover:bg-sky-800/70 active:scale-95"
+                onClick={() => onChoice('spell')}
+              >
+                ✨ Cast healing spell
+                {spellId === 'water_heal' ? ' (+2 BP)' : ' (+4 BP)'}
+              </button>
+            )}
+            <button
+              className="rounded-lg border border-rose-900/60 bg-rose-950/40 px-4 py-2 text-sm text-rose-400/70 transition hover:bg-rose-900/40 active:scale-95"
+              onClick={() => onChoice('decline')}
+            >
+              Accept fate — perish
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
