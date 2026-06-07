@@ -1550,12 +1550,49 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
       // block check: `doSearchTreasure` gates on monsters whose tile.region
       // matches the room — a wandering monster that lands in an adjacent corridor
       // tile would bypass that check and let the next hero search anyway.
+      //
+      // If ALL adjacent cells are occupied (e.g. hero pinned in a corner by
+      // party-members) we BFS outward through passable tiles until we find the
+      // nearest free cell, still preferring same region.  The immediate attack
+      // still fires regardless of where the monster ends up.
       const heroRegion = s.tiles[h.at.y][h.at.x].region;
       const adj = adjacentCells(h.at).filter(c =>
         inBounds(s, c) && isPassable(s, c, /*forHero*/ false) && !cellOccupied(s, c, false),
       );
       const sameRegion = adj.filter(c => s.tiles[c.y]?.[c.x]?.region === heroRegion);
-      const spawnAt = (sameRegion[0] ?? adj[0]) ?? h.at;
+      let spawnAt: Coord = h.at; // fallback: hero's own tile (shouldn't occur on a real map)
+      if (sameRegion.length > 0) {
+        spawnAt = sameRegion[0];
+      } else if (adj.length > 0) {
+        spawnAt = adj[0];
+      } else {
+        // BFS outward: expand through passable tiles (including occupied ones so
+        // we can reach cells beyond the heroes), picking the nearest free cell
+        // with a preference for the hero's region.
+        const visited = new Set<string>([`${h.at.x},${h.at.y}`]);
+        const bfsQueue: Coord[] = [{ ...h.at }];
+        let bestAny: Coord | null = null;
+        let bfsFound = false;
+        while (bfsQueue.length > 0 && !bfsFound) {
+          const cur = bfsQueue.shift()!;
+          for (const n of adjacentCells(cur)) {
+            const key = `${n.x},${n.y}`;
+            if (visited.has(key)) continue;
+            visited.add(key);
+            if (!inBounds(s, n) || !isPassable(s, n, false)) continue;
+            if (!cellOccupied(s, n, false)) {
+              if ((s.tiles[n.y]?.[n.x]?.region ?? '') === heroRegion) {
+                spawnAt = n;
+                bfsFound = true;
+                break;
+              }
+              if (!bestAny) bestAny = n; // nearest non-preferred free cell
+            }
+            bfsQueue.push(n); // expand through occupied tiles to reach cells beyond
+          }
+        }
+        if (!bfsFound) spawnAt = bestAny ?? h.at;
+      }
       const stats = monsterStats(kind);
       const mId = `wand_${s.logSeq + 1}_${Math.floor(Math.random() * 1e6)}`;
       const newMonster: Monster = {
@@ -1567,7 +1604,8 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
         roomId: s.tiles[h.at.y][h.at.x].region,
       };
       s.monsters.push(newMonster);
-      pushLog(s, 'spawn', `A wandering ${stats.displayName} appears next to ${heroLabel(h)}!`);
+      const spawnAdj = Math.abs(spawnAt.x - h.at.x) + Math.abs(spawnAt.y - h.at.y) === 1;
+      pushLog(s, 'spawn', `A wandering ${stats.displayName} appears ${spawnAdj ? 'next to' : 'nearby'} ${heroLabel(h)}!`);
       // Immediate attack — the monster strikes the hero before they can react.
       const atk = rollDice(newMonster.attack, 'monster');
       const defBonus = h.defenseBonus ?? 0;
