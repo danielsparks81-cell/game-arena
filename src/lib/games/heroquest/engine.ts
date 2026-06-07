@@ -1861,14 +1861,16 @@ function revealLineOfSightForHero(s: HQState, h: Hero): void {
   spawnRevealedRooms(s);
 }
 
-/** Reveal-visibility from `a` to `b` — the LOOKING-&-REVEALING view. An
- *  unobstructed straight or diagonal line. Diagonal steps use the same rule as
- *  hasLineOfSight: blocked only if BOTH flanking corner edges are walls AND both
- *  flanking corner cells are solid rock (true corner, fully sealed). One open
- *  side still lets you see diagonally — a 2-wide corridor lights up fully, and
- *  a hero can see diagonally around a single-wall bend.
+/** Reveal-visibility from `a` to `b` — the LOOKING-&-REVEALING view.
+ *  Diagonal steps use a SPLIT rule:
+ *  - Edge check (room walls / closed doors): STRICT (||) — one room boundary
+ *    on either flanking side blocks, so heroes inside a room can't look
+ *    diagonally through the room wall into a corridor.
+ *  - Cell check (solid rock): LENIENT (&&) — only blocks when BOTH flanking
+ *    cells are solid rock (true sealed corner). One open side still lets you
+ *    see, so a 2-wide corridor lights up fully from a diagonal look.
  *  Unlike hasLineOfSight this is for LOOKING at terrain, so figures never block
- *  it, and it stops on room interiors (rooms reveal only via their door). */
+ *  it, and intermediate room cells stop the line (rooms reveal only via door). */
 function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
   const cells = bresenham(a, b);
   for (let i = 1; i < cells.length; i++) {
@@ -1877,16 +1879,22 @@ function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
     if (ortho) {
       if (edgeBlocksSight(s, prev, c)) return false;
     } else {
-      // Diagonal: blocked only if BOTH flanking edges are walls/closed doors AND
-      // both flanking cells are solid rock — i.e. the corner is fully sealed.
-      // One open side (e.g. the corridor continues in that direction) still lets
-      // you see diagonally, matching how hasLineOfSight handles diagonals and
-      // what HeroQuest players expect ("you can see diagonally along corridors").
-      // Rooms are still protected by the room_ prefix check in the outer loop.
+      // Diagonal step — two independent checks with different strictness:
+      //
+      // EDGE check (room walls / closed doors) — STRICT (||):
+      //   edgeBlocksSight is true at room boundaries. If either flanking direction
+      //   crosses a room wall, the diagonal is blocked. This prevents heroes inside
+      //   a room from looking diagonally through the room wall into a corridor.
+      //
+      // CELL check (solid rock flanking tiles) — LENIENT (&&):
+      //   If only ONE flanking cell is solid rock, the other direction is open
+      //   corridor — the diagonal should still be visible. A true sealed corner
+      //   (BOTH flanking cells are rock) is still blocked.
+      //   This lets a 2-wide corridor light up fully from a diagonal look.
       const e1 = edgeBlocksSight(s, prev, { x: c.x, y: prev.y });
       const e2 = edgeBlocksSight(s, prev, { x: prev.x, y: c.y });
-      if (e1 && e2) return false;
-      if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' && s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;
+      if (e1 || e2) return false;   // strict: room boundary on either side blocks
+      if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' && s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;  // lenient: only both solid
     }
     // Intermediate cells (not the endpoint) stop the line on solid terrain.
     if (i < cells.length - 1) {
