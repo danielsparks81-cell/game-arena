@@ -11,8 +11,10 @@ import {
   type Hero,
   type HeroClass,
   type Coord,
+  type SpellElement,
   HERO_DEFAULTS,
   hasLineOfSight,
+  SPELLS,
 } from '@/lib/games/heroquest';
 import HeroLobby from './heroquest/HeroLobby';
 import HeroQuestBoardCanvas from './heroquest/Board';
@@ -54,6 +56,8 @@ export type HeroQuestBoardProps = {
   onZargonStep: () => void;
   /** Resolve a 0-BP death-save prompt. */
   onDeathSave: (choice: 'potion' | 'spell' | 'decline') => void;
+  /** During the pre-quest spell draft, the current picker selects a school. */
+  onPickSpellSchool: (school: 'air' | 'water' | 'fire' | 'earth') => void;
 };
 
 export default function HeroQuestBoard(props: HeroQuestBoardProps) {
@@ -92,6 +96,16 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
       onRandomClasses={props.onRandomClasses}
       onStart={props.onStart}
     />;
+  }
+
+  if (state.phase === 'spell_draft' && state.spellDraft) {
+    return (
+      <SpellDraftView
+        state={state}
+        currentUserId={props.currentUserId}
+        onPickSchool={props.onPickSpellSchool}
+      />
+    );
   }
 
   if (state.phase === 'finished') {
@@ -793,6 +807,107 @@ function FinishedView({ state }: { state: HQState }) {
         </ul>
       </div>
       <LogView state={state} />
+    </div>
+  );
+}
+
+// ============================================================================
+// Spell draft screen (#73)
+// ============================================================================
+
+const ELEMENT_LABEL: Record<SpellElement, string> = {
+  air:   '💨 Air',
+  water: '💧 Water',
+  fire:  '🔥 Fire',
+  earth: '🌿 Earth',
+};
+const ELEMENT_COLOR: Record<SpellElement, string> = {
+  air:   '#93c5fd', // blue-300
+  water: '#67e8f9', // cyan-300
+  fire:  '#fb923c', // orange-400
+  earth: '#86efac', // green-300
+};
+
+function SpellDraftView({
+  state,
+  currentUserId,
+  onPickSchool,
+}: {
+  state: HQState;
+  currentUserId: string;
+  onPickSchool: (school: SpellElement) => void;
+}) {
+  const draft = state.spellDraft!;
+  const isWizardStep = draft.step === 'wizard';
+  const pickerClass  = isWizardStep ? 'wizard' : 'elf';
+  const pickerHero   = state.heroes.find(h => h.klass === pickerClass);
+  const isMyTurn     = pickerHero?.playerId === currentUserId;
+
+  // All 12 spells grouped by element, for display
+  const grouped = (['air', 'water', 'fire', 'earth'] as SpellElement[]).map(el => ({
+    el,
+    spells: SPELLS.filter(sp => sp.element === el),
+  }));
+
+  return (
+    <div
+      className="min-h-0 flex flex-col items-center gap-4 p-4 overflow-y-auto"
+      style={{ background: 'radial-gradient(ellipse at top, #1a0a00 0%, #0a0400 100%)', color: '#fde7c0', fontFamily: 'Georgia, serif' }}
+    >
+      <div className="text-center">
+        <div className="text-2xl font-bold uppercase tracking-widest mb-1" style={{ color: '#d4a043' }}>
+          ✦ Spell School Draft ✦
+        </div>
+        <div className="text-sm text-amber-200/70 max-w-md">
+          {isMyTurn
+            ? `You are the ${HERO_DEFAULTS[pickerClass].name}. Choose one school of magic — those three spells will be yours.`
+            : `The ${HERO_DEFAULTS[pickerClass].name} is choosing their spell school…`}
+          {isWizardStep && <span className="block mt-1 text-amber-200/50 text-xs">The Wizard picks first; the Elf picks next; the Wizard receives all remaining schools.</span>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 w-full max-w-2xl">
+        {grouped.map(({ el, spells }) => {
+          const available = draft.remaining.includes(el);
+          const color = ELEMENT_COLOR[el];
+          return (
+            <button
+              key={el}
+              disabled={!isMyTurn || !available}
+              onClick={() => onPickSchool(el)}
+              className="rounded-xl border-2 p-3 text-left transition"
+              style={{
+                borderColor: available ? color : '#3a3028',
+                background: available
+                  ? `linear-gradient(135deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.5) 100%)`
+                  : 'rgba(0,0,0,0.3)',
+                opacity: available ? 1 : 0.4,
+                cursor: available && isMyTurn ? 'pointer' : 'default',
+                boxShadow: available && isMyTurn ? `0 0 12px ${color}44` : 'none',
+              }}
+            >
+              <div className="font-bold text-base mb-2" style={{ color: available ? color : '#6b5a40' }}>
+                {ELEMENT_LABEL[el]}
+                {!available && <span className="ml-2 text-xs text-rose-400/70">(taken)</span>}
+              </div>
+              <ul className="space-y-1">
+                {spells.map(sp => (
+                  <li key={sp.id} className="text-xs" style={{ color: '#d6c4a0' }}>
+                    <span className="font-semibold" style={{ color: available ? color : '#6b5a40' }}>{sp.name}</span>
+                    <span className="ml-1 text-amber-200/60">— {sp.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </button>
+          );
+        })}
+      </div>
+
+      {!isMyTurn && (
+        <div className="text-sm text-amber-200/50 mt-2">
+          Waiting for <strong style={{ color: '#d4a043' }}>{pickerHero?.username ?? HERO_DEFAULTS[pickerClass].name}</strong> to pick…
+        </div>
+      )}
     </div>
   );
 }

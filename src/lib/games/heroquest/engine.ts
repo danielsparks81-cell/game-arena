@@ -80,8 +80,6 @@ export function initialState(): HQState {
     pendingPrompt: null,
     winner: null,
   };
-  // Seed wizard/elf spells immediately (heroes exist on day 1 now).
-  assignSpellsToCasters(s);
   return s;
 }
 
@@ -182,25 +180,108 @@ function doClaimHero(state: HQState, playerId: string, seat: number): ApplyResul
   return ok(s);
 }
 
-/** Assign 9 spells (3 groups of 3) to the wizard and 3 (1 group) to the elf
-    so all 12 cards are dealt and no group is duplicated. */
-function assignSpellsToCasters(s: HQState): void {
+const ALL_ELEMENTS: Array<'air' | 'water' | 'fire' | 'earth'> = ['air', 'water', 'fire', 'earth'];
+
+/**
+ * Apply final spell assignments once both draft picks are known.
+ * wizardSchool = the ONE school the wizard claimed in the draft.
+ * elfSchool    = the ONE school the elf claimed.
+ * Wizard receives ALL schools EXCEPT elfSchool; elf receives elfSchool only.
+ */
+function applySpellDraft(
+  s: HQState,
+  wizardSchool: 'air' | 'water' | 'fire' | 'earth' | null,
+  elfSchool:    'air' | 'water' | 'fire' | 'earth' | null,
+): void {
   const elf = s.heroes.find(h => h.klass === 'elf');
   const wiz = s.heroes.find(h => h.klass === 'wizard');
-  if (!elf && !wiz) return;
   const groups = spellsByElement();
-  const order: Array<keyof typeof groups> = ['air', 'water', 'fire', 'earth'];
-  // Elf gets one group (default: air); wizard gets the other three.
-  const elfGroup = order[0];
-  const wizardGroups = order.slice(1);
-  if (elf) {
-    elf.spells = groups[elfGroup].map(sp => ({ ...sp }));
+
+  if (elf && elfSchool) {
+    elf.spells = groups[elfSchool].map(sp => ({ ...sp }));
     elf.spellsCast = [];
   }
   if (wiz) {
-    wiz.spells = wizardGroups.flatMap(g => groups[g].map(sp => ({ ...sp })));
+    const wizSchools = ALL_ELEMENTS.filter(e => e !== elfSchool);
+    wiz.spells = wizSchools.flatMap(g => groups[g].map(sp => ({ ...sp })));
     wiz.spellsCast = [];
+    void wizardSchool; // captured in draft state for the log; unused directly here
   }
+}
+
+/**
+ * Begin the pre-quest spell draft after start_game.
+ * Draft order: wizard picks first (if present), then elf.
+ * If only elf is present, elf picks from all 4 schools.
+ * If only wizard, they get everything — no draft needed.
+ */
+function beginSpellDraft(s: HQState): void {
+  const hasElf = s.heroes.some(h => h.klass === 'elf');
+  const hasWiz = s.heroes.some(h => h.klass === 'wizard');
+
+  if (!hasElf && !hasWiz) return; // no spellcasters — skip entirely
+
+  if (!hasElf) {
+    // Wizard gets every school automatically; no draft UI needed.
+    applySpellDraft(s, null, null);
+    return;
+  }
+
+  // At least elf is present — start the draft.
+  s.phase = 'spell_draft';
+  s.spellDraft = {
+    step: hasWiz ? 'wizard' : 'elf',
+    wizardSchool: null,
+    remaining: [...ALL_ELEMENTS],
+  };
+}
+
+function doPickSpellSchool(
+  state: HQState,
+  playerId: string,
+  school: 'air' | 'water' | 'fire' | 'earth',
+): ApplyResult {
+  if (state.phase !== 'spell_draft') return err('No spell draft is in progress.');
+  const draft = state.spellDraft;
+  if (!draft) return err('Draft state missing.');
+
+  if (!draft.remaining.includes(school)) return err('That school is not available.');
+
+  const s = clone(state);
+  const d = s.spellDraft!;
+
+  if (d.step === 'wizard') {
+    const wiz = s.heroes.find(h => h.klass === 'wizard');
+    if (!wiz || wiz.playerId !== playerId) return err('Only the Wizard may pick first.');
+    d.wizardSchool = school;
+    d.remaining = d.remaining.filter(e => e !== school);
+    // Is there an elf to pick next?
+    const elf = s.heroes.find(h => h.klass === 'elf');
+    if (elf) {
+      d.step = 'elf';
+      pushLog(s, 'system', `The Wizard claims the ${school.charAt(0).toUpperCase() + school.slice(1)} school. The Elf chooses next.`);
+    } else {
+      // No elf — wizard gets everything, draft done.
+      applySpellDraft(s, school, null);
+      s.spellDraft = null;
+      s.phase = 'heroes';
+      pushLog(s, 'system', `The Wizard claims all spell schools. The quest begins!`);
+      for (const h of s.heroes) revealLineOfSightForHero(s, h);
+    }
+    return ok(s);
+  }
+
+  // step === 'elf'
+  const elf = s.heroes.find(h => h.klass === 'elf');
+  if (!elf || elf.playerId !== playerId) return err('Only the Elf may pick now.');
+  applySpellDraft(s, d.wizardSchool, school);
+  s.spellDraft = null;
+  s.phase = 'heroes';
+  const elfName = school.charAt(0).toUpperCase() + school.slice(1);
+  const wizSchools = ALL_ELEMENTS.filter(e => e !== school);
+  pushLog(s, 'system', `The Elf claims ${elfName}. The Wizard takes ${wizSchools.join(', ')}. The quest begins!`);
+  for (const h of s.heroes) revealLineOfSightForHero(s, h);
+  return ok(s);
 }
 
 // ============================================================================
@@ -326,15 +407,26 @@ export function applyAction(
         cursor += 1;
       }
     }
-    s.phase = 'heroes';
+    s.phase = 'heroes'; // temporary — beginSpellDraft may change this to 'spell_draft'
     s.turnIndex = 0;
-    // Reveal LOS from each hero's starting cell so the entry corridor lights up.
-    for (const h of s.heroes) revealLineOfSightForHero(s, h);
     pushLog(s, 'system', `Quest "${s.quest.name}" begins.`);
     pushLog(s, 'system', s.quest.briefing);
-    pushLog(s, 'system', `It is ${heroLabel(s.heroes[0])}'s turn.`);
+    // Begin the spell draft (sets phase to 'spell_draft' if casters present,
+    // otherwise assigns spells immediately and keeps phase as 'heroes').
+    beginSpellDraft(s);
+    if (s.phase === 'heroes') {
+      // No draft needed — reveal starting LOS now.
+      for (const h of s.heroes) revealLineOfSightForHero(s, h);
+      pushLog(s, 'system', `It is ${heroLabel(s.heroes[0])}'s turn.`);
+    } else {
+      const firstPicker = s.spellDraft?.step === 'wizard' ? 'The Wizard' : 'The Elf';
+      pushLog(s, 'system', `${firstPicker} must choose a spell school before the quest begins.`);
+    }
     return ok(s);
   }
+
+  // Spell draft picks can arrive while phase === 'spell_draft'.
+  if (action.kind === 'pick_spell_school') return doPickSpellSchool(state, playerId, action.school);
 
   // Death-save prompt: must be resolved before any other action proceeds.
   if (action.kind === 'death_save') return doDeathSave(state, playerId, action.choice);
@@ -1126,8 +1218,14 @@ function doCastSpell(
       return ok(s);
     }
     case 'fire_of_wrath': {
+      // Fire of Wrath is a melee-range touch — the monster must be orthogonally
+      // adjacent (Manhattan distance 1) and not separated by a wall edge.
       const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
       if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
+      const mDist = Math.abs(h.at.x - m.at.x) + Math.abs(h.at.y - m.at.y);
+      if (mDist !== 1 || edgeBlocksMove(s, h.at, m.at, false)) {
+        pushLog(s, 'spell', `…but that monster is not adjacent. Fire of Wrath requires touch range.`); return ok(s);
+      }
       m.body -= 1;
       pushLog(s, 'spell', `${monsterDisplay(m)} burns for 1 BP.`);
       if (m.body <= 0) {
@@ -1602,11 +1700,12 @@ function maybeFinishOnExit(s: HQState): void {
 // ============================================================================
 
 function drawTreasureCard(s: HQState): TreasureCard | null {
-  // Hazard and Wandering Monster cards cycle back to the BOTTOM of the deck
-  // after resolution — so the deck never truly empties under normal play (the
-  // 10 cycling cards keep circulating). If somehow all cards have been
-  // permanently removed (14 good cards gone AND all 10 cycling cards also
-  // missing), we return null as a safety net.
+  // The rulebook requires shuffling the deck before every draw.  This is done
+  // here rather than after each resolution so that the cycling cards (Hazard /
+  // Wandering Monster) are always mixed back in before the next search.
+  // If the deck is somehow exhausted, return null as a safety net.
+  if (s.treasureDeck.length === 0) return null;
+  s.treasureDeck = shuffle(s.treasureDeck);
   return s.treasureDeck.shift() ?? null;
 }
 

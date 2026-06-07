@@ -40,6 +40,8 @@ export type {
   ApplyResult,
   PendingPrompt,
   QuestDef,
+  SpellElement,
+  SpellDraft,
 } from './types';
 
-export { HERO_DEFAULTS, QUESTS, QUEST1, MONSTER_STATS } from './content';
+export { HERO_DEFAULTS, QUESTS, QUEST1, MONSTER_STATS, SPELLS, spellsByElement } from './content';

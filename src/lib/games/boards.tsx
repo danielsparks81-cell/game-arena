@@ -246,6 +246,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'end_turn' }); })}
       onZargonStep={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'zargon_step' }); })}
       onDeathSave={(choice) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'death_save', choice }); })}
+      onPickSpellSchool={(school) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'pick_spell_school', school }); })}
     />
   ),
 

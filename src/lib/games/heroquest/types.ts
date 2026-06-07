@@ -348,9 +348,21 @@ export type LogEntry = {
 /** What the engine is doing this exact moment. */
 export type Phase =
   | 'lobby'        // before start, players picking hero classes
+  | 'spell_draft'  // wizard then elf pick their spell schools before the quest begins
   | 'heroes'       // a hero is taking their turn
   | 'zargon'       // engine is resolving monster turns
   | 'finished';    // game over
+
+export type SpellElement = 'air' | 'water' | 'fire' | 'earth';
+
+/** Tracks the pre-quest spell-school draft (wizard picks first, elf picks second). */
+export type SpellDraft = {
+  step: 'wizard' | 'elf';
+  /** Which school the wizard claimed. Null until wizard has picked. */
+  wizardSchool: SpellElement | null;
+  /** Schools still available for the current picker. */
+  remaining: SpellElement[];
+};
 
 export type Winner = 'heroes' | 'zargon' | null;
 
@@ -412,6 +424,8 @@ export type HQState = {
   zargonQueue?: string[];
   zargonActiveId?: string | null;
   zargonActed?: string[];
+  /** Active during the pre-quest spell school draft. Null / absent once complete. */
+  spellDraft?: SpellDraft | null;
   /** Set when a hero is reduced to 0 BP but has a healing potion or healing
    *  spell available. The hero's player must resolve this before play resumes.
    *  Zargon's timer pauses; all other actions are rejected while this is set. */
@@ -467,6 +481,10 @@ export type HQAction =
    *  'potion' — drink the Potion of Healing; 'spell' — cast the healing spell;
    *  'decline' — accept death (hero falls). */
   | { kind: 'death_save'; choice: 'potion' | 'spell' | 'decline' }
+  /** During the pre-quest spell draft, the current picker (wizard or elf)
+   *  claims a spell school. The wizard picks first; the elf picks second;
+   *  the wizard automatically receives all remaining schools. */
+  | { kind: 'pick_spell_school'; school: SpellElement }
   /** Advance Zargon's turn by one monster (host-driven, on a timer). */
   | { kind: 'zargon_step' };
 
