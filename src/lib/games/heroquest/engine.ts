@@ -29,6 +29,7 @@ import {
   type QuestDef,
   type Tile,
   type TreasureCard,
+  type HeldPotion,
   type Trap,
   type Furniture,
   type Winner,
@@ -356,6 +357,7 @@ export function applyAction(
   if (action.kind === 'jump_trap')       return doJumpTrap(state, hero, action.trapId);
   if (action.kind === 'climb_pit')       return doClimbPit(state, hero);
   if (action.kind === 'cast_spell')      return doCastSpell(state, hero, action);
+  if (action.kind === 'use_potion')      return doUsePotion(state, hero, action.potionId);
   if (action.kind === 'end_turn')        return doEndTurn(state, hero);
 
   return err('Unknown action.');
@@ -689,9 +691,11 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   const m = s.monsters.find(mm => mm.id === monsterId)!;
-  // Attack roll — Courage adds bonus dice; fighting from a pit costs one die
-  // (min 1, rulebook p.17).
-  const bonus = h.attackBonus ?? 0;
+  // Attack roll — Courage + Potion of Strength add bonus dice; fighting from
+  // a pit costs one die (min 1, rulebook p.17).
+  const spellBonus  = h.attackBonus    ?? 0;  // Courage spell (expires after this attack)
+  const potionBonus = h.potionAtkBonus ?? 0;  // Potion of Strength (expires after this attack)
+  const bonus = spellBonus + potionBonus;
   const atk = rollDice(Math.max(1, h.attack + bonus - (h.inPit ? 1 : 0)), 'hero');
   s.lastRoll = atk;
   s.lastMoveRoll = null;
@@ -700,9 +704,12 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   s.lastDefenseRoll = def;
   const damage = Math.max(0, atk.skulls - def.blocks);
   m.body -= damage;
+  const bonusNote = spellBonus > 0 && potionBonus > 0
+    ? ` (Courage +${spellBonus}, Strength potion +${potionBonus} dice)`
+    : spellBonus > 0 ? ` (Courage +${spellBonus} dice)`
+    : potionBonus > 0 ? ` (Strength potion +${potionBonus} dice)` : '';
   pushLog(s, 'combat',
-    `${heroLabel(h)} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
-    (bonus > 0 ? ` (Courage +${bonus} dice)` : '') + '. ' +
+    `${heroLabel(h)} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks${bonusNote}. ` +
     (damage > 0 ? `${monsterDisplay(m)} takes ${damage} BP.` : 'No damage.'),
   );
   if (m.body <= 0) {
@@ -713,9 +720,11 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
     }
     s.monsters = s.monsters.filter(mm => mm.id !== m.id);
   }
-  // The attack-die bonus is spent on this strike. If this was the free Courage
-  // attack, consume that too; otherwise it's the hero's normal action.
-  h.attackBonus = 0;
+  // Both attack bonuses are consumed on this strike. If this was the free
+  // Heroic Brew / Courage extra attack, consume that flag too; otherwise it
+  // is the hero's normal action for the turn.
+  h.attackBonus    = 0;
+  h.potionAtkBonus = 0;
   if (usingExtraAttack) h.extraAttack = false;
   else markActed(h);
   // Check win condition (kill the named monster).
@@ -773,6 +782,52 @@ function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
     return ok(s);
   }
   resolveTreasureCard(s, h, card); // handles markActed and lastTreasureFx internally
+  return ok(s);
+}
+
+function doUsePotion(state: HQState, hero: Hero, potionId: string): ApplyResult {
+  if (hero.body <= 0) return err('A dead hero cannot drink potions.');
+  const potion = hero.foundPotions?.find(p => p.id === potionId);
+  if (!potion) return err('You do not have that potion.');
+
+  // Heroic Brew must be drunk BEFORE attacking (rulebook: "before you attack").
+  // Once the hero has taken their action (hasActed), it's too late.
+  if (potion.effect === 'brew' && hero.hasActed) {
+    return err('Heroic Brew must be drunk before you attack.');
+  }
+
+  const s = clone(state);
+  const h = s.heroes[s.turnIndex];
+
+  // Remove from pack — potions are one-shot.
+  h.foundPotions = h.foundPotions.filter(p => p.id !== potionId);
+
+  switch (potion.effect) {
+    case 'brew':
+      // Grants an extra attack: first attack is the hero's action; second uses
+      // the extraAttack flag (same mechanic as the Courage spell).
+      h.extraAttack = true;
+      pushLog(s, 'search', `${heroLabel(h)} drinks the Heroic Brew — two attacks this turn!`);
+      break;
+    case 'defense':
+      h.potionDefBonus = (h.potionDefBonus ?? 0) + 2;
+      pushLog(s, 'search', `${heroLabel(h)} drinks a Potion of Defense — +2 defense dice until the next hit!`);
+      break;
+    case 'strength':
+      h.potionAtkBonus = (h.potionAtkBonus ?? 0) + 2;
+      pushLog(s, 'search', `${heroLabel(h)} drinks a Potion of Strength — +2 attack dice for the next strike!`);
+      break;
+    case 'heal_d6': {
+      const roll = 1 + Math.floor(Math.random() * 6);
+      const restored = Math.min(h.bodyMax - h.body, roll);
+      h.body += restored;
+      pushLog(s, 'search',
+        `${heroLabel(h)} drinks a Potion of Healing — rolled a ${roll}, restored ${restored} BP!`,
+      );
+      break;
+    }
+  }
+  // Drinking a potion does NOT consume the hero's action.
   return ok(s);
 }
 
@@ -1164,12 +1219,15 @@ function endHeroTurn(s: HQState): void {
   h.moveRolled = 0;
   h.hasRolled = false;
   h.hasActed = false;
-  // Single-turn spell buffs expire with the turn that used them. (Rock Skin's
-  // defenseBonus is intentionally NOT cleared here — it lasts through the
-  // upcoming Zargon turn and clears when its bearer's next turn begins.)
-  h.attackBonus = 0;
-  h.extraAttack = false;
-  h.phaseWalls = false;
+  // Single-turn spell buffs expire with the turn that used them.
+  // Rock Skin's defenseBonus is intentionally NOT cleared here — it lasts
+  // through the upcoming Zargon turn and clears when the hero's next turn
+  // begins. Similarly, Potion of Defense (potionDefBonus) persists until the
+  // hero is actually hit — it is NOT cleared at turn end.
+  h.attackBonus    = 0;  // Courage spell
+  h.potionAtkBonus = 0;  // Potion of Strength (unused strength potion expires at turn end)
+  h.extraAttack    = false;
+  h.phaseWalls     = false;
   // Advance to next hero, skipping dead heroes.
   let next = s.turnIndex;
   for (let i = 0; i < s.heroes.length; i++) {
@@ -1275,16 +1333,23 @@ function runMonster(s: HQState, m: Monster): void {
     const atk = rollDice(m.attack, 'monster');
     s.lastRoll = atk;
     s.lastMoveRoll = null;
-    // Rock Skin adds bonus defense dice; defending from a pit costs one die
-    // (min 1, rulebook p.17).
-    const defBonus = target.defenseBonus ?? 0;
+    // Rock Skin + Potion of Defense add bonus defense dice; defending from a
+    // pit costs one die (min 1, rulebook p.17). Potion of Defense is consumed
+    // on this defense roll; Rock Skin persists until the hero's next turn.
+    const rockBonus   = target.defenseBonus   ?? 0;
+    const potDefBonus = target.potionDefBonus ?? 0;
+    const defBonus = rockBonus + potDefBonus;
     const def = rollDice(Math.max(1, target.defense + defBonus - (target.inPit ? 1 : 0)), 'hero');
     s.lastDefenseRoll = def;
+    target.potionDefBonus = 0;  // consumed — Rock Skin (defenseBonus) is NOT cleared here
     const damage = Math.max(0, atk.skulls - def.blocks);
     target.body = Math.max(0, target.body - damage);
+    const defNote = rockBonus > 0 && potDefBonus > 0
+      ? ` (Rock Skin +${rockBonus}, Defense potion +${potDefBonus} dice)`
+      : rockBonus > 0 ? ` (Rock Skin +${rockBonus} dice)`
+      : potDefBonus > 0 ? ` (Defense potion +${potDefBonus} dice)` : '';
     pushLog(s, 'combat',
-      `${monsterDisplay(m)} attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks` +
-      (defBonus > 0 ? ` (Rock Skin +${defBonus} dice)` : '') + '. ' +
+      `${monsterDisplay(m)} attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks${defNote}. ` +
       (damage > 0 ? `${heroLabel(target)} loses ${damage} BP.` : 'No damage.'),
     );
     checkHeroDeath(s, target);
@@ -1403,11 +1468,15 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
       return;
     case 'potion': {
       markActed(h);
-      const restored = Math.min(h.bodyMax - h.body, card.amount);
-      h.body += restored;
-      pushLog(s, 'search', `${heroLabel(h)} finds a ${card.name} and drinks it (+${restored} BP).`);
+      // Potions are held in the hero's pack and used at any time (except
+      // Heroic Brew, which must be drunk before attacking). They are NOT
+      // auto-applied on draw — the hero decides when to use them.
+      const held: HeldPotion = { id: card.id, name: card.name, effect: card.effect, description: card.description };
+      if (!h.foundPotions) h.foundPotions = [];
+      h.foundPotions.push(held);
       s.treasureDiscard.push(card);
-      s.lastTreasureFx = { seq: s.logSeq, kind: 'potion', label: card.name, subtitle: `+${restored} Body Point${restored !== 1 ? 's' : ''}`, isGood: true };
+      pushLog(s, 'search', `${heroLabel(h)} finds a ${card.name} and tucks it away for later!`);
+      s.lastTreasureFx = { seq: s.logSeq, kind: 'potion', label: card.name, subtitle: card.description, isGood: true };
       return;
     }
     case 'hazard':

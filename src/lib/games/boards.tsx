@@ -241,6 +241,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onJumpTrap={(trapId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'jump_trap', trapId }); })}
       onClimbPit={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'climb_pit' }); })}
       onCastSpell={(spellId, opts) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'cast_spell', spellId, targetMonsterId: opts?.targetMonsterId, targetHeroIdx: opts?.targetHeroIdx }); })}
+      onUsePotion={(potionId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'use_potion', potionId }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'end_turn' }); })}
       onZargonStep={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'zargon_step' }); })}
     />

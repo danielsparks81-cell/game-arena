@@ -9,6 +9,7 @@ import {
   type HQState,
   type Hero,
   type Spell,
+  type HeldPotion,
   HERO_DEFAULTS,
 } from '@/lib/games/heroquest';
 import {
@@ -29,13 +30,14 @@ const PARCHMENT_BG = `
 `;
 
 export default function CharacterSheet({
-  hero, isActive, isMyTurn, isMine, onCastSpell, compact = false,
+  hero, isActive, isMyTurn, isMine, onCastSpell, onUsePotion, compact = false,
 }: {
   hero: Hero;
   isActive: boolean;
   isMyTurn: boolean;
   isMine: boolean;
   onCastSpell: (spellId: string) => void;
+  onUsePotion?: (potionId: string) => void;
   /** Compact: header + stat band only (no equipment / spell grids) so several
    *  heroes can stack as a party of panels. */
   compact?: boolean;
@@ -84,6 +86,16 @@ export default function CharacterSheet({
           </span>
         </div>
         {hero.items.length > 0 && <div className="px-2 pb-1"><CompactItems hero={hero} /></div>}
+        {(hero.foundPotions?.length ?? 0) > 0 && (
+          <div className="px-2 pb-1">
+            <PotionRow
+              potions={hero.foundPotions}
+              hero={hero}
+              canUse={isMine && isMyTurn}
+              onUse={onUsePotion}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -143,6 +155,24 @@ export default function CharacterSheet({
             </div>
             <InventoryGrid hero={hero} />
           </div>
+
+          {/* Potions (if any found) */}
+          {(hero.foundPotions?.length ?? 0) > 0 && (
+            <>
+              <FleurDivider width={220} />
+              <div className="px-3 py-2">
+                <div className="mb-1.5 text-[9px] uppercase tracking-widest text-amber-900/80" style={{ fontFamily: 'serif' }}>
+                  Potions
+                </div>
+                <PotionRow
+                  potions={hero.foundPotions}
+                  hero={hero}
+                  canUse={isMine && isMyTurn}
+                  onUse={onUsePotion}
+                />
+              </div>
+            </>
+          )}
 
           {/* Spells (casters only) */}
           {hero.spells.length > 0 && (
@@ -294,6 +324,59 @@ function itemIcon(kind: 'weapon' | 'armor' | 'tool' | 'potion' | 'artifact') {
     case 'potion':   return '🧪';
     case 'artifact': return '✨';
   }
+}
+
+const POTION_ICON: Record<HeldPotion['effect'], string> = {
+  brew:     '🍺',
+  defense:  '🛡️',
+  strength: '💪',
+  heal_d6:  '🧪',
+};
+
+const POTION_COLOR: Record<HeldPotion['effect'], { bg: string; border: string; text: string }> = {
+  brew:     { bg: 'bg-amber-900/30',   border: 'border-amber-600/60',   text: 'text-amber-200' },
+  defense:  { bg: 'bg-blue-900/30',    border: 'border-blue-500/60',    text: 'text-blue-200'  },
+  strength: { bg: 'bg-rose-900/30',    border: 'border-rose-500/60',    text: 'text-rose-200'  },
+  heal_d6:  { bg: 'bg-emerald-900/30', border: 'border-emerald-600/60', text: 'text-emerald-200' },
+};
+
+/** Small row of held potion pills — each shows an icon + short name and can be
+ *  clicked to use the potion during the hero's turn. */
+function PotionRow({ potions, hero, canUse, onUse }: {
+  potions: HeldPotion[] | undefined;
+  hero: Hero;
+  canUse: boolean;
+  onUse?: (potionId: string) => void;
+}) {
+  if (!potions || potions.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {potions.map(p => {
+        const col = POTION_COLOR[p.effect];
+        // Heroic Brew: disable if hero has already acted (must drink before attacking)
+        const disabled = !canUse || (p.effect === 'brew' && hero.hasActed);
+        const tip = disabled
+          ? p.effect === 'brew' && hero.hasActed
+            ? 'Heroic Brew must be drunk before attacking'
+            : p.description
+          : p.description;
+        return (
+          <button
+            key={p.id}
+            onClick={() => !disabled && onUse?.(p.id)}
+            disabled={disabled}
+            title={tip}
+            className={`flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-semibold transition
+              ${col.bg} ${col.border} ${col.text}
+              ${disabled ? 'cursor-default opacity-50' : 'cursor-pointer hover:brightness-125'}`}
+          >
+            <span>{POTION_ICON[p.effect]}</span>
+            <span>{p.name}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function SpellGrid({ hero, canCast, onCast }: {

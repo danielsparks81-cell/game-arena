@@ -157,6 +157,12 @@ export type Hero = {
   spellsCast: string[];
   /** Gold purse (kept between quests in future expansions). */
   gold: number;
+  /** Potions found during this quest and held in the pack (not yet used). */
+  foundPotions: HeldPotion[];
+  /** Extra attack dice from Potion of Strength — consumed on the next attack. */
+  potionAtkBonus?: number;
+  /** Extra defense dice from Potion of Defense — consumed on the next defense. */
+  potionDefBonus?: number;
   /** Set of room ids this hero has already searched-for-treasure. */
   searchedRooms: string[];
   /** Set of room/corridor ids this hero has already searched-for-traps. */
@@ -265,12 +271,27 @@ export type WinCondition =
 // Treasure deck
 // ============================================================================
 
+/** A potion's effect type — drives both the treasure card and the held-item. */
+export type PotionEffect =
+  | 'brew'      // Heroic Brew: make two attacks this turn (drink before attacking)
+  | 'defense'   // Potion of Defense: +2 defense dice next time you defend
+  | 'strength'  // Potion of Strength: +2 attack dice next time you attack
+  | 'heal_d6';  // Potion of Healing: restore 1d6 Body Points
+
+/** A potion held in the hero's pack after being found. */
+export type HeldPotion = {
+  id: string;
+  name: string;
+  effect: PotionEffect;
+  description: string;
+};
+
 /** A single treasure card. */
 export type TreasureCard =
   | { id: string; kind: 'gold';     amount: number }
   | { id: string; kind: 'gem';      value: number }
   | { id: string; kind: 'jewels';   value: number }
-  | { id: string; kind: 'potion';   name: string; effect: 'heal'; amount: number }
+  | { id: string; kind: 'potion';   name: string; effect: PotionEffect; description: string }
   | { id: string; kind: 'hazard';   flavor: string; bpLoss: number }
   | { id: string; kind: 'wandering' };
 
@@ -428,6 +449,7 @@ export type HQAction =
   | { kind: 'jump_trap'; trapId: string }
   | { kind: 'climb_pit' }
   | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number }
+  | { kind: 'use_potion'; potionId: string }
   | { kind: 'end_turn' }
   /** Advance Zargon's turn by one monster (host-driven, on a timer). */
   | { kind: 'zargon_step' };

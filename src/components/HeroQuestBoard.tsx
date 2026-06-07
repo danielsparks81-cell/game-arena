@@ -46,6 +46,7 @@ export type HeroQuestBoardProps = {
   onJumpTrap: (trapId: string) => void;
   onClimbPit: () => void;
   onCastSpell: (spellId: string, opts?: { targetMonsterId?: string; targetHeroIdx?: number }) => void;
+  onUsePotion: (potionId: string) => void;
   onEndTurn: () => void;
   /** Advance Zargon's turn by one monster (the host drives this on a timer). */
   onZargonStep: () => void;
@@ -109,7 +110,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
 function PlayingView({
   state, currentUserId, disabled,
   onRollMove, onMoveTo, onMovePath, onOpenDoor, onAttack,
-  onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onJumpTrap, onClimbPit, onCastSpell, onEndTurn,
+  onSearchTreasure, onSearchTraps, onSearchSecrets, onDisarmTrap, onJumpTrap, onClimbPit, onCastSpell, onUsePotion, onEndTurn,
   onShowBriefing,
 }: HeroQuestBoardProps & { onShowBriefing: () => void }) {
   // The sheet always shows the ACTIVE hero (whoever's up). Since players
@@ -276,6 +277,7 @@ function PlayingView({
               isMyTurn={isMyTurn}
               isMine={h.playerId === currentUserId}
               onCastSpell={handleSpellClick}
+              onUsePotion={onUsePotion}
             />
           </div>
         ))}

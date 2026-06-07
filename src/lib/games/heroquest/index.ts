@@ -30,6 +30,8 @@ export type {
   Item,
   TreasureCard,
   TreasureFx,
+  HeldPotion,
+  PotionEffect,
   DiceRoll,
   DieFace,
   LogEntry,
