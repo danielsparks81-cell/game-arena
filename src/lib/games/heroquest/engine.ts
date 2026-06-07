@@ -681,13 +681,17 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   if (hero.hasActed && !usingExtraAttack) return err('You have already taken your action this turn.');
   const mon = state.monsters.find(m => m.id === monsterId);
   if (!mon) return err('Target not found.');
-  // Adjacency / range check (v1: simple adjacency; diagonal allowed if any
-  // equipped weapon has diagonal=true).
+  // Adjacency / range check. Orthogonal melee requires no wall edge between the
+  // two squares (edgeBlocksMove). Diagonal melee (special weapon trait) skips
+  // the edge check since edgeBlocksMove is only defined for orthogonal pairs.
+  // Ranged attacks need line of sight instead.
   const allowDiag = hero.items.some(i => i.diagonal);
   const allowRanged = hero.items.some(i => i.ranged);
   const dx = Math.abs(mon.at.x - hero.at.x);
   const dy = Math.abs(mon.at.y - hero.at.y);
-  const adj = dx + dy === 1 || (allowDiag && dx === 1 && dy === 1);
+  const orthoAdj = dx + dy === 1 && !edgeBlocksMove(state, hero.at, mon.at, false);
+  const diagAdj  = allowDiag && dx === 1 && dy === 1;
+  const adj = orthoAdj || diagAdj;
   const ranged = allowRanged && hasLineOfSight(state, hero.at, mon.at);
   if (!adj && !ranged) return err('Target is out of reach.');
 
@@ -883,7 +887,7 @@ function doSearchTraps(state: HQState, hero: Hero): ApplyResult {
   if (hero.hasActed) return err('You have already taken your action this turn.');
   const region = state.tiles[hero.at.y][hero.at.x].region;
   if (!region) return err('Invalid location.');
-  if (hero.searchedTraps.includes(region)) return err('You have already searched this area for traps.');
+  if (state.heroes.some(h => h.searchedTraps.includes(region))) return err('This area has already been searched for traps.');
   if (monstersVisibleToHero(state, hero).length > 0) return err('You cannot search while monsters are in sight.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
@@ -906,7 +910,7 @@ function doSearchSecrets(state: HQState, hero: Hero): ApplyResult {
   if (hero.hasActed) return err('You have already taken your action this turn.');
   const region = state.tiles[hero.at.y][hero.at.x].region;
   if (!region) return err('Invalid location.');
-  if (hero.searchedSecrets.includes(region)) return err('You have already searched this area for secret doors.');
+  if (state.heroes.some(h => h.searchedSecrets.includes(region))) return err('This area has already been searched for secret doors.');
   if (monstersVisibleToHero(state, hero).length > 0) return err('You cannot search while monsters are in sight.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
@@ -1351,33 +1355,45 @@ function runMonster(s: HQState, m: Monster): void {
     || a.body - b.body,
   );
   const target = livingHeroes[0];
-  // Walk toward target. Monsters move orthogonally, but (house rule) they may
-  // ATTACK diagonally — so they stop the moment they are within one square in
-  // any of the 8 directions. Checking at the top of the loop also means a
-  // monster that starts in melee range strikes from where it stands.
+  // Walk toward target one orthogonal step at a time. Each step, consider all
+  // four orthogonal neighbours and take the one that brings the monster closest
+  // (by Manhattan distance) to the target. Stop when orthogonally adjacent
+  // (Manhattan = 1) — that is the only position from which an attack can land.
+  //
+  // The old approach used hardcoded directional fallbacks ([0,dx] / [dy,0])
+  // that could point AWAY from the target when both primary axes were blocked,
+  // making monsters visually "run away." The sorted-neighbours approach always
+  // prefers the step that reduces distance, never increases it.
   let steps = m.move;
-  while (steps > 0 && chebyshev(m.at, target.at) !== 1) {
-    const dx = Math.sign(target.at.x - m.at.x);
-    const dy = Math.sign(target.at.y - m.at.y);
-    // Try the toward-target axes first, then perpendicular fallbacks to round a
-    // corner. Every candidate is a single orthogonal step (one component zero).
-    let moved = false;
-    for (const [sx, sy] of [[dx, 0], [0, dy], [0, dx], [dy, 0]]) {
-      if (sx === 0 && sy === 0) continue;
-      const nx = m.at.x + sx, ny = m.at.y + sy;
-      if (!inBounds(s, { x: nx, y: ny })) continue;
-      if (!isPassable(s, { x: nx, y: ny }, /*forHero*/ false)) continue;
-      if (edgeBlocksMove(s, m.at, { x: nx, y: ny }, /*phaseWalls*/ false)) continue;
-      if (cellOccupied(s, { x: nx, y: ny }, /*ignoreHeroPassthrough*/ false)) continue;
-      m.at = { x: nx, y: ny };
-      moved = true;
-      steps -= 1;
-      break;
-    }
-    if (!moved) break;
+  while (steps > 0) {
+    const mdt = Math.abs(m.at.x - target.at.x) + Math.abs(m.at.y - target.at.y);
+    if (mdt <= 1) break; // already adjacent — ready to attack
+    const nexts = [
+      { x: m.at.x + 1, y: m.at.y },
+      { x: m.at.x - 1, y: m.at.y },
+      { x: m.at.x,     y: m.at.y + 1 },
+      { x: m.at.x,     y: m.at.y - 1 },
+    ].filter(c =>
+      inBounds(s, c) &&
+      isPassable(s, c, /*forHero*/ false) &&
+      !edgeBlocksMove(s, m.at, c, false) &&
+      !cellOccupied(s, c, /*ignoreHeroPassthrough*/ false),
+    );
+    if (nexts.length === 0) break;
+    // Primary sort: Manhattan distance to target (closer is better).
+    // Tie-break: Chebyshev distance (avoids diagonal oscillation).
+    nexts.sort((a, b) =>
+      (Math.abs(a.x - target.at.x) + Math.abs(a.y - target.at.y)) -
+      (Math.abs(b.x - target.at.x) + Math.abs(b.y - target.at.y)) ||
+      chebyshev(a, target.at) - chebyshev(b, target.at),
+    );
+    m.at = { ...nexts[0] };
+    steps -= 1;
   }
-  // Attack if adjacent in any of the 8 directions (monsters may strike diagonally).
-  if (chebyshev(m.at, target.at) === 1) {
+  // Attack if orthogonally adjacent (Manhattan = 1) with no wall edge between them.
+  // Diagonal attacks are not allowed; edgeBlocksMove guards room-boundary walls.
+  const mdist = Math.abs(m.at.x - target.at.x) + Math.abs(m.at.y - target.at.y);
+  if (mdist === 1 && !edgeBlocksMove(s, m.at, target.at, false)) {
     const atk = rollDice(m.attack, 'monster');
     s.lastRoll = atk;
     s.lastMoveRoll = null;

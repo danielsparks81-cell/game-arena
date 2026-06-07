@@ -227,14 +227,17 @@ function PlayingView({
     ),
   );
 
-  // Track per-hero per-region search exhaustion so buttons grey out once used.
+  // Track search exhaustion for buttons. Treasure is still per-hero (each hero
+  // can search a room for treasure independently). Traps and secret doors are
+  // party-wide — once any hero searches an area the search is done for everyone,
+  // so we check across all heroes rather than just the active one.
   // The engine also enforces these server-side, but greying the button prevents
   // the "action appears consumed" UX bug (optimisticActed sticks when the engine
   // returns an error and hasActed never changes).
   const heroInRoom = heroRegion.startsWith('room_');
   const alreadySearchedTreasure = !heroInRoom || (focusHero?.searchedRooms ?? []).includes(heroRegion);
-  const alreadySearchedTraps    = heroRegion.length > 0 && (focusHero?.searchedTraps   ?? []).includes(heroRegion);
-  const alreadySearchedSecrets  = heroRegion.length > 0 && (focusHero?.searchedSecrets ?? []).includes(heroRegion);
+  const alreadySearchedTraps    = heroRegion.length > 0 && state.heroes.some(h => (h.searchedTraps   ?? []).includes(heroRegion));
+  const alreadySearchedSecrets  = heroRegion.length > 0 && state.heroes.some(h => (h.searchedSecrets ?? []).includes(heroRegion));
 
   // Heroes the active hero can pass a potion to: alive, orthogonally adjacent
   // (Manhattan dist === 1), and no monster adjacent to EITHER party.
@@ -569,12 +572,12 @@ function ActionPanel({
         <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)}
           disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTraps} flavor="orange"
           tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
-            : alreadySearchedTraps ? 'You have already searched this area for traps.'
+            : alreadySearchedTraps ? 'This area has already been searched for traps.'
             : 'Reveal any hidden traps in your room or corridor. Search before you loot a chest!'} />
         <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)}
           disabled={!canAct || acted || monstersInMyRoom || alreadySearchedSecrets} flavor="indigo"
           tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
-            : alreadySearchedSecrets ? 'You have already searched this area for secret doors.'
+            : alreadySearchedSecrets ? 'This area has already been searched for secret doors.'
             : 'Search your room or corridor for hidden doors.'} />
         <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && act(() => onDisarmTrap(disarmableTrapId))} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
           tip="Disarm an adjacent discovered trap. The Dwarf is best at it; everyone else needs a Tool Kit." />

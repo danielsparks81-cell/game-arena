@@ -119,16 +119,89 @@ effects (KO 2 cards, discard down to 4, put 2 on deck) chain by re-seeding a
 the effect — because the player must *choose* between steps. See
 `references/effects-and-choices.md`.
 
-## Adding content — the safe path
+## Base game — frozen content (do not rename or remove)
+
+The base game is complete and working at ~97% fidelity. The content IDs below
+are used in saved `LegendaryState` objects in Supabase. **Never rename or remove
+them** — doing so silently breaks any in-progress game that references them.
+Additions are always safe; mutations are not.
+
+### Masterminds
+`magneto` · `red_skull` · `dr_doom` · `loki`
+
+### Schemes
+`prison_breakout` · `super_hero_civil_war` · `killbots` · `dark_portals` ·
+`legacy_virus` · `skrull_invasion` · `cosmic_cube` · `bank_robbery`
+
+### Hero classes (17 + SHIELD starters)
+`captain_america` · `cyclops` · `hawkeye` · `iron_man` · `jean_grey` · `thor` ·
+`storm` · `spiderman` · `gambit` · `deadpool` · `black_widow` · `hulk` ·
+`rogue` · `wolverine` · `nick_fury` · `shield` (starters: `shield_trooper`, `shield_agent`)
+
+### Villain groups (11)
+`brotherhood` · `enemies_of_asgard` · `hand_ninjas` · `savage_land_mutates` ·
+`doombot_legion` · `hydra` · `spider_foes` · `radiation` · `sentinels` ·
+`masters_of_evil` · `skrulls`
+
+### Regression baseline
+31 targeted tests + a full mastermind × scheme fuzz matrix (4 × 8 = 32 combos,
+varying 1–5 players) are the locked baseline. Run them before and after ANY
+expansion work. If they were green before your change and red after, your change
+broke the base game.
+
+```bash
+npx vitest run src/lib/games/legendary/engine.test.ts
+npx vitest run src/lib/games/legendary/engine.fuzz.test.ts
+```
+
+---
+
+## Adding expansion content — the safe path
+
+### Golden rule: add files, never modify base game files
+
+Expansion content goes in **new files only**. Never edit an existing hero/villain/
+mastermind/scheme file to make room for an expansion mechanic. If an expansion
+needs a new engine capability (a new Effect kind, a new PendingChoice), add it
+to `engine.ts` in a purely **additive** way — new case in a switch, new field on
+the state with a `?? default` fallback, never changing what an existing effect
+does.
+
+### State migration rule
+
+Every new field added to `LegendaryState` for an expansion mechanic MUST have a
+`?? defaultValue` fallback everywhere it's read. Existing in-progress games in
+Supabase won't have the field; the engine must degrade gracefully, not crash.
+
+### Expansion content location
+
+```
+heroes/         → one file per class (e.g. heroes/dark-city/punisher.ts)
+villains/       → one file per group
+masterminds/    → one file per mastermind
+schemes/        → one file per scheme
+```
+
+Registration: each new content piece is imported into the relevant `all-*.ts`
+catalog file and listed in `HEROES`, `VILLAIN_GROUPS`, `MASTERMINDS`, `SCHEMES`.
+The base game entries are already there — append, don't replace.
+
+### Content type table
 
 | Adding a… | Do this |
 |---|---|
-| **Hero card** | Add to the class file in `heroes/`. Use existing `Effect` kinds in `onPlay` where possible. New effect kind → see below. |
-| **Villain / Henchman** | Add to the group file in `villains/`. `ambush`/`fight`/`escape` are `Effect[]`. Per-player ambush/escape that prompts → sequential-strike pattern. |
-| **Mastermind** | New file in `masterminds/` with 4 Tactics. `strike: Effect[]`. If the strike makes each player choose → register a `seqKind` (reference). |
-| **Scheme** | New file in `schemes/`. `onTwist: Effect[]` fires once. Wire the loss timer via the typed `evilWinsAfter*` fields, not a placeholder. |
+| **Hero card** | New file or class entry. Use existing `Effect` kinds in `onPlay` where possible. New effect kind → see below. |
+| **Villain / Henchman** | New group file. `ambush`/`fight`/`escape` are `Effect[]`. Per-player ambush/escape that prompts → sequential-strike pattern. |
+| **Mastermind** | New file with 4 Tactics. `strike: Effect[]`. If the strike makes each player choose → register a `seqKind` (reference). |
+| **Scheme** | New file. `onTwist: Effect[]` fires once. Wire the loss timer via the typed `evilWinsAfter*` fields, not a placeholder. |
 | **New Effect kind** | 1) add to the `Effect` union in types.ts; 2) handle it in `resolveEffect` (engine.ts); 3) add a case to `defaultEffectForKind` in LegendarySandbox.tsx (tsc enforces this); 4) if it opens a prompt, add a `PendingChoice` kind + handle it in `doResolveChoice`/`doSkipChoice`/`doAcceptChoice` + render it in LegendaryBoard.tsx. |
 | **New PendingChoice kind** | Add to the union (types.ts), handle resolve/skip/accept, AND add the board UI: the choice-mode banner text, the highlight ring in `HandCard`'s `choiceRing` (a missing ring makes valid targets look unclickable — that was the Rogue-copy bug), and any zone targeting. |
+
+### After any expansion content change
+
+1. Run the full test suite (both files above) — all 31 + 32 fuzz tests must still pass.
+2. Add a targeted test for any new mechanic the expansion introduces.
+3. Run the fidelity check in `references/rules-fidelity.md` — new card text must match implementation exactly.
 
 After ANY content change, run the fidelity check in
 `references/rules-fidelity.md` — the engine behavior must match the card's
