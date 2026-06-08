@@ -32,9 +32,10 @@ What the players are allowed to *see and place on the board* as a hero moves.
 Rules:
 - You **look down a hallway** in a straight, unobstructed line and reveal
   corridor / stairs / blocked-square tiles **until a wall stops the line**.
-- You **never see around a corner.** The reveal uses `revealVisible`, which is
-  STRICTER than character LOS: a diagonal is blocked if **either** corner
-  edge/cell is a wall (not "both", as character LOS allows).
+- You **cannot see through walls**, but **touching a wall corner does not block
+  vision** — the same lenient rule as character LOS. `revealVisible` uses `&&`
+  (BOTH flanking directions walled) to block a diagonal, not `||` (either).
+  A single wall section on one side of a diagonal does not obstruct the line.
 - You **never reveal a room's interior by looking.** A room is placed only when:
   - its **door is OPENED** (`doOpenDoor` reveals the room region + spawns its
     monsters/items), or
@@ -83,13 +84,15 @@ Must be enforced for:
 ## Invariants — do not break these
 
 1. **Never use `hasLineOfSight` for reveal**, and never use `revealVisible` for
-   targeting. Diagonal corner handling differs on purpose (reveal strict;
-   targeting lenient).
+   targeting. Both use the same lenient diagonal rule (`&&`) now, but they differ
+   in what they block on intermediate cells (figures block LOS but not reveal).
 2. **Looking never reveals a room interior.** Rooms enter play via doors / being
    stood in — `doOpenDoor` / the room-region reveal in `revealLineOfSightForHero`.
-3. **No around-corner reveal.** If you see scattered single revealed cells far
-   from any hero, a diagonal leak slipped into the reveal path — it must use
-   `revealVisible`.
+3. **Rooms are protected by two guards, not the diagonal edge rule.** (1) The
+   outer loop in `revealLineOfSightForHero` skips room tiles — they can never be
+   revealed by `revealVisible`. (2) The intermediate-cell check inside
+   `revealVisible` stops any path that crosses through a room region. A diagonal
+   "leak" into an unopened room is a broken room guard, not a diagonal rule issue.
 4. **Reveal is cumulative and explored stays fully visible.** Don't reintroduce
    a per-turn "dim/un-dim" of explored tiles.
 5. **Every targeted attack/spell checks LOS in the engine** (server-authoritative),
@@ -104,8 +107,9 @@ Must be enforced for:
   `revealVisible`.
 - "Seeing into an unopened room" → reveal loop didn't skip `room_*` cells, or a
   spell/UI used reveal where it should use door-open.
-- "Random/scattered hallway cells" → reveal used `hasLineOfSight` (lenient
-  diagonal) instead of `revealVisible`.
+- "Random/scattered hallway cells lit far from any hero" → reveal called
+  `hasLineOfSight` instead of `revealVisible` (figures don't block reveal, but
+  figures DO block LOS — mixing the two reveals too much).
 - "Spell hit a target through a wall" / "ranged through a hero" → missing
   `hasLineOfSight` gate in `doCastSpell` / `doAttack`.
 - "Can't target an adjacent monster in melee" → melee needs **adjacency**, not

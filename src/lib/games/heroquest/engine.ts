@@ -2479,22 +2479,17 @@ function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
     if (ortho) {
       if (edgeBlocksSight(s, prev, c)) return false;
     } else {
-      // Diagonal step — two independent checks with different strictness:
-      //
-      // EDGE check (room walls / closed doors) — STRICT (||):
-      //   edgeBlocksSight is true at room boundaries. If either flanking direction
-      //   crosses a room wall, the diagonal is blocked. This prevents heroes inside
-      //   a room from looking diagonally through the room wall into a corridor.
-      //
-      // CELL check (solid rock flanking tiles) — LENIENT (&&):
-      //   If only ONE flanking cell is solid rock, the other direction is open
-      //   corridor — the diagonal should still be visible. A true sealed corner
-      //   (BOTH flanking cells are rock) is still blocked.
-      //   This lets a 2-wide corridor light up fully from a diagonal look.
+      // Diagonal step — LENIENT rule (same as hasLineOfSight):
+      //   A diagonal is blocked only when BOTH flanking directions are walled.
+      //   One open side lets you see past the corner — this is the HeroQuest
+      //   "touching a wall corner doesn't block sight" rule.
+      //   Rooms are protected by two independent guards:
+      //     1. The outer loop skips room_* targets (rooms reveal only via doors).
+      //     2. The intermediate-cell check below stops the line on room tiles.
       const e1 = edgeBlocksSight(s, prev, { x: c.x, y: prev.y });
       const e2 = edgeBlocksSight(s, prev, { x: prev.x, y: c.y });
-      if (e1 || e2) return false;   // strict: room boundary on either side blocks
-      if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' && s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;  // lenient: only both solid
+      if (e1 && e2) return false;   // lenient: sealed corner (both sides walled) blocks
+      if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' && s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;
     }
     // Intermediate cells (not the endpoint) stop the line on solid terrain.
     if (i < cells.length - 1) {
