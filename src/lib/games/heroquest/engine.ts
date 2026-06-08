@@ -629,6 +629,9 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
       // fall through: the dodge counts as a normal step and the walk continues.
     }
 
+    // Auto-collect any loot pile on this square (not an action — just walk over it).
+    collectLoot(s, h);
+
     // Look from the new square.
     revealLineOfSightForHero(s, h);
     if (standable(sq)) { lastSafe = { ...sq }; spentSinceSafe = 0; }
@@ -1583,13 +1586,67 @@ function runMonster(s: HQState, m: Monster): void {
   }
 }
 
-const HEALING_SPELL_IDS = ['heal_body_w', 'heal_body_e', 'water_heal'];
+// Healing spells usable as a death-save. heal_body_e and water_heal both restore 4 BP.
+const HEALING_SPELL_IDS = ['heal_body_e', 'water_heal'];
 
-/** Permanently kill a hero and check the all-dead lose condition. */
+/** Collect any loot pile on the hero's current square (not an action).
+ *  Items and potions merge into the hero's pack; gold goes straight to their purse. */
+function collectLoot(s: HQState, h: Hero): void {
+  if (!s.lootPiles?.length) return;
+  const pile = s.lootPiles.find(p => p.at.x === h.at.x && p.at.y === h.at.y);
+  if (!pile) return;
+  s.lootPiles = s.lootPiles.filter(p => p !== pile);
+  const parts: string[] = [];
+  if (pile.items.length) {
+    h.items = [...h.items, ...pile.items];
+    parts.push(`${pile.items.map(i => i.name).join(', ')}`);
+  }
+  if (pile.potions.length) {
+    h.foundPotions = [...h.foundPotions, ...pile.potions];
+    parts.push(`${pile.potions.map(p => p.name).join(', ')}`);
+  }
+  if (pile.gold > 0) {
+    h.gold = (h.gold ?? 0) + pile.gold;
+    parts.push(`${pile.gold} gold`);
+  }
+  pushLog(s, 'search',
+    `${heroLabel(h)} claims ${pile.heroName}'s belongings: ${parts.join(', ')}.`,
+  );
+}
+
+/** Permanently kill a hero: drop their loot, remove from board, check all-dead. */
 function killHero(s: HQState, h: Hero): void {
-  // body is already 0 — nothing else to clear
+  // Drop all equipment, potions, and gold on the square where the hero died.
+  // Any living hero who walks over that square auto-collects it.
+  const totalGold = h.gold ?? 0;
+  const items     = [...(h.items ?? [])];
+  const potions   = [...(h.foundPotions ?? [])];
+
+  if (items.length > 0 || potions.length > 0 || totalGold > 0) {
+    (s.lootPiles ??= []).push({
+      at:       { ...h.at },
+      heroName: heroLabel(h),
+      items,
+      potions,
+      gold: totalGold,
+    });
+    const pieces: string[] = [];
+    if (items.length) pieces.push(`${items.length} item${items.length > 1 ? 's' : ''}`);
+    if (potions.length) pieces.push(`${potions.length} potion${potions.length > 1 ? 's' : ''}`);
+    if (totalGold) pieces.push(`${totalGold} gold`);
+    pushLog(s, 'death',
+      `${heroLabel(h)}'s belongings (${pieces.join(', ')}) are left at (${h.at.x},${h.at.y}) — any hero may claim them by passing through.`,
+    );
+  }
+
+  // Strip the dead hero's inventory (they are removed from the board).
+  h.items        = [];
+  h.foundPotions = [];
+  h.gold         = 0;
+  // body stays 0; the hero token is not rendered when body <= 0.
+
   if (s.heroes.every(x => x.body <= 0)) {
-    s.phase = 'finished';
+    s.phase  = 'finished';
     s.winner = 'zargon';
     pushLog(s, 'system', 'All heroes have perished. The quest is lost.');
   }
@@ -1671,13 +1728,8 @@ function doDeathSave(state: HQState, playerId: string, choice: 'potion' | 'spell
     const healSpell = h.spells?.find(sp => HEALING_SPELL_IDS.includes(sp.id) && !h.spellsCast?.includes(sp.id));
     if (!healSpell) return err('No uncast healing spell found.');
 
-    // Resolve the heal (same amounts as doCastSpell):
-    let restored = 0;
-    if (healSpell.id === 'heal_body_w' || healSpell.id === 'heal_body_e') {
-      restored = Math.min(h.bodyMax - h.body, 4);
-    } else if (healSpell.id === 'water_heal') {
-      restored = Math.min(h.bodyMax - h.body, 2);
-    }
+    // Resolve the heal — both healing spells restore 4 BP (Water of Healing and Heal Body).
+    const restored = Math.min(h.bodyMax - h.body, 4);
     h.body = Math.max(h.body + restored, 1); // guarantee at least 1 BP
     h.spellsCast = [...(h.spellsCast ?? []), healSpell.id];
     h.hasActed = true; // casting costs the hero's action

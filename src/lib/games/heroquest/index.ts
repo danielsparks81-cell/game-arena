@@ -42,6 +42,7 @@ export type {
   QuestDef,
   SpellElement,
   SpellDraft,
+  LootPile,
 } from './types';
 
 export { HERO_DEFAULTS, QUESTS, QUEST1, MONSTER_STATS, SPELLS, spellsByElement } from './content';

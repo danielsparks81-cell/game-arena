@@ -13,6 +13,7 @@ import {
   type Coord,
   type Door as HQDoor,
   type Furniture as HQFurniture,
+  type LootPile,
 } from '@/lib/games/heroquest';
 import {
   FloorCell, StairsFan,
@@ -823,6 +824,11 @@ export default function HeroQuestBoardCanvas({
           );
         })}
 
+        {/* Loot piles — skull marker on the square where a hero died. */}
+        {(state.lootPiles ?? []).filter(p => !!state.tiles[p.at.y]?.[p.at.x]?.revealed).map((p, i) => (
+          <LootPileMarker key={i} pile={p} />
+        ))}
+
         {/* Torch halo overlay on every living hero (mixes naturally where
             two heroes are near each other). */}
         {state.heroes.filter(h => h.body > 0).map(h => (
@@ -948,6 +954,46 @@ function ZoomBtn({ onClick, title, active, children }: {
           : 'border-amber-900/70 bg-black/70 text-amber-200 hover:border-amber-400 hover:bg-amber-500/20'
       }`}
     >{children}</button>
+  );
+}
+
+// ============================================================================
+// Loot pile marker — skull icon on a square where a hero died.
+// ============================================================================
+
+function LootPileMarker({ pile }: { pile: LootPile }) {
+  const pieces: string[] = [];
+  if (pile.items.length)   pieces.push(`${pile.items.map(i => i.name).join(', ')}`);
+  if (pile.potions.length) pieces.push(`${pile.potions.map(p => p.name).join(', ')}`);
+  if (pile.gold > 0)       pieces.push(`${pile.gold} gold`);
+
+  return (
+    <div
+      className="pointer-events-none absolute flex items-center justify-center"
+      style={{
+        left:   pile.at.x * TILE_PX,
+        top:    pile.at.y * TILE_PX,
+        width:  TILE_PX,
+        height: TILE_PX,
+        zIndex: 5,
+      }}
+      title={`${pile.heroName}'s belongings: ${pieces.join(', ')} — walk over to claim`}
+    >
+      <svg viewBox="0 0 24 24" width={TILE_PX * 0.6} height={TILE_PX * 0.6} style={{ filter: 'drop-shadow(0 0 4px rgba(200,50,50,0.9))' }}>
+        {/* Skull shape */}
+        <ellipse cx="12" cy="10" rx="7" ry="7.5" fill="#d4d0c8" stroke="#6b1a1a" strokeWidth="1.2" />
+        <rect x="8" y="15" width="8" height="5" rx="1" fill="#d4d0c8" stroke="#6b1a1a" strokeWidth="1.2" />
+        {/* Teeth */}
+        <rect x="8.5" y="17.5" width="2" height="2.5" rx="0.3" fill="#6b1a1a" />
+        <rect x="11" y="17.5" width="2" height="2.5" rx="0.3" fill="#6b1a1a" />
+        <rect x="13.5" y="17.5" width="2" height="2.5" rx="0.3" fill="#6b1a1a" />
+        {/* Eye sockets */}
+        <ellipse cx="9.5" cy="10" rx="2" ry="2.2" fill="#6b1a1a" />
+        <ellipse cx="14.5" cy="10" rx="2" ry="2.2" fill="#6b1a1a" />
+        {/* Nose */}
+        <ellipse cx="12" cy="13" rx="1" ry="0.8" fill="#6b1a1a" />
+      </svg>
+    </div>
   );
 }
 

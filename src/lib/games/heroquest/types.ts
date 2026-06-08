@@ -256,6 +256,18 @@ export type QuestDef = {
   roomNotes?: { at: Coord; text: string }[];
 };
 
+/** Loot dropped on the square where a hero died.
+ *  Any living hero walking over it auto-collects it (not an action).
+ *  If no hero ever reaches it the loot is permanently lost. */
+export type LootPile = {
+  at: Coord;
+  /** Display name of the fallen hero, for log messages. */
+  heroName: string;
+  items: Item[];
+  potions: HeldPotion[];
+  gold: number;
+};
+
 /** Completion reward for a quest. */
 export type QuestReward =
   /** No completion bonus (Quest 1 — the reward is the gold in the chests). */
@@ -441,6 +453,8 @@ export type HQState = {
     canSpell:  boolean;  // has an uncast healing spell
     spellId:   string | null; // first available healing spell id (for display)
   } | null;
+  /** Loot piles left by fallen heroes — auto-collected by any living hero who steps on the square. */
+  lootPiles?: LootPile[];
   /** Final result. */
   winner: Winner;
 };
