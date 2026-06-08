@@ -830,9 +830,10 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   );
   if (m.body <= 0) {
     pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
-    if (m.gold) {
-      h.gold += m.gold;
-      pushLog(s, 'system', `${heroLabel(h)} loots ${m.gold} gold from the fallen ${monsterDisplay(m)}.`);
+    if (m.goldMin !== undefined && m.goldMax !== undefined) {
+      const gold = m.goldMin + Math.floor(Math.random() * (m.goldMax - m.goldMin + 1));
+      h.gold += gold;
+      pushLog(s, 'system', `${heroLabel(h)} loots ${gold} gold from the fallen ${monsterDisplay(m)}.`);
     }
     s.monsters = s.monsters.filter(mm => mm.id !== m.id);
   }
@@ -2170,7 +2171,8 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
         at: spawnAt,
         body: stats.bodyMax, bodyMax: stats.bodyMax,
         attack: stats.attack, defense: stats.defense, move: stats.move,
-        gold: stats.gold,
+        goldMin: stats.goldMin,
+        goldMax: stats.goldMax,
         roomId: s.tiles[h.at.y][h.at.x].region,
         personality: assignPersonality(),
       };

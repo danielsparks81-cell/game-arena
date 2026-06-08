@@ -223,8 +223,9 @@ export type Monster = {
   displayName?: string;
   /** Mind Points — used by Dread-spell resistance (roll 1 die per Mind Point). */
   mind?: number;
-  /** Optional gold bounty (deposited in the active hero's purse on kill). */
-  gold?: number;
+  /** Gold bounty range — a random amount in [goldMin, goldMax] is awarded on kill. */
+  goldMin?: number;
+  goldMax?: number;
   /** Room this monster was placed in. Used for "wakes when room revealed". */
   roomId: string;
   /** Tempest: the monster loses its next Zargon turn (flag cleared when skipped). */
