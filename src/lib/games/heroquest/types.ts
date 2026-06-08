@@ -197,6 +197,13 @@ export type MonsterKind =
   | 'goblin' | 'orc' | 'abomination' | 'skeleton' | 'zombie' | 'mummy'
   | 'dread_warrior' | 'gargoyle';
 
+/** Hidden personality assigned to each monster at spawn.
+ *  Players discover it by observing behaviour over several turns.
+ *  - predator: hunts the hero with the fewest remaining Body Points.
+ *  - aggressor: always attacks the nearest hero (tie: lower BP).
+ *  - methodical: targets the hero with the fewest effective defense dice. */
+export type MonsterPersonality = 'predator' | 'aggressor' | 'methodical';
+
 export type Monster = {
   id: string;
   kind: MonsterKind;
@@ -221,6 +228,9 @@ export type Monster = {
   /** Sleep: monster is asleep until a wake-up roll succeeds (1d6 per Mind Point; wake on any 6).
    *  Immune: undead (skeleton, zombie, mummy). */
   sleeping?: boolean;
+  /** Hidden personality — randomly assigned at spawn, unknown to players until observed.
+   *  Drives target selection and movement decisions each Zargon turn. */
+  personality?: MonsterPersonality;
 };
 
 // ============================================================================

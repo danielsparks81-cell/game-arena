@@ -24,6 +24,7 @@ import {
   type HeroClass,
   type LogEntry,
   type Monster,
+  type MonsterPersonality,
   type Phase,
   type PendingPrompt,
   type QuestDef,
@@ -1509,80 +1510,232 @@ function runMonster(s: HQState, m: Monster): void {
     }
     return; // Waking up counts as the monster's turn.
   }
-  // Find the nearest LIVING hero by Chebyshev distance (not strict pathfinding
-  // — v1 keeps it simple). Then walk toward them up to `m.move` steps,
-  // attacking if adjacent at the end.
-  const livingHeroes = s.heroes.filter(h => h.body > 0);
-  if (livingHeroes.length === 0) return;
-  livingHeroes.sort((a, b) =>
-    chebyshev(a.at, m.at) - chebyshev(b.at, m.at)
-    || a.body - b.body,
+  const living = s.heroes.filter(h => h.body > 0);
+  if (living.length === 0) return;
+
+  const personality = m.personality ?? 'aggressor';
+
+  // Sort heroes by this personality's preferred target order.
+  const sorted = [...living].sort((a, b) => {
+    if (personality === 'predator') {
+      // Hunting the most wounded hero — lowest raw BP first.
+      return a.body - b.body || chebyshev(a.at, m.at) - chebyshev(b.at, m.at);
+    }
+    if (personality === 'aggressor') {
+      // Always attacks nearest; lower raw BP breaks a distance tie.
+      const da = Math.abs(a.at.x - m.at.x) + Math.abs(a.at.y - m.at.y);
+      const db = Math.abs(b.at.x - m.at.x) + Math.abs(b.at.y - m.at.y);
+      return da - db || a.body - b.body;
+    }
+    // Methodical: fewest effective defense dice first (defense stat + Rock Skin
+    // bonus − pit penalty); tie-break by proximity.
+    const defA = (a.defense + (a.defenseBonus ?? 0)) - (a.inPit ? 1 : 0);
+    const defB = (b.defense + (b.defenseBonus ?? 0)) - (b.inPit ? 1 : 0);
+    return defA - defB || chebyshev(a.at, m.at) - chebyshev(b.at, m.at);
+  });
+
+  const primary = sorted[0];
+
+  // BFS: every square this monster can reach within its move allowance.
+  const reachable = monsterReachableSquares(s, m);
+
+  // Try to attack the primary target this turn.
+  const primarySquares = attackSquaresFor(s, m, primary, reachable);
+  if (primarySquares.length > 0) {
+    const dest = pickBestAttackSquare(s, m, primary, primarySquares, personality, null);
+    m.at = { ...dest };
+    doMonsterAttack(s, m, primary);
+    return;
+  }
+
+  // Primary target unreachable — apply personality fallback.
+  if (personality === 'predator') {
+    // The Predator still wants to close on its quarry. If another hero is in
+    // range, it attacks them but positions on the "far side" (the attack square
+    // closest to the primary target) to be one step closer next turn.
+    const intermediate = sorted.slice(1).find(
+      h => attackSquaresFor(s, m, h, reachable).length > 0,
+    );
+    if (intermediate) {
+      const intSquares = attackSquaresFor(s, m, intermediate, reachable);
+      // Pass `primary` so pickBestAttackSquare applies the far-side tie-break.
+      const dest = pickBestAttackSquare(s, m, intermediate, intSquares, 'predator', primary);
+      m.at = { ...dest };
+      pushLog(s, 'zargon',
+        `${monsterDisplay(m)} stalks toward ${heroLabel(primary)}, cutting through ${heroLabel(intermediate)}!`,
+      );
+      doMonsterAttack(s, m, intermediate);
+      return;
+    }
+    // No hero within reach — advance toward the quarry.
+    moveTowardGreedy(s, m, primary.at);
+    return;
+  }
+
+  // Aggressor / Methodical: fall back to the nearest hero they CAN reach.
+  const fallback = living
+    .map(h => ({ h, squares: attackSquaresFor(s, m, h, reachable) }))
+    .filter(x => x.squares.length > 0)
+    .sort((a, b) => chebyshev(a.h.at, m.at) - chebyshev(b.h.at, m.at))[0];
+
+  if (fallback) {
+    const dest = pickBestAttackSquare(s, m, fallback.h, fallback.squares, personality, null);
+    m.at = { ...dest };
+    doMonsterAttack(s, m, fallback.h);
+    return;
+  }
+
+  // No hero attackable from anywhere this turn — move toward primary.
+  moveTowardGreedy(s, m, primary.at);
+}
+
+// ============================================================================
+// Monster personality helpers (called by runMonster above)
+// ============================================================================
+
+/** Pick a random personality at spawn — hidden from players until observed. */
+function assignPersonality(): MonsterPersonality {
+  const r = Math.random();
+  if (r < 1 / 3) return 'predator';
+  if (r < 2 / 3) return 'aggressor';
+  return 'methodical';
+}
+
+/** BFS: return every square this monster can reach within its move allowance.
+ *  Includes the monster's own square (dist=0 = stay in place).
+ *  Heroes and other monsters block passage but are not themselves reachable
+ *  destinations — the monster cannot end its move in an occupied cell. */
+function monsterReachableSquares(s: HQState, m: Monster): Set<string> {
+  const reachable = new Set<string>();
+  const visited   = new Set<string>();
+  const queue: Array<{ pos: Coord; dist: number }> = [{ pos: m.at, dist: 0 }];
+  visited.add(`${m.at.x},${m.at.y}`);
+  while (queue.length > 0) {
+    const item = queue.shift()!;
+    reachable.add(`${item.pos.x},${item.pos.y}`);
+    if (item.dist >= m.move) continue;
+    for (const next of adjacentCells(item.pos)) {
+      const key = `${next.x},${next.y}`;
+      if (visited.has(key)) continue;
+      if (!inBounds(s, next)) continue;
+      if (!isPassable(s, next, false)) continue;
+      if (edgeBlocksMove(s, item.pos, next, false)) continue;
+      // Can't walk into a square occupied by a living hero or another monster.
+      if (s.heroes.some(h => h.body > 0 && h.at.x === next.x && h.at.y === next.y)) continue;
+      if (s.monsters.some(mm => mm.id !== m.id && mm.at.x === next.x && mm.at.y === next.y)) continue;
+      visited.add(key);
+      queue.push({ pos: next, dist: item.dist + 1 });
+    }
+  }
+  return reachable;
+}
+
+/** Orthogonal squares adjacent to `target` where this monster could stand to
+ *  deliver a melee attack: reachable by BFS, no wall edge to the hero, not
+ *  occupied by another monster (this monster's own square is always OK). */
+function attackSquaresFor(s: HQState, m: Monster, target: Hero, reachable: Set<string>): Coord[] {
+  return adjacentCells(target.at).filter(c =>
+    inBounds(s, c) &&
+    isPassable(s, c, false) &&
+    reachable.has(`${c.x},${c.y}`) &&
+    !edgeBlocksMove(s, c, target.at, false) &&
+    !s.monsters.some(mm => mm.id !== m.id && mm.at.x === c.x && mm.at.y === c.y),
   );
-  const target = livingHeroes[0];
-  // Walk toward target one orthogonal step at a time. Each step, consider all
-  // four orthogonal neighbours and take the one that brings the monster closest
-  // (by Manhattan distance) to the target. Stop when orthogonally adjacent
-  // (Manhattan = 1) — that is the only position from which an attack can land.
-  //
-  // The old approach used hardcoded directional fallbacks ([0,dx] / [dy,0])
-  // that could point AWAY from the target when both primary axes were blocked,
-  // making monsters visually "run away." The sorted-neighbours approach always
-  // prefers the step that reduces distance, never increases it.
+}
+
+/** Count how many orthogonal attack squares around `target` would remain free
+ *  for OTHER monsters after this monster claims `mySquare`.
+ *  More free squares = less blocking = better for the team. */
+function countFreeAttackPositions(s: HQState, m: Monster, target: Hero, mySquare: Coord): number {
+  return adjacentCells(target.at).filter(c =>
+    inBounds(s, c) &&
+    isPassable(s, c, false) &&
+    !edgeBlocksMove(s, c, target.at, false) &&
+    !(c.x === mySquare.x && c.y === mySquare.y) &&
+    !s.monsters.some(mm => mm.id !== m.id && mm.at.x === c.x && mm.at.y === c.y),
+  ).length;
+}
+
+/** From a list of valid attack squares, pick the best one:
+ *  1. Don't-block heuristic — prefer the square that leaves the most OTHER attack
+ *     lanes around the target open for teammate monsters.
+ *  2. Predator far-side tie-break — when tied on free lanes, prefer the square
+ *     closest to `primaryTarget` to set up next-turn approach.
+ *  3. Minimum movement — prefer staying close to current position. */
+function pickBestAttackSquare(
+  s: HQState,
+  m: Monster,
+  target: Hero,
+  squares: Coord[],
+  personality: MonsterPersonality,
+  primaryTarget: Hero | null,
+): Coord {
+  if (squares.length === 1) return squares[0];
+  return squares.reduce((best, c) => {
+    const freeC    = countFreeAttackPositions(s, m, target, c);
+    const freeBest = countFreeAttackPositions(s, m, target, best);
+    if (freeC !== freeBest) return freeC > freeBest ? c : best;
+    if (personality === 'predator' && primaryTarget) {
+      const distC    = Math.abs(c.x    - primaryTarget.at.x) + Math.abs(c.y    - primaryTarget.at.y);
+      const distBest = Math.abs(best.x - primaryTarget.at.x) + Math.abs(best.y - primaryTarget.at.y);
+      if (distC !== distBest) return distC < distBest ? c : best;
+    }
+    const moveC    = Math.abs(c.x    - m.at.x) + Math.abs(c.y    - m.at.y);
+    const moveBest = Math.abs(best.x - m.at.x) + Math.abs(best.y - m.at.y);
+    return moveC < moveBest ? c : best;
+  });
+}
+
+/** Execute the monster's melee attack roll against a hero and apply damage. */
+function doMonsterAttack(s: HQState, m: Monster, target: Hero): void {
+  const atk = rollDice(m.attack, 'monster');
+  s.lastRoll     = atk;
+  s.lastMoveRoll = null;
+  // Rock Skin + Potion of Defense add bonus defense dice; defending from a
+  // pit costs one die (min 1, rulebook p.17). Potion of Defense is consumed
+  // on this roll; Rock Skin persists until the hero's next turn.
+  const rockBonus   = target.defenseBonus   ?? 0;
+  const potDefBonus = target.potionDefBonus ?? 0;
+  const def = rollDice(
+    Math.max(1, target.defense + rockBonus + potDefBonus - (target.inPit ? 1 : 0)),
+    'hero',
+  );
+  s.lastDefenseRoll     = def;
+  target.potionDefBonus = 0;  // consumed on this roll
+  const damage = Math.max(0, atk.skulls - def.blocks);
+  target.body  = Math.max(0, target.body - damage);
+  if (damage > 0) target.defenseBonus = 0;  // Rock Skin shattered
+  const defNote = rockBonus > 0 && potDefBonus > 0
+    ? ` (Rock Skin +${rockBonus}, Defense potion +${potDefBonus} dice)`
+    : rockBonus > 0   ? ` (Rock Skin +${rockBonus} dice)`
+    : potDefBonus > 0 ? ` (Defense potion +${potDefBonus} dice)` : '';
+  pushLog(s, 'combat',
+    `${monsterDisplay(m)} attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks${defNote}. ` +
+    (damage > 0 ? `${heroLabel(target)} loses ${damage} BP.` : 'No damage.'),
+  );
+  checkHeroDeath(s, target);
+}
+
+/** Move the monster greedily toward `dest` one orthogonal step at a time up to
+ *  its full move allowance (used when no hero is within attack range). */
+function moveTowardGreedy(s: HQState, m: Monster, dest: Coord): void {
   let steps = m.move;
   while (steps > 0) {
-    const mdt = Math.abs(m.at.x - target.at.x) + Math.abs(m.at.y - target.at.y);
-    if (mdt <= 1) break; // already adjacent — ready to attack
-    const nexts = [
-      { x: m.at.x + 1, y: m.at.y },
-      { x: m.at.x - 1, y: m.at.y },
-      { x: m.at.x,     y: m.at.y + 1 },
-      { x: m.at.x,     y: m.at.y - 1 },
-    ].filter(c =>
+    if (Math.abs(m.at.x - dest.x) + Math.abs(m.at.y - dest.y) <= 1) break;
+    const nexts = adjacentCells(m.at).filter(c =>
       inBounds(s, c) &&
-      isPassable(s, c, /*forHero*/ false) &&
+      isPassable(s, c, false) &&
       !edgeBlocksMove(s, m.at, c, false) &&
-      !cellOccupied(s, c, /*ignoreHeroPassthrough*/ false),
+      !cellOccupied(s, c, false),
     );
     if (nexts.length === 0) break;
-    // Primary sort: Manhattan distance to target (closer is better).
-    // Tie-break: Chebyshev distance (avoids diagonal oscillation).
     nexts.sort((a, b) =>
-      (Math.abs(a.x - target.at.x) + Math.abs(a.y - target.at.y)) -
-      (Math.abs(b.x - target.at.x) + Math.abs(b.y - target.at.y)) ||
-      chebyshev(a, target.at) - chebyshev(b, target.at),
+      (Math.abs(a.x - dest.x) + Math.abs(a.y - dest.y)) -
+      (Math.abs(b.x - dest.x) + Math.abs(b.y - dest.y)) ||
+      chebyshev(a, dest) - chebyshev(b, dest),
     );
     m.at = { ...nexts[0] };
     steps -= 1;
-  }
-  // Attack if orthogonally adjacent (Manhattan = 1) with no wall edge between them.
-  // Diagonal attacks are not allowed; edgeBlocksMove guards room-boundary walls.
-  const mdist = Math.abs(m.at.x - target.at.x) + Math.abs(m.at.y - target.at.y);
-  if (mdist === 1 && !edgeBlocksMove(s, m.at, target.at, false)) {
-    const atk = rollDice(m.attack, 'monster');
-    s.lastRoll = atk;
-    s.lastMoveRoll = null;
-    // Rock Skin + Potion of Defense add bonus defense dice; defending from a
-    // pit costs one die (min 1, rulebook p.17). Potion of Defense is consumed
-    // on this defense roll; Rock Skin persists until the hero's next turn.
-    const rockBonus   = target.defenseBonus   ?? 0;
-    const potDefBonus = target.potionDefBonus ?? 0;
-    const defBonus = rockBonus + potDefBonus;
-    const def = rollDice(Math.max(1, target.defense + defBonus - (target.inPit ? 1 : 0)), 'hero');
-    s.lastDefenseRoll = def;
-    target.potionDefBonus = 0;  // consumed on this roll
-    const damage = Math.max(0, atk.skulls - def.blocks);
-    target.body = Math.max(0, target.body - damage);
-    // Rock Skin (defenseBonus): broken the first time the hero suffers any damage.
-    if (damage > 0) target.defenseBonus = 0;
-    const defNote = rockBonus > 0 && potDefBonus > 0
-      ? ` (Rock Skin +${rockBonus}, Defense potion +${potDefBonus} dice)`
-      : rockBonus > 0 ? ` (Rock Skin +${rockBonus} dice)`
-      : potDefBonus > 0 ? ` (Defense potion +${potDefBonus} dice)` : '';
-    pushLog(s, 'combat',
-      `${monsterDisplay(m)} attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks${defNote}. ` +
-      (damage > 0 ? `${heroLabel(target)} loses ${damage} BP.` : 'No damage.'),
-    );
-    checkHeroDeath(s, target);
   }
 }
 
@@ -1933,6 +2086,7 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
         attack: stats.attack, defense: stats.defense, move: stats.move,
         gold: stats.gold,
         roomId: s.tiles[h.at.y][h.at.x].region,
+        personality: assignPersonality(),
       };
       s.monsters.push(newMonster);
       const spawnAdj = Math.abs(spawnAt.x - h.at.x) + Math.abs(spawnAt.y - h.at.y) === 1;
@@ -2178,7 +2332,9 @@ function spawnRoomMonsters(s: HQState, region: string): void {
   s.spawnedRooms.push(region);
   for (const monDef of s.quest.monsters) {
     if (monDef.roomId !== region) continue;
-    s.monsters.push(instantiateMonster(monDef));
+    const mon = instantiateMonster(monDef);
+    mon.personality = assignPersonality();
+    s.monsters.push(mon);
   }
   // Read aloud any Quest-Book "special note" for this room (once, on first entry).
   for (const note of s.quest.roomNotes ?? []) {
