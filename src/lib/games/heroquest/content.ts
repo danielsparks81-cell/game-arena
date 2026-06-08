@@ -164,14 +164,14 @@ export type MonsterStats = {
 //   Dread Warrior              7    4    3    3     3     5–10
 //   Gargoyle                   6    4    5    3     4     5–11
 export const MONSTER_STATS: Record<MonsterKind, MonsterStats> = {
-  goblin:         { kind: 'goblin',         displayName: 'Goblin',         move: 10, attack: 2, defense: 1, bodyMax: 1, mind: 1, goldMin: 2,  goldMax: 4  },
-  orc:            { kind: 'orc',            displayName: 'Orc',            move: 8,  attack: 3, defense: 2, bodyMax: 1, mind: 2, goldMin: 3,  goldMax: 7  },
-  skeleton:       { kind: 'skeleton',       displayName: 'Skeleton',       move: 6,  attack: 2, defense: 2, bodyMax: 1, mind: 0, goldMin: 2,  goldMax: 5  },
-  zombie:         { kind: 'zombie',         displayName: 'Zombie',         move: 5,  attack: 2, defense: 3, bodyMax: 1, mind: 0, goldMin: 3,  goldMax: 6  },
-  abomination:    { kind: 'abomination',    displayName: 'Abomination',    move: 6,  attack: 3, defense: 3, bodyMax: 2, mind: 3, goldMin: 4,  goldMax: 8  },
-  mummy:          { kind: 'mummy',          displayName: 'Mummy',          move: 4,  attack: 3, defense: 4, bodyMax: 2, mind: 0, goldMin: 4,  goldMax: 9  },
-  dread_warrior:  { kind: 'dread_warrior',  displayName: 'Dread Warrior',  move: 7,  attack: 4, defense: 3, bodyMax: 3, mind: 3, goldMin: 5,  goldMax: 10 },
-  gargoyle:       { kind: 'gargoyle',       displayName: 'Gargoyle',       move: 6,  attack: 4, defense: 5, bodyMax: 3, mind: 4, goldMin: 5,  goldMax: 11 },
+  goblin:         { kind: 'goblin',         displayName: 'Goblin',         move: 10, attack: 2, defense: 1, bodyMax: 1, mind: 1, goldMin: 1,  goldMax: 3  },
+  orc:            { kind: 'orc',            displayName: 'Orc',            move: 8,  attack: 3, defense: 2, bodyMax: 1, mind: 2, goldMin: 2,  goldMax: 6  },
+  skeleton:       { kind: 'skeleton',       displayName: 'Skeleton',       move: 6,  attack: 2, defense: 2, bodyMax: 1, mind: 0, goldMin: 1,  goldMax: 4  },
+  zombie:         { kind: 'zombie',         displayName: 'Zombie',         move: 5,  attack: 2, defense: 3, bodyMax: 1, mind: 0, goldMin: 2,  goldMax: 5  },
+  abomination:    { kind: 'abomination',    displayName: 'Abomination',    move: 6,  attack: 3, defense: 3, bodyMax: 2, mind: 3, goldMin: 3,  goldMax: 7  },
+  mummy:          { kind: 'mummy',          displayName: 'Mummy',          move: 4,  attack: 3, defense: 4, bodyMax: 2, mind: 0, goldMin: 3,  goldMax: 8  },
+  dread_warrior:  { kind: 'dread_warrior',  displayName: 'Dread Warrior',  move: 7,  attack: 4, defense: 3, bodyMax: 3, mind: 3, goldMin: 4,  goldMax: 9  },
+  gargoyle:       { kind: 'gargoyle',       displayName: 'Gargoyle',       move: 6,  attack: 4, defense: 5, bodyMax: 3, mind: 4, goldMin: 4,  goldMax: 10 },
 };
 
 // ============================================================================
