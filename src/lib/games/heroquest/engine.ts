@@ -1243,18 +1243,24 @@ function doCastSpell(
     case 'fire_of_wrath': {
       // Fire of Wrath: 1 automatic BP to any visible monster. Monster then rolls
       // 1d6 — on a 6 the damage is reduced by 1 (effectively blocked).
+      // The save die is surfaced as lastDefenseRoll so the dice overlay triggers
+      // and the board delay holds monster death off the canvas until after the reveal.
       const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
       if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
       if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. Spell wasted.`); return ok(s); }
       const saveRoll = Math.floor(Math.random() * 6) + 1;
-      const saved = saveRoll === 6 ? 1 : 0;
-      const damage = Math.max(0, 1 - saved);
-      s.lastRoll = null; s.lastDefenseRoll = null; s.lastMoveRoll = null;
+      const saved    = saveRoll === 6 ? 1 : 0;
+      const saveFace: DieFace = saveRoll === 6 ? 'black_shield' : 'skull';
+      const damage   = Math.max(0, 1 - saved);
+      s.lastRoll     = null;
+      s.lastMoveRoll = null;
+      // Expose save die as defense roll so the dice overlay fires before the board updates.
+      s.lastDefenseRoll = { faces: [saveFace], skulls: 1 - saved, blocks: saved, rolledBy: 'monster' };
       if (damage > 0) {
         m.body -= damage;
         pushLog(s, 'spell', `${monsterDisplay(m)} is scorched for ${damage} BP! (save roll: ${saveRoll})`);
       } else {
-        pushLog(s, 'spell', `${monsterDisplay(m)} rolls a 6 on the save — the flame is resisted! (save roll: ${saveRoll})`);
+        pushLog(s, 'spell', `${monsterDisplay(m)} rolls a 6 — the flame is resisted!`);
       }
       if (m.body <= 0) {
         pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
@@ -1266,14 +1272,19 @@ function doCastSpell(
     case 'ball_of_flame': {
       // Ball of Flame: 2 automatic BP to any visible monster. Monster then rolls
       // 2d6 — each 6 reduces the damage by 1 (min 0).
+      // Both save dice are surfaced as lastDefenseRoll (revealed one at a time).
       const m = action.targetMonsterId ? s.monsters.find(mm => mm.id === action.targetMonsterId) : null;
       if (!m) { pushLog(s, 'spell', `…but with no valid target, the spell fizzles.`); return ok(s); }
       if (!hasLineOfSight(s, h.at, m.at)) { pushLog(s, 'spell', `…but you cannot see the target. Spell wasted.`); return ok(s); }
       const save1 = Math.floor(Math.random() * 6) + 1;
       const save2 = Math.floor(Math.random() * 6) + 1;
-      const sixes = (save1 === 6 ? 1 : 0) + (save2 === 6 ? 1 : 0);
+      const face1: DieFace = save1 === 6 ? 'black_shield' : 'skull';
+      const face2: DieFace = save2 === 6 ? 'black_shield' : 'skull';
+      const sixes  = (save1 === 6 ? 1 : 0) + (save2 === 6 ? 1 : 0);
       const damage = Math.max(0, 2 - sixes);
-      s.lastRoll = null; s.lastDefenseRoll = null; s.lastMoveRoll = null;
+      s.lastRoll     = null;
+      s.lastMoveRoll = null;
+      s.lastDefenseRoll = { faces: [face1, face2], skulls: 2 - sixes, blocks: sixes, rolledBy: 'monster' };
       m.body -= damage;
       pushLog(s, 'spell',
         `${monsterDisplay(m)} is engulfed — ${damage} BP damage! (save rolls: ${save1}, ${save2}` +

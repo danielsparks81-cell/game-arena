@@ -19,7 +19,7 @@ import {
 import HeroLobby from './heroquest/HeroLobby';
 import HeroQuestBoardCanvas from './heroquest/Board';
 import CharacterSheet from './heroquest/CharacterSheet';
-import DicePanel, { DiceRollOverlay } from './heroquest/DicePanel';
+import DicePanel, { DiceRollOverlay, calcBoardDelay } from './heroquest/DicePanel';
 import { TreasureCardOverlay } from './heroquest/TreasureCardOverlay';
 import QuestBriefing from './heroquest/QuestBriefing';
 import { HeartIcon, CoinIcon } from './heroquest/Art';
@@ -186,10 +186,13 @@ function PlayingView({
     const isNewCombat = sig !== lastCombatSigRef.current && (state.lastRoll != null || state.lastDefenseRoll != null);
     if (isNewCombat) {
       lastCombatSigRef.current = sig;
-      // Delay board update to match the overlay animation:
-      //   two-beat (attack + defense): idle at 3250 ms → wait 3450 ms
-      //   single-beat (attack only): idle at 1850 ms → wait 2050 ms
-      const ms = state.lastRoll != null && state.lastDefenseRoll != null ? 3450 : 2050;
+      // Delay board update to match the one-die-at-a-time overlay animation.
+      // calcBoardDelay handles attack-only, defense-only (Fire/Ball of Flame
+      // save rolls), and two-beat (attack + defense) based on actual dice counts.
+      const ms = calcBoardDelay(
+        state.lastRoll?.faces.length ?? 0,
+        state.lastDefenseRoll?.faces.length ?? 0,
+      );
       if (combatTimerRef.current) clearTimeout(combatTimerRef.current);
       combatTimerRef.current = setTimeout(() => {
         setBoardState(latestStateRef.current);
@@ -625,46 +628,24 @@ function ActionPanel({
     <div className="shrink-0 rounded-lg border border-amber-900/50 bg-neutral-900/70 p-2">
       {/* Icon-only action grid — labels live in the tooltip / screen-reader text.
           The roll die carries a small badge with movement remaining once rolled. */}
+      {/* Row 1: movement + combat + spell + treasure */}
       <div className="grid grid-cols-4 gap-2">
         <ActionButton label={moveText} icon="🎲" onClick={onRollMove} disabled={!canAct || myHero.hasRolled || myHero.inPit} flavor="amber"
           badge={myHero.hasRolled ? `${myHero.moveLeft}/${myHero.moveRolled}` : undefined}
           tip="Roll 3d4 for movement, then drag your hero square by square (no diagonals). You don't have to use it all." />
         <ActionButton label="Attack" icon="⚔️" onClick={() => adjacentMonsterId && act(() => onAttack(adjacentMonsterId))} disabled={!canAct || acted || !adjacentMonsterId} flavor="rose"
           tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
-        <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)}
-          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTreasure} flavor="emerald"
-          badge={deckBadge}
-          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
-            : alreadySearchedTreasure ? 'You have already searched this room for treasure.'
-            : `Search for treasure — ${deckGood} of ${DECK_GOOD_MAX} good cards remain (${deckGoodPct}% chance of a reward). Once per hero per room.`} />
-        <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)}
-          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTraps} flavor="orange"
-          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
-            : alreadySearchedTraps ? 'This area has already been searched for traps.'
-            : 'Reveal any hidden traps in your room or corridor. Search before you loot a chest!'} />
-        <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)}
-          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedSecrets} flavor="indigo"
-          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
-            : alreadySearchedSecrets ? 'This area has already been searched for secret doors.'
-            : 'Search your room or corridor for hidden doors.'} />
-        <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && act(() => onDisarmTrap(disarmableTrapId))} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
-          tip="Disarm an adjacent discovered trap. The Dwarf is best at it; everyone else needs a Tool Kit." />
-        {/* Jumping is part of movement, not an action — never gated by `acted`. */}
-        <ActionButton label="Jump trap" icon="🤸" onClick={() => jumpableTrapId && onJumpTrap(jumpableTrapId)} disabled={!canAct || !jumpableTrapId} flavor="amber"
-          tip="Leap over a discovered trap (needs 2+ movement and a clear landing). A shield clears it; a skull springs it. Not an action." />
+        {/* Cast spell — dropdown anchors left so it doesn't clip the right edge */}
         <div className="relative">
           <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo"
             tip="Cast one of your spells (Elf/Wizard) at anything you can see. Each spell can be cast once per quest." />
           {spellMenu && spells.length > 0 && (
-            <div className="absolute right-0 z-30 mt-1 w-52 rounded-md border border-amber-700/60 bg-neutral-900 p-1 shadow-xl">
+            <div className="absolute left-0 z-30 mt-1 w-52 rounded-md border border-amber-700/60 bg-neutral-900 p-1 shadow-xl">
               {spells.map(s => (
                 <button
                   key={s.id}
                   type="button"
                   onClick={() => {
-                    // Area spells resolve at once → grey the bar immediately.
-                    // Targeted spells enter board-targeting first, so we let the
-                    // server confirm the spent action when the target is picked.
                     if (s.target === 'area') setOptimisticActed(true);
                     onCastSpellClick(s.id);
                     setSpellMenu(false);
@@ -678,6 +659,30 @@ function ActionPanel({
             </div>
           )}
         </div>
+        <ActionButton label="Search treasure" icon="💰" onClick={() => act(onSearchTreasure)}
+          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTreasure} flavor="emerald"
+          badge={deckBadge}
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
+            : alreadySearchedTreasure ? 'You have already searched this room for treasure.'
+            : `Search for treasure — ${deckGood} of ${DECK_GOOD_MAX} good cards remain (${deckGoodPct}% chance of a reward). Once per hero per room.`} />
+      </div>
+      {/* Row 2: searches + disarm + jump */}
+      <div className="mt-2 grid grid-cols-4 gap-2">
+        <ActionButton label="Secret doors" icon="🚪" onClick={() => act(onSearchSecrets)}
+          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedSecrets} flavor="indigo"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
+            : alreadySearchedSecrets ? 'This area has already been searched for secret doors.'
+            : 'Search your room or corridor for hidden doors.'} />
+        <ActionButton label="Search traps" icon="🪤" onClick={() => act(onSearchTraps)}
+          disabled={!canAct || acted || monstersInMyRoom || alreadySearchedTraps} flavor="orange"
+          tip={monstersInMyRoom ? 'Cannot search — monsters are in the room!'
+            : alreadySearchedTraps ? 'This area has already been searched for traps.'
+            : 'Reveal any hidden traps in your room or corridor. Search before you loot a chest!'} />
+        <ActionButton label="Disarm trap" icon="🛠️" onClick={() => disarmableTrapId && act(() => onDisarmTrap(disarmableTrapId))} disabled={!canAct || acted || !disarmableTrapId} flavor="orange"
+          tip="Disarm an adjacent discovered trap. The Dwarf is best at it; everyone else needs a Tool Kit." />
+        {/* Jumping is part of movement, not an action — never gated by `acted`. */}
+        <ActionButton label="Jump trap" icon="🤸" onClick={() => jumpableTrapId && onJumpTrap(jumpableTrapId)} disabled={!canAct || !jumpableTrapId} flavor="amber"
+          tip="Leap over a discovered trap (needs 2+ movement and a clear landing). A shield clears it; a skull springs it. Not an action." />
       </div>
       {/* Climb (only when in a pit) + End Turn — End Turn spans the rest. */}
       <div className="mt-2 grid grid-cols-4 gap-2">
