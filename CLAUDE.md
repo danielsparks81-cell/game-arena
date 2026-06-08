@@ -56,11 +56,56 @@ Players discover the personality by observing behaviour over multiple Zargon tur
 
 **Universal rules (all personalities):**
 - Always attack every turn if any hero is reachable — never skip to reposition.
-- Don't-block heuristic: among valid attack squares, prefer the one that leaves the most other
-  orthogonal attack lanes around the target open for teammate monsters.
+- Don't-block heuristic: among valid attack squares (all 8 directions), prefer the one that
+  leaves the most other adjacent attack lanes open for teammate monsters.
 - Movement uses BFS (monsterReachableSquares) — exact reachability within move budget.
 - Predator far-side tie-break: when "don't-block" scores are equal, prefer the attack square
   closest to the primary target (sets up next-turn approach).
+
+## Monster diagonal attacks (house rule #9)
+
+Monsters may attack from any of the 8 squares surrounding a hero — orthogonal **and** diagonal.
+
+- `attackSquaresFor` uses `allAdjacentCells` (8 directions) instead of 4-orthogonal `adjacentCells`.
+- Wall check for diagonal pairs uses the **lenient** rule: only blocked when **both** flanking corner
+  edges are walls (`wallBetween` helper). Touching a single corner still allows the strike — consistent
+  with the character LOS rule.
+- Monster **movement** remains orthogonal (BFS only expands 4 directions). A monster reaches a
+  diagonal attack square by walking orthogonally to it, then strikes from there.
+- `countFreeAttackPositions` also uses all 8 directions so the don't-block heuristic correctly
+  values diagonal lanes.
+
+## Monster gold drops
+
+Each monster kind drops a random gold amount in [goldMin, goldMax], awarded to the killing hero.
+
+| Kind | Min | Max |
+|---|---|---|
+| Goblin | 1 | 3 |
+| Skeleton | 1 | 4 |
+| Orc | 2 | 6 |
+| Zombie | 2 | 5 |
+| Abomination | 3 | 7 |
+| Mummy | 3 | 8 |
+| Dread Warrior | 4 | 9 |
+| Gargoyle | 4 | 10 |
+
+Stored as `goldMin` / `goldMax` on the `Monster` type (and `MonsterStats`). Rolled at kill time in
+`doMonsterAttack` → `checkHeroDeath` chain. No gold if the monster has no range defined.
+
+## Death-save rules
+
+When a hero reaches 0 BP, before they are killed the engine checks **only that hero's own resources**:
+- **Potion of Healing** (`heal_d6`) in their own inventory → always available.
+- **Uncast healing spell** (`heal_body_e` / `water_heal`) in their own spell hand → available only if
+  they haven't acted this turn (`!h.hasActed`).
+
+A `pendingDeathSave` prompt is raised for the dying hero's player. Only that player can resolve it
+(`dying.playerId === playerId` enforced in `doDeathSave`). No other hero or healer can intervene.
+If the player declines (or has no options), `killHero` is called immediately.
+
+**Self-only (house rule #5):** the Wizard cannot cast a healing spell on a dying Barbarian. Each hero
+saves themselves with their own resources, or not at all.
 
 ## Key type flags
 
@@ -120,10 +165,26 @@ A hero who searches for treasure triggers this in order:
 4. Wandering-monster cards are **not** in the treasure deck — monsters spawn via quest content and room reveals only.
 5. Heroes can only search **rooms** for treasure. Hallways and rooms can be searched for secret doors and traps.
 
+## House / custom rules
+
+These override the printed rulebook. Do not revert them without explicit instruction.
+
+| # | Rule | Status |
+|---|------|--------|
+| 1 | Heroes always number exactly 4 (unfilled seats use AI-controlled heroes) | ✅ implemented |
+| 2 | Monster personalities (Predator / Aggressor / Methodical) hidden from players | ✅ implemented |
+| 3 | Gold drops per monster kill — random range per kind (see table above) | ✅ implemented |
+| 4 | Treasure deck: hazard cards cycle back to the bottom; wandering monsters spawn from room reveals only (not the deck) | ✅ implemented |
+| 5 | Death-save is **self-only** — a hero can only use their own potion or spell to survive 0 BP; no other hero can intervene | ✅ implemented |
+| 6 | Spell draft at quest start — Wizard picks first, Elf picks second, Wizard gets remaining 3 schools | ✅ implemented |
+| 7 | Stairway is one logical space — stair→stair movement costs 0; heroes start on stairway tiles | ✅ implemented |
+| 8 | Heroes who die after the first escape still lose their items (loot dropped, not carried to next quest) | ✅ implemented |
+| 9 | Monsters **can** attack diagonally (all 8 adjacent squares valid attack positions) | ✅ implemented |
+
 ## Pending / blocked work
 
 - **#65** Chest/furniture trap model — needs quest-driven trap data
 - **#69** Between-quests economy (rulebook p.22) — user to share the page
 - **#71** Quest engine + Quests 2–14 — blocked on #69
-- **#74** Dread spell system (12) + artifact system (14)
+- **#74** Dread spell system (12 spells) + artifact system (14 items) — awaiting card screenshots
 - **#77** Apply placement ruleset to Quests 2–14
