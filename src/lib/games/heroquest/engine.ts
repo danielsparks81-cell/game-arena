@@ -447,6 +447,7 @@ export function applyAction(
   if (!hero) return err('No active hero.');
   if (hero.playerId !== playerId) return err('It is not your turn.');
   if (hero.body <= 0) return err('You are dead.');
+  if (hero.escaped) return err('You have already escaped the dungeon.');
 
   if (action.kind === 'roll_move') return doRollMove(state, hero);
   if (action.kind === 'move_to')   return doMoveTo(state, hero, action.at);
@@ -1398,11 +1399,10 @@ function doCastSpell(
 
 function doEndTurn(state: HQState, hero: Hero): ApplyResult {
   const s = clone(state);
-  endHeroTurn(s);
-  // After the last hero's turn (turnIndex wraps to 0) → Zargon's turn, which now
-  // plays one monster at a time via zargon_step (the host ticks it). The next
-  // hero's "it is your turn" log is emitted when Zargon finishes.
-  if (s.turnIndex === 0) {
+  const roundDone = endHeroTurn(s);
+  // When the round is complete (last active hero just went) → Zargon's turn.
+  // The next hero's "it is your turn" log is emitted when Zargon finishes.
+  if (roundDone) {
     beginZargonTurn(s);
     return ok(s);
   }
@@ -1412,8 +1412,23 @@ function doEndTurn(state: HQState, hero: Hero): ApplyResult {
   return ok(s);
 }
 
-function endHeroTurn(s: HQState): void {
+/** Return the seat index of the next hero (after `fromSeat`, wrapping) that is
+ *  alive and not escaped.  Returns null only when no active hero exists. */
+function nextActiveHeroSeat(s: HQState, fromSeat: number): number | null {
+  for (let i = 1; i <= s.heroes.length; i++) {
+    const h = s.heroes[(fromSeat + i) % s.heroes.length];
+    if (h.body > 0 && !h.escaped) return h.seat;
+  }
+  return null;
+}
+
+/** Clear per-turn flags for the current hero and advance turnIndex to the next
+ *  active (alive + not escaped) hero.  Returns true when the advance wrapped
+ *  past the last hero in seat order — the caller should then start Zargon's
+ *  turn.  Returns false if more heroes remain in this round. */
+function endHeroTurn(s: HQState): boolean {
   const h = s.heroes[s.turnIndex];
+  const fromSeat = s.turnIndex; // seat === index (heroes are stored in seat order)
   h.moveLeft = 0;
   h.moveRolled = 0;
   h.hasRolled = false;
@@ -1428,15 +1443,16 @@ function endHeroTurn(s: HQState): void {
   h.extraAttack    = false;
   h.phaseWalls     = false;
   h.phaseMonsters  = false; // Veil of Mist: clears after the hero's move turn
-  // Advance to next hero, skipping dead heroes.
-  let next = s.turnIndex;
-  for (let i = 0; i < s.heroes.length; i++) {
-    next = (next + 1) % s.heroes.length;
-    if (s.heroes[next].body > 0) break;
-  }
-  s.turnIndex = next;
   // Rock Skin (defenseBonus) is NOT cleared here — it persists until the hero
   // actually takes damage. See the monster-attack logic in runMonster.
+
+  // Advance to next active hero, skipping dead and escaped heroes.
+  // nextSeat <= fromSeat means we wrapped past the 3→0 boundary, i.e. the
+  // round is complete and Zargon should act next.
+  const nextSeat = nextActiveHeroSeat(s, fromSeat);
+  if (nextSeat === null) return false; // no active heroes — quest ending via maybeEndQuest
+  s.turnIndex = nextSeat;
+  return nextSeat <= fromSeat; // true = round wrapped → caller starts Zargon's turn
 }
 
 // ============================================================================
@@ -1474,10 +1490,19 @@ function doZargonStep(state: HQState): ApplyResult {
 
 function finishZargonTurn(s: HQState): void {
   clearZargon(s);
-  if ((s.phase as Phase) !== 'finished') {
-    s.phase = 'heroes';
-    pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
+  if ((s.phase as Phase) === 'finished') return;
+  // A hero may have died or escaped DURING Zargon's turn; if so, turnIndex now
+  // points to an inactive hero.  Advance to the first active hero for the new
+  // round (lowest seat, wrapping from the end of the seat list so we search
+  // seats 0 → 1 → 2 → 3 in order).
+  const current = s.heroes[s.turnIndex];
+  if (!current || current.body <= 0 || current.escaped) {
+    const nextSeat = nextActiveHeroSeat(s, s.heroes.length - 1);
+    if (nextSeat === null) return; // all heroes resolved — maybeEndQuest() handles it
+    s.turnIndex = nextSeat;
   }
+  s.phase = 'heroes';
+  pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
 }
 
 function clearZargon(s: HQState): void {
@@ -1801,12 +1826,7 @@ function killHero(s: HQState, h: Hero): void {
   h.foundPotions = [];
   h.gold         = 0;
   // body stays 0; the hero token is not rendered when body <= 0.
-
-  if (s.heroes.every(x => x.body <= 0)) {
-    s.phase  = 'finished';
-    s.winner = 'zargon';
-    pushLog(s, 'system', 'All heroes have perished. The quest is lost.');
-  }
+  maybeEndQuest(s);
 }
 
 /**
@@ -1922,6 +1942,22 @@ function onStairs(s: HQState, h: Hero): boolean {
   return s.tiles[h.at.y]?.[h.at.x]?.kind === 'stairs';
 }
 
+/** End the quest once every hero is either escaped or dead.
+ *  If at least one hero escaped, the heroes win; otherwise Zargon wins.
+ *  Call this from any site that can resolve the last active hero. */
+function maybeEndQuest(s: HQState): void {
+  if (!s.heroes.every(h => h.body <= 0 || h.escaped)) return;
+  const escapees = s.heroes.filter(h => h.escaped);
+  if (escapees.length > 0) {
+    const names = escapees.map(heroLabel).join(', ');
+    heroesWin(s, `Quest complete — ${names} escaped the dungeon!`);
+  } else {
+    s.phase  = 'finished';
+    s.winner = 'zargon';
+    pushLog(s, 'system', 'All heroes have perished. The quest is lost.');
+  }
+}
+
 /** Finish the quest with a hero victory: set phase/winner, log, and grant the
  *  quest's completion reward to the living heroes. Centralises every win path. */
 function heroesWin(s: HQState, message: string): void {
@@ -1977,10 +2013,26 @@ function doExitDungeon(state: HQState, playerId: string, confirm: boolean): Appl
   const s = clone(state);
   s.pendingPrompt = null;
   if (confirm) {
-    const heroName = `${h.username} – ${HERO_DEFAULTS[h.klass].name}`;
-    heroesWin(s, `${heroName} leads the party out of the dungeon — quest complete!`);
+    // Mark this hero as escaped and remove them from the active turn order.
+    // The quest continues — Zargon still gets a turn and remaining heroes can
+    // still be killed (hurting the party's resources for the next quest).
+    // The quest ends only when every hero is either escaped or dead; if at
+    // least one escaped the heroes win regardless of how many died.
+    const eh = s.heroes[heroIdx];
+    eh.escaped = true;
+    pushLog(s, 'system', `${heroLabel(eh)} escapes the dungeon!`);
+    maybeEndQuest(s);
+    if (s.phase !== 'finished') {
+      // Quest continues — end this hero's turn and announce the next.
+      const roundDone = endHeroTurn(s);
+      if (roundDone) {
+        beginZargonTurn(s);
+      } else {
+        pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
+      }
+    }
   }
-  // Decline: hero stays on the stairs, turn continues normally.
+  // Decline: hero stays on the stairs, their turn continues normally.
   return ok(s);
 }
 

@@ -5,7 +5,7 @@
 // Spells are stubbed out (data-only; effects are TODO).
 
 /** Engine state version — bump and write a registry migration when shape changes. */
-export const STATE_VERSION = 1;
+export const STATE_VERSION = 2;
 
 // ============================================================================
 // Geometry
@@ -172,6 +172,10 @@ export type Hero = {
   searchedSecrets: string[];
   /** True if currently sitting in a pit (must spend movement to climb out). */
   inPit: boolean;
+  /** True once the hero has escaped through the stairway.  Escaped heroes are
+   *  removed from the turn order but remain in the heroes array so their gold /
+   *  items are preserved for the between-quest screen. */
+  escaped?: boolean;
 
   // --- Spell buffs ---------------------------------------------------------
   // Per-turn buffs are cleared at the end of the hero's own turn. Rock Skin's
