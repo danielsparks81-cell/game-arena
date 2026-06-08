@@ -34,8 +34,8 @@ export const HQ_COLORS = {
   torchGold:    '#ffb84d',
   torchOrange:  '#e87d2b',
   fog:          '#050505',
-  // Hero accent
-  heroBlue: '#3b6bc4',
+  // Hero accent — deep navy base for tokens (less cartoonish than bright blue)
+  heroBlue: '#1c2e4a',
   // Combat
   bloodRed:  '#a01a1a',
   shieldBlue: '#2a4a7a',
@@ -333,86 +333,102 @@ export function HeroToken({ klass, size, color, ring }: {
   );
 }
 
+// Dark silhouette style — bold shapes readable at 28 px, one accent colour each.
+// Base fill is near-black; accent = the ONE coloured feature that identifies the character.
+
 const BarbarianArt = () => (
   <g>
-    {/* Horned helm */}
-    <path d="M 10,16 Q 7,8 14,10 Q 20,4 26,10 Q 33,8 30,16 Q 28,18 20,18 Q 12,18 10,16 Z" fill="#5a4a3a" stroke="#1a1408" strokeWidth="0.8" />
-    {/* Horns */}
-    <path d="M 8,10 Q 4,4 10,4 Q 11,8 12,10" fill="#d6c08a" stroke="#1a1408" strokeWidth="0.6" />
-    <path d="M 32,10 Q 36,4 30,4 Q 29,8 28,10" fill="#d6c08a" stroke="#1a1408" strokeWidth="0.6" />
-    {/* Face */}
-    <ellipse cx="20" cy="21" rx="5" ry="5" fill="#d9a87a" stroke="#1a1408" strokeWidth="0.5" />
-    {/* Mouth/beard */}
-    <path d="M 16,24 Q 20,28 24,24 L 24,28 Q 20,30 16,28 Z" fill="#3a2a18" />
-    {/* Sword across the back */}
-    <g transform="translate(20 20) rotate(35)">
-      <rect x="-1" y="-16" width="2" height="22" fill="#c4c4c4" stroke="#000" strokeWidth="0.4" />
-      <rect x="-4" y="6"  width="8" height="2" fill="#3d2515" />
-      <rect x="-1" y="8"  width="2" height="5" fill="#3d2515" />
-    </g>
+    {/* Horns — gold/bone, the most distinctive silhouette feature */}
+    <path d="M 12,17 Q 5,3 10,2 Q 14,7 15,14" fill="#c8a042" />
+    <path d="M 28,17 Q 35,3 30,2 Q 26,7 25,14" fill="#c8a042" />
+    {/* Helm dome */}
+    <path d="M 12,18 Q 12,8 20,8 Q 28,8 28,18 Q 24,21 20,21 Q 16,21 12,18 Z" fill="#0f0d08" />
+    {/* Helm brim */}
+    <rect x="11" y="18" width="18" height="2.5" rx="1" fill="#0a0907" />
+    {/* Nasal guard */}
+    <rect x="19" y="15" width="2" height="6" rx="0.5" fill="#080706" />
+    {/* Face shadow */}
+    <ellipse cx="20" cy="24" rx="5" ry="4.5" fill="#0f0d08" />
+    {/* Beard mass */}
+    <path d="M 15,25 Q 13,36 20,37 Q 27,36 25,25 Q 22,29 20,28 Q 18,29 15,25 Z" fill="#0a0907" />
+    {/* Shoulders */}
+    <path d="M 7,39 Q 9,27 20,26 Q 31,27 33,39 Z" fill="#0a0907" />
+    {/* Sword pommel at right shoulder */}
+    <rect x="29" y="20" width="2" height="10" rx="1" fill="#6a6a7a" />
+    <rect x="26" y="24" width="8" height="2" rx="0.5" fill="#6a6a7a" />
   </g>
 );
 
 const DwarfArt = () => (
   <g>
-    {/* Helmet */}
-    <ellipse cx="20" cy="14" rx="9" ry="5" fill="#4a4a4a" stroke="#0a0a0a" strokeWidth="0.6" />
-    <rect x="11" y="14" width="18" height="2" fill="#6a6a6a" />
-    {/* Face */}
-    <ellipse cx="20" cy="22" rx="5.5" ry="5" fill="#d9a87a" stroke="#1a1408" strokeWidth="0.4" />
-    {/* Massive beard */}
-    <path d="M 12,22 Q 12,32 20,34 Q 28,32 28,22 Q 24,26 20,25 Q 16,26 12,22 Z" fill="#a05a25" stroke="#3a1a08" strokeWidth="0.5" />
-    {/* Eyes */}
-    <circle cx="18" cy="20" r="0.5" fill="#1a1408" />
-    <circle cx="22" cy="20" r="0.5" fill="#1a1408" />
-    {/* Axe head behind */}
-    <g transform="translate(20 20) rotate(-25)">
-      <rect x="-0.7" y="-14" width="1.4" height="14" fill="#5b3a1f" />
-      <path d="M -5,-13 L 0,-15 L 5,-13 L 5,-10 L 0,-8 L -5,-10 Z" fill="#9a9a9a" stroke="#000" strokeWidth="0.4" />
-    </g>
+    {/* Iron helm dome */}
+    <path d="M 11,17 Q 11,8 20,8 Q 29,8 29,17 L 27,20 Q 20,21 13,20 Z" fill="#0f0f0f" />
+    {/* Cheek guards + helm brim */}
+    <path d="M 11,17 L 12,23 L 16,21 Q 20,22 24,21 L 28,23 L 29,17" fill="#0a0a0a" />
+    {/* Nasal bar */}
+    <rect x="19.2" y="14" width="1.6" height="8" fill="#080808" />
+    {/* Amber fire eyes beneath helm */}
+    <ellipse cx="16" cy="17" rx="1.8" ry="1.2" fill="#c05010" />
+    <ellipse cx="24" cy="17" rx="1.8" ry="1.2" fill="#c05010" />
+    {/* Massive beard — defines the silhouette */}
+    <path d="M 11,22 Q 8,38 20,39 Q 32,38 29,22 Q 25,30 20,27 Q 15,30 11,22 Z" fill="#1a1208" />
+    {/* Beard shaping crease */}
+    <path d="M 13,27 Q 17,33 20,31 Q 23,33 27,27" fill="none" stroke="#0f0c08" strokeWidth="1.2" />
+    {/* Short stocky body */}
+    <path d="M 9,30 Q 10,24 13,22 L 13,39 L 27,39 L 27,22 Q 30,24 31,30 L 32,39 Q 20,40 8,39 Z" fill="#0f0f0f" />
+    {/* Axe shaft */}
+    <rect x="27.5" y="11" width="1.8" height="14" rx="0.9" fill="#1a1006" />
+    {/* Axe blade — silver accent */}
+    <path d="M 28.5,10 Q 36,7 37,14 Q 36,20 28.5,17 Z" fill="#9a9aaa" />
   </g>
 );
 
 const ElfArt = () => (
   <g>
-    {/* Hood / hair */}
-    <path d="M 10,16 Q 8,8 20,7 Q 32,8 30,16 L 28,20 L 12,20 Z" fill="#2a5a2a" stroke="#0a1a08" strokeWidth="0.6" />
-    {/* Face */}
-    <ellipse cx="20" cy="21" rx="4.5" ry="5" fill="#e8c8a8" stroke="#1a1408" strokeWidth="0.4" />
+    {/* Dark hood */}
+    <path d="M 12,20 Q 11,7 20,6 Q 29,7 28,20 L 26,23 L 14,23 Z" fill="#121e0a" />
+    {/* Hood inner shadow */}
+    <path d="M 14,23 Q 14,19 20,18 Q 26,19 26,23 Z" fill="#0a1407" />
     {/* Pointed ears */}
-    <path d="M 15.5,19 L 13,17 L 16,21 Z" fill="#e8c8a8" stroke="#1a1408" strokeWidth="0.3" />
-    <path d="M 24.5,19 L 27,17 L 24,21 Z" fill="#e8c8a8" stroke="#1a1408" strokeWidth="0.3" />
-    {/* Eyes */}
-    <circle cx="18" cy="20" r="0.6" fill="#1a4a1a" />
-    <circle cx="22" cy="20" r="0.6" fill="#1a4a1a" />
-    {/* Bow */}
-    <g transform="translate(20 20) rotate(20)">
-      <path d="M -12,-14 Q -8,-3 -12,8" fill="none" stroke="#5b3a1f" strokeWidth="1.4" strokeLinecap="round" />
-      <line x1="-11" y1="-13" x2="-11" y2="7" stroke="#d6c08a" strokeWidth="0.4" />
-    </g>
+    <path d="M 14,19 L 10,14 L 13,22 Z" fill="#b89060" />
+    <path d="M 26,19 L 30,14 L 27,22 Z" fill="#b89060" />
+    {/* Face */}
+    <ellipse cx="20" cy="23" rx="5" ry="5.5" fill="#121e0a" />
+    {/* Vivid green eyes — the accent */}
+    <ellipse cx="17.5" cy="22" rx="1.8" ry="1.3" fill="#20a020" />
+    <ellipse cx="22.5" cy="22" rx="1.8" ry="1.3" fill="#20a020" />
+    <circle cx="17.5" cy="22" r="0.7" fill="#050805" />
+    <circle cx="22.5" cy="22" r="0.7" fill="#050805" />
+    {/* Body */}
+    <path d="M 10,39 Q 12,27 20,25 Q 28,27 30,39 Z" fill="#121e0a" />
+    {/* Bow arc — dark wood */}
+    <path d="M 30,9 Q 38,20 32,33" fill="none" stroke="#1e1008" strokeWidth="3.5" strokeLinecap="round" />
+    {/* Bow string — gold glint */}
+    <line x1="30" y1="10" x2="32" y2="32" stroke="#c0a030" strokeWidth="0.8" strokeOpacity="0.9" />
   </g>
 );
 
 const WizardArt = () => (
   <g>
-    {/* Pointed wizard hat */}
-    <path d="M 14,16 L 20,2 L 26,16 Z" fill="#3a2a6a" stroke="#0a0418" strokeWidth="0.6" />
-    {/* Hat brim */}
-    <ellipse cx="20" cy="16" rx="10" ry="2" fill="#2a1a4a" />
-    {/* Star on hat */}
-    <path d="M 19,9 L 20,7 L 21,9 L 23,9.2 L 21.4,10.4 L 22,12 L 20,11 L 18,12 L 18.6,10.4 L 17,9.2 Z" fill="#ffd84d" />
+    {/* Tall pointed hat — very distinctive silhouette */}
+    <path d="M 14,18 L 20,2 L 26,18 Z" fill="#0c0820" />
+    <ellipse cx="20" cy="18" rx="10" ry="2.5" fill="#14102a" />
+    {/* Star accent — gold */}
+    <path d="M20,7 L21.3,10.2 L24.5,10.2 L22,12.2 L23,15 L20,13.2 L17,15 L18,12.2 L15.5,10.2 L18.7,10.2 Z" fill="#ffe040" />
     {/* Face */}
-    <ellipse cx="20" cy="22" rx="4.5" ry="4.5" fill="#e8c8a8" stroke="#1a1408" strokeWidth="0.4" />
+    <ellipse cx="20" cy="24" rx="4.5" ry="5" fill="#0c0820" />
+    {/* Aged eyes */}
+    <ellipse cx="17.5" cy="23" rx="1.3" ry="1" fill="#3a50a0" />
+    <ellipse cx="22.5" cy="23" rx="1.3" ry="1" fill="#3a50a0" />
     {/* Long white beard */}
-    <path d="M 14,23 Q 12,33 20,33 Q 28,33 26,23 Q 22,28 20,26 Q 18,28 14,23 Z" fill="#e8e8e8" stroke="#9a9a9a" strokeWidth="0.4" />
-    {/* Eyes */}
-    <circle cx="18" cy="21" r="0.5" fill="#1a1408" />
-    <circle cx="22" cy="21" r="0.5" fill="#1a1408" />
+    <path d="M 15,26 Q 13,38 20,39 Q 27,38 25,26 Q 22,31 20,30 Q 18,31 15,26 Z" fill="#c0c0c0" />
+    {/* Robes */}
+    <path d="M 10,39 Q 12,30 20,28 Q 28,30 30,39 Z" fill="#0c0820" />
     {/* Staff */}
-    <g transform="translate(20 20) rotate(-15)">
-      <rect x="-0.7" y="-16" width="1.4" height="22" fill="#5b3a1f" />
-      <circle cx="0" cy="-16" r="2.5" fill="#3a6bc4" stroke="#0a1a40" strokeWidth="0.4" />
-    </g>
+    <rect x="27.5" y="16" width="2.5" height="23" rx="1" fill="#1a1008" />
+    {/* Orb — glowing blue accent */}
+    <circle cx="28.8" cy="14" r="3.5" fill="#1030a0" />
+    <circle cx="27.3" cy="12.5" r="1.3" fill="#6090ff" fillOpacity="0.85" />
   </g>
 );
 
@@ -441,8 +457,8 @@ export function MonsterToken({ kind, size, dim }: {
       style={{ display: 'block', opacity: dim ? 0.5 : 1 }}
       aria-hidden
     >
-      {/* Base plate — bloodier red for monsters */}
-      <circle cx="20" cy="20" r="18" fill="#5a1a1a" stroke="#1a0808" strokeWidth="1.5" />
+      {/* Base plate — deep blood red for monsters */}
+      <circle cx="20" cy="20" r="18" fill="#2a0808" stroke="#160404" strokeWidth="1.5" />
       <R />
     </svg>
   );
@@ -450,158 +466,193 @@ export function MonsterToken({ kind, size, dim }: {
 
 const GoblinArt = () => (
   <g>
-    {/* Goblin head: green grinning thing */}
-    <ellipse cx="20" cy="22" rx="9" ry="10" fill="#5a8a3a" stroke="#1a3a08" strokeWidth="0.8" />
-    {/* Big ears */}
-    <path d="M 11,18 L 6,14 L 11,22 Z" fill="#5a8a3a" stroke="#1a3a08" strokeWidth="0.6" />
-    <path d="M 29,18 L 34,14 L 29,22 Z" fill="#5a8a3a" stroke="#1a3a08" strokeWidth="0.6" />
-    {/* Yellow eyes */}
-    <circle cx="17" cy="20" r="1.5" fill="#ffd84d" />
-    <circle cx="23" cy="20" r="1.5" fill="#ffd84d" />
-    <circle cx="17" cy="20" r="0.6" fill="#000" />
-    <circle cx="23" cy="20" r="0.6" fill="#000" />
-    {/* Sharp teeth grin */}
-    <path d="M 14,26 L 17,28 L 20,26 L 23,28 L 26,26 L 26,28 L 14,28 Z" fill="#fff" stroke="#1a1408" strokeWidth="0.4" />
+    {/* Wide pointy ears — widest silhouette feature */}
+    <path d="M 10,18 Q 3,9 7,7 Q 10,12 13,17 Z" fill="#0d1208" />
+    <path d="M 30,18 Q 37,9 33,7 Q 30,12 27,17 Z" fill="#0d1208" />
+    {/* Head */}
+    <ellipse cx="20" cy="21" rx="10" ry="10" fill="#0d1208" />
+    {/* Brow ridge */}
+    <path d="M 12,18 Q 20,15 28,18" fill="none" stroke="#080c06" strokeWidth="1.5" />
+    {/* Sulfur-yellow eyes */}
+    <ellipse cx="16.5" cy="20" rx="2.8" ry="2.2" fill="#b0a000" />
+    <ellipse cx="23.5" cy="20" rx="2.8" ry="2.2" fill="#b0a000" />
+    <ellipse cx="16.5" cy="20" rx="1.3" ry="1.6" fill="#060806" />
+    <ellipse cx="23.5" cy="20" rx="1.3" ry="1.6" fill="#060806" />
+    {/* Wide grin + jagged teeth */}
+    <path d="M 13,25 Q 20,30 27,25" fill="#060806" />
+    <path d="M 14,25 L 15,28 L 17,25 L 19,27 L 21,25 L 23,27 L 25,25 L 26,28 L 27,25"
+          fill="none" stroke="#c8c8a0" strokeWidth="0.9" />
+    {/* Scrawny body */}
+    <path d="M 12,39 Q 13,30 20,29 Q 27,30 28,39 Z" fill="#0a0e07" />
+    {/* Dagger */}
+    <path d="M 26,29 L 32,22 L 33,23 L 27,31 Z" fill="#7a7a88" />
   </g>
 );
 
 const OrcArt = () => (
   <g>
-    {/* Bigger meaner orc */}
-    <ellipse cx="20" cy="22" rx="10" ry="11" fill="#4a6a2a" stroke="#0a2008" strokeWidth="0.8" />
-    {/* Tusks */}
-    <path d="M 16,28 L 16,32 L 18,30 Z" fill="#fff" stroke="#1a1408" strokeWidth="0.3" />
-    <path d="M 24,28 L 24,32 L 22,30 Z" fill="#fff" stroke="#1a1408" strokeWidth="0.3" />
     {/* Iron helm */}
-    <path d="M 10,16 Q 20,8 30,16 L 30,18 Q 20,14 10,18 Z" fill="#3a3a3a" stroke="#0a0a0a" strokeWidth="0.6" />
-    {/* Red eyes */}
-    <ellipse cx="17" cy="21" rx="1.8" ry="1.2" fill="#d61010" />
-    <ellipse cx="23" cy="21" rx="1.8" ry="1.2" fill="#d61010" />
-    {/* Mouth */}
-    <rect x="16" y="26" width="8" height="1.5" fill="#1a1408" />
+    <path d="M 10,18 Q 10,8 20,8 Q 30,8 30,18 L 28,21 Q 20,22 12,21 Z" fill="#0a0a0a" />
+    {/* Helm brim */}
+    <path d="M 10,18 L 11,21 L 29,21 L 30,18" fill="#070707" />
+    {/* Nasal guard */}
+    <rect x="19.2" y="14" width="1.6" height="8" fill="#060606" />
+    {/* Blood-red eyes */}
+    <ellipse cx="16" cy="17.5" rx="2" ry="1.5" fill="#b81010" />
+    <ellipse cx="24" cy="17.5" rx="2" ry="1.5" fill="#b81010" />
+    <circle cx="16" cy="17.5" r="0.7" fill="#040404" />
+    <circle cx="24" cy="17.5" r="0.7" fill="#040404" />
+    {/* Heavy jaw */}
+    <path d="M 12,21 Q 12,32 20,33 Q 28,32 28,21 Q 24,26 20,24 Q 16,26 12,21 Z" fill="#0a0a0a" />
+    {/* Tusks */}
+    <path d="M 16,29 L 14,35 L 18,33 Z" fill="#d0d0b8" />
+    <path d="M 24,29 L 26,35 L 22,33 Z" fill="#d0d0b8" />
+    {/* Heavy body */}
+    <path d="M 7,39 Q 9,27 20,26 Q 31,27 33,39 Z" fill="#0a0a0a" />
   </g>
 );
 
 const AbominationArt = () => (
   <g>
-    {/* Hulking sickly-green mutant body, asymmetric and lumpy */}
-    <path
-      d="M 9,24 Q 7,12 16,10 Q 21,8 26,11 Q 33,14 31,25 Q 30,34 20,34 Q 11,34 9,24 Z"
-      fill="#6a8a3a"
-      stroke="#27370f"
-      strokeWidth="0.9"
-    />
-    {/* Lumpy growths / tumorous nodules */}
-    <circle cx="13" cy="15" r="2.4" fill="#7d9c4a" stroke="#27370f" strokeWidth="0.4" />
-    <circle cx="29" cy="20" r="2.8" fill="#5c7a30" stroke="#27370f" strokeWidth="0.4" />
-    <circle cx="25" cy="31" r="2" fill="#7d9c4a" stroke="#27370f" strokeWidth="0.4" />
-    {/* Asymmetric eyes — one large, one small, sickly yellow */}
-    <circle cx="16" cy="19" r="3" fill="#f2e85a" stroke="#000" strokeWidth="0.5" />
-    <circle cx="16" cy="19" r="1.1" fill="#000" />
-    <circle cx="25" cy="21" r="1.7" fill="#f2e85a" stroke="#000" strokeWidth="0.5" />
-    <circle cx="25" cy="21" r="0.7" fill="#000" />
-    {/* Gaping fanged maw */}
-    <path d="M 13,27 Q 20,33 28,27 Q 24,31 20,31 Q 16,31 13,27 Z" fill="#1a1006" />
-    <g fill="#e8e0c0" stroke="#000" strokeWidth="0.2">
-      <path d="M 15,27.5 L 16.5,30 L 17.5,27.6 Z" />
-      <path d="M 19,28.4 L 20.5,31 L 21.5,28.4 Z" />
-      <path d="M 23.5,27.8 L 25,30 L 26,27.6 Z" />
-    </g>
-    {/* Clawed arm reaching out */}
-    <path d="M 31,24 L 36,22 M 34,21 L 37,20 M 34,23 L 37,24" stroke="#5c7a30" strokeWidth="1.1" strokeLinecap="round" />
+    {/* Lumpy asymmetric body outline */}
+    <path d="M 7,22 Q 5,10 12,7 Q 18,5 22,7 Q 28,5 32,11 Q 37,17 34,25 Q 33,35 24,37 Q 16,38 11,33 Q 6,29 7,22 Z" fill="#0d100a" />
+    {/* Lumpy growths */}
+    <circle cx="10" cy="14" r="3" fill="#0f1208" />
+    <circle cx="31" cy="19" r="3.5" fill="#0c0e0a" />
+    {/* Big eye — left, the defining feature */}
+    <circle cx="15" cy="18" r="4.5" fill="#090c08" />
+    <circle cx="15" cy="18" r="3" fill="#98b808" fillOpacity="0.75" />
+    <circle cx="15" cy="18" r="1.2" fill="#050705" />
+    {/* Small eye — right, asymmetric */}
+    <circle cx="26" cy="21" r="2.8" fill="#090c08" />
+    <circle cx="26" cy="21" r="1.8" fill="#98b808" fillOpacity="0.65" />
+    <circle cx="26" cy="21" r="0.7" fill="#050705" />
+    {/* Gaping maw */}
+    <path d="M 11,27 Q 20,33 29,28" fill="#080808" />
+    <path d="M 12,27 L 13,30 L 15,27 L 17,30 L 19,27 L 21,29 L 23,27 L 25,30 L 27,27"
+          fill="none" stroke="#c8c8a0" strokeWidth="0.9" />
+    {/* Claw arm */}
+    <path d="M 7,25 Q 1,23 0,28 Q 3,27 7,27 Z" fill="#0d100a" />
+    <path d="M 0,28 L -2,26 M 0,28 L -1,31 M 0,28 L 2,30" stroke="#8a8a70" strokeWidth="1.2" strokeLinecap="round" />
   </g>
 );
 
 const SkeletonArt = () => (
   <g>
-    <ellipse cx="20" cy="22" rx="9" ry="10" fill="#dac8a8" stroke="#3a2a18" strokeWidth="0.8" />
-    {/* Eye sockets */}
-    <ellipse cx="17" cy="20" rx="2" ry="2.5" fill="#000" />
-    <ellipse cx="23" cy="20" rx="2" ry="2.5" fill="#000" />
-    {/* Nose */}
-    <path d="M 19,24 L 20,26 L 21,24 Z" fill="#000" />
-    {/* Teeth */}
-    <rect x="14" y="28" width="12" height="2" fill="#fff" stroke="#3a2a18" strokeWidth="0.3" />
-    <line x1="17" y1="28" x2="17" y2="30" stroke="#3a2a18" strokeWidth="0.4" />
-    <line x1="20" y1="28" x2="20" y2="30" stroke="#3a2a18" strokeWidth="0.4" />
-    <line x1="23" y1="28" x2="23" y2="30" stroke="#3a2a18" strokeWidth="0.4" />
+    {/* Cranium */}
+    <ellipse cx="20" cy="17" rx="9.5" ry="10.5" fill="#0f0f0f" />
+    {/* Eye sockets — large, defining feature */}
+    <ellipse cx="15.5" cy="16" rx="3.5" ry="3.2" fill="#060606" />
+    <ellipse cx="24.5" cy="16" rx="3.5" ry="3.2" fill="#060606" />
+    {/* Pale bone glow in sockets */}
+    <ellipse cx="15.5" cy="16" rx="2" ry="1.8" fill="#c8c8a0" fillOpacity="0.3" />
+    <ellipse cx="24.5" cy="16" rx="2" ry="1.8" fill="#c8c8a0" fillOpacity="0.3" />
+    {/* Nasal void */}
+    <path d="M 18.5,21 L 20,23.5 L 21.5,21 Z" fill="#060606" />
+    {/* Jaw */}
+    <rect x="12" y="24" width="16" height="7" rx="2" fill="#0f0f0f" />
+    {/* Teeth — bone white, very visible */}
+    <rect x="13" y="25" width="2.5" height="4.5" rx="0.5" fill="#c8c8a0" />
+    <rect x="16.5" y="25" width="2.5" height="4.5" rx="0.5" fill="#c8c8a0" />
+    <rect x="20" y="25" width="2.5" height="4.5" rx="0.5" fill="#c8c8a0" />
+    <rect x="23.5" y="25" width="2.5" height="4.5" rx="0.5" fill="#c8c8a0" />
+    {/* Body */}
+    <path d="M 12,31 Q 12,39 20,40 Q 28,39 28,31 Z" fill="#0f0f0f" />
   </g>
 );
 
 const ZombieArt = () => (
   <g>
-    {/* Grey-green decayed body */}
-    <ellipse cx="20" cy="22" rx="10" ry="11" fill="#5a6a4a" stroke="#1a2010" strokeWidth="0.8" />
-    {/* Hollow eyes */}
-    <circle cx="17" cy="20" r="2" fill="#1a1408" />
-    <circle cx="23" cy="20" r="2" fill="#1a1408" />
-    <circle cx="17" cy="20" r="0.7" fill="#d61010" />
-    <circle cx="23" cy="20" r="0.7" fill="#d61010" />
-    {/* Drooling jaw */}
-    <path d="M 14,26 L 20,32 L 26,26 L 24,30 L 16,30 Z" fill="#1a1408" />
-    <line x1="18" y1="30" x2="18" y2="34" stroke="#5a8a3a" strokeWidth="0.6" />
+    {/* Head */}
+    <ellipse cx="20" cy="19" rx="9" ry="10" fill="#0d0d0a" />
+    {/* Sunken eye sockets */}
+    <ellipse cx="15.5" cy="18" rx="2.8" ry="2.3" fill="#0a0a08" />
+    <ellipse cx="24.5" cy="18" rx="2.8" ry="2.3" fill="#0a0a08" />
+    {/* Dull red pupils */}
+    <circle cx="15.5" cy="18" r="1.2" fill="#900808" fillOpacity="0.7" />
+    <circle cx="24.5" cy="18" r="1.2" fill="#900808" fillOpacity="0.7" />
+    {/* Slack jaw */}
+    <path d="M 13,22 Q 13,30 20,30 Q 27,30 27,22 Q 23,26 20,25 Q 17,26 13,22 Z" fill="#0d0d0a" />
+    {/* Body */}
+    <path d="M 8,39 Q 10,29 20,28 Q 30,29 32,39 Z" fill="#0d0d0a" />
+    {/* Reaching arm */}
+    <path d="M 9,27 Q 3,23 2,18 Q 5,21 9,26 Z" fill="#0a0a08" />
+    {/* Fingers */}
+    <path d="M 2,18 L 0,16 M 2,18 L 1,21 M 2,18 L 4,20" stroke="#0a0a08" strokeWidth="1.4" strokeLinecap="round" />
   </g>
 );
 
 const MummyArt = () => (
   <g>
-    {/* Wrapped head */}
-    <ellipse cx="20" cy="22" rx="10" ry="11" fill="#c8b890" stroke="#5a4a30" strokeWidth="0.8" />
-    {/* Bandage wraps — diagonal strips */}
-    <g stroke="#9a8a60" strokeWidth="1.2" fill="none">
-      <line x1="11" y1="16" x2="29" y2="14" />
-      <line x1="10" y1="22" x2="30" y2="20" />
-      <line x1="11" y1="28" x2="29" y2="26" />
-    </g>
-    {/* Glowing eye slit */}
-    <rect x="14" y="20" width="12" height="2" fill="#000" />
-    <rect x="14" y="20" width="12" height="2" fill="#5a3a0a" />
-    <circle cx="17" cy="21" r="0.6" fill="#ffb84d" />
-    <circle cx="23" cy="21" r="0.6" fill="#ffb84d" />
+    {/* Stiff wrapped head */}
+    <ellipse cx="20" cy="19" rx="9" ry="10" fill="#1a1408" />
+    {/* Horizontal bandage wrap lines */}
+    <line x1="11" y1="12" x2="29" y2="12" stroke="#262010" strokeWidth="1.6" />
+    <line x1="11" y1="15.5" x2="29" y2="15.5" stroke="#262010" strokeWidth="1.6" />
+    <line x1="11" y1="19" x2="29" y2="19" stroke="#262010" strokeWidth="1.6" />
+    <line x1="11" y1="22.5" x2="29" y2="22.5" stroke="#262010" strokeWidth="1.6" />
+    {/* Eye slit — amber glow accent */}
+    <rect x="13" y="16" width="14" height="3" rx="1" fill="#0a0808" />
+    <rect x="13.5" y="16.3" width="13" height="2.4" fill="#c07808" fillOpacity="0.7" />
+    {/* Rigid body */}
+    <path d="M 11,29 Q 11,39 20,40 Q 29,39 29,29 L 29,25 Q 20,27 11,25 Z" fill="#1a1408" />
+    {/* Body wraps */}
+    <line x1="11" y1="30" x2="29" y2="30" stroke="#262010" strokeWidth="1.6" />
+    <line x1="11" y1="34" x2="29" y2="34" stroke="#262010" strokeWidth="1.6" />
+    {/* Outstretched arm */}
+    <path d="M 11,25 Q 5,24 4,28 Q 7,29 11,27 Z" fill="#1a1408" />
+    <line x1="11" y1="26" x2="5" y2="25" stroke="#262010" strokeWidth="1.4" />
   </g>
 );
 
 const DreadWarriorArt = () => (
   <g>
-    {/* Dark plate-armored shoulders / pauldrons */}
-    <path d="M 7,32 Q 8,22 14,21 L 26,21 Q 32,22 33,32 Z" fill="#23232f" stroke="#0a0a12" strokeWidth="0.8" />
-    <ellipse cx="10" cy="25" rx="3.5" ry="3" fill="#2e2e3e" stroke="#0a0a12" strokeWidth="0.6" />
-    <ellipse cx="30" cy="25" rx="3.5" ry="3" fill="#2e2e3e" stroke="#0a0a12" strokeWidth="0.6" />
-    {/* Dark plate helm */}
-    <path d="M 12,20 Q 12,9 20,8 Q 28,9 28,20 Q 28,24 20,25 Q 12,24 12,20 Z" fill="#1c1c28" stroke="#0a0a12" strokeWidth="0.8" />
-    {/* Curved horns */}
-    <path d="M 12,15 Q 6,12 5,5 Q 10,9 13,11 Z" fill="#15151e" stroke="#000" strokeWidth="0.4" />
-    <path d="M 28,15 Q 34,12 35,5 Q 30,9 27,11 Z" fill="#15151e" stroke="#000" strokeWidth="0.4" />
-    {/* Helm crest ridge */}
-    <path d="M 20,8 L 20,25" stroke="#2e2e3e" strokeWidth="1" />
-    {/* Visor slit with red glowing eyes */}
-    <rect x="14" y="16" width="12" height="3" rx="1" fill="#000" />
-    <circle cx="17" cy="17.5" r="1.4" fill="#e01818" />
-    <circle cx="23" cy="17.5" r="1.4" fill="#e01818" />
-    <circle cx="17" cy="17.5" r="0.5" fill="#ffcaca" />
-    <circle cx="23" cy="17.5" r="0.5" fill="#ffcaca" />
-    {/* Breastplate emblem */}
-    <path d="M 20,27 L 22,30 L 20,33 L 18,30 Z" fill="#3a3a4c" stroke="#0a0a12" strokeWidth="0.4" />
+    {/* Full plate helm — imposing, angular */}
+    <path d="M 10,20 Q 10,7 20,7 Q 30,7 30,20 L 28,23 Q 20,25 12,23 Z" fill="#080808" />
+    {/* Helm horns */}
+    <path d="M 12,13 Q 8,4 12,3 Q 14,7 14,13" fill="#0c0c0c" />
+    <path d="M 28,13 Q 32,4 28,3 Q 26,7 26,13" fill="#0c0c0c" />
+    {/* Visor slot */}
+    <rect x="12" y="17" width="16" height="3.5" rx="0.5" fill="#050505" />
+    {/* Red glowing eyes — two bright slits */}
+    <rect x="12.5" y="17.5" width="6" height="2.5" rx="0.5" fill="#cc0000" fillOpacity="0.95" />
+    <rect x="21.5" y="17.5" width="6" height="2.5" rx="0.5" fill="#cc0000" fillOpacity="0.95" />
+    {/* Face plate center bar */}
+    <rect x="19.5" y="15" width="1" height="7" fill="#040404" />
+    {/* Massive armored body */}
+    <path d="M 6,39 Q 8,25 20,24 Q 32,25 34,39 Z" fill="#080808" />
+    {/* Pauldrons */}
+    <ellipse cx="9" cy="27" rx="5.5" ry="4" fill="#0c0c0c" />
+    <ellipse cx="31" cy="27" rx="5.5" ry="4" fill="#0c0c0c" />
+    {/* Sword */}
+    <rect x="30" y="13" width="2.5" height="20" rx="1" fill="#282830" />
+    <rect x="27" y="19" width="9" height="2.5" rx="0.5" fill="#282830" />
   </g>
 );
 
 const GargoyleArt = () => (
   <g>
-    {/* Massive stone body */}
-    <ellipse cx="20" cy="22" rx="12" ry="11" fill="#3a3a3a" stroke="#0a0a0a" strokeWidth="0.8" />
-    {/* Wings */}
-    <path d="M 8,14 Q 2,8 4,18 Q 8,18 12,16 Z" fill="#2a2a2a" stroke="#0a0a0a" strokeWidth="0.6" />
-    <path d="M 32,14 Q 38,8 36,18 Q 32,18 28,16 Z" fill="#2a2a2a" stroke="#0a0a0a" strokeWidth="0.6" />
+    {/* Wing tips peeking above shoulders */}
+    <path d="M 8,22 Q 3,10 7,6 Q 11,14 13,20 Z" fill="#0c0c0c" />
+    <path d="M 32,22 Q 37,10 33,6 Q 29,14 27,20 Z" fill="#0c0c0c" />
+    {/* Stone body */}
+    <ellipse cx="20" cy="21" rx="11" ry="11" fill="#0c0c0c" />
     {/* Horns */}
-    <path d="M 13,12 L 11,4 L 15,10 Z" fill="#1a1a1a" stroke="#000" strokeWidth="0.3" />
-    <path d="M 27,12 L 29,4 L 25,10 Z" fill="#1a1a1a" stroke="#000" strokeWidth="0.3" />
-    {/* Red glowing eyes */}
-    <circle cx="16" cy="20" r="2" fill="#d61010" />
-    <circle cx="24" cy="20" r="2" fill="#d61010" />
-    <circle cx="16" cy="20" r="0.6" fill="#fff" />
-    <circle cx="24" cy="20" r="0.6" fill="#fff" />
+    <path d="M 14,13 Q 11,4 14,3 Q 16,8 16,13" fill="#0a0a0a" />
+    <path d="M 26,13 Q 29,4 26,3 Q 24,8 24,13" fill="#0a0a0a" />
+    {/* Deep red eyes */}
+    <ellipse cx="15.5" cy="19" rx="2.8" ry="2.3" fill="#0a0808" />
+    <ellipse cx="24.5" cy="19" rx="2.8" ry="2.3" fill="#0a0808" />
+    <ellipse cx="15.5" cy="19" rx="1.8" ry="1.4" fill="#b81818" fillOpacity="0.9" />
+    <ellipse cx="24.5" cy="19" rx="1.8" ry="1.4" fill="#b81818" fillOpacity="0.9" />
+    <circle cx="15.5" cy="19" r="0.6" fill="#040404" />
+    <circle cx="24.5" cy="19" r="0.6" fill="#040404" />
     {/* Fanged maw */}
-    <path d="M 14,26 L 17,30 L 20,28 L 23,30 L 26,26 L 24,28 L 16,28 Z" fill="#fff" stroke="#000" strokeWidth="0.4" />
+    <path d="M 13,24 Q 20,29 27,24" fill="#0a0808" />
+    <path d="M 14,24 L 15,27 L 17,24 L 19,26 L 21,24 L 23,27 L 25,24 L 26,27 L 27,24"
+          fill="none" stroke="#2a2820" strokeWidth="0.8" />
+    {/* Body */}
+    <path d="M 8,39 Q 9,28 20,27 Q 31,28 32,39 Z" fill="#0c0c0c" />
   </g>
 );
 
