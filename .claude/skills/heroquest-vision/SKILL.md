@@ -32,10 +32,20 @@ What the players are allowed to *see and place on the board* as a hero moves.
 Rules:
 - You **look down a hallway** in a straight, unobstructed line and reveal
   corridor / stairs / blocked-square tiles **until a wall stops the line**.
-- You **cannot see through walls**, but **touching a wall corner does not block
-  vision** — the same lenient rule as character LOS. `revealVisible` uses `&&`
-  (BOTH flanking directions walled) to block a diagonal, not `||` (either).
-  A single wall section on one side of a diagonal does not obstruct the line.
+- You **cannot see through walls**. Diagonal vision uses a **context-aware**
+  rule — not a single `||` or `&&` for all cases:
+  - **From a corridor cell**: lenient (`&&`). `isWallEdge` fires for any
+    corridor→room boundary, so `||` would wrongly block a corridor hero looking
+    diagonally past a room corner. Only a sealed corner (both flanking edges are
+    room boundaries) blocks corridor diagonals.
+  - **From a room cell**: strict (`||`). A room tile inside the same room has no
+    "wall edge" to its neighbour (same region → `isWallEdge` = false), so one
+    flanking edge gives `e=false`. With `&&`, `false && true = false` → vision
+    leaks through the room wall. Any single room-boundary flank must block.
+  - Implementation: `const prevIsRoom = regionOf(s, prev).startsWith('room_');`
+    `if (prevIsRoom ? (e1 || e2) : (e1 && e2)) return false;`
+  - **DO NOT** simplify this back to a single `||` or `&&` — each alone breaks
+    one of the two cases and the bug will oscillate.
 - You **never reveal a room's interior by looking.** A room is placed only when:
   - its **door is OPENED** (`doOpenDoor` reveals the room region + spawns its
     monsters/items), or
@@ -84,8 +94,10 @@ Must be enforced for:
 ## Invariants — do not break these
 
 1. **Never use `hasLineOfSight` for reveal**, and never use `revealVisible` for
-   targeting. Both use the same lenient diagonal rule (`&&`) now, but they differ
-   in what they block on intermediate cells (figures block LOS but not reveal).
+   targeting. They use DIFFERENT diagonal rules: `revealVisible` is
+   context-aware (strict from rooms, lenient from corridors); `hasLineOfSight`
+   always uses the lenient `&&` rule (character LOS only blocks fully-sealed
+   corners). Figures block LOS but not reveal.
 2. **Looking never reveals a room interior.** Rooms enter play via doors / being
    stood in — `doOpenDoor` / the room-region reveal in `revealLineOfSightForHero`.
 3. **Rooms are protected by two guards, not the diagonal edge rule.** (1) The

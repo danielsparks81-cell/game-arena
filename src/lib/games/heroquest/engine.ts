@@ -2490,16 +2490,26 @@ function revealVisible(s: HQState, a: Coord, b: Coord): boolean {
     if (ortho) {
       if (edgeBlocksSight(s, prev, c)) return false;
     } else {
-      // Diagonal step — LENIENT rule (same as hasLineOfSight):
-      //   A diagonal is blocked only when BOTH flanking directions are walled.
-      //   One open side lets you see past the corner — this is the HeroQuest
-      //   "touching a wall corner doesn't block sight" rule.
-      //   Rooms are protected by two independent guards:
-      //     1. The outer loop skips room_* targets (rooms reveal only via doors).
-      //     2. The intermediate-cell check below stops the line on room tiles.
+      // Diagonal step — CONTEXT-AWARE rule:
+      //
+      //   isWallEdge() returns true for ANY edge where one side is a room_* tile.
+      //   This creates two different situations:
+      //
+      //   a) Origin is a CORRIDOR tile adjacent to a room: one flanking edge may
+      //      point toward a room tile and register as a room boundary (e=true) even
+      //      though the hero is just looking along a corridor. Using || here would
+      //      wrongly block corridor vision past a room corner. Use && (lenient).
+      //
+      //   b) Origin is a ROOM tile: a flanking cell inside the same room shares the
+      //      same region so its edge gives e=false, while the outward flanking edge
+      //      gives e=true (room wall). With &&, false && true = false → leaked vision.
+      //      We must use || (strict) so any room-boundary flank blocks the diagonal.
+      //
+      //   Rule: strict (||) from a room cell, lenient (&&) from a corridor cell.
       const e1 = edgeBlocksSight(s, prev, { x: c.x, y: prev.y });
       const e2 = edgeBlocksSight(s, prev, { x: prev.x, y: c.y });
-      if (e1 && e2) return false;   // lenient: sealed corner (both sides walled) blocks
+      const prevIsRoom = regionOf(s, prev).startsWith('room_');
+      if (prevIsRoom ? (e1 || e2) : (e1 && e2)) return false;
       if (s.tiles[prev.y]?.[c.x]?.kind === 'wall' && s.tiles[c.y]?.[prev.x]?.kind === 'wall') return false;
     }
     // Intermediate cells (not the endpoint) stop the line on solid terrain.
