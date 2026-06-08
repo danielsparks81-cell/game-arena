@@ -67,9 +67,17 @@ Players discover the personality by observing behaviour over multiple Zargon tur
 Monsters may attack from any of the 8 squares surrounding a hero — orthogonal **and** diagonal.
 
 - `attackSquaresFor` uses `allAdjacentCells` (8 directions) instead of 4-orthogonal `adjacentCells`.
-- Wall check for diagonal pairs uses the **lenient** rule: only blocked when **both** flanking corner
-  edges are walls (`wallBetween` helper). Touching a single corner still allows the strike — consistent
-  with the character LOS rule.
+- Wall check for diagonal pairs uses the **L-path rule** (`wallBetween` helper): a diagonal attack
+  is allowed if **at least one** of the two "elbow" routes from attacker to target is fully clear
+  (no wall on either orthogonal step of that route). Blocked only when **both** elbow routes are
+  wall-blocked.
+  - Example (allowed): monster just inside room at a doorway → hero just outside and to the side.
+    One elbow goes room→room then open-door→hero: clear → attack allowed.
+  - Example (blocked): monster inside room → hero directly behind the solid wall (orthogonal wall
+    on one elbow, orthogonal wall on the other elbow "around and back"): both elbows blocked →
+    attack blocked.
+  - **DO NOT** simplify to a flat `||` (too strict — blocks valid door-corner attacks) or `&&`
+    (too lenient — allows "around and back" through a wall). The L-path check is the correct rule.
 - Monster **movement** remains orthogonal (BFS only expands 4 directions). A monster reaches a
   diagonal attack square by walking orthogonally to it, then strikes from there.
 - `countFreeAttackPositions` also uses all 8 directions so the don't-block heuristic correctly
@@ -115,9 +123,17 @@ saves themselves with their own resources, or not at all.
 | phaseWalls | Hero | Pass Through Rock — hero passes through walls this move |
 | attackBonus | Hero | Extra attack dice on next attack (Courage) |
 | defenseBonus | Hero | Extra defense die until damage taken (Rock Skin) |
+| feared | Hero | Dread Fear — hero may only use 1 attack die; breaks on mind-roll 6 |
+| asleep | Hero | Dread Sleep — hero cannot act or defend; breaks on mind-roll 6 |
+| commanded | Hero | Dread Command — hero acts for Zargon; breaks on mind-roll 6 |
+| paralyzed | Hero | Dread Cloud of Dread — hero cannot act or defend; breaks on mind-roll 6 |
+| dazed | Hero | Dread Tempest — hero skips next turn; clears automatically |
 | sleeping | Monster | Sleep spell active; wake check each Zargon turn |
 | stunned | Monster | Tempest — loses next Zargon turn |
 | personality | Monster | 'predator' \| 'aggressor' \| 'methodical' — assigned at spawn |
+| dreadSpells | Monster | Spell ids this monster can cast (assigned by quest notes) |
+| dreadSpellsUsed | Monster | Spent spell ids — one-shot per quest |
+| summonKind | Monster | Undead kind summoned by ds_summon_undead (default: skeleton) |
 | lootPiles | HQState | Loot dropped by dead heroes; auto-collected on walkover |
 
 ## Stairway rules
@@ -180,11 +196,52 @@ These override the printed rulebook. Do not revert them without explicit instruc
 | 7 | Stairway is one logical space — stair→stair movement costs 0; heroes start on stairway tiles | ✅ implemented |
 | 8 | Heroes who die after the first escape still lose their items (loot dropped, not carried to next quest) | ✅ implemented |
 | 9 | Monsters **can** attack diagonally (all 8 adjacent squares valid attack positions) | ✅ implemented |
+| 10 | Dread spell system — 12 Zargon caster spells with status effects, LOS targeting, summons, and mind-point break mechanic | ✅ implemented |
+
+## Dread spells (12 cards — Zargon's spellcaster deck)
+
+Cards transcribed from physical cards. Two numbers flagged ⚠️ need user confirmation.
+
+**Mind-point break mechanic (shared by Fear, Sleep, Cloud of Dread, Command):**
+At the start of their turn (or immediately when noted), the affected hero rolls 1 red die per Mind
+Point they have. If any die shows a 6, the spell is broken and removed.
+
+| Spell | Target | Effect |
+|---|---|---|
+| **Ball of Flame** | one hero | 2 BP damage. Hero then rolls 2 red dice — each 5 or 6 reduces damage by 1. |
+| **Lightning Bolt** | line (H/V/diagonal) | Travels in a straight line until hitting a wall or closed door. Inflicts 2 BP on every hero and monster in its path. |
+| **Firestorm** | whole room | 3 BP damage to all heroes AND monsters in the same room as caster (caster unaffected). Each victim rolls 2 red dice — each 5 or 6 reduces damage by 1. **Cannot be used in corridors.** |
+| **Rust** | one hero's item | Destroys any one metal sword or helmet permanently — becomes too thin, brittle, and useless to use again. **Not effective against artifacts.** |
+| **Fear** | one hero | Hero may only use 1 Attack die. Breaks via mind-point roll (6) on any future turn. |
+| **Sleep** | one hero | Hero cannot move, attack, or defend. Breaks via mind-point roll (6) immediately or any future turn. |
+| **Tempest** | one hero | Target hero misses their next turn (whirlwind). |
+| **Command** | one hero | Hero is under Zargon's control. On Zargon's turn, the hero moves as a monster and can attack other heroes. Breaks via mind-point roll (6) on any future turn. |
+| **Cloud of Dread** | all heroes in same room/corridor | All heroes in the same space are paralyzed — cannot move, attack, or defend. Each breaks independently via mind-point roll (6) immediately or any future turn. |
+| **Summon Orcs** | self (protect caster) | Roll 1d6 — that many orcs are placed as close to the caster as possible. |
+| **Summon Undead** | self (protect caster) | Roll 1d6 — that many undead are placed as close to the caster as possible. Monster kind (skeleton/zombie/mummy) specified in quest notes. |
+| **Escape** | self | Caster instantly teleports to a secret safe location known only to Zargon, marked on the quest map. |
+
+**Design decisions (confirmed):**
+
+1. **Which monsters cast** — Quest-book driven. Each quest's notes designate which specific monster(s)
+   carry Dread spells and which cards they have access to. Many quests will have no Dread spells at all.
+
+2. **Casting timing / rules** — Quest-book driven. The quest notes specify when and how the spellcaster
+   may use their spells (e.g. instead of attacking, once per turn, etc.).
+
+3. **Summon placement** — Summoned monsters are placed as close to the spellcaster as possible.
+   Fill adjacent empty cells first; if all adjacent cells are occupied, use the next nearest available
+   cells (BFS outward from caster). Quest notes specify the monster kind for each summon spell.
+
+4. **Summon count** — Roll 1d6; the result is the number of monsters summoned (1–6 directly).
+   The card table text is superseded by this house rule — roll = count, no lookup needed.
+   Summon Undead: same mechanic; monster kind (skeleton / zombie / mummy) specified in quest notes.
 
 ## Pending / blocked work
 
 - **#65** Chest/furniture trap model — needs quest-driven trap data
 - **#69** Between-quests economy (rulebook p.22) — user to share the page
 - **#71** Quest engine + Quests 2–14 — blocked on #69
-- **#74** Dread spell system (12 spells) + artifact system (14 items) — awaiting card screenshots
+- **#74** ✅ Dread spell system (12 spells) — **implemented**. Artifact system still pending.
+- **#74b** Artifact system (14 items) — pending (needs quest book data)
 - **#77** Apply placement ruleset to Quests 2–14
