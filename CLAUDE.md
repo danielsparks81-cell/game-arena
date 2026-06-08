@@ -75,6 +75,26 @@ Players discover the personality by observing behaviour over multiple Zargon tur
 | personality | Monster | 'predator' \| 'aggressor' \| 'methodical' — assigned at spawn |
 | lootPiles | HQState | Loot dropped by dead heroes; auto-collected on walkover |
 
+## Stairway rules
+
+The stairway is a 2×2 block of 4 tiles (kind `'stairs'`) tucked into the entrance room.
+It is treated as **one logical space** for movement only — stair→stair steps cost 0;
+entering or leaving the stairway costs 1. All 4 heroes start on the stairway tiles.
+Stair tiles belong to the entrance room region (not their own region).
+
+Monsters **can** enter stair tiles (needed so they can attack heroes cornered there).
+
+**Exit flow (kill_and_exit):**
+- Once the objective is killed, any hero who reaches the stairway gets an exit prompt.
+- When they confirm, they are marked `escaped` and removed from the turn order;
+  the quest **continues** — Zargon still acts and can kill the remaining heroes.
+- Each subsequent hero gets the same prompt when they reach the stairway.
+- The quest ends only when every hero is either escaped or dead.
+- If **any** hero escaped → heroes win and advance to the next quest.
+- If **all** heroes died without escaping → Zargon wins.
+- Rationale: heroes who die after the first escape lose their items,
+  weakening the party's resources for the next quest.
+
 ## Pending / blocked work
 
 - **#65** Chest/furniture trap model — needs quest-driven trap data
