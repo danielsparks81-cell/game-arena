@@ -208,18 +208,18 @@ Point they have. If any die shows a 6, the spell is broken and removed.
 
 | Spell | Target | Effect |
 |---|---|---|
-| **Ball of Flame** | one hero | 2 BP damage. Hero then rolls 2 red dice — each 5 or 6 reduces damage by 1. |
+| **Ball of Flame** | one hero | 2 BP damage to the hero with the **lowest remaining BP** in LOS. Hero rolls 2 red dice — each **6** (only) reduces damage by 1. Caster will not cast if no hero is in LOS. |
 | **Lightning Bolt** | line (H/V/diagonal) | Travels in a straight line until hitting a wall or closed door. Inflicts 2 BP on every hero and monster in its path. |
-| **Firestorm** | whole room | 3 BP damage to all heroes AND monsters in the same room as caster (caster unaffected). Each victim rolls 2 red dice — each 5 or 6 reduces damage by 1. **Cannot be used in corridors.** |
-| **Rust** | one hero's item | Destroys any one metal sword or helmet permanently — becomes too thin, brittle, and useless to use again. **Not effective against artifacts.** |
-| **Fear** | one hero | Hero may only use 1 Attack die. Breaks via mind-point roll (6) on any future turn. |
-| **Sleep** | one hero | Hero cannot move, attack, or defend. Breaks via mind-point roll (6) immediately or any future turn. |
+| **Firestorm** | whole room | 3 BP damage to all heroes AND monsters in the same room as caster (caster unaffected). Each victim rolls **1 red die** — a **6** reduces damage by 1. **Cannot be used in corridors.** Caster AI will not cast if there are more monster allies than heroes in the room. |
+| **Rust** | one hero's item | Destroys the **best weapon (highest attack dice)** in the party (non-artifact). Targets the visible hero carrying it. Helmets are targeted if no weapons are available. |
+| **Fear** | one hero | Hero may only use **1 Attack die total** (ignores all bonuses — Courage, Strength potion, etc.). Breaks via mind-point roll (6) on any future turn. |
+| **Sleep** | one hero | Hero cannot move, attack, or defend. **Breaks via mind-point roll: 1d6 per Mind Point** — any 6 breaks free. Checked at start of each hero's turn. |
 | **Tempest** | one hero | Target hero misses their next turn (whirlwind). |
-| **Command** | one hero | Hero is under Zargon's control. On Zargon's turn, the hero moves as a monster and can attack other heroes. Breaks via mind-point roll (6) on any future turn. |
+| **Command** | one hero | Hero is under Zargon's control. AI targets the hero with the **lowest Mind Points** (hardest to break free). On the **commanded hero's own turn**: they roll mind-break first — if freed they act normally that turn; if still bound the turn is forfeit. On Zargon's turn the hero moves and attacks allies. |
 | **Cloud of Dread** | all heroes in same room/corridor | All heroes in the same space are paralyzed — cannot move, attack, or defend. Each breaks independently via mind-point roll (6) immediately or any future turn. |
-| **Summon Orcs** | self (protect caster) | Roll 1d6 — that many orcs are placed as close to the caster as possible. |
-| **Summon Undead** | self (protect caster) | Roll 1d6 — that many undead are placed as close to the caster as possible. Monster kind (skeleton/zombie/mummy) specified in quest notes. |
-| **Escape** | self | Caster instantly teleports to a secret safe location known only to Zargon, marked on the quest map. |
+| **Summon Orcs** | self (protect caster) | Roll 1d6 — lookup: **1-3 → 4 orcs, 4-5 → 5 orcs, 6 → 6 orcs**. Placed BFS outward from caster. |
+| **Summon Undead** | self (protect caster) | Roll 1d6 — composition lookup: **1-3 → 4 skeletons; 4-5 → 3 skeletons + 2 zombies; 6 → 2 zombies + 2 mummies**. Placed BFS outward from caster. |
+| **Escape** | self | Caster vanishes instead of dying or when badly hurt (≤25% BP). **Auto-triggers when the caster would receive a killing blow** — no gold, no kill credit. One-shot per quest. |
 
 **Design decisions (confirmed):**
 
@@ -229,13 +229,11 @@ Point they have. If any die shows a 6, the spell is broken and removed.
 2. **Casting timing / rules** — Quest-book driven. The quest notes specify when and how the spellcaster
    may use their spells (e.g. instead of attacking, once per turn, etc.).
 
-3. **Summon placement** — Summoned monsters are placed as close to the spellcaster as possible.
-   Fill adjacent empty cells first; if all adjacent cells are occupied, use the next nearest available
-   cells (BFS outward from caster). Quest notes specify the monster kind for each summon spell.
+3. **Summon placement** — BFS outward from caster. Adjacent empty cells filled first; expands outward
+   if all adjacent cells are occupied. Same rule for both Orcs and Undead.
 
-4. **Summon count** — Roll 1d6; the result is the number of monsters summoned (1–6 directly).
-   The card table text is superseded by this house rule — roll = count, no lookup needed.
-   Summon Undead: same mechanic; monster kind (skeleton / zombie / mummy) specified in quest notes.
+4. **Summon count / composition** — Determined by d6 lookup table (not roll = count directly).
+   See the table rows for Summon Orcs / Summon Undead above for exact mappings.
 
 ## Pending / blocked work
 

@@ -854,14 +854,20 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
     `${heroLabel(h)} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks${bonusNote}. ` +
     (damage > 0 ? `${monsterDisplay(m)} takes ${damage} BP.` : 'No damage.'),
   );
+  let escaped = false;
   if (m.body <= 0) {
-    pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
-    if (m.goldMin !== undefined && m.goldMax !== undefined) {
-      const gold = m.goldMin + Math.floor(Math.random() * (m.goldMax - m.goldMin + 1));
-      h.gold += gold;
-      pushLog(s, 'system', `${heroLabel(h)} loots ${gold} gold from the fallen ${monsterDisplay(m)}.`);
+    // Auto-escape: a monster with an available ds_escape vanishes instead of dying
+    // (no gold, no kill credit, no win-condition trigger).
+    escaped = tryAutoEscape(s, m);
+    if (!escaped) {
+      pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+      if (m.goldMin !== undefined && m.goldMax !== undefined) {
+        const gold = m.goldMin + Math.floor(Math.random() * (m.goldMax - m.goldMin + 1));
+        h.gold += gold;
+        pushLog(s, 'system', `${heroLabel(h)} loots ${gold} gold from the fallen ${monsterDisplay(m)}.`);
+      }
+      s.monsters = s.monsters.filter(mm => mm.id !== m.id);
     }
-    s.monsters = s.monsters.filter(mm => mm.id !== m.id);
   }
   // Both attack bonuses are consumed on this strike. If this was the free
   // Heroic Brew / Courage extra attack, consume that flag too; otherwise it
@@ -870,8 +876,8 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   h.potionAtkBonus = 0;
   if (usingExtraAttack) h.extraAttack = false;
   else markActed(h);
-  // Check win condition (kill the named monster).
-  maybeFinishOnKill(s, m);
+  // Only check win condition if the monster was actually killed (not escaped).
+  if (!escaped) maybeFinishOnKill(s, m);
   return ok(s);
 }
 
@@ -1726,9 +1732,14 @@ function chooseDreadSpell(s: HQState, m: Monster): DreadSpellId | null {
     if (id === 'ds_firestorm') {
       // Room-only: caster must be in a room (not a corridor).
       if (!regionOf(s, m.at).startsWith('room_')) continue;
+      const _fsRegion = regionOf(s, m.at);
       // Only worth casting if there are heroes in the same room.
-      const heroesInRoom = living.filter(h => regionOf(s, h.at) === regionOf(s, m.at));
-      if (heroesInRoom.length === 0) continue;
+      const _fsHeroes = living.filter(h => regionOf(s, h.at) === _fsRegion);
+      if (_fsHeroes.length === 0) continue;
+      // Zargon won't firestorm if there are MORE monster allies than hero targets —
+      // it would kill more of its own forces than the heroes. Equal counts are fine.
+      const _fsMonsters = s.monsters.filter(mm => mm.id !== m.id && regionOf(s, mm.at) === _fsRegion);
+      if (_fsMonsters.length > _fsHeroes.length) continue;
     }
     if (id === 'ds_cloud_of_dread') {
       // At least one non-paralyzed hero nearby (same room or adjacent cell).
@@ -1778,17 +1789,21 @@ function doCastDreadSpell(s: HQState, m: Monster, spellId: DreadSpellId): void {
   switch (spellId) {
     // ── Damage spells ──────────────────────────────────────────────────────
     case 'ds_ball_of_flame': {
-      const target = pickTarget();
-      if (!target) { pushLog(s, 'spell', '…but no hero is in sight.'); break; }
+      // Target the hero with the LOWEST remaining BP — most wounded and least able to absorb the hit.
+      // LOS required (chooseDreadSpell already blocks if no hero is visible, but guard here too).
+      const bofPool = living.filter(h => hasLineOfSight(s, m.at, h.at));
+      if (bofPool.length === 0) { pushLog(s, 'spell', '…but no hero is in sight. Zargon holds the spell.'); break; }
+      const target = bofPool.reduce((best, h) => (h.body < best.body ? h : best));
       const d1 = 1 + Math.floor(Math.random() * 6);
       const d2 = 1 + Math.floor(Math.random() * 6);
-      const reduces = (d1 >= 5 ? 1 : 0) + (d2 >= 5 ? 1 : 0);
+      // Mitigation: each die that shows a 6 reduces damage by 1 (matches the hero spell rule — 6 only).
+      const reduces = (d1 === 6 ? 1 : 0) + (d2 === 6 ? 1 : 0);
       const dmg = Math.max(0, 2 - reduces);
       target.body = Math.max(0, target.body - dmg);
       pushLog(s, 'spell',
-        `${heroLabel(target)} is struck by a Ball of Flame! Save rolls: [${d1}, ${d2}] (${reduces} reduced) → ${dmg} BP damage.`,
+        `${heroLabel(target)} (lowest BP — ${target.body + dmg} remaining) is struck by a Ball of Flame! Save rolls: [${d1}, ${d2}] (${reduces} reduced) → ${dmg} BP damage.`,
       );
-      if (dmg > 0) { if (dmg > 0) target.defenseBonus = 0; checkHeroDeath(s, target); }
+      if (dmg > 0) { target.defenseBonus = 0; checkHeroDeath(s, target); }
       break;
     }
 
@@ -1848,25 +1863,24 @@ function doCastDreadSpell(s: HQState, m: Monster, spellId: DreadSpellId): void {
       }
       pushLog(s, 'spell', `A Firestorm engulfs the room!`);
       for (const h of heroesInRoom) {
+        // Each victim rolls 1d6 — only a 6 reduces damage by 1 (matches hero-spell mitigation rule).
         const d1 = 1 + Math.floor(Math.random() * 6);
-        const d2 = 1 + Math.floor(Math.random() * 6);
-        const reduces = (d1 >= 5 ? 1 : 0) + (d2 >= 5 ? 1 : 0);
+        const reduces = (d1 === 6 ? 1 : 0);
         const dmg = Math.max(0, 3 - reduces);
         h.body = Math.max(0, h.body - dmg);
         if (dmg > 0) h.defenseBonus = 0;
         pushLog(s, 'spell',
-          `${heroLabel(h)} — saves: [${d1}, ${d2}] → ${dmg} BP damage.`,
+          `${heroLabel(h)} — save roll: [${d1}]${reduces ? ' (6 — 1 damage reduced!)' : ''} → ${dmg} BP damage.`,
         );
         checkHeroDeath(s, h);
       }
       for (const mm of monstersInRoom) {
         const d1 = 1 + Math.floor(Math.random() * 6);
-        const d2 = 1 + Math.floor(Math.random() * 6);
-        const reduces = (d1 >= 5 ? 1 : 0) + (d2 >= 5 ? 1 : 0);
+        const reduces = (d1 === 6 ? 1 : 0);
         const dmg = Math.max(0, 3 - reduces);
         mm.body = Math.max(0, mm.body - dmg);
         pushLog(s, 'spell',
-          `${monsterDisplay(mm)} — saves: [${d1}, ${d2}] → ${dmg} BP damage.`,
+          `${monsterDisplay(mm)} — save roll: [${d1}]${reduces ? ' (6 — 1 damage reduced!)' : ''} → ${dmg} BP damage.`,
         );
         if (mm.body <= 0) {
           pushLog(s, 'death', `${monsterDisplay(mm)} is destroyed!`);
@@ -1964,11 +1978,15 @@ function doCastDreadSpell(s: HQState, m: Monster, spellId: DreadSpellId): void {
     }
 
     case 'ds_command': {
-      const target = pickTarget(h => !!h.commanded);
-      if (!target) { pushLog(s, 'spell', '…but no valid target is in sight. Spell wasted.'); break; }
+      // Target the visible hero with the LOWEST Mind Points — they have the fewest
+      // dice to roll the 6 needed to break free, so Command lasts longer on them.
+      const cmdPool = living.filter(h => !h.commanded && hasLineOfSight(s, m.at, h.at));
+      if (cmdPool.length === 0) { pushLog(s, 'spell', '…but no valid target is in sight. Spell wasted.'); break; }
+      cmdPool.sort((a, b) => (a.mind ?? 0) - (b.mind ?? 0));
+      const target = cmdPool[0];
       target.commanded = true;
       pushLog(s, 'spell',
-        `${heroLabel(target)} falls under Zargon's Command! They will fight for the darkness.`,
+        `${heroLabel(target)} falls under Zargon's Command (${target.mind ?? 0} Mind Points — hardest to break)! They will fight for the darkness.`,
       );
       break;
     }
@@ -2002,17 +2020,33 @@ function doCastDreadSpell(s: HQState, m: Monster, spellId: DreadSpellId): void {
 
     // ── Summons ────────────────────────────────────────────────────────────
     case 'ds_summon_orcs': {
-      const count = 1 + Math.floor(Math.random() * 6);
-      pushLog(s, 'spell', `${monsterDisplay(m)} summons reinforcements! (rolled ${count})`);
+      // Lookup: 1-3 → 4 orcs, 4-5 → 5 orcs, 6 → 6 orcs.
+      const roll = 1 + Math.floor(Math.random() * 6);
+      const count = roll <= 3 ? 4 : roll <= 5 ? 5 : 6;
+      pushLog(s, 'spell', `${monsterDisplay(m)} summons orc reinforcements! (rolled ${roll} → ${count} orcs)`);
       summonNearCaster(s, m, 'orc', count);
       break;
     }
 
     case 'ds_summon_undead': {
-      const count = 1 + Math.floor(Math.random() * 6);
-      const kind: MonsterKind = m.summonKind ?? 'skeleton';
-      pushLog(s, 'spell', `${monsterDisplay(m)} raises the dead! (rolled ${count})`);
-      summonNearCaster(s, m, kind, count);
+      // Lookup table determines composition (escalating power with higher rolls):
+      //   1-3 → 4 skeletons
+      //   4-5 → 3 skeletons + 2 zombies
+      //   6   → 2 zombies + 2 mummies
+      const roll = 1 + Math.floor(Math.random() * 6);
+      pushLog(s, 'spell', `${monsterDisplay(m)} raises the dead! (rolled ${roll})`);
+      if (roll <= 3) {
+        pushLog(s, 'spell', `4 skeletons claw their way from the ground!`);
+        summonNearCaster(s, m, 'skeleton', 4);
+      } else if (roll <= 5) {
+        pushLog(s, 'spell', `3 skeletons and 2 zombies shamble forth!`);
+        summonNearCaster(s, m, 'skeleton', 3);
+        summonNearCaster(s, m, 'zombie', 2);
+      } else {
+        pushLog(s, 'spell', `2 zombies and 2 mummies emerge from the darkness!`);
+        summonNearCaster(s, m, 'zombie', 2);
+        summonNearCaster(s, m, 'mummy', 2);
+      }
       break;
     }
 
@@ -2133,6 +2167,22 @@ function advanceToNextActiveTurn(s: HQState): boolean {
   }
   checkHeroTurnStart(s);
   return false;
+}
+
+/** Check whether a monster that just dropped to 0 BP has an available ds_escape
+ *  and should vanish instead of dying.  If it escapes:
+ *  - The monster is removed from the board (but NOT counted as a hero kill).
+ *  - No gold is awarded, no win-condition trigger fires.
+ *  Returns true if the escape fired; the caller must skip normal death processing. */
+function tryAutoEscape(s: HQState, m: Monster): boolean {
+  if (!m.dreadSpells?.includes('ds_escape')) return false;
+  if (m.dreadSpellsUsed?.includes('ds_escape')) return false;  // already spent
+  m.dreadSpellsUsed = [...(m.dreadSpellsUsed ?? []), 'ds_escape'];
+  pushLog(s, 'spell',
+    `${monsterDisplay(m)} vanishes in a swirl of shadow — escaping at death's door! The killing blow was in vain.`,
+  );
+  s.monsters = s.monsters.filter(mm => mm.id !== m.id);
+  return true;
 }
 
 function runMonster(s: HQState, m: Monster): void {
