@@ -95,12 +95,35 @@ Monsters **can** enter stair tiles (needed so they can attack heroes cornered th
 - Rationale: heroes who die after the first escape lose their items,
   weakening the party's resources for the next quest.
 
+## Spell draft rules
+
+Draft happens at the start of every quest (pre-quest `spell_draft` phase), before heroes enter the dungeon.
+
+- If **only Wizard** is present: no draft — Wizard gets all 4 schools (12 spells). Quest begins immediately.
+- If **only Elf** is present: Elf picks any 1 school. Quest begins.
+- If **both** are present:
+  1. Wizard picks 1 school first (`pick_spell_school` action, `step === 'wizard'`).
+  2. Elf picks 1 school from the remaining 3 (`step === 'elf'`).
+  3. Wizard receives **all remaining 3 schools** (9 spells total). Elf keeps their 3.
+- Dwarf and Barbarian receive no spells and are skipped by the draft entirely.
+- `spellsCast[]` tracks spent cards per quest (one-shot). Cleared at quest start.
+- Both `heal_body_e` (Earth) and `water_heal` (Water) are healing spells usable as a death-save (`HEALING_SPELL_IDS`).
+
+## Treasure deck rules
+
+A hero who searches for treasure triggers this in order:
+1. If the current room has quest-specific fixed content on a piece of furniture marked `fixedContent`, that triggers instead (gold, armor, etc.). No card drawn.
+2. Otherwise, draw the top card of the shuffled treasure deck.
+   - **Gold / gem / jewels / potion**: hero keeps it; card goes to the discard pile permanently.
+   - **Hazard**: hero loses BP; card goes to the BOTTOM of the live deck (cycles back).
+3. The deck is reshuffled (from discard) only when it runs empty before a draw.
+4. Wandering-monster cards are **not** in the treasure deck — monsters spawn via quest content and room reveals only.
+5. Heroes can only search **rooms** for treasure. Hallways and rooms can be searched for secret doors and traps.
+
 ## Pending / blocked work
 
 - **#65** Chest/furniture trap model — needs quest-driven trap data
-- **#66** Treasure deck wandering-monster/hazard split + reshuffle
 - **#69** Between-quests economy (rulebook p.22) — user to share the page
 - **#71** Quest engine + Quests 2–14 — blocked on #69
 - **#74** Dread spell system (12) + artifact system (14)
-- **#76** Stairway = one logical space (engine + visuals)
 - **#77** Apply placement ruleset to Quests 2–14
