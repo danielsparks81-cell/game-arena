@@ -101,6 +101,34 @@ export type Spell = {
   target: 'monster' | 'hero' | 'area' | 'genie';
 };
 
+// ============================================================================
+// Dread spells (Zargon's 12-card deck)
+// ============================================================================
+
+/** Identifies one of the 12 Dread spell cards in Zargon's deck. */
+export type DreadSpellId =
+  | 'ds_ball_of_flame'
+  | 'ds_lightning_bolt'
+  | 'ds_firestorm'
+  | 'ds_rust'
+  | 'ds_fear'
+  | 'ds_sleep'
+  | 'ds_tempest'
+  | 'ds_command'
+  | 'ds_cloud_of_dread'
+  | 'ds_summon_orcs'
+  | 'ds_summon_undead'
+  | 'ds_escape';
+
+/** A Dread spell card that Zargon-controlled caster monsters can use. */
+export type DreadSpell = {
+  id: DreadSpellId;
+  name: string;
+  /** Broad category used by the AI targeting logic and the UI display. */
+  targetKind: 'one_hero' | 'line' | 'room' | 'summon' | 'self' | 'item';
+  text: string;
+};
+
 /** Inventory item — kept simple for v1 (weapons grant attack dice, armor
     grants defense dice, potions are one-shot). */
 export type Item = {
@@ -191,6 +219,20 @@ export type Hero = {
   phaseWalls?: boolean;
   /** Veil of Mist: hero may pass through monster-occupied squares this move. */
   phaseMonsters?: boolean;
+
+  // --- Dread spell status effects ------------------------------------------
+  // Each flag is cleared either automatically at turn start (dazed) or via a
+  // successful mind-point break roll (1d6 per Mind Point; any 6 breaks it).
+  /** Dread Fear: hero may only use 1 attack die until they break free. */
+  feared?: boolean;
+  /** Dread Sleep: hero cannot move, attack, defend, or take any action. */
+  asleep?: boolean;
+  /** Dread Command: hero is under Zargon's control; Zargon moves + attacks for them. */
+  commanded?: boolean;
+  /** Dread Cloud of Dread: hero is paralyzed — cannot move, attack, or defend. */
+  paralyzed?: boolean;
+  /** Dread Tempest: hero misses their next turn entirely. Clears automatically. */
+  dazed?: boolean;
 };
 
 // ============================================================================
@@ -236,6 +278,14 @@ export type Monster = {
   /** Hidden personality — randomly assigned at spawn, unknown to players until observed.
    *  Drives target selection and movement decisions each Zargon turn. */
   personality?: MonsterPersonality;
+  /** Dread spells this monster is authorised to cast (set by quest notes).
+   *  Each spell is one-shot per quest — moved to dreadSpellsUsed on cast. */
+  dreadSpells?: DreadSpellId[];
+  /** Dread spells already cast this quest. */
+  dreadSpellsUsed?: DreadSpellId[];
+  /** For Summon Undead: the specific undead kind to summon (skeleton / zombie / mummy).
+   *  Set by quest notes. Defaults to 'skeleton' if absent. */
+  summonKind?: MonsterKind;
 };
 
 // ============================================================================

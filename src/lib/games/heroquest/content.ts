@@ -5,6 +5,7 @@
 
 import type {
   Coord,
+  DreadSpell,
   Furniture,
   Hero,
   HeroClass,
@@ -126,6 +127,86 @@ export const SPELLS: Spell[] = [
   { id: 'pass_rock',   name: 'Pass Through Rock', element: 'earth', target: 'hero', text: 'Target hero moves through walls and solid rock on their next move.' },
   { id: 'heal_body_e', name: 'Heal Body',          element: 'earth', target: 'hero', text: 'Restore up to 4 lost Body Points to target.' },
   { id: 'rock_skin',   name: 'Rock Skin',           element: 'earth', target: 'hero', text: 'Target hero gains +1 defense die. Broken only when the hero suffers 1 Body Point of damage.' },
+];
+
+// ============================================================================
+// Dread spell table (Zargon's 12-card deck)
+// ============================================================================
+
+/** All 12 Dread spell cards, transcribed from the physical cards. */
+export const DREAD_SPELLS: DreadSpell[] = [
+  {
+    id: 'ds_ball_of_flame',
+    name: 'Ball of Flame',
+    targetKind: 'one_hero',
+    text: '2 BP damage to one hero. The hero then rolls 2 red dice — each 5 or 6 reduces the damage by 1 (minimum 0).',
+  },
+  {
+    id: 'ds_lightning_bolt',
+    name: 'Lightning Bolt',
+    targetKind: 'line',
+    text: 'A bolt of lightning travels in a straight line (horizontal, vertical, or diagonal) until it hits a wall or closed door. Every hero and monster in its path takes 2 BP damage.',
+  },
+  {
+    id: 'ds_firestorm',
+    name: 'Firestorm',
+    targetKind: 'room',
+    text: '3 BP damage to ALL heroes and monsters in the same room as the caster (caster is unaffected). Each victim rolls 2 red dice — each 5 or 6 reduces their damage by 1. Cannot be used in corridors.',
+  },
+  {
+    id: 'ds_rust',
+    name: 'Rust',
+    targetKind: 'item',
+    text: "Destroys one hero's metal weapon or helmet permanently — it becomes too thin, brittle, and useless to wield again. Not effective against artifacts.",
+  },
+  {
+    id: 'ds_fear',
+    name: 'Fear',
+    targetKind: 'one_hero',
+    text: 'The target hero may only use 1 Attack die. Breaks at the start of their own turn by rolling 1 die per Mind Point — any result of 6 breaks the spell.',
+  },
+  {
+    id: 'ds_sleep',
+    name: 'Sleep',
+    targetKind: 'one_hero',
+    text: 'The target hero cannot move, attack, or defend. They roll 1 die per Mind Point immediately and again at the start of each of their turns — any 6 wakes them.',
+  },
+  {
+    id: 'ds_tempest',
+    name: 'Tempest',
+    targetKind: 'one_hero',
+    text: 'A whirlwind envelops the target hero — they miss their next turn entirely. Clears automatically; no mind-point roll needed.',
+  },
+  {
+    id: 'ds_command',
+    name: 'Command',
+    targetKind: 'one_hero',
+    text: 'The target hero falls under Zargon\'s control. Each Zargon turn, the hero moves and attacks other heroes as though they were a monster. Breaks at the start of their own turn by rolling 1 die per Mind Point — any 6 breaks the spell.',
+  },
+  {
+    id: 'ds_cloud_of_dread',
+    name: 'Cloud of Dread',
+    targetKind: 'room',
+    text: 'Every hero in the same room or corridor as the caster is paralyzed — they cannot move, attack, or defend. Each breaks independently: roll 1 die per Mind Point immediately and again at the start of each of their turns — any 6 breaks it.',
+  },
+  {
+    id: 'ds_summon_orcs',
+    name: 'Summon Orcs',
+    targetKind: 'summon',
+    text: 'Roll 1d6 — that many orcs materialise as close to the caster as possible (BFS outward).',
+  },
+  {
+    id: 'ds_summon_undead',
+    name: 'Summon Undead',
+    targetKind: 'summon',
+    text: 'Roll 1d6 — that many undead materialise as close to the caster as possible. The undead kind (skeleton / zombie / mummy) is specified in the quest notes.',
+  },
+  {
+    id: 'ds_escape',
+    name: 'Escape',
+    targetKind: 'self',
+    text: 'The caster instantly teleports to a secret safe location marked on the quest map, removing them from play.',
+  },
 ];
 
 /** Per-element spell groups (3 each). */
@@ -403,8 +484,13 @@ export function instantiateMonster(m: QuestDef['monsters'][number]): Monster {
     defense: m.defense,
     move: m.move,
     displayName: m.displayName,
+    mind: m.mind,
     goldMin: m.goldMin,
     goldMax: m.goldMax,
     roomId: m.roomId,
+    personality: m.personality,
+    dreadSpells: m.dreadSpells ? [...m.dreadSpells] : undefined,
+    dreadSpellsUsed: m.dreadSpellsUsed ? [...m.dreadSpellsUsed] : undefined,
+    summonKind: m.summonKind,
   };
 }

@@ -20,10 +20,13 @@ import {
   type DieFace,
   type DiceRoll,
   type Door,
+  type DreadSpellId,
   type Hero,
   type HeroClass,
+  type Item,
   type LogEntry,
   type Monster,
+  type MonsterKind,
   type MonsterPersonality,
   type Phase,
   type PendingPrompt,
@@ -39,6 +42,7 @@ import {
 } from './types';
 import {
   HERO_DEFAULTS,
+  MONSTER_STATS,
   QUESTS,
   buildTreasureDeck,
   instantiateMonster,
@@ -494,6 +498,10 @@ function rebuildHeroAsClass(hero: Hero, klass: HeroClass, start: Coord): void {
 // ============================================================================
 
 function doRollMove(state: HQState, hero: Hero): ApplyResult {
+  if (hero.dazed)      return err('You are dazed and cannot act this turn.');
+  if (hero.asleep)     return err('You are under a Sleep spell and cannot move.');
+  if (hero.paralyzed)  return err('You are paralyzed and cannot move.');
+  if (hero.commanded)  return err('You are under Zargon\'s Command and cannot act on your own.');
   if (hero.hasRolled) return err('You already rolled movement this turn.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
@@ -653,6 +661,8 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
 }
 
 function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
+  if (hero.asleep || hero.paralyzed || hero.commanded)
+    return err('You cannot move while under a Dread spell effect.');
   if (!hero.hasRolled) return err('Roll movement first.');
   if (hero.moveLeft <= 0) return err('No movement left.');
   if (hero.inPit) return err('You are in a pit — climb out first.');
@@ -686,6 +696,8 @@ function doMoveTo(state: HQState, hero: Hero, dest: Coord): ApplyResult {
 /** Drag movement: the player traces an explicit square-by-square path. The walk
  *  follows it but stops early on a trap or a new reveal (see walkPath). */
 function doMovePath(state: HQState, hero: Hero, path: Coord[]): ApplyResult {
+  if (hero.asleep || hero.paralyzed || hero.commanded)
+    return err('You cannot move while under a Dread spell effect.');
   if (!hero.hasRolled) return err('Roll movement first.');
   if (hero.moveLeft <= 0) return err('No movement left.');
   if (hero.inPit) return err('You are in a pit — climb out first.');
@@ -759,6 +771,8 @@ function findPath(s: HQState, hero: Hero, dest: Coord): Coord[] | null {
 }
 
 function doOpenDoor(state: HQState, hero: Hero, doorId: string): ApplyResult {
+  if (hero.asleep || hero.paralyzed || hero.commanded)
+    return err('You cannot open doors while under a Dread spell effect.');
   const door = state.doors.find(d => d.id === doorId);
   if (!door) return err('Door not found.');
   if (door.open) return err('Already open.');
@@ -785,6 +799,10 @@ function doOpenDoor(state: HQState, hero: Hero, doorId: string): ApplyResult {
 }
 
 function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
+  // Dread status effects that block attacking entirely.
+  if (hero.asleep)    return err('You are under a Sleep spell and cannot attack.');
+  if (hero.paralyzed) return err('You are paralyzed and cannot attack.');
+  if (hero.commanded) return err('You are under Zargon\'s Command and cannot act on your own.');
   // Courage grants one bonus attack even after the action is spent.
   const usingExtraAttack = hero.hasActed && !!hero.extraAttack;
   if (hero.hasActed && !usingExtraAttack) return err('You have already taken your action this turn.');
@@ -809,10 +827,17 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   const m = s.monsters.find(mm => mm.id === monsterId)!;
   // Attack roll — Courage + Potion of Strength add bonus dice; fighting from
   // a pit costs one die (min 1, rulebook p.17).
-  const spellBonus  = h.attackBonus    ?? 0;  // Courage spell (expires after this attack)
-  const potionBonus = h.potionAtkBonus ?? 0;  // Potion of Strength (expires after this attack)
+  // Dread Fear: hero may only use 1 Attack die (overrides base + bonuses).
+  const spellBonus  = h.attackBonus    ?? 0;
+  const potionBonus = h.potionAtkBonus ?? 0;
   const bonus = spellBonus + potionBonus;
-  const atk = rollDice(Math.max(1, h.attack + bonus - (h.inPit ? 1 : 0)), 'hero');
+  const baseAttackDice = h.feared
+    ? 1  // Dread Fear: only 1 die regardless of gear or bonuses
+    : Math.max(1, h.attack + bonus - (h.inPit ? 1 : 0));
+  const atk = rollDice(baseAttackDice, 'hero');
+  if (h.feared) {
+    pushLog(s, 'spell', `${heroLabel(h)} is gripped by Fear — attacking with only 1 die!`);
+  }
   s.lastRoll = atk;
   s.lastMoveRoll = null;
   // Defense roll.
@@ -820,10 +845,11 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   s.lastDefenseRoll = def;
   const damage = Math.max(0, atk.skulls - def.blocks);
   m.body -= damage;
-  const bonusNote = spellBonus > 0 && potionBonus > 0
-    ? ` (Courage +${spellBonus}, Strength potion +${potionBonus} dice)`
-    : spellBonus > 0 ? ` (Courage +${spellBonus} dice)`
-    : potionBonus > 0 ? ` (Strength potion +${potionBonus} dice)` : '';
+  const bonusNote = h.feared ? ' (Fear: 1 die only)'
+    : spellBonus > 0 && potionBonus > 0
+      ? ` (Courage +${spellBonus}, Strength potion +${potionBonus} dice)`
+      : spellBonus > 0 ? ` (Courage +${spellBonus} dice)`
+      : potionBonus > 0 ? ` (Strength potion +${potionBonus} dice)` : '';
   pushLog(s, 'combat',
     `${heroLabel(h)} attacks ${monsterDisplay(m)} — ${atk.skulls} skulls vs ${def.blocks} blocks${bonusNote}. ` +
     (damage > 0 ? `${monsterDisplay(m)} takes ${damage} BP.` : 'No damage.'),
@@ -850,6 +876,8 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
 }
 
 function doSearchTreasure(state: HQState, hero: Hero): ApplyResult {
+  if (hero.asleep || hero.paralyzed || hero.commanded)
+    return err('You cannot search while under a Dread spell effect.');
   if (hero.hasActed) return err('You have already taken your action this turn.');
   const room = state.tiles[hero.at.y][hero.at.x].region;
   if (!room.startsWith('room_')) return err('You can only search for treasure while inside a room.');
@@ -994,6 +1022,8 @@ function doPassPotion(state: HQState, hero: Hero, potionId: string, toHeroSeat: 
 }
 
 function doSearchTraps(state: HQState, hero: Hero): ApplyResult {
+  if (hero.asleep || hero.paralyzed || hero.commanded)
+    return err('You cannot search while under a Dread spell effect.');
   if (hero.hasActed) return err('You have already taken your action this turn.');
   const region = state.tiles[hero.at.y][hero.at.x].region;
   if (!region) return err('Invalid location.');
@@ -1166,6 +1196,9 @@ function doCastSpell(
   hero: Hero,
   action: Extract<HQAction, { kind: 'cast_spell' }>,
 ): ApplyResult {
+  if (hero.asleep)    return err('You are under a Sleep spell and cannot cast.');
+  if (hero.paralyzed) return err('You are paralyzed and cannot cast spells.');
+  if (hero.commanded) return err('You are under Zargon\'s Command and cannot act on your own.');
   if (hero.hasActed) return err('You have already taken your action this turn.');
   const spell = hero.spells.find(sp => sp.id === action.spellId);
   if (!spell) return err('You do not know that spell.');
@@ -1413,14 +1446,25 @@ function doEndTurn(state: HQState, hero: Hero): ApplyResult {
   const s = clone(state);
   const roundDone = endHeroTurn(s);
   // When the round is complete (last active hero just went) → Zargon's turn.
-  // The next hero's "it is your turn" log is emitted when Zargon finishes.
   if (roundDone) {
     beginZargonTurn(s);
     return ok(s);
   }
-  if (s.phase !== 'finished') {
-    pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
+  if ((s.phase as string) === 'finished') return ok(s);
+  // Skip any dazed heroes who lose their turn.
+  while ((s.phase as string) !== 'finished') {
+    const h = s.heroes[s.turnIndex];
+    if (!h || !h.dazed) break;
+    h.dazed = false;
+    pushLog(s, 'spell', `${heroLabel(h)} is caught in a whirlwind and loses their turn!`);
+    if (endHeroTurn(s)) {
+      beginZargonTurn(s);
+      return ok(s);
+    }
   }
+  if ((s.phase as string) === 'finished') return ok(s);
+  checkHeroTurnStart(s);
+  pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
   return ok(s);
 }
 
@@ -1471,20 +1515,27 @@ function endHeroTurn(s: HQState): boolean {
 // Zargon (engine) turn
 // ============================================================================
 
-/** Begin Zargon's turn. Monsters then act one at a time via zargon_step (the
- *  host ticks it on a timer), so each monster's move/attack is visible. */
+/** Begin Zargon's turn. Monsters act one at a time via zargon_step.
+ *  Commanded heroes are slotted into the queue FIRST (before monsters) so their
+ *  forced move/attack fires before the monster wave.  Entries are either a
+ *  monster id or a `cmd_N` sentinel (N = hero seat index). */
 function beginZargonTurn(s: HQState): void {
   if (s.phase !== 'heroes') return;
   s.phase = 'zargon';
   pushLog(s, 'zargon', '— Zargon\'s turn —');
-  s.zargonQueue = s.monsters.map(m => m.id);  // placement order
+  // Commanded heroes act first (they fight on Zargon's behalf).
+  const commandedSentinels = s.heroes
+    .filter(h => h.body > 0 && h.commanded)
+    .map(h => `cmd_${h.seat}`);
+  s.zargonQueue = [...commandedSentinels, ...s.monsters.map(m => m.id)];
   s.zargonActed = [];
   s.zargonActiveId = null;
-  if (s.zargonQueue.length === 0) finishZargonTurn(s); // no monsters → straight back
+  if (s.zargonQueue.length === 0) finishZargonTurn(s); // no actors → straight back
 }
 
-/** Resolve ONE monster's action (spotlighting it), or end Zargon's turn when the
- *  queue is empty. A no-op outside Zargon's phase. */
+/** Resolve ONE actor's action (spotlighting it), or end Zargon's turn when the
+ *  queue is empty. Actors are either a monster id or a `cmd_N` sentinel for a
+ *  commanded hero (N = seat index). A no-op outside Zargon's phase. */
 function doZargonStep(state: HQState): ApplyResult {
   if (state.phase !== 'zargon') return ok(state);
   const s = clone(state);
@@ -1494,8 +1545,15 @@ function doZargonStep(state: HQState): ApplyResult {
   s.zargonQueue = queue.slice(1);
   s.zargonActiveId = id;
   (s.zargonActed ??= []).push(id);
-  const m = s.monsters.find(mm => mm.id === id);
-  if (m && m.body > 0) runMonster(s, m);
+  if (id.startsWith('cmd_')) {
+    // Commanded hero acts on Zargon's behalf.
+    const seat = parseInt(id.slice(4), 10);
+    const h = s.heroes[seat];
+    if (h && h.body > 0 && h.commanded) doCommandedHeroAct(s, h);
+  } else {
+    const m = s.monsters.find(mm => mm.id === id);
+    if (m && m.body > 0) runMonster(s, m);
+  }
   if ((s.phase as Phase) === 'finished') clearZargon(s);
   return ok(s);
 }
@@ -1513,6 +1571,20 @@ function finishZargonTurn(s: HQState): void {
     if (nextSeat === null) return; // all heroes resolved — maybeEndQuest() handles it
     s.turnIndex = nextSeat;
   }
+  // Skip dazed heroes (Dread Tempest — they miss their next turn entirely).
+  while ((s.phase as string) !== 'finished') {
+    const h = s.heroes[s.turnIndex];
+    if (!h || !h.dazed) break;
+    h.dazed = false;
+    pushLog(s, 'spell', `${heroLabel(h)} is caught in a whirlwind and loses their turn!`);
+    if (endHeroTurn(s)) {
+      beginZargonTurn(s);
+      return;
+    }
+  }
+  if ((s.phase as string) === 'finished') return;
+  // Roll mind-break checks for the first hero of the new round.
+  checkHeroTurnStart(s);
   s.phase = 'heroes';
   pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
 }
@@ -1521,6 +1593,546 @@ function clearZargon(s: HQState): void {
   s.zargonQueue = undefined;
   s.zargonActiveId = null;
   s.zargonActed = undefined;
+}
+
+// ============================================================================
+// Dread spell system
+// ============================================================================
+
+/** Roll N d6 dice and report whether any show a 6 (mind-break condition). */
+function rollMindD6(mindPoints: number): { dice: number[]; broke: boolean } {
+  const n = Math.max(1, mindPoints);
+  const dice: number[] = [];
+  for (let i = 0; i < n; i++) dice.push(1 + Math.floor(Math.random() * 6));
+  return { dice, broke: dice.some(d => d === 6) };
+}
+
+/** Trace a straight-line ray from `from` in direction `dir`.
+ *  Returns each cell the bolt passes through (not including the origin).
+ *  The ray stops the step BEFORE a wall tile and at closed-door edges (using
+ *  the lenient `&&` diagonal LOS rule — a bolt clips through an open corner). */
+function traceRay(
+  s: HQState,
+  from: Coord,
+  dir: { dx: number; dy: number },
+): Coord[] {
+  const cells: Coord[] = [];
+  let cur = { ...from };
+  for (let step = 0; step < 40; step++) {
+    const next = { x: cur.x + dir.dx, y: cur.y + dir.dy };
+    if (!inBounds(s, next)) break;
+    const t = s.tiles[next.y]?.[next.x];
+    if (!t || t.kind === 'wall' || t.kind === 'blocked') break;
+    // Check whether the edge (or diagonal corner) stops the bolt.
+    const isOrtho = Math.abs(dir.dx) + Math.abs(dir.dy) === 1;
+    if (isOrtho) {
+      if (edgeBlocksMove(s, cur, next, false)) break;
+    } else {
+      // Diagonal: blocked only when BOTH corner edges are sealed (same as hasLineOfSight).
+      const e1 = edgeBlocksMove(s, cur, { x: next.x, y: cur.y }, false);
+      const e2 = edgeBlocksMove(s, cur, { x: cur.x, y: next.y }, false);
+      if (e1 && e2) break;
+    }
+    cells.push({ ...next });
+    cur = next;
+  }
+  return cells;
+}
+
+/** Place `count` summoned monsters of `kind` as close to `caster` as possible.
+ *  Uses a BFS that expands outward; each free, passable cell gets one monster
+ *  until the count is met.  Newly-summoned monsters use default stats from the
+ *  monster stat table and inherit the caster's roomId region. */
+function summonNearCaster(
+  s: HQState,
+  caster: Monster,
+  kind: MonsterKind,
+  count: number,
+): void {
+  const stats = MONSTER_STATS[kind];
+  const visited = new Set<string>([`${caster.at.x},${caster.at.y}`]);
+  // Seed BFS with the caster's immediate neighbours.
+  const queue: Coord[] = adjacentCells(caster.at).filter(c => {
+    if (!inBounds(s, c)) return false;
+    visited.add(`${c.x},${c.y}`);
+    return true;
+  });
+  let placed = 0;
+  while (queue.length > 0 && placed < count) {
+    const cell = queue.shift()!;
+    const free =
+      isPassable(s, cell, false) &&
+      !s.heroes.some(h => h.body > 0 && h.at.x === cell.x && h.at.y === cell.y) &&
+      !s.monsters.some(mm => mm.at.x === cell.x && mm.at.y === cell.y);
+    if (free) {
+      s.monsters.push({
+        id: `${kind}_summon_${s.logSeq}_${placed}`,
+        kind,
+        at: { ...cell },
+        body: stats.bodyMax,
+        bodyMax: stats.bodyMax,
+        attack: stats.attack,
+        defense: stats.defense,
+        move: stats.move,
+        mind: stats.mind,
+        goldMin: stats.goldMin,
+        goldMax: stats.goldMax,
+        roomId: regionOf(s, cell) || caster.roomId,
+        personality: assignPersonality(),
+      });
+      placed++;
+    }
+    // Expand to neighbours so we can find cells further out if needed.
+    for (const next of adjacentCells(cell)) {
+      const key = `${next.x},${next.y}`;
+      if (!visited.has(key) && inBounds(s, next)) {
+        visited.add(key);
+        queue.push(next);
+      }
+    }
+  }
+  if (placed > 0) {
+    pushLog(
+      s, 'spawn',
+      `${placed} ${stats.displayName}${placed !== 1 ? 's' : ''} materialise near ${monsterDisplay(caster)}!`,
+    );
+  }
+}
+
+/** Return the best dread spell id available for `m` to cast this turn, or null
+ *  if none are available / applicable. Priority: status effects first (high
+ *  impact), then damage, then summons, then escape (last resort). */
+function chooseDreadSpell(s: HQState, m: Monster): DreadSpellId | null {
+  const available = (m.dreadSpells ?? []).filter(
+    id => !(m.dreadSpellsUsed ?? []).includes(id),
+  );
+  if (available.length === 0) return null;
+
+  const living = s.heroes.filter(h => h.body > 0);
+  if (living.length === 0) return null;
+
+  // Priority order for the AI — pick the first applicable spell.
+  const priority: DreadSpellId[] = [
+    'ds_cloud_of_dread', 'ds_command', 'ds_sleep', 'ds_fear',
+    'ds_firestorm', 'ds_ball_of_flame', 'ds_lightning_bolt', 'ds_rust',
+    'ds_summon_undead', 'ds_summon_orcs',
+    'ds_tempest',
+    'ds_escape',
+  ];
+
+  for (const id of priority) {
+    if (!available.includes(id)) continue;
+    // Check preconditions per spell.
+    if (id === 'ds_firestorm') {
+      // Room-only: caster must be in a room (not a corridor).
+      if (!regionOf(s, m.at).startsWith('room_')) continue;
+      // Only worth casting if there are heroes in the same room.
+      const heroesInRoom = living.filter(h => regionOf(s, h.at) === regionOf(s, m.at));
+      if (heroesInRoom.length === 0) continue;
+    }
+    if (id === 'ds_cloud_of_dread') {
+      // At least one non-paralyzed hero nearby (same room or adjacent cell).
+      const casterRegion = regionOf(s, m.at);
+      const targets = living.filter(h =>
+        !h.paralyzed &&
+        (regionOf(s, h.at) === casterRegion ||
+          (Math.abs(h.at.x - m.at.x) <= 2 && Math.abs(h.at.y - m.at.y) <= 2)),
+      );
+      if (targets.length === 0) continue;
+    }
+    if (['ds_ball_of_flame', 'ds_fear', 'ds_sleep', 'ds_tempest', 'ds_command', 'ds_rust'].includes(id)) {
+      // Needs a visible, living hero.
+      const visible = living.filter(h => hasLineOfSight(s, m.at, h.at));
+      if (visible.length === 0) continue;
+    }
+    if (id === 'ds_escape') {
+      // Only cast escape if the monster is badly hurt (≤ 25% body).
+      if (m.body > Math.ceil(m.bodyMax * 0.25)) continue;
+    }
+    return id;
+  }
+  return null;
+}
+
+/** Execute a Dread spell for monster `m`. Marks the spell as used, applies its
+ *  effect to the board state `s`. */
+function doCastDreadSpell(s: HQState, m: Monster, spellId: DreadSpellId): void {
+  // Mark the spell as spent before resolving so it can never be double-cast.
+  m.dreadSpellsUsed = [...(m.dreadSpellsUsed ?? []), spellId];
+
+  const living = s.heroes.filter(h => h.body > 0);
+  if (living.length === 0) return;
+
+  // Helper: pick the living hero with the best condition to be targeted.
+  // For offensive spells: the one with the most remaining BP (most to lose).
+  const pickTarget = (exclude?: (h: Hero) => boolean): Hero | null => {
+    const pool = living.filter(h =>
+      hasLineOfSight(s, m.at, h.at) && !(exclude?.(h) ?? false),
+    );
+    if (pool.length === 0) return null;
+    return pool.reduce((best, h) => (h.body > best.body ? h : best));
+  };
+
+  pushLog(s, 'spell', `${monsterDisplay(m)} calls upon dark magic — ${spellId.replace('ds_', '').replace(/_/g, ' ')}!`);
+
+  switch (spellId) {
+    // ── Damage spells ──────────────────────────────────────────────────────
+    case 'ds_ball_of_flame': {
+      const target = pickTarget();
+      if (!target) { pushLog(s, 'spell', '…but no hero is in sight.'); break; }
+      const d1 = 1 + Math.floor(Math.random() * 6);
+      const d2 = 1 + Math.floor(Math.random() * 6);
+      const reduces = (d1 >= 5 ? 1 : 0) + (d2 >= 5 ? 1 : 0);
+      const dmg = Math.max(0, 2 - reduces);
+      target.body = Math.max(0, target.body - dmg);
+      pushLog(s, 'spell',
+        `${heroLabel(target)} is struck by a Ball of Flame! Save rolls: [${d1}, ${d2}] (${reduces} reduced) → ${dmg} BP damage.`,
+      );
+      if (dmg > 0) { if (dmg > 0) target.defenseBonus = 0; checkHeroDeath(s, target); }
+      break;
+    }
+
+    case 'ds_lightning_bolt': {
+      // Pick the direction that hits the most heroes; fall back to a random direction.
+      const dirs = [
+        {dx:1,dy:0},{dx:-1,dy:0},{dx:0,dy:1},{dx:0,dy:-1},
+        {dx:1,dy:1},{dx:1,dy:-1},{dx:-1,dy:1},{dx:-1,dy:-1},
+      ];
+      let bestDir = dirs[0];
+      let bestScore = -1;
+      for (const dir of dirs) {
+        const cells = traceRay(s, m.at, dir);
+        const heroHits = cells.filter(c => living.some(h => h.at.x === c.x && h.at.y === c.y)).length;
+        if (heroHits > bestScore) { bestScore = heroHits; bestDir = dir; }
+      }
+      const rayCells = traceRay(s, m.at, bestDir);
+      const hitHeroes = living.filter(h => rayCells.some(c => c.x === h.at.x && c.y === h.at.y));
+      const hitMonsters = s.monsters.filter(mm =>
+        mm.id !== m.id && rayCells.some(c => c.x === mm.at.x && c.y === mm.at.y),
+      );
+      if (hitHeroes.length === 0 && hitMonsters.length === 0) {
+        pushLog(s, 'spell', '…the bolt discharges harmlessly into a wall.');
+        break;
+      }
+      pushLog(s, 'spell', `A bolt of lightning tears down the corridor!`);
+      for (const h of hitHeroes) {
+        h.body = Math.max(0, h.body - 2);
+        if (h.body < h.body + 2) h.defenseBonus = 0;
+        pushLog(s, 'spell', `${heroLabel(h)} is struck! (−2 BP)`);
+        checkHeroDeath(s, h);
+      }
+      for (const mm of hitMonsters) {
+        mm.body = Math.max(0, mm.body - 2);
+        pushLog(s, 'spell', `${monsterDisplay(mm)} is struck! (−2 BP)`);
+        if (mm.body <= 0) {
+          pushLog(s, 'death', `${monsterDisplay(mm)} is destroyed!`);
+          s.monsters = s.monsters.filter(x => x.id !== mm.id);
+        }
+      }
+      break;
+    }
+
+    case 'ds_firestorm': {
+      const casterRegion = regionOf(s, m.at);
+      if (!casterRegion.startsWith('room_')) {
+        pushLog(s, 'spell', '…but the firestorm cannot ignite in a corridor. Spell wasted.');
+        break;
+      }
+      const heroesInRoom = living.filter(h => regionOf(s, h.at) === casterRegion);
+      const monstersInRoom = s.monsters.filter(mm =>
+        mm.id !== m.id && regionOf(s, mm.at) === casterRegion,
+      );
+      if (heroesInRoom.length + monstersInRoom.length === 0) {
+        pushLog(s, 'spell', '…but no targets are in the room. Spell wasted.');
+        break;
+      }
+      pushLog(s, 'spell', `A Firestorm engulfs the room!`);
+      for (const h of heroesInRoom) {
+        const d1 = 1 + Math.floor(Math.random() * 6);
+        const d2 = 1 + Math.floor(Math.random() * 6);
+        const reduces = (d1 >= 5 ? 1 : 0) + (d2 >= 5 ? 1 : 0);
+        const dmg = Math.max(0, 3 - reduces);
+        h.body = Math.max(0, h.body - dmg);
+        if (dmg > 0) h.defenseBonus = 0;
+        pushLog(s, 'spell',
+          `${heroLabel(h)} — saves: [${d1}, ${d2}] → ${dmg} BP damage.`,
+        );
+        checkHeroDeath(s, h);
+      }
+      for (const mm of monstersInRoom) {
+        const d1 = 1 + Math.floor(Math.random() * 6);
+        const d2 = 1 + Math.floor(Math.random() * 6);
+        const reduces = (d1 >= 5 ? 1 : 0) + (d2 >= 5 ? 1 : 0);
+        const dmg = Math.max(0, 3 - reduces);
+        mm.body = Math.max(0, mm.body - dmg);
+        pushLog(s, 'spell',
+          `${monsterDisplay(mm)} — saves: [${d1}, ${d2}] → ${dmg} BP damage.`,
+        );
+        if (mm.body <= 0) {
+          pushLog(s, 'death', `${monsterDisplay(mm)} is destroyed!`);
+          s.monsters = s.monsters.filter(x => x.id !== mm.id);
+        }
+      }
+      break;
+    }
+
+    // ── Item destruction ───────────────────────────────────────────────────
+    case 'ds_rust': {
+      // Target: the hero with a metal weapon or helmet (not an artifact).
+      // Prefer a visible hero; if none visible, skip.
+      const rustTargets = living.filter(h =>
+        hasLineOfSight(s, m.at, h.at) &&
+        h.items.some(i =>
+          i.kind !== 'artifact' &&
+          (i.kind === 'weapon' || (i.kind === 'armor' && i.id === 'helmet')),
+        ),
+      );
+      if (rustTargets.length === 0) {
+        pushLog(s, 'spell', '…but no hero has a metal weapon or helmet in sight. Spell wasted.');
+        break;
+      }
+      // Pick the target with the most attack power (destroy the biggest threat).
+      const rustTarget = rustTargets.reduce((best, h) => {
+        const bestItem = best.items.find(i => i.kind === 'weapon');
+        const hItem    = h.items.find(i => i.kind === 'weapon');
+        return (hItem?.attack ?? 0) > (bestItem?.attack ?? 0) ? h : best;
+      });
+      // Find the best weapon to destroy (highest attack), else target a helmet.
+      const metalWeapon = rustTarget.items
+        .filter(i => i.kind === 'weapon')  // artifacts have kind 'artifact', not 'weapon'
+        .sort((a, b) => (b.attack ?? 0) - (a.attack ?? 0))[0];
+      const helmet = rustTarget.items.find(i => i.id === 'helmet');
+      const victim = metalWeapon ?? helmet;
+      if (!victim) break;
+      rustTarget.items = rustTarget.items.filter(i => i.id !== victim.id);
+      // Recalculate attack/defense after losing the item.
+      const remainingWeapons = rustTarget.items.filter(i => i.kind === 'weapon');
+      const bestWeaponAttack = remainingWeapons.reduce((max, i) => Math.max(max, i.attack ?? 0), 0);
+      if (metalWeapon) {
+        const base = HERO_DEFAULTS[rustTarget.klass].baseAttack;
+        rustTarget.attack = Math.max(base, bestWeaponAttack);
+      }
+      const armorDice = rustTarget.items.filter(i => i.kind === 'armor')
+        .reduce((sum, i) => sum + (i.defense ?? 0), 0);
+      if (helmet) {
+        const base = HERO_DEFAULTS[rustTarget.klass].baseDefense;
+        rustTarget.defense = base + armorDice;
+      }
+      pushLog(s, 'spell',
+        `${heroLabel(rustTarget)}'s ${victim.name} crumbles to rust and is destroyed permanently!`,
+      );
+      break;
+    }
+
+    // ── Status effects ─────────────────────────────────────────────────────
+    case 'ds_fear': {
+      const target = pickTarget(h => !!h.feared);
+      if (!target) { pushLog(s, 'spell', '…but no valid target is in sight. Spell wasted.'); break; }
+      target.feared = true;
+      pushLog(s, 'spell',
+        `${heroLabel(target)} is gripped by Fear! They may only use 1 Attack die until they break free.`,
+      );
+      break;
+    }
+
+    case 'ds_sleep': {
+      const target = pickTarget(h => !!h.asleep);
+      if (!target) { pushLog(s, 'spell', '…but no valid target is in sight. Spell wasted.'); break; }
+      // Immediate break attempt.
+      const { dice, broke } = rollMindD6(target.mind ?? 0);
+      if (broke) {
+        pushLog(s, 'spell',
+          `${heroLabel(target)} resists the Sleep spell! (mind roll: ${dice.join(', ')})`,
+        );
+      } else {
+        target.asleep = true;
+        pushLog(s, 'spell',
+          `${heroLabel(target)} falls into a magical sleep! (mind roll: ${dice.join(', ')} — failed to resist)`,
+        );
+      }
+      break;
+    }
+
+    case 'ds_tempest': {
+      const target = pickTarget(h => !!h.dazed);
+      if (!target) { pushLog(s, 'spell', '…but no valid target is in sight. Spell wasted.'); break; }
+      target.dazed = true;
+      pushLog(s, 'spell',
+        `A whirlwind envelops ${heroLabel(target)}! They will lose their next turn.`,
+      );
+      break;
+    }
+
+    case 'ds_command': {
+      const target = pickTarget(h => !!h.commanded);
+      if (!target) { pushLog(s, 'spell', '…but no valid target is in sight. Spell wasted.'); break; }
+      target.commanded = true;
+      pushLog(s, 'spell',
+        `${heroLabel(target)} falls under Zargon's Command! They will fight for the darkness.`,
+      );
+      break;
+    }
+
+    case 'ds_cloud_of_dread': {
+      const casterRegion = regionOf(s, m.at);
+      // Affect all heroes in the same region (room or corridor).
+      const affected = living.filter(h =>
+        !h.paralyzed && regionOf(s, h.at) === casterRegion,
+      );
+      if (affected.length === 0) {
+        pushLog(s, 'spell', '…but no heroes share this space. Spell wasted.');
+        break;
+      }
+      pushLog(s, 'spell', `A Cloud of Dread descends!`);
+      for (const h of affected) {
+        const { dice, broke } = rollMindD6(h.mind ?? 0);
+        if (broke) {
+          pushLog(s, 'spell',
+            `${heroLabel(h)} resists the paralysis! (mind roll: ${dice.join(', ')})`,
+          );
+        } else {
+          h.paralyzed = true;
+          pushLog(s, 'spell',
+            `${heroLabel(h)} is paralyzed! (mind roll: ${dice.join(', ')} — failed to resist)`,
+          );
+        }
+      }
+      break;
+    }
+
+    // ── Summons ────────────────────────────────────────────────────────────
+    case 'ds_summon_orcs': {
+      const count = 1 + Math.floor(Math.random() * 6);
+      pushLog(s, 'spell', `${monsterDisplay(m)} summons reinforcements! (rolled ${count})`);
+      summonNearCaster(s, m, 'orc', count);
+      break;
+    }
+
+    case 'ds_summon_undead': {
+      const count = 1 + Math.floor(Math.random() * 6);
+      const kind: MonsterKind = m.summonKind ?? 'skeleton';
+      pushLog(s, 'spell', `${monsterDisplay(m)} raises the dead! (rolled ${count})`);
+      summonNearCaster(s, m, kind, count);
+      break;
+    }
+
+    // ── Self ───────────────────────────────────────────────────────────────
+    case 'ds_escape': {
+      pushLog(s, 'spell',
+        `${monsterDisplay(m)} vanishes in a cloud of smoke — escaping to a secret location!`,
+      );
+      s.monsters = s.monsters.filter(mm => mm.id !== m.id);
+      // Note: win-condition checks are not triggered by Escape — the monster
+      // is simply removed from play (like a retreat, not a kill).
+      break;
+    }
+  }
+}
+
+/** Handle a hero who is under the Command spell during Zargon's turn.
+ *  The hero moves toward the nearest free (non-commanded) hero and attacks them. */
+function doCommandedHeroAct(s: HQState, h: Hero): void {
+  const targets = s.heroes.filter(t => t.body > 0 && !t.commanded && t.seat !== h.seat);
+  if (targets.length === 0) return;
+  // Nearest target by Chebyshev distance.
+  targets.sort((a, b) => chebyshev(a.at, h.at) - chebyshev(b.at, h.at));
+  const target = targets[0];
+  const dist = chebyshev(h.at, target.at);
+  if (dist <= 1) {
+    // Adjacent — attack.
+    const atkDice = Math.max(1, h.attack);
+    const atk = rollDice(atkDice, 'monster');
+    s.lastRoll = atk;
+    s.lastMoveRoll = null;
+    const def = rollDice(Math.max(1, target.defense + (target.defenseBonus ?? 0)), 'hero');
+    s.lastDefenseRoll = def;
+    target.potionDefBonus = 0;
+    const dmg = Math.max(0, atk.skulls - def.blocks);
+    target.body = Math.max(0, target.body - dmg);
+    if (dmg > 0) target.defenseBonus = 0;
+    pushLog(s, 'combat',
+      `${heroLabel(h)} (commanded) attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks. ` +
+      (dmg > 0 ? `${heroLabel(target)} loses ${dmg} BP!` : 'No damage.'),
+    );
+    checkHeroDeath(s, target);
+  } else {
+    // Move one step toward the nearest target.
+    const dx = Math.sign(target.at.x - h.at.x);
+    const dy = Math.sign(target.at.y - h.at.y);
+    const candidates = [
+      { x: h.at.x + dx, y: h.at.y },
+      { x: h.at.x, y: h.at.y + dy },
+      { x: h.at.x + dx, y: h.at.y + dy },
+    ].filter(c =>
+      inBounds(s, c) && isPassable(s, c, false) &&
+      !edgeBlocksMove(s, h.at, c, false) &&
+      !s.monsters.some(mm => mm.at.x === c.x && mm.at.y === c.y) &&
+      !s.heroes.some(o => o.seat !== h.seat && o.body > 0 && o.at.x === c.x && o.at.y === c.y),
+    );
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => chebyshev(a, target.at) - chebyshev(b, target.at));
+      h.at = { ...candidates[0] };
+      pushLog(s, 'move',
+        `${heroLabel(h)} (commanded) is compelled toward ${heroLabel(target)}...`,
+      );
+    }
+  }
+}
+
+/** Called at the START of each hero's turn (before logging "It is X's turn").
+ *  Handles per-turn status effect resolution:
+ *  - Dazed: cleared automatically (turn was already skipped via beginHeroTurnSkipDazed).
+ *  - Fear / Sleep / Command / Paralyzed: roll 1d6 per Mind Point; any 6 = break free. */
+function checkHeroTurnStart(s: HQState): void {
+  const h = s.heroes[s.turnIndex];
+  if (!h || h.body <= 0) return;
+
+  const effects: Array<{ flag: keyof Hero; label: string }> = [
+    { flag: 'feared',    label: 'Fear' },
+    { flag: 'asleep',    label: 'Sleep' },
+    { flag: 'commanded', label: 'Command' },
+    { flag: 'paralyzed', label: 'Cloud of Dread' },
+  ];
+
+  for (const { flag, label } of effects) {
+    if (!h[flag]) continue;
+    const mind = h.mind ?? 0;
+    if (mind === 0) {
+      pushLog(s, 'spell',
+        `${heroLabel(h)} has 0 Mind Points and cannot break free from ${label}!`,
+      );
+      continue;
+    }
+    const { dice, broke } = rollMindD6(mind);
+    if (broke) {
+      // TypeScript won't let us assign via a generic keyof key — cast to any.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (h as any)[flag] = false;
+      pushLog(s, 'spell',
+        `${heroLabel(h)} breaks free from ${label}! (mind roll: ${dice.join(', ')})`,
+      );
+    } else {
+      pushLog(s, 'spell',
+        `${heroLabel(h)} cannot shake off ${label}. (mind roll: ${dice.join(', ')})`,
+      );
+    }
+  }
+}
+
+/** Advance past any dazed hero(s) mid-round and call checkHeroTurnStart for the
+ *  first non-dazed hero.  Returns true if Zargon's turn should begin instead. */
+function advanceToNextActiveTurn(s: HQState): boolean {
+  // Skip any dazed heroes — they miss the turn automatically.
+  while ((s.phase as string) !== 'finished') {
+    const h = s.heroes[s.turnIndex];
+    if (!h || !h.dazed) break;
+    h.dazed = false;
+    pushLog(s, 'spell', `${heroLabel(h)} is caught in a whirlwind and loses their turn!`);
+    const roundDone = endHeroTurn(s);
+    if (roundDone) return true;  // caller starts Zargon's turn
+  }
+  checkHeroTurnStart(s);
+  return false;
 }
 
 function runMonster(s: HQState, m: Monster): void {
@@ -1553,6 +2165,17 @@ function runMonster(s: HQState, m: Monster): void {
   }
   const living = s.heroes.filter(h => h.body > 0);
   if (living.length === 0) return;
+
+  // Dread spells: if this monster has an available spell, it casts it INSTEAD
+  // of performing a normal move/attack this turn.  Quest notes assign which
+  // spells a specific monster may use.
+  if (m.dreadSpells && m.dreadSpells.length > 0) {
+    const spellId = chooseDreadSpell(s, m);
+    if (spellId) {
+      doCastDreadSpell(s, m, spellId);
+      return; // spell replaces the normal turn
+    }
+  }
 
   const personality = m.personality ?? 'aggressor';
 
@@ -1727,33 +2350,54 @@ function pickBestAttackSquare(
   });
 }
 
-/** Execute the monster's melee attack roll against a hero and apply damage. */
+/** Execute the monster's melee attack roll against a hero and apply damage.
+ *  If the hero is sleeping or paralyzed they cannot defend — all skulls land. */
 function doMonsterAttack(s: HQState, m: Monster, target: Hero): void {
   const atk = rollDice(m.attack, 'monster');
   s.lastRoll     = atk;
   s.lastMoveRoll = null;
-  // Rock Skin + Potion of Defense add bonus defense dice; defending from a
-  // pit costs one die (min 1, rulebook p.17). Potion of Defense is consumed
-  // on this roll; Rock Skin persists until the hero's next turn.
-  const rockBonus   = target.defenseBonus   ?? 0;
-  const potDefBonus = target.potionDefBonus ?? 0;
-  const def = rollDice(
-    Math.max(1, target.defense + rockBonus + potDefBonus - (target.inPit ? 1 : 0)),
-    'hero',
-  );
-  s.lastDefenseRoll     = def;
-  target.potionDefBonus = 0;  // consumed on this roll
-  const damage = Math.max(0, atk.skulls - def.blocks);
-  target.body  = Math.max(0, target.body - damage);
-  if (damage > 0) target.defenseBonus = 0;  // Rock Skin shattered
-  const defNote = rockBonus > 0 && potDefBonus > 0
-    ? ` (Rock Skin +${rockBonus}, Defense potion +${potDefBonus} dice)`
-    : rockBonus > 0   ? ` (Rock Skin +${rockBonus} dice)`
-    : potDefBonus > 0 ? ` (Defense potion +${potDefBonus} dice)` : '';
-  pushLog(s, 'combat',
-    `${monsterDisplay(m)} attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks${defNote}. ` +
-    (damage > 0 ? `${heroLabel(target)} loses ${damage} BP.` : 'No damage.'),
-  );
+
+  // Sleeping / paralyzed heroes cannot defend — damage is unmitigated.
+  const canDefend = !target.asleep && !target.paralyzed;
+
+  let damage: number;
+  let def: DiceRoll;
+  if (canDefend) {
+    // Rock Skin + Potion of Defense add bonus defense dice; defending from a
+    // pit costs one die (min 1, rulebook p.17). Potion of Defense is consumed
+    // on this roll; Rock Skin persists until the hero's next turn.
+    const rockBonus   = target.defenseBonus   ?? 0;
+    const potDefBonus = target.potionDefBonus ?? 0;
+    def = rollDice(
+      Math.max(1, target.defense + rockBonus + potDefBonus - (target.inPit ? 1 : 0)),
+      'hero',
+    );
+    s.lastDefenseRoll     = def;
+    target.potionDefBonus = 0;
+    damage = Math.max(0, atk.skulls - def.blocks);
+    if (damage > 0) target.defenseBonus = 0;  // Rock Skin shattered
+    const rockBonus2   = target.defenseBonus ?? 0;  // already cleared above if shattered
+    const defNote = (target.defenseBonus != null && target.defenseBonus > 0) && potDefBonus > 0
+      ? ` (Rock Skin +${rockBonus2}, Defense potion +${potDefBonus} dice)`
+      : (rockBonus > 0 && damage === 0)  ? ` (Rock Skin +${rockBonus} dice)` // not shattered
+      : potDefBonus > 0 ? ` (Defense potion +${potDefBonus} dice)` : '';
+    pushLog(s, 'combat',
+      `${monsterDisplay(m)} attacks ${heroLabel(target)} — ${atk.skulls} skulls vs ${def.blocks} blocks${defNote}. ` +
+      (damage > 0 ? `${heroLabel(target)} loses ${damage} BP.` : 'No damage.'),
+    );
+  } else {
+    // Helpless target: zero defense dice, damage = all skulls.
+    def = { faces: [], skulls: 0, blocks: 0, rolledBy: 'hero' };
+    s.lastDefenseRoll = def;
+    damage = atk.skulls;
+    const status = target.asleep ? 'asleep' : 'paralyzed';
+    pushLog(s, 'combat',
+      `${monsterDisplay(m)} strikes the ${status} ${heroLabel(target)} — ${atk.skulls} skulls, no defense! ` +
+      (damage > 0 ? `${heroLabel(target)} loses ${damage} BP.` : 'No damage.'),
+    );
+  }
+
+  target.body = Math.max(0, target.body - damage);
   checkHeroDeath(s, target);
 }
 
@@ -2040,7 +2684,18 @@ function doExitDungeon(state: HQState, playerId: string, confirm: boolean): Appl
       if (roundDone) {
         beginZargonTurn(s);
       } else {
-        pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
+        // Skip dazed heroes, then run mind-break checks.
+        while ((s.phase as string) !== 'finished') {
+          const nh = s.heroes[s.turnIndex];
+          if (!nh || !nh.dazed) break;
+          nh.dazed = false;
+          pushLog(s, 'spell', `${heroLabel(nh)} is caught in a whirlwind and loses their turn!`);
+          if (endHeroTurn(s)) { beginZargonTurn(s); break; }
+        }
+        if ((s.phase as string) !== 'finished') {
+          checkHeroTurnStart(s);
+          pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
+        }
       }
     }
   }
@@ -2204,8 +2859,6 @@ function resolveTreasureCard(s: HQState, h: Hero, card: TreasureCard): void {
   }
 }
 
-// Local import-style accessor to MONSTER_STATS to avoid a circular import.
-import { MONSTER_STATS } from './content';
 function monsterStats(kind: Monster['kind']) {
   return MONSTER_STATS[kind];
 }
@@ -2330,20 +2983,28 @@ function edgeBlocksMove(s: HQState, p: Coord, q: Coord, phaseWalls: boolean): bo
   return true; // solid wall
 }
 
-/** True if a wall blocks a melee attack between p and q. Handles both orthogonal
- *  pairs (single wall edge check) and diagonal pairs (lenient: only blocked when
- *  BOTH flanking corner edges are walls — matching the "touching a corner is OK"
- *  rule so diagonal attacks aren't over-restricted). */
+/** True if a wall blocks a melee attack between p and q.
+ *  Orthogonal pairs: single wall-edge check (edgeBlocksMove).
+ *  Diagonal pairs: L-path rule — the attack is allowed if AT LEAST ONE of the
+ *  two "elbow" routes from p to q is fully unobstructed (no wall on either
+ *  orthogonal step of that route). Blocked only when BOTH elbow routes are
+ *  wall-blocked. This correctly handles:
+ *    - Monster at a doorway can strike diagonally through the open door corner.
+ *    - Monster cannot "go around and back" past a solid wall to reach a hero
+ *      who is directly behind a wall — both elbows hit a wall in that case. */
 function wallBetween(s: HQState, p: Coord, q: Coord): boolean {
   const dx = Math.abs(q.x - p.x), dy = Math.abs(q.y - p.y);
   if (dx + dy === 1) {
-    // Orthogonal — single edge
     return edgeBlocksMove(s, p, q, false);
   }
-  // Diagonal — blocked only when both flanking corners are walled off
-  const e1 = edgeBlocksMove(s, p, { x: q.x, y: p.y }, false);
-  const e2 = edgeBlocksMove(s, p, { x: p.x, y: q.y }, false);
-  return e1 && e2;
+  // Diagonal: two possible L-shaped corner paths.
+  // Path A: p → cornerA(q.x, p.y) → q
+  const cA: Coord = { x: q.x, y: p.y };
+  const pathA = !edgeBlocksMove(s, p, cA, false) && !edgeBlocksMove(s, cA, q, false);
+  // Path B: p → cornerB(p.x, q.y) → q
+  const cB: Coord = { x: p.x, y: q.y };
+  const pathB = !edgeBlocksMove(s, p, cB, false) && !edgeBlocksMove(s, cB, q, false);
+  return !pathA && !pathB; // blocked only when both elbow routes are walled off
 }
 
 /** Does the edge from p to q block line of sight? (Wall or closed/secret door.) */
