@@ -1671,27 +1671,27 @@ function monsterReachableSquares(s: HQState, m: Monster): Set<string> {
   return reachable;
 }
 
-/** Orthogonal squares adjacent to `target` where this monster could stand to
- *  deliver a melee attack: reachable by BFS, no wall edge to the hero, not
- *  occupied by another monster (this monster's own square is always OK). */
+/** All squares adjacent to `target` (orthogonal AND diagonal) where this monster
+ *  could stand to deliver a melee attack: reachable by BFS, no wall blocking the
+ *  strike, not occupied by another monster (this monster's own square is OK). */
 function attackSquaresFor(s: HQState, m: Monster, target: Hero, reachable: Set<string>): Coord[] {
-  return adjacentCells(target.at).filter(c =>
+  return allAdjacentCells(target.at).filter(c =>
     inBounds(s, c) &&
     isPassable(s, c, false) &&
     reachable.has(`${c.x},${c.y}`) &&
-    !edgeBlocksMove(s, c, target.at, false) &&
+    !wallBetween(s, c, target.at) &&
     !s.monsters.some(mm => mm.id !== m.id && mm.at.x === c.x && mm.at.y === c.y),
   );
 }
 
-/** Count how many orthogonal attack squares around `target` would remain free
- *  for OTHER monsters after this monster claims `mySquare`.
+/** Count how many adjacent attack squares (orthogonal + diagonal) around `target`
+ *  would remain free for OTHER monsters after this monster claims `mySquare`.
  *  More free squares = less blocking = better for the team. */
 function countFreeAttackPositions(s: HQState, m: Monster, target: Hero, mySquare: Coord): number {
-  return adjacentCells(target.at).filter(c =>
+  return allAdjacentCells(target.at).filter(c =>
     inBounds(s, c) &&
     isPassable(s, c, false) &&
-    !edgeBlocksMove(s, c, target.at, false) &&
+    !wallBetween(s, c, target.at) &&
     !(c.x === mySquare.x && c.y === mySquare.y) &&
     !s.monsters.some(mm => mm.id !== m.id && mm.at.x === c.x && mm.at.y === c.y),
   ).length;
@@ -2271,6 +2271,17 @@ function adjacentCells(c: Coord): Coord[] {
   ];
 }
 
+/** All 8 neighbours (4 orthogonal + 4 diagonal). Used for attack-square
+ *  detection so monsters can strike diagonally-adjacent heroes. */
+function allAdjacentCells(c: Coord): Coord[] {
+  return [
+    { x: c.x + 1, y: c.y }, { x: c.x - 1, y: c.y },
+    { x: c.x, y: c.y + 1 }, { x: c.x, y: c.y - 1 },
+    { x: c.x + 1, y: c.y + 1 }, { x: c.x - 1, y: c.y + 1 },
+    { x: c.x + 1, y: c.y - 1 }, { x: c.x - 1, y: c.y - 1 },
+  ];
+}
+
 // ============================================================================
 // Edge-based walls & doors
 // ----------------------------------------------------------------------------
@@ -2317,6 +2328,22 @@ function edgeBlocksMove(s: HQState, p: Coord, q: Coord, phaseWalls: boolean): bo
   const d = doorOnEdge(s, p, q);
   if (d) return (d.secret && !d.found) ? true : !d.open;
   return true; // solid wall
+}
+
+/** True if a wall blocks a melee attack between p and q. Handles both orthogonal
+ *  pairs (single wall edge check) and diagonal pairs (lenient: only blocked when
+ *  BOTH flanking corner edges are walls — matching the "touching a corner is OK"
+ *  rule so diagonal attacks aren't over-restricted). */
+function wallBetween(s: HQState, p: Coord, q: Coord): boolean {
+  const dx = Math.abs(q.x - p.x), dy = Math.abs(q.y - p.y);
+  if (dx + dy === 1) {
+    // Orthogonal — single edge
+    return edgeBlocksMove(s, p, q, false);
+  }
+  // Diagonal — blocked only when both flanking corners are walled off
+  const e1 = edgeBlocksMove(s, p, { x: q.x, y: p.y }, false);
+  const e2 = edgeBlocksMove(s, p, { x: p.x, y: q.y }, false);
+  return e1 && e2;
 }
 
 /** Does the edge from p to q block line of sight? (Wall or closed/secret door.) */
