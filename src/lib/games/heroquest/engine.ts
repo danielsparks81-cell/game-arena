@@ -433,6 +433,10 @@ export function applyAction(
   if (action.kind === 'death_save') return doDeathSave(state, playerId, action.choice);
   if (state.pendingDeathSave) return err('A hero is at death\'s door — resolve the death save first.');
 
+  // Exit-dungeon prompt: the hero at the stairway must decide before play resumes.
+  if (action.kind === 'exit_dungeon') return doExitDungeon(state, playerId, action.confirm);
+  if (state.pendingPrompt?.kind === 'exit_dungeon') return err('A hero is at the stairway — they must choose to leave or stay first.');
+
   // Zargon's turn advances one monster at a time. Any client may request a step
   // (the host drives it on a timer); it's a no-op unless it's Zargon's phase.
   if (action.kind === 'zargon_step') return doZargonStep(state);
@@ -1942,23 +1946,42 @@ function heroesWin(s: HQState, message: string): void {
 
 function maybeFinishOnExit(s: HQState): void {
   const wc = s.quest.winCondition;
+  const heroIdx = s.turnIndex;
+  const h = s.heroes[heroIdx];
+  if (!h || !onStairs(s, h)) return;
+
   if (wc.kind === 'kill_and_exit') {
     // The objective must have been killed first. (Monsters lazy-spawn, so we
     // track an explicit flag rather than inferring "dead" from absence.)
     if (!s.objectiveDefeated) return;
-    heroesWin(s, 'Heroes escape the dungeon — quest complete!');
+    // Prompt — hero can leave (winning the quest) or stay for companions.
+    s.pendingPrompt = { kind: 'exit_dungeon', heroIdx };
     return;
   }
   if (wc.kind === 'escape') {
-    // Win the moment every living hero has reached the stairway (heroes may
-    // share stair tiles). Lost only if all heroes die (handled elsewhere).
-    const living = s.heroes.filter(h => h.body > 0);
-    if (living.length > 0 && living.every(h => onStairs(s, h))) {
-      heroesWin(s, 'The heroes escape the dungeon — quest complete!');
-    }
+    // Any living hero reaching the stairway triggers the exit prompt.
+    // The first one to confirm wins the quest for the whole party.
+    s.pendingPrompt = { kind: 'exit_dungeon', heroIdx };
     return;
   }
   // kill_all is resolved on the killing blow (maybeFinishOnKill), not on exit.
+}
+
+function doExitDungeon(state: HQState, playerId: string, confirm: boolean): ApplyResult {
+  if (state.pendingPrompt?.kind !== 'exit_dungeon') return err('No exit prompt is pending.');
+  const { heroIdx } = state.pendingPrompt;
+  const h = state.heroes[heroIdx];
+  if (!h) return err('Invalid hero index.');
+  // Only the exiting hero's player can resolve this prompt.
+  if (h.playerId !== playerId) return err('Only the hero at the stairway can decide to leave.');
+  const s = clone(state);
+  s.pendingPrompt = null;
+  if (confirm) {
+    const heroName = `${h.username} – ${HERO_DEFAULTS[h.klass].name}`;
+    heroesWin(s, `${heroName} leads the party out of the dungeon — quest complete!`);
+  }
+  // Decline: hero stays on the stairs, turn continues normally.
+  return ok(s);
 }
 
 // ============================================================================

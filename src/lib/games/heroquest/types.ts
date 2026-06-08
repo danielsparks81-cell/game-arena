@@ -472,7 +472,10 @@ export type HQState = {
 export type PendingPrompt =
   | { kind: 'choose_door'; heroIdx: number; doors: { doorId: string }[] }
   | { kind: 'choose_target'; heroIdx: number; monsterIds: string[]; reason: 'attack' | 'spell' }
-  | { kind: 'climb_pit'; heroIdx: number };
+  | { kind: 'climb_pit'; heroIdx: number }
+  /** Hero has stepped onto the stairway with the win condition satisfied.
+   *  They must choose to leave (ending the quest for everyone) or stay. */
+  | { kind: 'exit_dungeon'; heroIdx: number };
 
 // ============================================================================
 // Action union — wire-level moves from a client to the engine
@@ -501,6 +504,9 @@ export type HQAction =
   | { kind: 'disarm_trap'; trapId: string }
   | { kind: 'jump_trap'; trapId: string }
   | { kind: 'climb_pit' }
+  /** Resolve the exit-dungeon prompt — confirm leaves the dungeon (quest complete),
+   *  decline dismisses the prompt and the hero may continue or walk back. */
+  | { kind: 'exit_dungeon'; confirm: boolean }
   | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number; targetDoorId?: string }
   | { kind: 'use_potion'; potionId: string }
   /** Pass a held potion to an adjacent living hero. Not an action — does not

@@ -699,7 +699,8 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'end_turn' }
   | { game: 'heroquest'; kind: 'zargon_step' }
   | { game: 'heroquest'; kind: 'death_save'; choice: 'potion' | 'spell' | 'decline' }
-  | { game: 'heroquest'; kind: 'pick_spell_school'; school: 'air' | 'water' | 'fire' | 'earth' };
+  | { game: 'heroquest'; kind: 'pick_spell_school'; school: 'air' | 'water' | 'fire' | 'earth' }
+  | { game: 'heroquest'; kind: 'exit_dungeon'; confirm: boolean };
 
 /**
  * Single entry point for every in-game action. Boards call this through the

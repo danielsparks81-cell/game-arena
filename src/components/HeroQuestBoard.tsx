@@ -58,6 +58,8 @@ export type HeroQuestBoardProps = {
   onDeathSave: (choice: 'potion' | 'spell' | 'decline') => void;
   /** During the pre-quest spell draft, the current picker selects a school. */
   onPickSpellSchool: (school: 'air' | 'water' | 'fire' | 'earth') => void;
+  /** Resolve the exit-dungeon prompt (hero reached the stairway with objective complete). */
+  onExitDungeon: (confirm: boolean) => void;
 };
 
 export default function HeroQuestBoard(props: HeroQuestBoardProps) {
@@ -117,6 +119,11 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
     : null;
   const isMyDeathSave = dyingHero?.playerId === props.currentUserId;
 
+  const exitHero = state.pendingPrompt?.kind === 'exit_dungeon'
+    ? state.heroes[state.pendingPrompt.heroIdx]
+    : null;
+  const isMyExit = exitHero?.playerId === props.currentUserId;
+
   return (
     <>
       {briefingOpen && (
@@ -130,6 +137,14 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
           spellId={state.pendingDeathSave.spellId}
           isMyHero={isMyDeathSave}
           onChoice={props.onDeathSave}
+        />
+      )}
+      {exitHero && (
+        <ExitDungeonModal
+          hero={exitHero}
+          isMyHero={isMyExit}
+          companions={state.heroes.filter(h => h.body > 0 && h.seat !== exitHero.seat)}
+          onChoice={props.onExitDungeon}
         />
       )}
       <PlayingView {...props} onShowBriefing={() => setBriefingOpen(true)} />
@@ -997,6 +1012,98 @@ function DeathSaveModal({
             >
               Accept fate — perish
             </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Exit-dungeon modal
+// ============================================================================
+
+function ExitDungeonModal({
+  hero, isMyHero, companions, onChoice,
+}: {
+  hero: Hero;
+  isMyHero: boolean;
+  companions: Hero[];
+  onChoice: (confirm: boolean) => void;
+}) {
+  const heroName = HERO_DEFAULTS[hero.klass].name;
+  const companionNames = companions.map(h => HERO_DEFAULTS[h.klass].name).join(', ');
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.80)' }}
+    >
+      <div
+        className="mx-4 max-w-sm w-full rounded-2xl border-4 p-6 text-center shadow-2xl"
+        style={{
+          borderColor: '#a07830',
+          background: 'radial-gradient(ellipse at top, #2a1f08 0%, #0e0a02 100%)',
+          color: '#e8d4a0',
+          fontFamily: 'Georgia, serif',
+        }}
+      >
+        <div className="text-3xl mb-2">🪜</div>
+        <div
+          className="text-xl font-bold uppercase tracking-widest mb-1"
+          style={{ color: '#f0c060', textShadow: '0 2px 8px rgba(200,140,0,0.5)' }}
+        >
+          The way out!
+        </div>
+
+        {isMyHero ? (
+          <>
+            <div className="text-sm mb-3" style={{ color: '#c8a870' }}>
+              <strong style={{ color: '#f0c060' }}>{heroName}</strong> stands at the stairway.
+              Leaving now ends the quest for the entire party.
+            </div>
+
+            {companions.length > 0 && (
+              <div
+                className="rounded-lg border px-3 py-2 mb-4 text-xs"
+                style={{ borderColor: '#8a6020', background: 'rgba(80,50,0,0.4)', color: '#c8a060' }}
+              >
+                ⚠️ <strong>Warning:</strong> {companionNames}{' '}
+                {companions.length === 1 ? 'is' : 'are'} still in the dungeon.
+                {' '}Heroes left behind cannot return — if they die before you leave,
+                they lose all their equipment, items and gold.
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 mt-2">
+              <button
+                className="rounded-lg border px-4 py-2 text-sm font-semibold transition active:scale-95"
+                style={{
+                  borderColor: '#a07830',
+                  background: 'linear-gradient(135deg, #6b4e10, #3a2a04)',
+                  color: '#f0d080',
+                }}
+                onClick={() => onChoice(true)}
+              >
+                Leave the dungeon — quest complete!
+              </button>
+              <button
+                className="rounded-lg border px-4 py-2 text-sm transition active:scale-95"
+                style={{
+                  borderColor: '#554030',
+                  background: 'rgba(40,25,5,0.6)',
+                  color: '#a08060',
+                }}
+                onClick={() => onChoice(false)}
+              >
+                Wait for companions
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="text-sm" style={{ color: '#c8a870' }}>
+            <strong style={{ color: '#f0c060' }}>{heroName}</strong> has reached the stairway —
+            waiting for them to decide whether to leave…
           </div>
         )}
       </div>
