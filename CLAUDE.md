@@ -131,9 +131,8 @@ saves themselves with their own resources, or not at all.
 | sleeping | Monster | Sleep spell active; wake check each Zargon turn |
 | stunned | Monster | Tempest — loses next Zargon turn |
 | personality | Monster | 'predator' \| 'aggressor' \| 'methodical' — assigned at spawn |
-| dreadSpells | Monster | Spell ids this monster can cast (assigned by quest notes) |
-| dreadSpellsUsed | Monster | Spent spell ids — one-shot per quest |
-| summonKind | Monster | Undead kind summoned by ds_summon_undead (default: skeleton) |
+| dreadSpells | Monster | Spell ids this monster can cast (assigned by quest notes — never set by default) |
+| dreadSpellsUsed | Monster | Spent spell ids — one-shot per quest; auto-populated by engine on cast |
 | lootPiles | HQState | Loot dropped by dead heroes; auto-collected on walkover |
 
 ## Stairway rules
@@ -200,42 +199,221 @@ These override the printed rulebook. Do not revert them without explicit instruc
 
 ## Dread spells (12 cards — Zargon's spellcaster deck)
 
-Cards transcribed from physical cards. Two numbers flagged ⚠️ need user confirmation.
+Zargon's equivalent of the hero spell system. Assigned to specific named monsters via quest
+notes — **no monster carries Dread spells by default**. Many quests have none at all.
+Each spell is one-shot per quest (tracked in `dreadSpellsUsed[]`).
 
-**Mind-point break mechanic (shared by Fear, Sleep, Cloud of Dread, Command):**
-At the start of their turn (or immediately when noted), the affected hero rolls 1 red die per Mind
-Point they have. If any die shows a 6, the spell is broken and removed.
+---
 
-| Spell | Target | Effect |
+### Quest integration
+
+To give a monster Dread spells, add fields to its entry in the quest definition:
+
+```ts
+{
+  id: 'witch_lord',
+  kind: 'gargoyle',          // any monster kind
+  dreadSpells: [             // cards this monster holds
+    'ds_ball_of_flame',
+    'ds_command',
+    'ds_escape',
+  ],
+  dreadSpellsUsed: [],       // always start empty
+  // summonKind is no longer needed — Summon Undead uses a fixed composition table
+}
+```
+
+The engine reads `dreadSpells` at the start of `runMonster` via `chooseDreadSpell`.
+The caster checks its remaining spells each Zargon turn **before** deciding to move/attack.
+If a usable spell is found it is cast instead; the monster does not also move or attack that turn.
+
+---
+
+### Mind-break mechanic
+
+Applies to: **Fear, Sleep, Command, Cloud of Dread**
+
+At the **start of the affected hero's own turn** (before any action), the hero rolls 1 red die per
+Mind Point they have. If **any die shows a 6** the spell breaks immediately and the hero acts
+normally that turn. If no 6 is rolled the effect persists and the turn is handled as described
+per-spell below.
+
+Heroes with 0 Mind Points can never break free by rolling.
+
+The rolls are resolved in `checkHeroTurnStart(s)`, called from `advanceToNextActiveTurn` and
+`finishZargonTurn` before the turn-start log line is written.
+
+| Hero class | Mind Points | Break-free chance per turn |
 |---|---|---|
-| **Ball of Flame** | one hero | 2 BP damage to the hero with the **lowest remaining BP** in LOS. Hero rolls 2 red dice — each **6** (only) reduces damage by 1. Caster will not cast if no hero is in LOS. |
-| **Lightning Bolt** | line (H/V/diagonal) | Travels in a straight line until hitting a wall or closed door. Inflicts 2 BP on every hero and monster in its path. |
-| **Firestorm** | whole room | 3 BP damage to all heroes AND monsters in the same room as caster (caster unaffected). Each victim rolls **3 red dice** — each **6** reduces damage by 1 (triple-6 = full dodge). **Cannot be used in corridors.** Caster AI will not cast if there are more monster allies than heroes in the room. |
-| **Rust** | one hero's item | Destroys the **best weapon (highest attack dice)** in the party (non-artifact). Targets the visible hero carrying it. Helmets are targeted if no weapons are available. |
-| **Fear** | one hero | Hero may only use **1 Attack die total** (ignores all bonuses — Courage, Strength potion, etc.). Breaks via mind-point roll (6) on any future turn. |
-| **Sleep** | one hero | Hero cannot move, attack, or defend. **Breaks via mind-point roll: 1d6 per Mind Point** — any 6 breaks free. Checked at start of each hero's turn. |
-| **Tempest** | one hero | Target hero misses their next turn (whirlwind). |
-| **Command** | one hero | Hero is under Zargon's control. AI targets the hero with the **lowest Mind Points** (hardest to break free). On the **commanded hero's own turn**: they roll mind-break first — if freed they act normally that turn; if still bound the turn is forfeit. On Zargon's turn the hero moves and attacks allies. |
-| **Cloud of Dread** | all heroes in same room/corridor | All heroes in the same space are paralyzed — cannot move, attack, or defend. Each breaks independently via mind-point roll (6) immediately or any future turn. |
-| **Summon Orcs** | self (protect caster) | Roll 1d6 — lookup: **1-3 → 4 orcs, 4-5 → 5 orcs, 6 → 6 orcs**. Placed BFS outward from caster. |
-| **Summon Undead** | self (protect caster) | Roll 1d6 — composition lookup: **1-3 → 4 skeletons; 4-5 → 3 skeletons + 2 zombies; 6 → 2 zombies + 2 mummies**. Placed BFS outward from caster. |
-| **Escape** | self | Caster vanishes instead of dying or when badly hurt (≤25% BP). **Auto-triggers when the caster would receive a killing blow** — no gold, no kill credit. One-shot per quest. |
+| Barbarian | 2 | 1 − (5/6)² ≈ 31% |
+| Dwarf | 2 | ≈ 31% |
+| Elf | 3 | 1 − (5/6)³ ≈ 42% |
+| Wizard | 4 | 1 − (5/6)⁴ ≈ 52% |
 
-**Design decisions (confirmed):**
+---
 
-1. **Which monsters cast** — Quest-book driven. Each quest's notes designate which specific monster(s)
-   carry Dread spells and which cards they have access to. Many quests will have no Dread spells at all.
-   **No monster has Dread spells by default** — `MONSTER_STATS` never includes `dreadSpells`.
-   The field is only populated when a quest definition explicitly assigns it to a named monster.
+### Status effects on heroes
 
-2. **Casting timing / rules** — Quest-book driven. The quest notes specify when and how the spellcaster
-   may use their spells (e.g. instead of attacking, once per turn, etc.).
+| Status flag | Blocks | Defense | Break mechanic |
+|---|---|---|---|
+| `feared` | Nothing blocked — hero can still act, but attack is capped at **1 die** regardless of all bonuses | Normal | Mind-break at turn start |
+| `asleep` | Move, attack, search, cast spell, open door | **0 defense dice** (auto-take hits) | Mind-break at turn start |
+| `commanded` | All hero-initiated actions | Normal | Mind-break at turn start; if freed → acts normally **that same turn** |
+| `paralyzed` | Move, attack, search, cast spell, open door | **0 defense dice** | Mind-break at turn start |
+| `dazed` | Entire turn skipped (auto-cleared) | Normal | Automatic — clears at turn start |
 
-3. **Summon placement** — BFS outward from caster. Adjacent empty cells filled first; expands outward
-   if all adjacent cells are occupied. Same rule for both Orcs and Undead.
+---
 
-4. **Summon count / composition** — Determined by d6 lookup table (not roll = count directly).
-   See the table rows for Summon Orcs / Summon Undead above for exact mappings.
+### Complete spell reference
+
+#### Damage spells
+
+**Ball of Flame**
+- Target: visible hero with the **lowest remaining BP** (most wounded, most vulnerable)
+- Effect: 2 BP damage (automatic, no attack roll)
+- Mitigation: target rolls **2d6** — each **6** reduces damage by 1 (min 0)
+- AI rule: will not cast if no hero is in LOS — Zargon will not waste the card
+
+**Lightning Bolt**
+- Target: straight line in the best direction (H/V/diagonal — 8 options); AI picks the
+  direction that hits the most heroes; if tied, picks randomly from tied directions
+- Effect: **2 BP** to every hero AND monster in the bolt's path (no mitigation roll)
+- Range: travels until it hits a wall or closed door
+- Note: can and will hit allied monsters — choose direction carefully
+
+**Firestorm**
+- Target: all heroes AND monsters in the **same room** as the caster (caster exempt)
+- Effect: **3 BP** damage to each victim
+- Mitigation: each victim rolls **3d6** — each **6** reduces damage by 1
+  - 0 sixes → 3 BP | 1 six → 2 BP | 2 sixes → 1 BP | 3 sixes → 0 BP (full dodge)
+  - Approximate odds: 42% / 42% / 14% / 0.5%
+- Restrictions: corridor-only casters cannot use this (no region = `room_*`)
+- AI rule: will not cast if **monster allies in the room outnumber heroes** — avoids
+  friendly-fire wipeout; equal counts are acceptable (trade ≥ even)
+
+#### Item destruction
+
+**Rust**
+- Target: the visible hero carrying the **best weapon** (highest attack dice) in the party
+- Effect: permanently destroys that weapon; hero's attack reverts to base + next-best weapon
+- Rules: non-artifact weapons only (`kind === 'weapon'`); artifacts are immune
+- Fallback: if no weapons are available, targets a **helmet** instead
+- AI skips this spell entirely if no visible hero has a metal weapon or helmet
+
+#### Status effects
+
+**Fear**
+- Target: one visible hero not already feared
+- Effect: hero's attack is hard-capped at **1 die** — ignores base attack, Courage bonus,
+  Strength potion, everything. The cap is applied in `doAttack` before any roll
+- Duration: until mind-break (6 on any die at turn start)
+
+**Sleep**
+- Target: one visible hero not already asleep
+- Effect: hero cannot move, attack, search, cast, or open doors; **0 defense dice** vs attacks
+- Immediate break attempt: on cast, the target immediately rolls mind-break dice; if they
+  roll a 6 they resist the spell entirely and are never asleep
+- Duration: until mind-break (6 on any die at turn start)
+
+**Tempest**
+- Target: one visible hero not already dazed
+- Effect: target loses their **next turn** entirely (dazed flag set)
+- Duration: one turn — `dazed` is cleared automatically at the start of that skipped turn
+- No mind-break mechanic; cannot be resisted
+
+**Command**
+- Target: the visible hero with the **lowest Mind Points** (fewest break-free dice)
+- Effect: hero is under Zargon's control
+  - On **Zargon's turn**: hero moves toward the nearest free allied hero and attacks them
+    (uses hero's own attack stat; allies get normal defense rolls)
+  - On the **hero's own turn**: mind-break roll first
+    - Rolls a 6 → freed, acts normally **that turn**
+    - No 6 → turn forfeit (cannot act at all)
+- Duration: until mind-break; can persist multiple rounds
+
+**Cloud of Dread**
+- Target: ALL heroes in the **same region** (room or corridor) as the caster
+- Effect: each targeted hero is paralyzed — cannot move, attack, search, or cast; **0 defense dice**
+- Immediate break attempt: each hero rolls mind-break on cast; heroes who roll a 6 resist
+- Each hero breaks independently; the others remain paralyzed
+- Duration: until mind-break per hero
+
+#### Summons
+
+Both summon spells use BFS outward placement: adjacent empty cells are filled first; if all
+adjacent cells are occupied the BFS expands to the next ring outward, and so on.
+Summoned monsters are assigned a random personality at placement.
+
+**Summon Orcs** — roll 1d6, look up count:
+
+| Roll | Orcs summoned |
+|---|---|
+| 1, 2, 3 | 4 orcs |
+| 4, 5 | 5 orcs |
+| 6 | 6 orcs |
+
+**Summon Undead** — roll 1d6, look up composition:
+
+| Roll | Undead summoned |
+|---|---|
+| 1, 2, 3 | 4 skeletons |
+| 4, 5 | 3 skeletons + 2 zombies |
+| 6 | 2 zombies + 2 mummies |
+
+Higher rolls produce rarer, harder undead. The `summonKind` field on the monster is no longer
+used for this spell — composition is fixed by the table above.
+
+#### Self / escape
+
+**Escape**
+- Effect: caster is instantly removed from the board (not killed — no gold, no kill credit,
+  no win-condition trigger). Heroes cannot pursue.
+- Triggers in two situations:
+  1. **Proactive** (`chooseDreadSpell`): AI selects Escape when the caster's BP drops to
+     **≤ 25%** of its max (badly hurt, likely to die next turn)
+  2. **Reactive / auto-escape** (`tryAutoEscape` in `doAttack`): if a hero's attack would
+     reduce the caster to 0 BP, Escape fires **instead of death** — the killing blow lands
+     but the monster vanishes before dying
+- One-shot per quest. Once used (either way), `ds_escape` is in `dreadSpellsUsed` and
+  cannot trigger again.
+- The proactive threshold and the reactive intercept are independent — a caster at 30% HP
+  may not yet trigger proactive Escape, but a single big hit that would kill it still
+  activates the reactive auto-escape.
+
+---
+
+### AI spell priority
+
+`chooseDreadSpell` evaluates available spells in this fixed priority order, skipping any whose
+preconditions are not met:
+
+1. `ds_cloud_of_dread` — paralysis is the strongest crowd-control; cast first if multiple heroes are nearby
+2. `ds_command` — turn a hero into an ally; high value if a powerful hero is reachable
+3. `ds_sleep` — neutralise one hero for potentially several rounds
+4. `ds_fear` — reliable attack debuff, no precondition failure risk
+5. `ds_firestorm` — high damage but risky; skipped if allies outnumber heroes in room or if in corridor
+6. `ds_ball_of_flame` — targeted damage; skipped if no hero in LOS
+7. `ds_lightning_bolt` — corridor-friendly AoE; always available if at least one hero is hittable
+8. `ds_rust` — strips best weapon; skipped if no viable target has a metal weapon/helmet
+9. `ds_summon_undead` — reinforcements (powerful composition on high rolls)
+10. `ds_summon_orcs` — reinforcements (reliable count)
+11. `ds_tempest` — turn denial; useful but lower priority than direct effects
+12. `ds_escape` — last resort; only chosen when HP ≤ 25%
+
+---
+
+### Implementation reference
+
+| Function | File | Purpose |
+|---|---|---|
+| `chooseDreadSpell(s, m)` | engine.ts | AI picks next available spell or returns null |
+| `doCastDreadSpell(s, m, id)` | engine.ts | Resolves all 12 spell effects |
+| `tryAutoEscape(s, m)` | engine.ts | Intercepts killing blow with Escape; returns true if fired |
+| `doCommandedHeroAct(s, h)` | engine.ts | Zargon-turn movement/attack for a commanded hero |
+| `checkHeroTurnStart(s)` | engine.ts | Mind-break rolls for all active status effects |
+| `summonNearCaster(s, caster, kind, count)` | engine.ts | BFS outward placement for summoned monsters |
+| `rollMindD6(mindPoints)` | engine.ts | Rolls N d6, returns dice array + whether any showed 6 |
+| `traceRay(s, from, dir)` | engine.ts | Straight-line cell list for Lightning Bolt |
 
 ## Pending / blocked work
 
