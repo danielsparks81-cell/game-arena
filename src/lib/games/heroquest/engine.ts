@@ -461,6 +461,10 @@ export function applyAction(
   if (action.kind === 'exit_dungeon') return doExitDungeon(state, playerId, action.confirm);
   if (state.pendingPrompt?.kind === 'exit_dungeon') return err('A hero is at the stairway — they must choose to leave or stay first.');
 
+  // Falling-block retreat: the affected hero must pick a safe adjacent square.
+  if (action.kind === 'falling_block_move') return doFallingBlockMove(state, playerId, action.at);
+  if (state.pendingPrompt?.kind === 'falling_block') return err('A falling block is in play — choose a square to retreat to first.');
+
   // Zargon's turn advances one monster at a time. Any client may request a step
   // (the host drives it on a timer); it's a no-op unless it's Zargon's phase.
   if (action.kind === 'zargon_step') return doZargonStep(state);
@@ -617,7 +621,9 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
       trap.revealed = true;
 
       if (trap.kind === 'pit') {
-        // Stumble in: -1 BP, the turn ends, the hero is now in the pit.
+        // Stumble in: -1 BP, movement ends, but the hero still has their action
+        // this turn (they can attack an adjacent monster, search, etc.).
+        // On subsequent turns they forfeit movement to climb out (see doClimbPit).
         h.inPit = true;
         h.body = Math.max(0, h.body - 1);
         h.moveLeft = 0;
@@ -630,19 +636,48 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
 
       if (trap.kind === 'falling_block') {
         // Roll 3 dice, -1 BP per skull, NO defence; the square is sealed forever
-        // (a permanent wall) and the hero does not end on it — they fall back.
+        // (a permanent wall) and the hero must choose an adjacent square to retreat to.
         const roll = rollDice(3, 'hero');
         s.lastRoll = roll; s.lastDefenseRoll = null; s.lastMoveRoll = null;
         h.body = Math.max(0, h.body - roll.skulls);
         s.tiles[sq.y][sq.x] = { ...s.tiles[sq.y][sq.x], kind: 'blocked', revealed: true };
-        h.at = { ...cameFrom };
         h.moveLeft = 0;
+        h.hasActed = true; // springing a falling block ends the turn
         pushLog(s, 'trap',
           `${heroLabel(h)} springs a falling block! The ceiling caves in` +
           (roll.skulls > 0 ? ` (-${roll.skulls} BP)` : ' (no damage)') +
           ' — the square is sealed.');
         checkHeroDeath(s, h);
-        revealLineOfSightForHero(s, h);
+        // Compute which adjacent squares the hero can retreat to (the sealed
+        // square is now blocked, so only its other orthogonal neighbours qualify).
+        const heroIdx = s.heroes.findIndex(x => x.seat === h.seat);
+        const dirs = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+        const options: Coord[] = dirs
+          .map(d => ({ x: sq.x + d.x, y: sq.y + d.y }))
+          .filter(c =>
+            inBounds(s, c) &&
+            isPassable(s, c, true) &&
+            !s.monsters.some(m => m.at.x === c.x && m.at.y === c.y) &&
+            !s.heroes.some(o => o.seat !== h.seat && o.body > 0 && o.at.x === c.x && o.at.y === c.y),
+          );
+        if (options.length === 0) {
+          // Nowhere to go — extra -2 BP penalty and snap back to cameFrom
+          // (which is always passable since the hero came from there).
+          h.body = Math.max(0, h.body - 2);
+          h.at = { ...cameFrom };
+          pushLog(s, 'trap', `${heroLabel(h)} is crushed with no room to escape! (−2 BP)`);
+          checkHeroDeath(s, h);
+          revealLineOfSightForHero(s, h);
+        } else if (options.length === 1) {
+          // Only one option — resolve automatically, no prompt needed.
+          h.at = { ...options[0] };
+          revealLineOfSightForHero(s, h);
+        } else {
+          // Multiple options — let the player choose.
+          h.at = { ...cameFrom }; // park hero safely while waiting for input
+          revealLineOfSightForHero(s, h);
+          s.pendingPrompt = { kind: 'falling_block', heroIdx, options };
+        }
         return;
       }
 
@@ -653,6 +688,7 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
       if (roll.faces[0] === 'skull') {
         h.body = Math.max(0, h.body - 1);
         h.moveLeft = 0;
+        h.hasActed = true; // struck by a spear ends the turn — only a dodge lets you keep going
         pushLog(s, 'trap', `${heroLabel(h)} is struck by a spear trap! (-1 BP)`);
         checkHeroDeath(s, h);
         revealLineOfSightForHero(s, h);
@@ -1208,12 +1244,15 @@ function doJumpTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
 
 function doClimbPit(state: HQState, hero: Hero): ApplyResult {
   if (!hero.inPit) return err('You are not in a pit.');
-  if (hero.moveLeft < 2) return err('Need at least 2 movement squares to climb out.');
+  if (hero.hasRolled) return err('You already rolled movement this turn — climb out before rolling.');
   const s = clone(state);
   const h = s.heroes[s.turnIndex];
   h.inPit = false;
-  h.moveLeft -= 2;
-  pushLog(s, 'move', `${heroLabel(h)} climbs out of the pit.`);
+  // Climbing out forfeits the hero's entire movement for the turn.
+  // They can still take their action (attack, search, etc.) after climbing.
+  h.moveLeft = 0;
+  h.hasRolled = true; // movement phase consumed — hero cannot roll after climbing
+  pushLog(s, 'move', `${heroLabel(h)} hauls themselves out of the pit (movement forfeited).`);
   return ok(s);
 }
 
@@ -2784,6 +2823,25 @@ function doExitDungeon(state: HQState, playerId: string, confirm: boolean): Appl
     }
   }
   // Decline: hero stays on the stairs, their turn continues normally.
+  return ok(s);
+}
+
+// ============================================================================
+// Falling-block retreat
+// ============================================================================
+
+function doFallingBlockMove(state: HQState, playerId: string, at: Coord): ApplyResult {
+  if (state.pendingPrompt?.kind !== 'falling_block') return err('No falling block prompt is pending.');
+  const { heroIdx, options } = state.pendingPrompt;
+  const h = state.heroes[heroIdx];
+  if (!h) return err('Invalid hero index.');
+  if (h.playerId !== playerId) return err('Only the affected hero\'s player can choose where to retreat.');
+  const valid = options.some(o => o.x === at.x && o.y === at.y);
+  if (!valid) return err('Invalid retreat square — pick one of the highlighted squares.');
+  const s = clone(state);
+  s.pendingPrompt = null;
+  s.heroes[heroIdx].at = { ...at };
+  revealLineOfSightForHero(s, s.heroes[heroIdx]);
   return ok(s);
 }
 

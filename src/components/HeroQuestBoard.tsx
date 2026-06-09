@@ -61,6 +61,8 @@ export type HeroQuestBoardProps = {
   onPickSpellSchool: (school: 'air' | 'water' | 'fire' | 'earth') => void;
   /** Resolve the exit-dungeon prompt (hero reached the stairway with objective complete). */
   onExitDungeon: (confirm: boolean) => void;
+  /** Resolve the falling-block retreat prompt — hero picks a safe adjacent square. */
+  onFallingBlockMove: (at: Coord) => void;
 };
 
 export default function HeroQuestBoard(props: HeroQuestBoardProps) {
@@ -125,6 +127,12 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
     : null;
   const isMyExit = exitHero?.playerId === props.currentUserId;
 
+  const fallingBlockPrompt = state.pendingPrompt?.kind === 'falling_block'
+    ? state.pendingPrompt
+    : null;
+  const fallingBlockHero = fallingBlockPrompt ? state.heroes[fallingBlockPrompt.heroIdx] : null;
+  const isMyFallingBlock = fallingBlockHero?.playerId === props.currentUserId;
+
   return (
     <>
       {briefingOpen && (
@@ -138,6 +146,14 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
           spellId={state.pendingDeathSave.spellId}
           isMyHero={isMyDeathSave}
           onChoice={props.onDeathSave}
+        />
+      )}
+      {fallingBlockHero && fallingBlockPrompt && (
+        <FallingBlockModal
+          hero={fallingBlockHero}
+          options={fallingBlockPrompt.options}
+          isMyHero={isMyFallingBlock}
+          onChoice={props.onFallingBlockMove}
         />
       )}
       {exitHero && (
@@ -399,7 +415,8 @@ function PlayingView({
                     onClick={() => { onCastSpell(pendingSpell.id, { targetHeroIdx: idx }); setPendingSpell(null); }}
                     className="rounded border border-amber-400/60 bg-neutral-900/60 px-2 py-0.5 text-xs font-medium text-amber-100 transition hover:border-amber-300 hover:bg-amber-500/20"
                   >
-                    {h.playerId === currentUserId && h.seat === focusHero?.seat ? `${h.username} (self)` : h.username}
+                    {HERO_DEFAULTS[h.klass].name}
+                    {h.playerId === currentUserId && h.seat === focusHero?.seat ? ' (you)' : ''}
                   </button>
                 ))}
               </span>
@@ -464,9 +481,10 @@ function PlayingView({
           <DicePanel attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
         </div>
 
-        {/* Chronicle takes the remaining height and scrolls internally so the
-            buttons + hero panels + dice stay fixed and the page never scrolls. */}
-        <div className="min-h-0 flex-1">
+        {/* Chronicle takes the remaining height and scrolls internally.
+            min-h-[8rem] guarantees at least 8 rows are always visible even on
+            short screens with 4 hero sheets filling most of the column. */}
+        <div className="min-h-[8rem] flex-1">
           <LogView state={state} />
         </div>
       </div>
@@ -638,25 +656,37 @@ function ActionPanel({
           tip="Attack an adjacent monster with your weapon's dice. Each skull is a hit; the monster defends with its shields. One action per turn." />
         {/* Cast spell — dropdown anchors left so it doesn't clip the right edge */}
         <div className="relative">
-          <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)} disabled={!canAct || acted || spells.length === 0} flavor="indigo"
+          <ActionButton label="Cast spell" icon="✨" onClick={() => setSpellMenu(v => !v)}
+            disabled={!canAct || acted || spells.length === 0 || spells.every(sp => myHero.spellsCast?.includes(sp.id))}
+            flavor="indigo"
             tip="Cast one of your spells (Elf/Wizard) at anything you can see. Each spell can be cast once per quest." />
           {spellMenu && spells.length > 0 && (
             <div className="absolute left-0 z-30 mt-1 w-52 rounded-md border border-amber-700/60 bg-neutral-900 p-1 shadow-xl">
-              {spells.map(s => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => {
-                    if (s.target === 'area') setOptimisticActed(true);
-                    onCastSpellClick(s.id);
-                    setSpellMenu(false);
-                  }}
-                  className="block w-full rounded px-2 py-1 text-left text-xs text-amber-100 transition hover:bg-amber-800/40"
-                >
-                  <span className="font-semibold">{s.name}</span>
-                  <span className="ml-1 text-[10px] uppercase tracking-wide text-amber-300/70">{s.element}</span>
-                </button>
-              ))}
+              {spells.map(s => {
+                const alreadyCast = myHero.spellsCast?.includes(s.id) ?? false;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    disabled={alreadyCast}
+                    onClick={() => {
+                      if (alreadyCast) return;
+                      if (s.target === 'area') setOptimisticActed(true);
+                      onCastSpellClick(s.id);
+                      setSpellMenu(false);
+                    }}
+                    className={`block w-full rounded px-2 py-1 text-left text-xs transition ${
+                      alreadyCast
+                        ? 'cursor-default opacity-40 line-through'
+                        : 'text-amber-100 hover:bg-amber-800/40'
+                    }`}
+                  >
+                    <span className="font-semibold">{s.name}</span>
+                    <span className="ml-1 text-[10px] uppercase tracking-wide text-amber-300/70">{s.element}</span>
+                    {alreadyCast && <span className="ml-1 text-[9px] text-neutral-500">spent</span>}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -688,8 +718,8 @@ function ActionPanel({
       {/* Climb (only when in a pit) + End Turn — End Turn spans the rest. */}
       <div className="mt-2 grid grid-cols-4 gap-2">
         {myHero.inPit && (
-          <ActionButton wide label="Climb out (costs 2 movement)" icon="⬆️" onClick={onClimbPit} disabled={!canAct || myHero.moveLeft < 2} flavor="orange"
-            tip="Climb out of the pit you fell into (costs 2 movement)." />
+          <ActionButton wide label="Climb out (forfeits movement)" icon="⬆️" onClick={onClimbPit} disabled={!canAct || myHero.hasRolled} flavor="orange"
+            tip="Haul yourself out of the pit (must do this before rolling movement — it forfeits movement for the turn, but you can still take an action)." />
         )}
         <div className={myHero.inPit ? 'col-span-3' : 'col-span-4'}>
           <ActionButton wide label="End turn" icon="⏭️" onClick={onEndTurn} disabled={!canAct} flavor="slate"
@@ -1075,6 +1105,82 @@ function DeathSaveModal({
 // ============================================================================
 // Exit-dungeon modal
 // ============================================================================
+
+// ============================================================================
+// Falling-block retreat modal
+// ============================================================================
+
+function FallingBlockModal({
+  hero, options, isMyHero, onChoice,
+}: {
+  hero: Hero;
+  options: Coord[];
+  isMyHero: boolean;
+  onChoice: (at: Coord) => void;
+}) {
+  const heroName = HERO_DEFAULTS[hero.klass].name;
+  // Direction labels so buttons read "Retreat North" etc.
+  const dirLabel = (base: Coord, opt: Coord) => {
+    const dy = opt.y - base.y, dx = opt.x - base.x;
+    if (dy < 0) return '↑ North';
+    if (dy > 0) return '↓ South';
+    if (dx < 0) return '← West';
+    return '→ East';
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ background: 'rgba(0,0,0,0.85)' }}
+    >
+      <div
+        className="mx-4 max-w-sm w-full rounded-2xl border-4 p-6 text-center shadow-2xl"
+        style={{
+          borderColor: '#a07830',
+          background: 'radial-gradient(ellipse at top, #2a1a04 0%, #0e0a02 100%)',
+          color: '#e8d4a0',
+          fontFamily: 'Georgia, serif',
+        }}
+      >
+        <div className="text-3xl mb-2">🪨</div>
+        <div
+          className="text-xl font-bold uppercase tracking-widest mb-1"
+          style={{ color: '#f0c060', textShadow: '0 2px 8px rgba(200,140,0,0.5)' }}
+        >
+          Falling Block!
+        </div>
+        <div className="text-sm mb-4" style={{ color: '#c8a870' }}>
+          <strong style={{ color: '#f0c060' }}>{heroName}</strong> leaps aside as the
+          ceiling collapses. Choose a safe square to retreat to.
+        </div>
+
+        {isMyHero ? (
+          <div className="flex flex-col gap-2">
+            {options.map((opt, i) => (
+              <button
+                key={i}
+                onClick={() => onChoice(opt)}
+                className="rounded-lg border px-4 py-2 text-sm font-semibold transition active:scale-95"
+                style={{
+                  borderColor: '#a07830',
+                  background: 'linear-gradient(135deg, #6b4e10, #3a2a04)',
+                  color: '#f0d080',
+                }}
+              >
+                {dirLabel(hero.at, opt)}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="text-sm" style={{ color: '#c8a870' }}>
+            Waiting for <strong style={{ color: '#f0c060' }}>{heroName}</strong>'s player
+            to choose a retreat square…
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ExitDungeonModal({
   hero, isMyHero, companions, onChoice,

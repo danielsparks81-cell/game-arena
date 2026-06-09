@@ -248,6 +248,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onDeathSave={(choice) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'death_save', choice }); })}
       onPickSpellSchool={(school) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'pick_spell_school', school }); })}
       onExitDungeon={(confirm) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'exit_dungeon', confirm }); })}
+      onFallingBlockMove={(at) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'falling_block_move', at }); })}
     />
   ),
 

@@ -530,7 +530,11 @@ export type PendingPrompt =
   | { kind: 'climb_pit'; heroIdx: number }
   /** Hero has stepped onto the stairway with the win condition satisfied.
    *  They must choose to leave (ending the quest for everyone) or stay. */
-  | { kind: 'exit_dungeon'; heroIdx: number };
+  | { kind: 'exit_dungeon'; heroIdx: number }
+  /** A falling block sealed the square under/ahead of the hero. They must
+   *  choose one of the adjacent walkable squares to retreat to. If there are
+   *  no options the engine resolves automatically (−2 BP instead). */
+  | { kind: 'falling_block'; heroIdx: number; options: Coord[] };
 
 // ============================================================================
 // Action union — wire-level moves from a client to the engine
@@ -562,6 +566,8 @@ export type HQAction =
   /** Resolve the exit-dungeon prompt — confirm leaves the dungeon (quest complete),
    *  decline dismisses the prompt and the hero may continue or walk back. */
   | { kind: 'exit_dungeon'; confirm: boolean }
+  /** Resolve a falling_block prompt: the hero moves to one of the offered squares. */
+  | { kind: 'falling_block_move'; at: Coord }
   | { kind: 'cast_spell'; spellId: string; targetMonsterId?: string; targetHeroIdx?: number; targetDoorId?: string }
   | { kind: 'use_potion'; potionId: string }
   /** Pass a held potion to an adjacent living hero. Not an action — does not
