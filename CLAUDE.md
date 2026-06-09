@@ -258,7 +258,7 @@ saves themselves with their own resources, or not at all.
 |---|---|---|
 | phaseMonsters | Hero | Veil of Mist — hero passes through monster cells this move |
 | phaseWalls | Hero | Pass Through Rock — hero passes through walls this move |
-| attackBonus | Hero | Extra attack dice on next attack (Courage) |
+| attackBonus | Hero | Extra attack dice on every attack while any monster is in LOS (Courage) |
 | defenseBonus | Hero | Extra defense die until damage taken (Rock Skin) |
 | feared | Hero | Dread Fear — hero may only use 1 attack die; breaks on mind-roll 6 |
 | asleep | Hero | Dread Sleep — hero cannot act or defend; breaks on mind-roll 6 |
