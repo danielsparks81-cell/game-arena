@@ -321,6 +321,135 @@ export function buildTreasureDeck(): TreasureCard[] {
 }
 
 // ============================================================================
+// Quest 0 — "The Vault" (test arena — campaign transition smoke-test).
+//
+// Layout: a compact 30×23 board with two rooms.
+//   f = entrance/stairway room (heroes enter here)
+//   c = upper vault room (the chest + boss orc)
+//
+// Objectives: find the secret door to the vault, kill the named orc "him",
+// then escape back through the stairway. Win: kill_and_exit "him".
+// ============================================================================
+
+const QUEST0_MAP: string[] = [
+  '##############################', // 0
+  '##############################', // 1
+  '##########cccc################', // 2  c = vault room
+  '##########cccc################', // 3
+  '##########cccc################', // 4
+  '##########cccc################', // 5
+  '######ffSSccccWW##############', // 6  f = entrance; SS stairs; WW blocked wall
+  '######ffSS..........##########', // 7
+  '######ffff..........##########', // 8
+  '######ffff..######..##########', // 9  central rock block
+  '######ffff..######..##########', // 10
+  '#########W..######..W#########', // 11  single blocked walls flanking corridor
+  '#########W..######..W#########', // 12
+  '##########..######..##########', // 13
+  '##########..........##########', // 14
+  '##########..........##########', // 15
+  '##############WW##############', // 16  bottom blocked wall pair
+  '##############################', // 17
+  '##############################', // 18
+  '##############################', // 19
+  '##############################', // 20
+  '##############################', // 21
+  '##############################', // 22
+];
+
+function makeQuestZero(): QuestDef {
+  const board = parseAsciiBoard(QUEST0_MAP);
+
+  const furniture: QuestDef['furniture'] = [
+    // Gold chest at top-left corner of the vault room (c).
+    {
+      id: 'furn_1',
+      kind: 'chest',
+      cells: [{ x: 11, y: 2 }],
+      facing: 0,
+      blocksMove: true,
+      blocksLos: false,
+      fixedContent: { kind: 'gold', amount: 900 },
+    },
+  ];
+
+  // door(x, y, 'left')  → left  edge of (x,y) → crossing a=(x,y) b=(x-1,y)
+  // door(x, y, 'top')   → top   edge of (x,y) → crossing a=(x,y) b=(x,y-1)
+  const doors: QuestDef['doors'] = [
+    // Standard door on the left edge of (10,8): connects f room to corridor.
+    { id: 'door_1', crossings: [{ a: { x: 10, y: 8 }, b: { x: 9, y: 8 } }], secret: false },
+    // Secret door on the top edge of (11,7): connects c vault to corridor.
+    { id: 'door_2', crossings: [{ a: { x: 11, y: 7 }, b: { x: 11, y: 6 } }], secret: true },
+  ];
+
+  const orcSt = MONSTER_STATS.orc;
+  const monsters: QuestDef['monsters'] = [
+    // Guard orc in the vault.
+    {
+      id: 'mon_1',
+      kind: 'orc',
+      at: { x: 12, y: 5 },
+      bodyMax: orcSt.bodyMax,
+      attack: orcSt.attack,
+      defense: orcSt.defense,
+      move: orcSt.move,
+      mind: orcSt.mind,
+      goldMin: orcSt.goldMin,
+      goldMax: orcSt.goldMax,
+      roomId: board.regions[5][12],
+    },
+    // Named boss orc — killing him + escaping is the win condition.
+    {
+      id: 'mon_2',
+      kind: 'orc',
+      at: { x: 11, y: 5 },
+      bodyMax: orcSt.bodyMax,
+      attack: orcSt.attack,
+      defense: orcSt.defense,
+      move: orcSt.move,
+      mind: orcSt.mind,
+      displayName: 'him',
+      goldMin: orcSt.goldMin,
+      goldMax: orcSt.goldMax,
+      roomId: board.regions[5][11],
+    },
+  ];
+
+  const traps: QuestDef['traps'] = [
+    { id: 'trap_1', kind: 'falling_block', at: { x: 13, y: 7 } },
+    { id: 'trap_2', kind: 'falling_block', at: { x: 13, y: 8 } },
+    { id: 'trap_3', kind: 'spear',         at: { x: 8,  y: 9 } },
+    { id: 'trap_4', kind: 'pit',           at: { x: 11, y: 6 } },
+  ];
+
+  return {
+    id: 'quest_zero',
+    name: 'The Vault',
+    briefing:
+      '"A small vault lies beyond these stairs. A wretched orc they call \'him\' guards a ' +
+      'chest of stolen gold. Find the secret passage, deal with the guards, and escape ' +
+      'with the treasure. A simple task — for true heroes."',
+    width: board.width,
+    height: board.height,
+    tiles: board.tiles,
+    regions: board.regions,
+    doors,
+    furniture,
+    traps,
+    monsters,
+    startCells: board.startCells,
+    wanderingMonster: 'orc',
+    winCondition: { kind: 'kill_and_exit', monsterDisplayName: 'him' },
+    reward: { kind: 'none' }, // reward is the 900g chest in the vault
+    roomNotes: [
+      { at: { x: 11, y: 3 }, text: 'A heavy chest sits in the corner. The lid is sealed with a rusted lock.' },
+    ],
+  };
+}
+
+export const QUEST0: QuestDef = makeQuestZero();
+
+// ============================================================================
 // Quest 1 — "The Trial". The board, furniture, doors, monsters and staircase are
 // the layout authored in the Map Authoring sandbox (quests/quest1.ts), wired
 // into the playable engine 1:1. Quest-book content (Verag as the objective, the
@@ -421,7 +550,17 @@ function makeQuest1(): QuestDef {
 }
 
 export const QUEST1: QuestDef = makeQuest1();
-export const QUESTS: Record<string, QuestDef> = { the_trial: QUEST1 };
+
+/** All quests, keyed by their id. */
+export const QUESTS: Record<string, QuestDef> = {
+  quest_zero: QUEST0,
+  the_trial:  QUEST1,
+};
+
+/** Campaign order — the sequence in which quests are played.
+ *  Quest 0 ("The Vault") is a self-contained test arena; completing it
+ *  transitions the campaign into Quest 1 ("The Trial"). */
+export const CAMPAIGN: string[] = ['quest_zero', 'the_trial'];
 
 // ============================================================================
 // Hero-instance factory
