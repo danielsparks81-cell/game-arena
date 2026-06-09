@@ -7,7 +7,13 @@
 import {
   type HQState,
   HERO_DEFAULTS,
+  CAMPAIGN,
+  QUESTS,
 } from '@/lib/games/heroquest';
+
+// The lobby always previews the quest that start_game will actually launch —
+// CAMPAIGN[0] — regardless of whatever questId is frozen in the saved DB state.
+const STARTING_QUEST = QUESTS[CAMPAIGN[0]];
 import { HeroToken, HeartIcon, MindIcon, SwordIcon, ShieldIcon } from './Art';
 import { safeAccent } from '@/lib/accentColors';
 
@@ -47,9 +53,9 @@ export default function HeroLobby({
         <div className="px-5 py-4 text-center" style={{ fontFamily: 'Georgia, serif' }}>
           <div className="text-[10px] uppercase tracking-[0.4em] text-amber-900/70">From the Books of Mentor</div>
           <h2 className="mt-1 text-2xl font-bold uppercase tracking-wide" style={{ color: '#5a1a08' }}>
-            {state.quest.name}
+            {STARTING_QUEST.name}
           </h2>
-          <p className="mt-2 text-sm">{state.quest.briefing}</p>
+          <p className="mt-2 text-sm">{STARTING_QUEST.briefing}</p>
         </div>
       </div>
 
