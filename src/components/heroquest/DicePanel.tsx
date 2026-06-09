@@ -41,7 +41,7 @@ export function calcBoardDelay(atkDice: number, defDice: number): number {
 // down to the persistent dice panel.
 // ============================================================================
 
-type Phase = 'idle' | 'atk' | 'burst' | 'def' | 'leaving';
+type Phase = 'idle' | 'atk' | 'burst' | 'def' | 'def_burst' | 'leaving';
 
 /** Big roll animation that pops up over the board whenever new dice are rolled
  *  and then slides down toward the dice panel.  Render inside a `relative`
@@ -103,6 +103,7 @@ export function DiceRollOverlay({ attack, defense, move }: {
         const c = i + 1;
         ts.push(setTimeout(() => setDefRevealed(c), DEF_INIT + i * PER_DIE));
       }
+      ts.push(setTimeout(() => setPhase('def_burst'), DEF_INIT + M * PER_DIE));
       ts.push(setTimeout(flyOut, DEF_INIT + M * PER_DIE + POST_DEF));
       ts.push(setTimeout(() => setPhase('idle'), DEF_INIT + M * PER_DIE + POST_DEF + LEAVE_DUR));
 
@@ -133,6 +134,7 @@ export function DiceRollOverlay({ attack, defense, move }: {
         ts.push(setTimeout(() => setDefRevealed(c), defAt + DEF_INIT + i * PER_DIE));
       }
       const allDone = defAt + DEF_INIT + M * PER_DIE;
+      ts.push(setTimeout(() => setPhase('def_burst'), allDone));
       ts.push(setTimeout(flyOut, allDone + POST_DEF));
       ts.push(setTimeout(() => setPhase('idle'), allDone + POST_DEF + LEAVE_DUR));
     }
@@ -147,9 +149,10 @@ export function DiceRollOverlay({ attack, defense, move }: {
   const atkRolling = phase === 'atk';
   const defRolling = phase === 'def';
 
-  // Attack burst is shown during 'burst', 'def', and 'leaving' phases
-  const showBurst = !showMv && !!attack && (phase === 'burst' || phase === 'def' || phase === 'leaving');
-  const showDef   = (phase === 'def' || phase === 'leaving') && !!defense;
+  // Attack burst is shown during 'burst', 'def', 'def_burst', and 'leaving' phases
+  const showBurst    = !showMv && !!attack && (phase === 'burst' || phase === 'def' || phase === 'def_burst' || phase === 'leaving');
+  const showDef      = (phase === 'def' || phase === 'def_burst' || phase === 'leaving') && !!defense;
+  const showDefBurst = !showMv && !!defense && (phase === 'def_burst' || phase === 'leaving');
 
   // Running skull count: increases as each attack die lands
   const skullsSoFar = attack ? attack.faces.slice(0, atkRevealed).filter(f => f === 'skull').length : 0;
@@ -309,6 +312,43 @@ export function DiceRollOverlay({ attack, defense, move }: {
                     />
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Defense result burst — pops in once all defense dice have settled */}
+            {showDefBurst && defense && (
+              <div
+                className="flex flex-col items-center gap-1"
+                style={{ animation: 'hq-burst-pop 0.38s cubic-bezier(.2,1.4,.4,1) both' }}
+              >
+                <div
+                  style={{
+                    fontSize: 80,
+                    lineHeight: 1,
+                    fontFamily: 'Georgia, serif',
+                    fontWeight: 900,
+                    color: defense.blocks === 0 ? '#94a3b8' : '#93c5fd',
+                    textShadow: defense.blocks > 0
+                      ? '0 0 12px #60a5fa, 0 2px 6px rgba(0,0,0,0.8)'
+                      : '0 2px 4px rgba(0,0,0,0.6)',
+                  }}
+                >
+                  {defense.blocks === 0 ? '–' : defense.blocks}
+                  <span style={{ fontSize: 48, marginLeft: 6 }}>🛡️</span>
+                </div>
+                {defense.blocks === 0 && (
+                  <div
+                    style={{
+                      fontFamily: 'Georgia, serif',
+                      fontSize: 15,
+                      letterSpacing: '0.12em',
+                      textTransform: 'uppercase',
+                      color: '#94a3b8',
+                    }}
+                  >
+                    No blocks
+                  </div>
+                )}
               </div>
             )}
           </>
