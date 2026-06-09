@@ -13,12 +13,12 @@ const FACE_POOL: DieFace[] = ['skull', 'skull', 'skull', 'white_shield', 'white_
 // Shared timing constants (ms) — must match calcBoardDelay in HeroQuestBoard
 // ============================================================================
 
-const INIT_SPIN  = 450;   // attack dice spin before first one lands
-const PER_DIE    = 330;   // gap between each die settling
-const ATK_BURST  = 550;   // skull burst shown after all attack dice settle
-const DEF_INIT   = 350;   // defense dice spin before first one lands
-const POST_DEF   = 300;   // pause after all defense dice settled
-const LEAVE_DUR  = 450;   // leaving animation duration
+const INIT_SPIN  = 550;   // attack dice spin before first one lands
+const PER_DIE    = 400;   // gap between each die settling
+const ATK_BURST  = 650;   // skull burst shown after all attack dice settle
+const DEF_INIT   = 430;   // defense dice spin before first one lands
+const POST_DEF   = 380;   // pause after all defense dice settled
+const LEAVE_DUR  = 550;   // leaving animation duration
 
 /** Duration the board canvas must keep showing the pre-roll snapshot.
  *  Call with the number of faces in each roll group. */

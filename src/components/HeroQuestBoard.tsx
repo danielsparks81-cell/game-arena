@@ -208,41 +208,117 @@ function PlayingView({
 
   // Board display state — held at the pre-attack snapshot during dice animations
   // so monster HP / death isn't revealed on the map before the dice settle.
-  // The dice panel and overlay always use the live `state`; only the board canvas
-  // uses `boardState`. Non-combat state changes (movement, doors, turn changes)
-  // apply immediately. Combat rolls are delayed to match the overlay duration.
+  // For COMBAT rolls the board is frozen until the dice settle (boardState delay).
+  // For TRAP rolls the board updates immediately so the walk animation plays first,
+  // then a brief banner fires, and THEN the dice overlay appears (displayedRoll delay).
   const [boardState, setBoardState] = useState<typeof state>(state);
   const latestStateRef = useRef(state);
   const combatTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCombatSigRef = useRef('');
+
+  // STEP_MS must match the setInterval period in Board.tsx useSteppedPositions.
+  const STEP_MS       = 150;   // ms per walk step
+  const TRAP_PAUSE_MS = 600;   // banner shown before dice appear
+  const preRollHeroPosRef = useRef<Map<number, { x: number; y: number }>>(
+    new Map(state.heroes.map(h => [h.seat, { x: h.at.x, y: h.at.y }]))
+  );
+  const trapAnimatingRef  = useRef(false);
+  const trapTimersRef     = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [displayedRoll, setDisplayedRoll] = useState<typeof state.lastRoll>(state.lastRoll);
+  const [trapAlert, setTrapAlert]         = useState(false);
+
   useEffect(() => {
     latestStateRef.current = state;
-    // Detect a new combat roll (attack/defense dice — not movement).
     const sig = (state.lastRoll?.faces ?? []).join(',') + '|' + (state.lastDefenseRoll?.faces ?? []).join(',');
-    const isNewCombat = sig !== lastCombatSigRef.current && (state.lastRoll != null || state.lastDefenseRoll != null);
-    if (isNewCombat) {
+    const isNewRoll = sig !== lastCombatSigRef.current && (state.lastRoll != null || state.lastDefenseRoll != null);
+
+    if (isNewRoll) {
       lastCombatSigRef.current = sig;
-      // Delay board update to match the one-die-at-a-time overlay animation.
-      // calcBoardDelay handles attack-only, defense-only (Fire/Ball of Flame
-      // save rolls), and two-beat (attack + defense) based on actual dice counts.
-      const ms = calcBoardDelay(
-        state.lastRoll?.faces.length ?? 0,
-        state.lastDefenseRoll?.faces.length ?? 0,
-      );
-      if (combatTimerRef.current) clearTimeout(combatTimerRef.current);
-      combatTimerRef.current = setTimeout(() => {
-        setBoardState(latestStateRef.current);
-        combatTimerRef.current = null;
-      }, ms);
-      // Don't update boardState now — keep showing the pre-attack board
-    } else if (combatTimerRef.current === null) {
-      // No animation in progress — apply state changes immediately
+
+      // Trap roll: attack dice, no defense dice, and the active hero changed square.
+      // Walk animation must finish before the dice overlay appears.
+      const activeHero = state.heroes[state.turnIndex];
+      const prevPos    = activeHero ? preRollHeroPosRef.current.get(activeHero.seat) : null;
+      const isTrapRoll =
+        !!state.lastRoll && !state.lastDefenseRoll &&
+        !!activeHero && !!prevPos &&
+        (activeHero.at.x !== prevPos.x || activeHero.at.y !== prevPos.y);
+
+      if (isTrapRoll && prevPos && activeHero) {
+        // Board state applies immediately — the canvas needs the new hero position
+        // so useSteppedPositions can animate the walk right away.
+        setBoardState(state);
+        state.heroes.forEach(h => preRollHeroPosRef.current.set(h.seat, { x: h.at.x, y: h.at.y }));
+
+        const dist   = Math.abs(activeHero.at.x - prevPos.x) + Math.abs(activeHero.at.y - prevPos.y);
+        const walkMs = dist * STEP_MS;
+
+        trapTimersRef.current.forEach(clearTimeout);
+        trapTimersRef.current = [];
+        trapAnimatingRef.current = true;
+        setDisplayedRoll(null);
+        setTrapAlert(false);
+
+        // Hero arrives on the trap square → show the banner.
+        trapTimersRef.current.push(setTimeout(() => setTrapAlert(true), walkMs));
+        // Banner fades → dice overlay appears.
+        trapTimersRef.current.push(setTimeout(() => {
+          setTrapAlert(false);
+          trapAnimatingRef.current = false;
+          setDisplayedRoll(latestStateRef.current.lastRoll);
+        }, walkMs + TRAP_PAUSE_MS));
+
+      } else {
+        // Combat roll or other non-movement roll — dice fire immediately,
+        // board canvas is frozen to hide monster death until dice settle.
+        setDisplayedRoll(state.lastRoll);
+        const ms = calcBoardDelay(
+          state.lastRoll?.faces.length ?? 0,
+          state.lastDefenseRoll?.faces.length ?? 0,
+        );
+        if (ms > 0) {
+          if (combatTimerRef.current) clearTimeout(combatTimerRef.current);
+          combatTimerRef.current = setTimeout(() => {
+            setBoardState(latestStateRef.current);
+            combatTimerRef.current = null;
+          }, ms);
+        } else {
+          setBoardState(state);
+        }
+      }
+
+    } else if (combatTimerRef.current === null && !trapAnimatingRef.current) {
+      // No animation in flight — keep board, displayed roll, and positions in sync.
       setBoardState(state);
+      setDisplayedRoll(state.lastRoll);
+      state.heroes.forEach(h => preRollHeroPosRef.current.set(h.seat, { x: h.at.x, y: h.at.y }));
     }
-    // If a timer IS running and a non-combat state update arrives (e.g. turn
-    // advances automatically), latestStateRef is updated so the timer will
-    // pick up the latest state when it fires.
+    // While a timer IS running, latestStateRef is updated so the timer picks up
+    // the most recent state (e.g. turn advances) when it fires.
   }, [state]);
+
+  // Clean up pending trap-animation timers if the component unmounts mid-animation.
+  useEffect(() => () => { trapTimersRef.current.forEach(clearTimeout); }, []);
+
+  // Track the falling-block sealed square so the walk-animation BFS can thread
+  // through it rather than routing around the freshly-blocked tile during both
+  // the approach walk and the retreat walk.
+  // Set when the pendingPrompt appears; cleared ~1 s after the retreat resolves.
+  const [sealedSquare, setSealedSquare] = useState<{ x: number; y: number } | null>(null);
+  const sealedClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (state.pendingPrompt?.kind === 'falling_block') {
+      setSealedSquare(state.pendingPrompt.sealedAt);
+      if (sealedClearTimerRef.current) clearTimeout(sealedClearTimerRef.current);
+    } else if (sealedSquare) {
+      // Prompt just cleared — keep the passable override alive for the
+      // retreat walk animation before removing it (~1 s is generous).
+      if (sealedClearTimerRef.current) clearTimeout(sealedClearTimerRef.current);
+      sealedClearTimerRef.current = setTimeout(() => setSealedSquare(null), 1000);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.pendingPrompt]);
+  useEffect(() => () => { if (sealedClearTimerRef.current) clearTimeout(sealedClearTimerRef.current); }, []);
 
   // Spell targeting: clicking a spell that needs a target parks it here until
   // the player picks a monster (on the board) or a hero (from the picker bar).
@@ -497,7 +573,7 @@ function PlayingView({
             fixed size (shrink-0) so the column never jumps. The roll overlay
             flies here on exit (targeted by this id). */}
         <div id="hq-dice-panel" className="shrink-0">
-          <DicePanel attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
+          <DicePanel attack={displayedRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
         </div>
 
         {/* Chronicle takes the remaining height and scrolls internally.
@@ -524,8 +600,31 @@ function PlayingView({
           onPickDoor={(doorId) => { if (pendingSpell) { onCastSpell(pendingSpell.id, { targetDoorId: doorId }); setPendingSpell(null); } }}
           passTargetSeats={passingPotionId ? passTargetSeats : undefined}
           onPassToHero={(seat) => { if (passingPotionId) { onPassPotion(passingPotionId, seat); setPassingPotionId(null); } }}
+          sealedSquare={sealedSquare}
         />
-        <DiceRollOverlay attack={state.lastRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
+        {/* Trap animation: banner shown after the hero finishes walking to the trap
+            square, before the dice overlay appears. */}
+        {trapAlert && (
+          <div
+            className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center"
+            style={{ background: 'rgba(0,0,0,0.45)' }}
+          >
+            <div
+              className="rounded border-2 border-orange-500 bg-black/80 px-6 py-3 text-center"
+              style={{
+                fontFamily: 'Georgia, serif',
+                color: '#fb923c',
+                fontSize: '1.75rem',
+                fontWeight: 'bold',
+                letterSpacing: '0.05em',
+                textShadow: '0 0 24px rgba(251,146,60,0.9)',
+              }}
+            >
+              ⚠ You have triggered a trap! ⚠
+            </div>
+          </div>
+        )}
+        <DiceRollOverlay attack={displayedRoll} defense={state.lastDefenseRoll} move={state.lastMoveRoll} />
         <TreasureCardOverlay fx={state.lastTreasureFx} />
       </div>
     </div>

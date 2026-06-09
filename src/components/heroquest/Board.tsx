@@ -36,10 +36,15 @@ type RPos = { x: number; y: number };
  *  tile-only BFS would happily walk through them — the animation must respect the
  *  same edges the engine does, or figures appear to clip through walls. */
 type EdgeBlocked = (ax: number, ay: number, bx: number, by: number) => boolean;
-function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos, edgeBlocked: EdgeBlocked): RPos[] {
+function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos, edgeBlocked: EdgeBlocked, extraPassable?: Set<string>): RPos[] {
   if (from.x === to.x && from.y === to.y) return [];
   const H = tiles.length, W = tiles[0]?.length ?? 0;
-  const walk = (x: number, y: number) => { const t = tiles[y]?.[x]; return !!t && (t.kind === 'floor' || t.kind === 'stairs'); };
+  const walk = (x: number, y: number) => {
+    const t = tiles[y]?.[x];
+    if (!t) return false;
+    if (extraPassable?.has(`${x},${y}`)) return true; // e.g. freshly-sealed falling-block square
+    return t.kind === 'floor' || t.kind === 'stairs';
+  };
   const prev = new Map<string, string>();
   const seen = new Set<string>([`${from.x},${from.y}`]);
   const q: RPos[] = [from];
@@ -63,12 +68,16 @@ function bfsWalk(tiles: { kind: string }[][], from: RPos, to: RPos, edgeBlocked:
 /** Rendered positions that lag the logical ones, walking one cell at a time.
  *  `overridePath` lets the caller inject an explicit animation path for one unit
  *  (used for drag-move so the token walks the traced route, not a BFS shortcut).
- *  The ref is consumed (cleared) once the override path is installed. */
+ *  The ref is consumed (cleared) once the override path is installed.
+ *  `extraPassable` overrides the tile-kind check for specific squares (used to let
+ *  a freshly-sealed falling-block square remain walkable during the retreat animation
+ *  so the token doesn't route around it). */
 function useSteppedPositions(
   units: { id: string; x: number; y: number }[],
   tiles: { kind: string }[][],
   edgeBlocked: EdgeBlocked,
   overridePath?: React.MutableRefObject<{ id: string; path: RPos[] } | null>,
+  extraPassable?: Set<string>,
 ): Record<string, RPos> {
   const pos = useRef<Record<string, RPos>>({});
   const path = useRef<Record<string, RPos[]>>({});
@@ -90,11 +99,11 @@ function useSteppedPositions(
         if (idx >= 0) {
           path.current[u.id] = ov.path.slice(0, idx + 1);
         } else {
-          path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked);
+          path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked, extraPassable);
         }
         overridePath!.current = null; // consume — one use per commit
       } else {
-        path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked);
+        path.current[u.id] = bfsWalk(tiles, cur, { x: u.x, y: u.y }, edgeBlocked, extraPassable);
       }
     }
   }
@@ -136,6 +145,10 @@ export type BoardCanvasProps = {
    *  this set are clickable targets; clicking one completes the pass. */
   passTargetSeats?: Set<number>;
   onPassToHero?: (seat: number) => void;
+  /** Falling-block: the square that was just sealed.  Treated as passable for
+   *  walk-animation BFS so the retreat path threads through it rather than
+   *  routing around the newly-blocked cell. Cleared ~1 s after the retreat. */
+  sealedSquare?: { x: number; y: number } | null;
 };
 
 export default function HeroQuestBoardCanvas({
@@ -143,6 +156,7 @@ export default function HeroQuestBoardCanvas({
   spellTargetMonsters = false, onPickMonster,
   spellTargetDoor = false, onPickDoor,
   passTargetSeats, onPassToHero,
+  sealedSquare,
 }: BoardCanvasProps) {
   const W = state.quest.width;
   const H = state.quest.height;
@@ -207,7 +221,10 @@ export default function HeroQuestBoardCanvas({
   const committedDragPath = useRef<{ id: string; path: RPos[] } | null>(null);
   // Key by seat, NOT playerId: in solo / 2-player games one player owns several
   // heroes, so playerIds repeat. Seat (0..3) is always unique per hero.
-  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: String(h.seat), x: h.at.x, y: h.at.y })), state.tiles, animEdgeBlocked, committedDragPath);
+  const sealedPassable = sealedSquare
+    ? new Set([`${sealedSquare.x},${sealedSquare.y}`])
+    : undefined;
+  const heroPos = useSteppedPositions(state.heroes.filter(h => h.body > 0).map(h => ({ id: String(h.seat), x: h.at.x, y: h.at.y })), state.tiles, animEdgeBlocked, committedDragPath, sealedPassable);
   const monPos = useSteppedPositions(state.monsters.map(m => ({ id: m.id, x: m.at.x, y: m.at.y })), state.tiles, animEdgeBlocked);
 
   // ---- Spell animation: when a new cast lands (lastSpellFx.seq changes), fire a
