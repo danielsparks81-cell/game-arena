@@ -62,16 +62,38 @@ export default function CharacterSheet({
     const dead = hero.body <= 0;
     return (
       <div
-        className={`rounded-lg border-2 overflow-hidden text-amber-950 ${dead ? 'opacity-50 grayscale' : ''}`}
+        className={`rounded-lg overflow-hidden text-amber-950 ${dead ? 'opacity-50 grayscale' : ''}`}
         style={{
-          background: PARCHMENT_BG,
-          borderColor: isActive ? accent : '#7a5a08',
-          boxShadow: isActive ? `0 0 12px ${accent}` : undefined,
+          background: isActive
+            ? 'radial-gradient(ellipse at top, #fff8dc 0%, #f5d97a 60%, #d4a030 100%)'
+            : PARCHMENT_BG,
+          border: isActive ? `3px solid ${accent}` : '2px solid #7a5a08',
+          boxShadow: isActive
+            ? `0 0 0 2px ${accent}66, 0 0 18px 4px ${accent}88`
+            : undefined,
         }}
       >
+        {/* "YOUR TURN" banner — only on the active hero */}
+        {isActive && (
+          <div
+            className="flex items-center justify-center gap-1 py-0.5 text-[9px] font-black uppercase tracking-[0.2em]"
+            style={{
+              background: `linear-gradient(90deg, ${accent}cc, ${accent}ff, ${accent}cc)`,
+              color: '#fff',
+              textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+              letterSpacing: '0.18em',
+            }}
+          >
+            ⚔ Your Turn ⚔
+          </div>
+        )}
         <div
           className="flex items-center gap-2 border-b border-amber-900/40 px-2 py-0.5"
-          style={{ background: `linear-gradient(180deg, ${accent}aa 0%, ${accent}44 100%)` }}
+          style={{
+            background: isActive
+              ? `linear-gradient(180deg, ${accent}dd 0%, ${accent}77 100%)`
+              : `linear-gradient(180deg, ${accent}aa 0%, ${accent}44 100%)`,
+          }}
         >
           <HeroToken klass={hero.klass} size={24} color={accent} ring={isActive ? '#fff' : undefined} />
           <div className="min-w-0 flex-1 leading-tight">

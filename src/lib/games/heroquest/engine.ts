@@ -41,6 +41,7 @@ import {
   DIE_FACES,
 } from './types';
 import {
+  ARMORY,
   HERO_DEFAULTS,
   MONSTER_STATS,
   QUESTS,
@@ -382,19 +383,19 @@ export function applyAction(
     return ok(s);
   }
   if (action.kind === 'start_game') {
-    if (state.phase !== 'lobby' && state.phase !== 'finished') return err('Quest already underway.');
+    if (state.phase !== 'lobby' && state.phase !== 'finished' && state.phase !== 'intermission')
+      return err('Quest already underway.');
     const claimed = state.heroes.filter(h => h.playerId);
     if (claimed.length < 1) return err('Need at least one player to start the quest.');
     // Quest routing:
-    //   lobby   → always start from the top of the campaign (CAMPAIGN[0]).
-    //             This means even rooms created before Quest Zero existed will
-    //             now start there — no stale questId in old DB rows can bypass it.
-    //   finished + heroes won → advance to next quest in the campaign.
-    //   finished + heroes lost (or final quest) → retry the same quest.
+    //   lobby        → always start from the top of the campaign (CAMPAIGN[0]).
+    //   intermission → heroes won and visited the Armory → advance to next quest.
+    //   finished + heroes won → (final quest, no next) → replay same quest.
+    //   finished + heroes lost → retry the same quest.
     let nextQuestId: string;
     if (state.phase === 'lobby') {
       nextQuestId = CAMPAIGN[0];
-    } else if (state.winner === 'heroes') {
+    } else if (state.phase === 'intermission' || state.winner === 'heroes') {
       const idx = CAMPAIGN.indexOf(state.questId);
       nextQuestId = (idx >= 0 && idx + 1 < CAMPAIGN.length)
         ? CAMPAIGN[idx + 1]
@@ -408,15 +409,22 @@ export function applyAction(
     // stale content. We carry over who claimed each hero slot (seat → class is
     // fixed), then proceed exactly as before.
     const s = initialState(nextQuestId);
-    const campaignAdvance = state.phase === 'finished' && state.winner === 'heroes';
+    const campaignAdvance = state.winner === 'heroes';
     state.heroes.forEach((old, i) => {
       if (!s.heroes[i]) return;
       s.heroes[i].playerId    = old.playerId;
       s.heroes[i].username    = old.username;
       s.heroes[i].accent_color = old.accent_color;
-      // Potions and gold are persistent between quests — carry them over.
+      if (!campaignAdvance) return;
+      // Gold, potions, and non-starting equipment persist between quests.
+      // Intermission purchases are already in old.items / old.foundPotions.
+      if (old.gold) s.heroes[i].gold = old.gold;
       if (old.foundPotions?.length) s.heroes[i].foundPotions = [...old.foundPotions];
-      if (campaignAdvance && old.gold) s.heroes[i].gold = old.gold;
+      // Carry over items bought/earned during the quest (exclude starting items
+      // that the fresh initialState already provides to avoid duplicates).
+      const startingIds = new Set(s.heroes[i].items.map((it: { id: string }) => it.id));
+      const extra = (old.items ?? []).filter(it => !startingIds.has(it.id));
+      if (extra.length) s.heroes[i].items = [...s.heroes[i].items, ...extra];
     });
     // Auto-fill any unclaimed hero slots by cycling through claimed players.
     // With 1 player → that player owns all 4. With 2 players → round-robin
@@ -468,6 +476,10 @@ export function applyAction(
   // Zargon's turn advances one monster at a time. Any client may request a step
   // (the host drives it on a timer); it's a no-op unless it's Zargon's phase.
   if (action.kind === 'zargon_step') return doZargonStep(state);
+
+  // Intermission: between-quest Armory. Any player may buy/trade for their heroes.
+  if (action.kind === 'buy_item')  return doIntermissionBuyItem(state, playerId, action.heroSeat, action.itemId);
+  if (action.kind === 'pass_item') return doIntermissionPassItem(state, playerId, action.heroSeat, action.itemId, action.toHeroSeat);
 
   // Mid-game gating: only the active player can act.
   if (state.phase !== 'heroes') return err('Wait for the engine to finish.');
@@ -621,9 +633,8 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
       trap.revealed = true;
 
       if (trap.kind === 'pit') {
-        // Stumble in: -1 BP, movement ends, but the hero still has their action
-        // this turn (they can attack an adjacent monster, search, etc.).
-        // On subsequent turns they forfeit movement to climb out (see doClimbPit).
+        // Stumble in: -1 BP, movement and turn both end immediately.
+        // On subsequent turns the hero forfeits movement to climb out (doClimbPit).
         h.inPit = true;
         h.body = Math.max(0, h.body - 1);
         h.moveLeft = 0;
@@ -631,6 +642,7 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
         checkHeroDeath(s, h);
         revealLineOfSightForHero(s, h);
         settle();
+        advanceTurnAfterTrap(s); // falling in ends the turn
         return;
       }
 
@@ -643,11 +655,21 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
         s.tiles[sq.y][sq.x] = { ...s.tiles[sq.y][sq.x], kind: 'blocked', revealed: true };
         h.moveLeft = 0;
         h.hasActed = true; // springing a falling block ends the turn
+        // Park the hero at cameFrom BEFORE calling checkHeroDeath so that if they
+        // die, the loot pile lands on a reachable square (sq is now sealed/blocked).
+        h.at = { ...cameFrom };
         pushLog(s, 'trap',
           `${heroLabel(h)} springs a falling block! The ceiling caves in` +
           (roll.skulls > 0 ? ` (-${roll.skulls} BP)` : ' (no damage)') +
           ' — the square is sealed.');
         checkHeroDeath(s, h);
+        // If the hero died (or is waiting on a death-save), don't present a retreat
+        // prompt — the pendingDeathSave UI takes priority, and when the hero declines
+        // (or there is no save) killHero auto-advances the turn.
+        if (h.body <= 0 || s.pendingDeathSave) {
+          revealLineOfSightForHero(s, h);
+          return;
+        }
         // Compute which adjacent squares the hero can retreat to (the sealed
         // square is now blocked, so only its other orthogonal neighbours qualify).
         const heroIdx = s.heroes.findIndex(x => x.seat === h.seat);
@@ -661,10 +683,8 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
             !s.heroes.some(o => o.seat !== h.seat && o.body > 0 && o.at.x === c.x && o.at.y === c.y),
           );
         if (options.length === 0) {
-          // Nowhere to go — extra -2 BP penalty and snap back to cameFrom
-          // (which is always passable since the hero came from there).
+          // Nowhere to go — extra -2 BP penalty; hero stays at cameFrom.
           h.body = Math.max(0, h.body - 2);
-          h.at = { ...cameFrom };
           pushLog(s, 'trap', `${heroLabel(h)} is crushed with no room to escape! (−2 BP)`);
           checkHeroDeath(s, h);
           revealLineOfSightForHero(s, h);
@@ -673,10 +693,9 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
           h.at = { ...options[0] };
           revealLineOfSightForHero(s, h);
         } else {
-          // Multiple options — let the player choose.
-          h.at = { ...cameFrom }; // park hero safely while waiting for input
+          // Multiple options — let the player choose. h.at is already cameFrom.
           revealLineOfSightForHero(s, h);
-          s.pendingPrompt = { kind: 'falling_block', heroIdx, options };
+          s.pendingPrompt = { kind: 'falling_block', heroIdx, options, sealedAt: { ...sq } };
         }
         return;
       }
@@ -1223,6 +1242,11 @@ function doJumpTrap(state: HQState, hero: Hero, trapId: string): ApplyResult {
     h.inPit = true;
     h.body = Math.max(0, h.body - 1);
     pushLog(s, 'trap', `${heroLabel(h)} misjudges the leap and drops into the pit! (-1 BP)`);
+    h.moveLeft = 0;
+    checkHeroDeath(s, h);
+    revealLineOfSightForHero(s, h);
+    advanceTurnAfterTrap(s); // falling in ends the turn
+    return ok(s);
   } else if (t.kind === 'falling_block') {
     const fb = rollDice(3, 'hero');
     h.body = Math.max(0, h.body - fb.skulls);
@@ -1253,6 +1277,53 @@ function doClimbPit(state: HQState, hero: Hero): ApplyResult {
   h.moveLeft = 0;
   h.hasRolled = true; // movement phase consumed — hero cannot roll after climbing
   pushLog(s, 'move', `${heroLabel(h)} hauls themselves out of the pit (movement forfeited).`);
+  return ok(s);
+}
+
+// ============================================================================
+// Intermission — between-quest Armory
+// ============================================================================
+
+function doIntermissionBuyItem(state: HQState, playerId: string, heroSeat: number, itemId: string): ApplyResult {
+  if ((state.phase as string) !== 'intermission') return err('The Armory is only open between quests.');
+  const hero = state.heroes[heroSeat];
+  if (!hero) return err('Invalid hero seat.');
+  if (hero.playerId !== playerId) return err('You do not control that hero.');
+
+  const item = ARMORY.find(it => it.id === itemId);
+  if (!item) return err('That item is not sold in the Armory.');
+  if (!item.cost) return err('That item has no price.');
+  if ((hero.gold ?? 0) < item.cost) return err(`Not enough gold — this costs ${item.cost} gp.`);
+  if (item.noWizard && hero.klass === 'wizard') return err('The Wizard cannot use that item.');
+
+  const s = clone(state);
+  const h = s.heroes[heroSeat];
+  h.gold = (h.gold ?? 0) - item.cost;
+  h.items = [...(h.items ?? []), { ...item }];
+  pushLog(s, 'search', `${heroLabel(h)} buys ${item.name} for ${item.cost} gp.`);
+  return ok(s);
+}
+
+function doIntermissionPassItem(state: HQState, playerId: string, heroSeat: number, itemId: string, toHeroSeat: number): ApplyResult {
+  if ((state.phase as string) !== 'intermission') return err('Items can only be traded between quests.');
+  const giver = state.heroes[heroSeat];
+  if (!giver) return err('Invalid hero seat.');
+  if (giver.playerId !== playerId) return err('You do not control that hero.');
+  const receiver = state.heroes[toHeroSeat];
+  if (!receiver) return err('Invalid target hero seat.');
+  if (receiver.seat === giver.seat) return err('Cannot pass an item to yourself.');
+
+  const itemIdx = (giver.items ?? []).findIndex(it => it.id === itemId);
+  if (itemIdx < 0) return err('That hero does not have that item.');
+  const item = giver.items[itemIdx];
+  if (item.noWizard && receiver.klass === 'wizard') return err('The Wizard cannot use that item.');
+
+  const s = clone(state);
+  const g = s.heroes[heroSeat];
+  const r = s.heroes[toHeroSeat];
+  g.items = g.items.filter((_, i) => i !== itemIdx);
+  r.items = [...(r.items ?? []), { ...item }];
+  pushLog(s, 'move', `${heroLabel(g)} gives ${item.name} to ${heroLabel(r)}.`);
   return ok(s);
 }
 
@@ -1507,29 +1578,29 @@ function doCastSpell(
   }
 }
 
-function doEndTurn(state: HQState, hero: Hero): ApplyResult {
-  const s = clone(state);
+/** Shared turn-advancement logic used by doEndTurn and any trap that
+ *  immediately ends the hero's turn (pit fall, etc.).  `s` must already be
+ *  a cloned state; the function mutates it in-place. */
+function advanceTurnAfterTrap(s: HQState): void {
   const roundDone = endHeroTurn(s);
-  // When the round is complete (last active hero just went) → Zargon's turn.
-  if (roundDone) {
-    beginZargonTurn(s);
-    return ok(s);
-  }
-  if ((s.phase as string) === 'finished') return ok(s);
+  if (roundDone) { beginZargonTurn(s); return; }
+  if ((s.phase as string) === 'finished') return;
   // Skip any dazed heroes who lose their turn.
   while ((s.phase as string) !== 'finished') {
-    const h = s.heroes[s.turnIndex];
-    if (!h || !h.dazed) break;
-    h.dazed = false;
-    pushLog(s, 'spell', `${heroLabel(h)} is caught in a whirlwind and loses their turn!`);
-    if (endHeroTurn(s)) {
-      beginZargonTurn(s);
-      return ok(s);
-    }
+    const next = s.heroes[s.turnIndex];
+    if (!next || !next.dazed) break;
+    next.dazed = false;
+    pushLog(s, 'spell', `${heroLabel(next)} is caught in a whirlwind and loses their turn!`);
+    if (endHeroTurn(s)) { beginZargonTurn(s); return; }
   }
-  if ((s.phase as string) === 'finished') return ok(s);
+  if ((s.phase as string) === 'finished') return;
   checkHeroTurnStart(s);
   pushLog(s, 'system', `It is ${heroLabel(s.heroes[s.turnIndex])}'s turn.`);
+}
+
+function doEndTurn(state: HQState, hero: Hero): ApplyResult {
+  const s = clone(state);
+  advanceTurnAfterTrap(s);
   return ok(s);
 }
 
@@ -2606,6 +2677,11 @@ function killHero(s: HQState, h: Hero): void {
   h.gold         = 0;
   // body stays 0; the hero token is not rendered when body <= 0.
   maybeEndQuest(s);
+  // If this hero died on their own hero-phase turn, auto-advance so the game
+  // doesn't lock up waiting for a dead player to click End Turn.
+  if ((s.phase as string) === 'heroes' && s.heroes[s.turnIndex]?.seat === h.seat) {
+    advanceTurnAfterTrap(s);
+  }
 }
 
 /**
@@ -2738,9 +2814,14 @@ function maybeEndQuest(s: HQState): void {
 }
 
 /** Finish the quest with a hero victory: set phase/winner, log, and grant the
- *  quest's completion reward to the living heroes. Centralises every win path. */
+ *  quest's completion reward to the living heroes. Centralises every win path.
+ *  If a next quest exists in the campaign the game enters 'intermission' so
+ *  heroes can visit the Armory before continuing; otherwise it goes straight to
+ *  'finished'. */
 function heroesWin(s: HQState, message: string): void {
-  s.phase = 'finished';
+  const idx = CAMPAIGN.indexOf(s.questId);
+  const hasNextQuest = idx >= 0 && idx + 1 < CAMPAIGN.length;
+  s.phase = hasNextQuest ? 'intermission' : 'finished';
   s.winner = 'heroes';
   pushLog(s, 'system', message);
   const reward = s.quest.reward;
@@ -3237,6 +3318,18 @@ function revealRegion(s: HQState, region: string): void {
     for (let x = 0; x < s.tiles[0].length; x++) {
       if (s.tiles[y][x].region === region) s.tiles[y][x].revealed = true;
     }
+  }
+  // Once a room is revealed by any means (door opened, hero phased in, etc.),
+  // any secret door that borders it becomes "found" — you can see the door frame
+  // from inside the room even if you never searched the corridor side.
+  if (!region.startsWith('room_')) return;
+  for (const door of s.doors) {
+    if (!door.secret || door.found) continue;
+    const touchesRoom = door.crossings.some(c =>
+      s.tiles[c.a.y]?.[c.a.x]?.region === region ||
+      s.tiles[c.b.y]?.[c.b.x]?.region === region,
+    );
+    if (touchesRoom) door.found = true;
   }
 }
 

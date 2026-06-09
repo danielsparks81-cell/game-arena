@@ -430,11 +430,12 @@ export type LogEntry = {
 
 /** What the engine is doing this exact moment. */
 export type Phase =
-  | 'lobby'        // before start, players picking hero classes
-  | 'spell_draft'  // wizard then elf pick their spell schools before the quest begins
-  | 'heroes'       // a hero is taking their turn
-  | 'zargon'       // engine is resolving monster turns
-  | 'finished';    // game over
+  | 'lobby'         // before start, players picking hero classes
+  | 'spell_draft'   // wizard then elf pick their spell schools before the quest begins
+  | 'heroes'        // a hero is taking their turn
+  | 'zargon'        // engine is resolving monster turns
+  | 'intermission'  // between quests: heroes visit the Armory and trade items
+  | 'finished';     // game over
 
 export type SpellElement = 'air' | 'water' | 'fire' | 'earth';
 
@@ -534,7 +535,7 @@ export type PendingPrompt =
   /** A falling block sealed the square under/ahead of the hero. They must
    *  choose one of the adjacent walkable squares to retreat to. If there are
    *  no options the engine resolves automatically (−2 BP instead). */
-  | { kind: 'falling_block'; heroIdx: number; options: Coord[] };
+  | { kind: 'falling_block'; heroIdx: number; options: Coord[]; sealedAt: Coord };
 
 // ============================================================================
 // Action union — wire-level moves from a client to the engine
@@ -583,7 +584,12 @@ export type HQAction =
    *  the wizard automatically receives all remaining schools. */
   | { kind: 'pick_spell_school'; school: SpellElement }
   /** Advance Zargon's turn by one monster (host-driven, on a timer). */
-  | { kind: 'zargon_step' };
+  | { kind: 'zargon_step' }
+  // ── Intermission (between-quest Armory) ──────────────────────────────────
+  /** Hero buys an item from the Armory using their gold. */
+  | { kind: 'buy_item'; heroSeat: number; itemId: string }
+  /** Hero passes a non-potion item to an adjacent hero (free during intermission). */
+  | { kind: 'pass_item'; heroSeat: number; itemId: string; toHeroSeat: number };
 
 export type ApplyResult =
   | { ok: true; state: HQState }

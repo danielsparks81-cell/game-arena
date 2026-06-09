@@ -14,6 +14,7 @@ import {
   type SpellElement,
   HERO_DEFAULTS,
   CAMPAIGN,
+  ARMORY,
   hasLineOfSight,
   SPELLS,
 } from '@/lib/games/heroquest';
@@ -63,6 +64,10 @@ export type HeroQuestBoardProps = {
   onExitDungeon: (confirm: boolean) => void;
   /** Resolve the falling-block retreat prompt — hero picks a safe adjacent square. */
   onFallingBlockMove: (at: Coord) => void;
+  /** Intermission: buy an Armory item for one of your heroes. */
+  onBuyItem: (heroSeat: number, itemId: string) => void;
+  /** Intermission: pass a non-potion item between heroes. */
+  onPassItem: (heroSeat: number, itemId: string, toHeroSeat: number) => void;
 };
 
 export default function HeroQuestBoard(props: HeroQuestBoardProps) {
@@ -113,6 +118,19 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
     );
   }
 
+  if (state.phase === 'intermission') {
+    return (
+      <IntermissionView
+        state={state}
+        currentUserId={props.currentUserId}
+        isHost={props.isHost}
+        onStart={props.onStart}
+        onBuyItem={props.onBuyItem}
+        onPassItem={props.onPassItem}
+      />
+    );
+  }
+
   if (state.phase === 'finished') {
     return <FinishedView state={state} isHost={props.isHost} onStart={props.onStart} />;
   }
@@ -152,6 +170,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
         <FallingBlockModal
           hero={fallingBlockHero}
           options={fallingBlockPrompt.options}
+          sealedAt={fallingBlockPrompt.sealedAt}
           isMyHero={isMyFallingBlock}
           onChoice={props.onFallingBlockMove}
         />
@@ -833,6 +852,197 @@ function LogView({ state }: { state: HQState }) {
 }
 
 // ============================================================================
+// Intermission — between-quest Armory
+// ============================================================================
+
+const PARCHMENT_BG = 'radial-gradient(ellipse, #2a1a08 0%, #120a02 100%)';
+
+function IntermissionView({
+  state, currentUserId, isHost, onStart, onBuyItem, onPassItem,
+}: {
+  state: HQState;
+  currentUserId: string;
+  isHost: boolean;
+  onStart: () => void;
+  onBuyItem: (heroSeat: number, itemId: string) => void;
+  onPassItem: (heroSeat: number, itemId: string, toHeroSeat: number) => void;
+}) {
+  const currentIdx = CAMPAIGN.indexOf(state.questId);
+  const nextQuestId = currentIdx >= 0 && currentIdx + 1 < CAMPAIGN.length
+    ? CAMPAIGN[currentIdx + 1]
+    : null;
+
+  // For the "pass item" interaction: select source hero + item, then target hero.
+  const [passing, setPassing] = useState<{ heroSeat: number; itemId: string } | null>(null);
+
+  // Which hero panels belong to the current user
+  const mySeats = new Set(state.heroes.filter(h => h.playerId === currentUserId).map(h => h.seat));
+
+  return (
+    <div className="space-y-4">
+      {/* ── Victory banner ── */}
+      <div
+        className="rounded-xl border-4 p-4 text-center shadow-2xl"
+        style={{
+          borderColor: '#d4a043',
+          background: 'radial-gradient(ellipse, #5a3a08 0%, #1a0a00 100%)',
+          color: '#ffd84d',
+        }}
+      >
+        <div className="text-3xl font-bold uppercase tracking-widest" style={{ fontFamily: 'Georgia, serif' }}>
+          ★ Quest Complete ★
+        </div>
+        <div className="mt-1 text-sm" style={{ fontFamily: 'serif', color: '#f5d97a' }}>
+          The heroes return to town. Visit the Armory before the next quest.
+        </div>
+      </div>
+
+      {/* ── Hero panels with inventory ── */}
+      <div className="grid grid-cols-2 gap-2">
+        {state.heroes.map(h => {
+          const isMine = mySeats.has(h.seat);
+          const accent = safeAccent(h.accent_color);
+          const def = HERO_DEFAULTS[h.klass];
+          return (
+            <div
+              key={h.seat}
+              className="rounded-lg border p-2 text-xs space-y-1"
+              style={{
+                background: PARCHMENT_BG,
+                borderColor: isMine ? accent : '#7a5a08',
+                boxShadow: isMine ? `0 0 8px 1px ${accent}55` : undefined,
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-bold" style={{ color: accent }}>{h.username}</span>
+                <span className="text-[10px] text-amber-300/70">{def.name}</span>
+              </div>
+              <div className="flex items-center gap-2 text-amber-200/80">
+                <span>❤ {h.body}/{h.bodyMax}</span>
+                <span className="ml-auto flex items-center gap-1"><CoinIcon size={11} />{h.gold ?? 0} gp</span>
+              </div>
+              {/* Items */}
+              {(h.items?.length ?? 0) > 0 && (
+                <div className="space-y-0.5">
+                  <div className="text-[9px] uppercase tracking-widest text-amber-400/60">Equipment</div>
+                  {h.items.map((it, idx) => {
+                    const isPassing = passing?.heroSeat === h.seat && passing?.itemId === it.id;
+                    return (
+                      <div key={`${it.id}-${idx}`} className="flex items-center justify-between gap-1">
+                        <span className="text-amber-100/90">{it.name}</span>
+                        {isMine && !passing && (
+                          <button
+                            onClick={() => setPassing({ heroSeat: h.seat, itemId: it.id })}
+                            className="rounded px-1 py-0.5 text-[9px] text-amber-400 border border-amber-700/40 hover:bg-amber-900/40"
+                          >
+                            Pass
+                          </button>
+                        )}
+                        {isPassing && (
+                          <button
+                            onClick={() => setPassing(null)}
+                            className="rounded px-1 py-0.5 text-[9px] text-red-400 border border-red-700/40"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {/* Receive-pass button */}
+              {passing && passing.heroSeat !== h.seat && (
+                <button
+                  onClick={() => {
+                    onPassItem(passing.heroSeat, passing.itemId, h.seat);
+                    setPassing(null);
+                  }}
+                  className="w-full rounded border border-amber-500/60 py-0.5 text-[9px] text-amber-300 hover:bg-amber-900/40"
+                >
+                  ← Give to {h.username}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Armory ── */}
+      <div
+        className="rounded-lg border p-3 space-y-2"
+        style={{ background: PARCHMENT_BG, borderColor: '#7a5a08' }}
+      >
+        <div className="text-[11px] uppercase tracking-widest font-bold text-amber-300" style={{ fontFamily: 'serif' }}>
+          ⚔ The Armory
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {ARMORY.map(item => (
+            <div
+              key={item.id}
+              className="rounded border border-amber-900/40 bg-neutral-900/60 p-1.5 text-xs space-y-0.5"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="font-semibold text-amber-100">{item.name}</span>
+                <span className="flex items-center gap-0.5 text-amber-400 text-[10px]">
+                  <CoinIcon size={10} />{item.cost}
+                </span>
+              </div>
+              <div className="text-[9px] text-neutral-400 leading-tight">{item.description}</div>
+              {/* Buy buttons — one per hero the current user controls */}
+              <div className="flex flex-wrap gap-1 pt-0.5">
+                {state.heroes
+                  .filter(h => mySeats.has(h.seat))
+                  .map(h => {
+                    const canAfford = (h.gold ?? 0) >= (item.cost ?? 0);
+                    const forbidden = item.noWizard && h.klass === 'wizard';
+                    const disabled = !canAfford || forbidden;
+                    const def = HERO_DEFAULTS[h.klass];
+                    return (
+                      <button
+                        key={h.seat}
+                        disabled={disabled}
+                        onClick={() => onBuyItem(h.seat, item.id)}
+                        title={
+                          forbidden ? `The ${def.name} cannot use this`
+                          : !canAfford ? `Need ${(item.cost ?? 0) - (h.gold ?? 0)} more gp`
+                          : `Buy for ${h.username} (${def.name})`
+                        }
+                        className={`rounded border px-1.5 py-0.5 text-[9px] transition ${
+                          disabled
+                            ? 'cursor-not-allowed border-neutral-700 text-neutral-600'
+                            : 'border-amber-600 text-amber-300 hover:bg-amber-900/40'
+                        }`}
+                      >
+                        {def.name[0]}
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Proceed button (host only) ── */}
+      {isHost && (
+        <button
+          onClick={onStart}
+          className="w-full rounded-lg border-2 py-2.5 text-sm font-bold uppercase tracking-widest transition"
+          style={{
+            borderColor: '#d4a043',
+            background: 'rgba(212,160,67,0.15)',
+            color: '#ffd84d',
+          }}
+        >
+          {nextQuestId ? '⚔ Begin Next Quest →' : '⚔ Play Again'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
 // Finished
 // ============================================================================
 
@@ -1111,17 +1321,20 @@ function DeathSaveModal({
 // ============================================================================
 
 function FallingBlockModal({
-  hero, options, isMyHero, onChoice,
+  hero, options, sealedAt, isMyHero, onChoice,
 }: {
   hero: Hero;
   options: Coord[];
+  sealedAt: Coord;
   isMyHero: boolean;
   onChoice: (at: Coord) => void;
 }) {
   const heroName = HERO_DEFAULTS[hero.klass].name;
-  // Direction labels so buttons read "Retreat North" etc.
-  const dirLabel = (base: Coord, opt: Coord) => {
-    const dy = opt.y - base.y, dx = opt.x - base.x;
+  // Direction labels relative to the SEALED square (all options are exactly
+  // one step away from it), not relative to the parked hero position which
+  // could be one of the options and would produce a 0,0 delta = wrong label.
+  const dirLabel = (sealed: Coord, opt: Coord) => {
+    const dy = opt.y - sealed.y, dx = opt.x - sealed.x;
     if (dy < 0) return '↑ North';
     if (dy > 0) return '↓ South';
     if (dx < 0) return '← West';
@@ -1167,7 +1380,7 @@ function FallingBlockModal({
                   color: '#f0d080',
                 }}
               >
-                {dirLabel(hero.at, opt)}
+                {dirLabel(sealedAt, opt)}
               </button>
             ))}
           </div>

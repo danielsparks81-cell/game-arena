@@ -701,7 +701,9 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'death_save'; choice: 'potion' | 'spell' | 'decline' }
   | { game: 'heroquest'; kind: 'pick_spell_school'; school: 'air' | 'water' | 'fire' | 'earth' }
   | { game: 'heroquest'; kind: 'exit_dungeon'; confirm: boolean }
-  | { game: 'heroquest'; kind: 'falling_block_move'; at: HQCoord };
+  | { game: 'heroquest'; kind: 'falling_block_move'; at: HQCoord }
+  | { game: 'heroquest'; kind: 'buy_item'; heroSeat: number; itemId: string }
+  | { game: 'heroquest'; kind: 'pass_item'; heroSeat: number; itemId: string; toHeroSeat: number };
 
 /**
  * Single entry point for every in-game action. Boards call this through the
