@@ -735,6 +735,23 @@ function walkPath(s: HQState, h: Hero, path: Coord[]): void {
       // fall through: the dodge counts as a normal step and the walk continues.
     }
 
+    // A *discovered* pit is still dangerous — walking into it without jumping
+    // first (doJumpTrap) drops the hero in, same as the original trigger.
+    const knownPit = s.traps.find(
+      t => t.triggered && t.kind === 'pit' && t.at.x === sq.x && t.at.y === sq.y,
+    );
+    if (knownPit) {
+      h.inPit = true;
+      h.body = Math.max(0, h.body - 1);
+      h.moveLeft = 0;
+      pushLog(s, 'trap', `${heroLabel(h)} walks into the open pit! (-1 BP)`);
+      checkHeroDeath(s, h);
+      revealLineOfSightForHero(s, h);
+      settle();
+      advanceTurnAfterTrap(s);
+      return;
+    }
+
     // Auto-collect any loot pile on this square (not an action — just walk over it).
     collectLoot(s, h);
 
