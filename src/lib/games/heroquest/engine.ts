@@ -402,13 +402,13 @@ export function applyAction(
     }
     // Quest routing:
     //   lobby        → always start from the top of the campaign (CAMPAIGN[0]).
-    //   intermission → heroes won and visited the Armory → advance to next quest.
-    //   finished + heroes won → (final quest, no next) → replay same quest.
-    //   finished + heroes lost → retry the same quest.
+    //   intermission → heroes won and visited the Armory → advance to next quest
+    //                  (or replay the same quest if it was the final one).
+    //   finished     → heroes are dead → retry the same quest.
     let nextQuestId: string;
     if (state.phase === 'lobby') {
       nextQuestId = CAMPAIGN[0];
-    } else if (state.phase === 'intermission' || state.winner === 'heroes') {
+    } else if (state.phase === 'intermission') {
       const idx = CAMPAIGN.indexOf(state.questId);
       nextQuestId = (idx >= 0 && idx + 1 < CAMPAIGN.length)
         ? CAMPAIGN[idx + 1]
@@ -2942,17 +2942,13 @@ function maybeEndQuest(s: HQState): void {
 
 /** Finish the quest with a hero victory: set phase/winner, log, and grant the
  *  quest's completion reward to the living heroes. Centralises every win path.
- *  If a next quest exists in the campaign the game enters 'intermission' so
- *  heroes can visit the Armory before continuing; otherwise it goes straight to
- *  'finished'. */
+ *  Always enters 'intermission' so heroes can visit the Armory and every
+ *  player can confirm ready before the host advances the campaign. */
 function heroesWin(s: HQState, message: string): void {
-  const idx = CAMPAIGN.indexOf(s.questId);
-  const hasNextQuest = idx >= 0 && idx + 1 < CAMPAIGN.length;
-  s.phase = hasNextQuest ? 'intermission' : 'finished';
+  s.phase  = 'intermission';
   s.winner = 'heroes';
-  // Reset the ready list every time we enter intermission so every player
-  // must explicitly confirm before the host can advance the campaign.
-  if (s.phase === 'intermission') s.intermissionReady = [];
+  // Reset the ready list so every player must re-confirm before the next quest.
+  s.intermissionReady = [];
   pushLog(s, 'system', message);
   const reward = s.quest.reward;
   if (reward.kind === 'gold') {

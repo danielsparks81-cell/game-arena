@@ -1428,11 +1428,9 @@ function FinishedView({
 }) {
   const heroesWon = state.winner === 'heroes';
 
-  // Determine campaign context: is there a next quest to advance to?
-  const currentIdx = CAMPAIGN.indexOf(state.questId);
-  const nextQuestId = heroesWon && currentIdx >= 0 && currentIdx + 1 < CAMPAIGN.length
-    ? CAMPAIGN[currentIdx + 1]
-    : null;
+  // FinishedView is only reached on a Zargon victory (heroes always go to
+  // intermission on a win). No campaign advance is offered here — that
+  // happens through IntermissionView after the Armory stop.
 
   // Build victory / defeat flavour text from the quest's win condition.
   const wc = state.quest.winCondition;
@@ -1478,11 +1476,7 @@ function FinishedView({
               color: heroesWon ? '#ffd84d' : '#fda4af',
             }}
           >
-            {nextQuestId
-              ? `⚔ Continue Campaign →`
-              : heroesWon
-                ? '⚔ Play Again'
-                : '⚔ Retry Quest'}
+            {heroesWon ? '⚔ Play Again' : '⚔ Retry Quest'}
           </button>
         )}
       </div>
