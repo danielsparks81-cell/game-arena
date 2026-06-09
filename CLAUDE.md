@@ -106,14 +106,11 @@ full movement remaining after casting, because the spell's value is movement-bas
   are, `attackBonus` is cleared and a log message fires. The bonus is NOT consumed when
   used in `doAttack` and does NOT expire at turn end.
 
-**Fire of Wrath** (`fire_of_wrath`) — roll-based 1 BP
+**Fire of Wrath** (`fire_of_wrath`) — 1 BP to one monster
 - Target: one visible monster (LOS required)
-- Effect: **no base (guaranteed) damage** — damage is entirely determined by the roll
-- Mechanic: monster rolls **1d6**:
-  - **1–5 (skull):** monster takes **1 BP** damage
-  - **6 (shield):** the flame is deflected — monster takes **0 damage**
-- The roll is shown as `lastDefenseRoll` for the dice-overlay animation
-- Overall: ~83% chance of 1 BP damage, ~17% chance of no damage
+- Effect: **1 automatic BP damage** — same mechanic as Ball of Flame, scaled to 1
+- Mitigation: monster rolls **1d6** — a **6** reduces damage by 1 (to 0)
+- The save die is shown as `lastDefenseRoll` for the dice-overlay animation
 
 ---
 
