@@ -1083,7 +1083,8 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
     if (room.status !== 'playing') throw new Error('Quest not in progress');
   }
 
-  const result = applyActionHQ((room.state || {}) as HQState, user.id, action);
+  const prev = (room.state || {}) as HQState;
+  const result = applyActionHQ(prev, user.id, action);
   if (!result.ok) throw new Error(result.error);
   const next = result.state;
 
@@ -1095,12 +1096,21 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
     updates.status = 'playing';
   }
   if (next.phase === 'finished') {
+    // Zargon victory: mark room finished.
     updates.status = 'finished';
     updates.rematch_votes = [];
   }
   await supabase.from('rooms').update(updates).eq('id', roomId);
 
-  if (next.phase === 'finished') {
+  // Record game history on any conclusive outcome:
+  //   • Zargon wins         → phase becomes 'finished'
+  //   • Heroes win a quest  → phase becomes 'intermission' (from a non-intermission state)
+  // We gate the hero-win case on the PHASE TRANSITION so that follow-up
+  // intermission actions (buy, pass, ready) don't insert duplicate history rows.
+  const freshHeroWin = next.phase === 'intermission'
+    && next.winner === 'heroes'
+    && prev.phase !== 'intermission';
+  if (next.phase === 'finished' || freshHeroWin) {
     await recordHistoryIfFinished(supabase, roomId, 'heroquest', next);
   }
   await notifyRoom(roomId);

@@ -316,15 +316,15 @@ export function getOrderedPlayerIds(state: HQState): string[] {
 }
 
 export function computeHistory(state: HQState): { winnerId: string | null; playerIds: string[] } | null {
-  if (state.phase !== 'finished') return null;
-  // "Winner" semantics for HeroQuest: heroes win → first claimed player is
-  // recorded as the winnerId (representative; the whole party "won"). Zargon
-  // win → null (no human "won").
+  // Heroes always enter 'intermission' after a quest win; Zargon wins set
+  // 'finished'.  We record history on BOTH so every outcome leaves a row.
+  const isHeroWin   = state.phase === 'intermission' && state.winner === 'heroes';
+  const isZargonWin = state.phase === 'finished'     && state.winner !== 'heroes';
+  if (!isHeroWin && !isZargonWin) return null;
+  // Winner semantics: heroes win → first claimed player is the representative
+  // winnerId (the whole party "won").  Zargon win → null (no human "won").
   const playerIds = getOrderedPlayerIds(state);
-  if (state.winner === 'heroes') {
-    return { winnerId: playerIds[0] ?? null, playerIds };
-  }
-  return { winnerId: null, playerIds };
+  return { winnerId: isHeroWin ? (playerIds[0] ?? null) : null, playerIds };
 }
 
 // Per-viewer projection: nothing private to hide in HeroQuest v1 (no hidden
