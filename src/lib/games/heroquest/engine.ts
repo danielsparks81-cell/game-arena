@@ -1863,24 +1863,28 @@ function doCastDreadSpell(s: HQState, m: Monster, spellId: DreadSpellId): void {
       }
       pushLog(s, 'spell', `A Firestorm engulfs the room!`);
       for (const h of heroesInRoom) {
-        // Each victim rolls 1d6 — only a 6 reduces damage by 1 (matches hero-spell mitigation rule).
+        // Each victim rolls 3d6 — each 6 reduces damage by 1 (max 3 reduces = full dodge on triple-6).
         const d1 = 1 + Math.floor(Math.random() * 6);
-        const reduces = (d1 === 6 ? 1 : 0);
+        const d2 = 1 + Math.floor(Math.random() * 6);
+        const d3 = 1 + Math.floor(Math.random() * 6);
+        const reduces = (d1 === 6 ? 1 : 0) + (d2 === 6 ? 1 : 0) + (d3 === 6 ? 1 : 0);
         const dmg = Math.max(0, 3 - reduces);
         h.body = Math.max(0, h.body - dmg);
         if (dmg > 0) h.defenseBonus = 0;
         pushLog(s, 'spell',
-          `${heroLabel(h)} — save roll: [${d1}]${reduces ? ' (6 — 1 damage reduced!)' : ''} → ${dmg} BP damage.`,
+          `${heroLabel(h)} — save rolls: [${d1}, ${d2}, ${d3}]${reduces > 0 ? ` (${reduces} six${reduces > 1 ? 'es' : ''} — ${reduces} damage reduced!)` : ''} → ${dmg} BP damage.`,
         );
         checkHeroDeath(s, h);
       }
       for (const mm of monstersInRoom) {
         const d1 = 1 + Math.floor(Math.random() * 6);
-        const reduces = (d1 === 6 ? 1 : 0);
+        const d2 = 1 + Math.floor(Math.random() * 6);
+        const d3 = 1 + Math.floor(Math.random() * 6);
+        const reduces = (d1 === 6 ? 1 : 0) + (d2 === 6 ? 1 : 0) + (d3 === 6 ? 1 : 0);
         const dmg = Math.max(0, 3 - reduces);
         mm.body = Math.max(0, mm.body - dmg);
         pushLog(s, 'spell',
-          `${monsterDisplay(mm)} — save roll: [${d1}]${reduces ? ' (6 — 1 damage reduced!)' : ''} → ${dmg} BP damage.`,
+          `${monsterDisplay(mm)} — save rolls: [${d1}, ${d2}, ${d3}]${reduces > 0 ? ` (${reduces} six${reduces > 1 ? 'es' : ''} — ${reduces} damage reduced!)` : ''} → ${dmg} BP damage.`,
         );
         if (mm.body <= 0) {
           pushLog(s, 'death', `${monsterDisplay(mm)} is destroyed!`);

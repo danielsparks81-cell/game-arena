@@ -210,7 +210,7 @@ Point they have. If any die shows a 6, the spell is broken and removed.
 |---|---|---|
 | **Ball of Flame** | one hero | 2 BP damage to the hero with the **lowest remaining BP** in LOS. Hero rolls 2 red dice — each **6** (only) reduces damage by 1. Caster will not cast if no hero is in LOS. |
 | **Lightning Bolt** | line (H/V/diagonal) | Travels in a straight line until hitting a wall or closed door. Inflicts 2 BP on every hero and monster in its path. |
-| **Firestorm** | whole room | 3 BP damage to all heroes AND monsters in the same room as caster (caster unaffected). Each victim rolls **1 red die** — a **6** reduces damage by 1. **Cannot be used in corridors.** Caster AI will not cast if there are more monster allies than heroes in the room. |
+| **Firestorm** | whole room | 3 BP damage to all heroes AND monsters in the same room as caster (caster unaffected). Each victim rolls **3 red dice** — each **6** reduces damage by 1 (triple-6 = full dodge). **Cannot be used in corridors.** Caster AI will not cast if there are more monster allies than heroes in the room. |
 | **Rust** | one hero's item | Destroys the **best weapon (highest attack dice)** in the party (non-artifact). Targets the visible hero carrying it. Helmets are targeted if no weapons are available. |
 | **Fear** | one hero | Hero may only use **1 Attack die total** (ignores all bonuses — Courage, Strength potion, etc.). Breaks via mind-point roll (6) on any future turn. |
 | **Sleep** | one hero | Hero cannot move, attack, or defend. **Breaks via mind-point roll: 1d6 per Mind Point** — any 6 breaks free. Checked at start of each hero's turn. |
@@ -225,6 +225,8 @@ Point they have. If any die shows a 6, the spell is broken and removed.
 
 1. **Which monsters cast** — Quest-book driven. Each quest's notes designate which specific monster(s)
    carry Dread spells and which cards they have access to. Many quests will have no Dread spells at all.
+   **No monster has Dread spells by default** — `MONSTER_STATS` never includes `dreadSpells`.
+   The field is only populated when a quest definition explicitly assigns it to a named monster.
 
 2. **Casting timing / rules** — Quest-book driven. The quest notes specify when and how the spellcaster
    may use their spells (e.g. instead of attacking, once per turn, etc.).
