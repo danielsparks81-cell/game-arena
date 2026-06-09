@@ -2,30 +2,164 @@
 
 # HeroQuest — design decisions & canonical rules
 
-## Spell fidelity (12 cards, confirmed rulebook)
+## Hero spells (12 cards — four schools)
 
-| Spell | Element | Target | Effect |
-|---|---|---|---|
-| Genie | Air | genie | Open any door OR attack any visible monster with 5 combat dice (player chooses mode) |
-| Tempest | Air | monster | Target monster misses its next turn (stunned flag, cleared when skipped) |
-| Swift Wind | Air | hero | Target hero rolls twice as many movement dice on their next move |
-| Veil of Mist | Water | hero | Target hero may move through monster-occupied squares on their next move (phaseMonsters flag) |
-| Sleep | Water | monster | Monster sleeps; rolls 1d6 per Mind Point at start of each Zargon turn — wakes on any 6. Cannot be cast on undead (skeleton, zombie, mummy) |
-| Water of Healing | Water | hero | Restore up to 4 lost BP to target |
-| Ball of Flame | Fire | monster | 2 auto-BP damage; monster rolls 2d6 — each 6 reduces damage by 1 |
-| Courage | Fire | hero | Target hero rolls 2 extra combat dice on their next attack (attackBonus +2 only — no extraAttack) |
-| Fire of Wrath | Fire | monster | 1 auto-BP damage; monster rolls 1d6 — a 6 reduces damage by 1 |
-| Pass Through Rock | Earth | hero | Target hero moves through walls and solid rock on their next move (phaseWalls flag) |
-| Heal Body | Earth | hero | Restore up to 4 lost BP to target |
-| Rock Skin | Earth | hero | Target hero gains +1 defense die until they suffer 1 BP of damage (defenseBonus, cleared on first damage) |
+Heroes cast from their personal spell hand. Each card is **one-shot per quest** — once cast it is
+added to `spellsCast[]` and cannot be used again. The spell is spent even if the effect is wasted
+(e.g. target killed between cast and resolution), **except** for spells where the engine validates
+LOS before spending: those return an error if the target is not visible, keeping the card intact.
 
-**Key rules:**
-- Spells are one-shot per quest (card discarded on cast, even if the effect is wasted due to no LOS)
-- Genie dual-mode UI: player first clicks "Open a door" or "Attack a monster", then picks the target
-- Both healing spells restore exactly 4 BP (not 2; stale heal_body_w reference removed)
-- Rock Skin: +1 die (not +2), cleared when damage > 0 on defense, NOT cleared at turn start
-- Veil of Mist: phaseMonsters flag only — no movement bonus
-- Courage: attackBonus += 2 only — does NOT grant extraAttack
+Spells are distributed via the **spell draft** at quest start (see Spell draft rules below).
+
+---
+
+### Line-of-sight rule for hero spells
+
+Hero-targeted spells (`target === 'hero'`) targeting **another** hero require LOS.
+Monster-targeted spells (`target === 'monster'`) always require LOS.
+Self-casts and area spells require no target/LOS check.
+
+Casts are validated in `doCastSpell` before the spell is marked used — a failed LOS check
+returns an error without spending the card (unlike the physical rulebook where the card is
+always spent).
+
+---
+
+### Movement interaction
+
+Most spells consume the hero's action for the turn (`markActed`).
+**Exception:** Swift Wind and Veil of Mist set `markActed(h, false)` — the hero still has their
+full movement remaining after casting, because the spell's value is movement-based.
+
+---
+
+### School: Air
+
+**Genie** (`genie`) — dual-mode
+- **Mode A — Open a door:** Opens any door anywhere on the board (no adjacency required). The
+  connected room is revealed and its monsters are spawned. No LOS needed.
+- **Mode B — Attack a monster:** The genie strikes any visible monster with **5 combat dice**
+  (hero-type dice). The monster defends normally with its own defense dice.
+- The UI presents both modes before target selection. The spell is spent regardless of mode.
+- Gold is awarded normally if the monster dies.
+
+**Tempest** (`tempest`) — stun one monster
+- Target: one visible monster (LOS required)
+- Effect: sets `stunned = true` on the monster
+- The stunned monster **skips its next Zargon turn** entirely. The flag is cleared when the
+  skip fires in `runMonster`.
+- Cannot be stacked — casting again on an already-stunned monster is allowed but redundant.
+
+**Swift Wind** (`swift_wind`) — movement boost
+- Target: any living hero (self or ally; LOS required for allies)
+- Effect: doubles the target's movement for this turn
+  - If the target has not yet rolled move: rolls 2d6 normally, then adds that same roll again
+    (total = 2× the normal roll)
+  - If the target already rolled: adds `moveRolled` to their remaining `moveLeft`
+- Does **not** spend the caster's movement — the caster's turn continues normally
+
+---
+
+### School: Water
+
+**Veil of Mist** (`veil_of_mist`) — phase through monsters
+- Target: any living hero (self or ally; LOS required for allies)
+- Effect: sets `phaseMonsters = true` — the target hero may walk through squares occupied by
+  monsters on their next move (monsters are treated as passable terrain)
+- Does **not** grant extra movement
+- Flag clears at the end of the target hero's next turn (`endHeroTurn`)
+
+**Sleep** (`sleep`) — put a monster to sleep
+- Target: one visible monster (LOS required)
+- Effect: sets `sleeping = true`
+- Restrictions: **cannot** target undead — skeleton, zombie, mummy are immune (the spell has
+  no effect and is wasted if cast on them)
+- Wake check: at the **start of each Zargon turn**, the sleeping monster rolls 1d6 per Mind
+  Point it has. If any die shows a **6** it wakes immediately and acts that turn.
+- A sleeping monster **cannot move or attack** while asleep.
+- Sleeping monsters get **0 defense dice** if attacked by heroes.
+
+**Water of Healing** (`water_heal`) — restore BP
+- Target: any living hero (self or ally; LOS required for allies)
+- Effect: restores up to **4 lost BP** (cannot exceed `bodyMax`)
+- Also usable as a **death-save** if the caster has not yet acted this turn (`!h.hasActed`)
+- Identical effect to Heal Body (Earth) — both restore exactly 4 BP
+
+---
+
+### School: Fire
+
+**Ball of Flame** (`ball_of_flame`) — 2 BP to one monster
+- Target: one visible monster (LOS required)
+- Effect: **2 automatic BP damage** (no attack roll by the hero)
+- Mitigation: monster rolls **2d6** — each **6** reduces damage by 1 (min 0)
+  - 0 sixes → 2 BP | 1 six → 1 BP | 2 sixes → 0 BP
+- Both save dice are shown as `lastDefenseRoll` so the dice overlay fires before the board updates
+
+**Courage** (`courage`) — attack buff
+- Target: any living hero (self or ally; LOS required for allies)
+- Effect: adds **+2 to `attackBonus`** — the target rolls 2 extra dice on their next attack
+- Does **not** grant `extraAttack` (no free second swing)
+- The bonus is consumed on the next attack and reset to 0 in `doAttack`; unused bonus also
+  expires at the end of the target hero's turn in `endHeroTurn`
+
+**Fire of Wrath** (`fire_of_wrath`) — 1 BP to one monster
+- Target: one visible monster (LOS required)
+- Effect: **1 automatic BP damage** (no attack roll)
+- Mitigation: monster rolls **1d6** — a **6** reduces damage by 1 (to 0)
+- The save die is shown as `lastDefenseRoll` for the dice-overlay animation
+
+---
+
+### School: Earth
+
+**Pass Through Rock** (`pass_rock`) — phase through walls
+- Target: any living hero (self or ally; LOS required for allies)
+- Effect: sets `phaseWalls = true` — the target may move through solid walls, rock, and
+  furniture tiles on their next move
+- Flag clears at the end of the target hero's turn (`endHeroTurn`)
+- Combined with Swift Wind, a hero can cross the entire dungeon in one turn
+
+**Heal Body** (`heal_body_e`) — restore BP
+- Target: any living hero (self or ally; LOS required for allies)
+- Effect: restores up to **4 lost BP** (cannot exceed `bodyMax`)
+- Also usable as a **death-save** if the caster has not yet acted this turn
+- Identical effect to Water of Healing
+
+**Rock Skin** (`rock_skin`) — defense buff
+- Target: any living hero (self or ally; LOS required for allies)
+- Effect: adds **+1 to `defenseBonus`** — target rolls 1 extra defense die when attacked
+- Duration: **until the hero takes 1 or more BP of damage** — the bonus is cleared in
+  `doMonsterAttack` when `dmg > 0`. It is **not** cleared at turn end.
+- The buff carries through the entire Zargon turn and can protect against multiple attacks
+  as long as none land. The moment one does, `defenseBonus` drops to 0.
+- Stacks: casting Rock Skin twice gives +2 defense dice (each cast adds 1)
+
+---
+
+### Per-turn flag lifecycle
+
+| Flag | Set by | Clears when |
+|---|---|---|
+| `phaseWalls` | Pass Through Rock | End of that hero's turn (`endHeroTurn`) |
+| `phaseMonsters` | Veil of Mist | End of that hero's turn (`endHeroTurn`) |
+| `attackBonus` | Courage / Strength Potion | Consumed on next attack; or end of turn |
+| `potionAtkBonus` | Strength Potion | Consumed on next attack; or end of turn |
+| `defenseBonus` | Rock Skin / Defense Potion | Hero takes ≥1 BP damage (`doMonsterAttack`) |
+| `sleeping` | Sleep (hero spell) | Monster rolls 6 on mind-die at Zargon turn start |
+| `stunned` | Tempest (hero spell) | Monster's skipped Zargon turn fires |
+| `extraAttack` | Heroic Brew potion | Consumed on extra attack or end of turn |
+
+---
+
+### Implementation reference
+
+| Function | File | Purpose |
+|---|---|---|
+| `doCastSpell(state, hero, action)` | engine.ts | Validates LOS and resolves all 12 hero spells |
+| `markActed(h, forfeitsMove)` | engine.ts | Marks action spent; `false` preserves remaining movement |
+| `endHeroTurn(s)` | engine.ts | Clears per-turn flags; advances `turnIndex`; returns true if round wrapped |
+| `checkHeroTurnStart(s)` | engine.ts | Mind-break rolls at start of hero's turn (dread status effects) |
 
 ## Hero death & loot drop
 
