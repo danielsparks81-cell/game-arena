@@ -385,12 +385,22 @@ export function applyAction(
     if (state.phase !== 'lobby' && state.phase !== 'finished') return err('Quest already underway.');
     const claimed = state.heroes.filter(h => h.playerId);
     if (claimed.length < 1) return err('Need at least one player to start the quest.');
-    // When heroes won the last quest, advance to the next quest in the campaign.
-    // When they lost (or it's the final quest), retry / replay the same quest.
-    let nextQuestId = state.questId;
-    if (state.phase === 'finished' && state.winner === 'heroes') {
+    // Quest routing:
+    //   lobby   → always start from the top of the campaign (CAMPAIGN[0]).
+    //             This means even rooms created before Quest Zero existed will
+    //             now start there — no stale questId in old DB rows can bypass it.
+    //   finished + heroes won → advance to next quest in the campaign.
+    //   finished + heroes lost (or final quest) → retry the same quest.
+    let nextQuestId: string;
+    if (state.phase === 'lobby') {
+      nextQuestId = CAMPAIGN[0];
+    } else if (state.winner === 'heroes') {
       const idx = CAMPAIGN.indexOf(state.questId);
-      if (idx >= 0 && idx + 1 < CAMPAIGN.length) nextQuestId = CAMPAIGN[idx + 1];
+      nextQuestId = (idx >= 0 && idx + 1 < CAMPAIGN.length)
+        ? CAMPAIGN[idx + 1]
+        : state.questId;
+    } else {
+      nextQuestId = state.questId;
     }
     // Rebuild from a FRESH initialState so the quest content always reflects the
     // current code. A room's lobby state snapshots the quest when the room is
