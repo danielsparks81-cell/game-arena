@@ -13,6 +13,7 @@ import {
   type Coord,
   type SpellElement,
   HERO_DEFAULTS,
+  CAMPAIGN,
   hasLineOfSight,
   SPELLS,
 } from '@/lib/games/heroquest';
@@ -111,7 +112,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
   }
 
   if (state.phase === 'finished') {
-    return <FinishedView state={state} />;
+    return <FinishedView state={state} isHost={props.isHost} onStart={props.onStart} />;
   }
 
   const dyingHero = state.pendingDeathSave
@@ -805,10 +806,38 @@ function LogView({ state }: { state: HQState }) {
 // Finished
 // ============================================================================
 
-function FinishedView({ state }: { state: HQState }) {
+function FinishedView({
+  state, isHost, onStart,
+}: {
+  state: HQState;
+  isHost: boolean;
+  onStart: () => void;
+}) {
   const heroesWon = state.winner === 'heroes';
+
+  // Determine campaign context: is there a next quest to advance to?
+  const currentIdx = CAMPAIGN.indexOf(state.questId);
+  const nextQuestId = heroesWon && currentIdx >= 0 && currentIdx + 1 < CAMPAIGN.length
+    ? CAMPAIGN[currentIdx + 1]
+    : null;
+
+  // Build victory / defeat flavour text from the quest's win condition.
+  const wc = state.quest.winCondition;
+  let victoryText = 'The heroes prevail. Mentor welcomes you home.';
+  let defeatText  = 'The heroes have fallen. Zargon takes the day.';
+  if (wc.kind === 'kill_and_exit') {
+    victoryText = `${wc.monsterDisplayName} lies defeated. The heroes escape to safety.`;
+    defeatText  = `${wc.monsterDisplayName} still stands. Zargon takes the day.`;
+  } else if (wc.kind === 'kill_all') {
+    victoryText = 'Every monster is destroyed. The dungeon is clear.';
+  } else if (wc.kind === 'escape') {
+    victoryText = 'The heroes escape the dungeon. Mentor welcomes you home.';
+    defeatText  = 'The heroes could not escape in time. Zargon takes the day.';
+  }
+
   return (
     <div className="space-y-3">
+      {/* Banner */}
       <div
         className="rounded-xl border-4 p-6 text-center shadow-2xl"
         style={{
@@ -823,11 +852,29 @@ function FinishedView({ state }: { state: HQState }) {
           {heroesWon ? '★ Victory ★' : '✟ The Quest is Lost ✟'}
         </div>
         <div className="mt-2 text-sm" style={{ fontFamily: 'serif' }}>
-          {heroesWon
-            ? 'Verag the gargoyle lies in ruin. Mentor welcomes you home.'
-            : 'The heroes have fallen. Zargon takes the day.'}
+          {heroesWon ? victoryText : defeatText}
         </div>
+        {/* Campaign / retry button — host only */}
+        {isHost && (
+          <button
+            onClick={onStart}
+            className="mt-4 rounded-md border-2 px-5 py-2 text-sm font-bold uppercase tracking-widest transition"
+            style={{
+              borderColor: heroesWon ? '#d4a043' : '#8a1010',
+              background: heroesWon ? 'rgba(212,160,67,0.18)' : 'rgba(138,16,16,0.18)',
+              color: heroesWon ? '#ffd84d' : '#fda4af',
+            }}
+          >
+            {nextQuestId
+              ? `⚔ Continue Campaign →`
+              : heroesWon
+                ? '⚔ Play Again'
+                : '⚔ Retry Quest'}
+          </button>
+        )}
       </div>
+
+      {/* Final standing */}
       <div className="rounded-lg border border-amber-900/40 bg-neutral-900 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-widest text-amber-200/70" style={{ fontFamily: 'serif' }}>
           Final standing
@@ -846,6 +893,7 @@ function FinishedView({ state }: { state: HQState }) {
           ))}
         </ul>
       </div>
+
       <LogView state={state} />
     </div>
   );

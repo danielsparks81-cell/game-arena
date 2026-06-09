@@ -46,4 +46,4 @@ export type {
   MonsterPersonality,
 } from './types';
 
-export { HERO_DEFAULTS, QUESTS, QUEST1, MONSTER_STATS, SPELLS, spellsByElement } from './content';
+export { HERO_DEFAULTS, QUESTS, QUEST0, QUEST1, CAMPAIGN, MONSTER_STATS, SPELLS, spellsByElement } from './content';

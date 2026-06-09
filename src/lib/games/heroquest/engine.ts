@@ -44,6 +44,7 @@ import {
   HERO_DEFAULTS,
   MONSTER_STATS,
   QUESTS,
+  CAMPAIGN,
   buildTreasureDeck,
   instantiateMonster,
   makeHero,
@@ -54,8 +55,8 @@ import {
 // State factory / lifecycle
 // ============================================================================
 
-export function initialState(): HQState {
-  const quest = QUESTS.the_trial;
+export function initialState(questId: string = 'quest_zero'): HQState {
+  const quest = QUESTS[questId] ?? QUESTS.quest_zero;
   // Always 4 hero slots, one per class. playerId starts empty — players
   // claim slots in the lobby; start_game auto-fills any leftover slots by
   // cycling through claimed players.
@@ -381,22 +382,31 @@ export function applyAction(
     return ok(s);
   }
   if (action.kind === 'start_game') {
-    if (state.phase !== 'lobby') return err('Quest already underway.');
+    if (state.phase !== 'lobby' && state.phase !== 'finished') return err('Quest already underway.');
     const claimed = state.heroes.filter(h => h.playerId);
     if (claimed.length < 1) return err('Need at least one player to start the quest.');
+    // When heroes won the last quest, advance to the next quest in the campaign.
+    // When they lost (or it's the final quest), retry / replay the same quest.
+    let nextQuestId = state.questId;
+    if (state.phase === 'finished' && state.winner === 'heroes') {
+      const idx = CAMPAIGN.indexOf(state.questId);
+      if (idx >= 0 && idx + 1 < CAMPAIGN.length) nextQuestId = CAMPAIGN[idx + 1];
+    }
     // Rebuild from a FRESH initialState so the quest content always reflects the
     // current code. A room's lobby state snapshots the quest when the room is
     // created, so a room made before a quest update would otherwise start with
     // stale content. We carry over who claimed each hero slot (seat → class is
     // fixed), then proceed exactly as before.
-    const s = initialState();
+    const s = initialState(nextQuestId);
+    const campaignAdvance = state.phase === 'finished' && state.winner === 'heroes';
     state.heroes.forEach((old, i) => {
       if (!s.heroes[i]) return;
       s.heroes[i].playerId    = old.playerId;
       s.heroes[i].username    = old.username;
       s.heroes[i].accent_color = old.accent_color;
-      // Potions are persistent between quests — carry them over to the new quest.
+      // Potions and gold are persistent between quests — carry them over.
       if (old.foundPotions?.length) s.heroes[i].foundPotions = [...old.foundPotions];
+      if (campaignAdvance && old.gold) s.heroes[i].gold = old.gold;
     });
     // Auto-fill any unclaimed hero slots by cycling through claimed players.
     // With 1 player → that player owns all 4. With 2 players → round-robin
