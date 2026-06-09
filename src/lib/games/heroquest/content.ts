@@ -69,8 +69,8 @@ export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
     name: 'Barbarian',
     bodyMax: 8,
     mindMax: 2,
-    baseAttack: 3,
-    baseDefense: 2,
+    baseAttack: 1,   // unarmed base — Broadsword (atk 3) in startingItems provides the real starting power
+    baseDefense: 2,  // innate dodge dice
     startingItems: [BROADSWORD],
     description: 'Strongest melee fighter. Cannot cast spells.',
   },
@@ -79,7 +79,7 @@ export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
     name: 'Dwarf',
     bodyMax: 7,
     mindMax: 3,
-    baseAttack: 2,
+    baseAttack: 1,   // unarmed base — Short Sword (atk 2) in startingItems provides the real starting power
     baseDefense: 2,
     startingItems: [SHORT_SWORD],
     description: 'Disarms traps without a tool kit. Cannot wield long weapons.',
@@ -89,7 +89,7 @@ export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
     name: 'Elf',
     bodyMax: 6,
     mindMax: 4,
-    baseAttack: 2,
+    baseAttack: 1,   // unarmed base — Short Sword (atk 2) in startingItems provides the real starting power
     baseDefense: 2,
     startingItems: [SHORT_SWORD],
     description: 'Casts one elemental spell group.',
@@ -99,7 +99,7 @@ export const HERO_DEFAULTS: Record<HeroClass, HeroDefaults> = {
     name: 'Wizard',
     bodyMax: 4,
     mindMax: 6,
-    baseAttack: 1,
+    baseAttack: 1,   // unarmed base — Dagger (atk 1) matches, so no effective change
     baseDefense: 2,
     startingItems: [DAGGER], // card-faithful: Wizard starts with the Dagger only (Staff is buyable)
     description: 'Casts three elemental spell groups. Cannot use heavy armor or weapons.',

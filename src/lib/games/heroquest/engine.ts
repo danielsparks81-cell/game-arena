@@ -1301,6 +1301,20 @@ function doClimbPit(state: HQState, hero: Hero): ApplyResult {
 // Intermission — between-quest Armory
 // ============================================================================
 
+/**
+ * Recompute a hero's attack and defense dice from their current item loadout.
+ * Call this any time the hero's item list changes (buy, sell, rust, etc.).
+ *
+ * Attack  = max(baseAttack=1 unarmed, best weapon.attack in items)
+ * Defense = baseDefense=2 dodge + sum of all armor .defense bonuses
+ */
+function recalcHeroCombatStats(h: Hero): void {
+  const def = HERO_DEFAULTS[h.klass];
+  const bestWeapon = h.items.reduce((max, i) => Math.max(max, i.attack ?? 0), 0);
+  h.attack  = Math.max(def.baseAttack, bestWeapon);
+  h.defense = def.baseDefense + h.items.reduce((sum, i) => sum + (i.defense ?? 0), 0);
+}
+
 function doIntermissionBuyItem(state: HQState, playerId: string, heroSeat: number, itemId: string): ApplyResult {
   if ((state.phase as string) !== 'intermission') return err('The Armory is only open between quests.');
   const hero = state.heroes[heroSeat];
@@ -1317,6 +1331,7 @@ function doIntermissionBuyItem(state: HQState, playerId: string, heroSeat: numbe
   const h = s.heroes[heroSeat];
   h.gold = (h.gold ?? 0) - item.cost;
   h.items = [...(h.items ?? []), { ...item }];
+  recalcHeroCombatStats(h);
   pushLog(s, 'search', `${heroLabel(h)} buys ${item.name} for ${item.cost} gp.`);
   return ok(s);
 }
@@ -1388,6 +1403,7 @@ function doIntermissionSellItem(state: HQState, playerId: string, heroSeat: numb
   const s = clone(state);
   const h = s.heroes[heroSeat];
   h.items = h.items.filter((_, i) => i !== itemIdx);
+  recalcHeroCombatStats(h);
   h.gold = (h.gold ?? 0) + refund;
   pushLog(s, 'search', `${heroLabel(h)} sells ${item.name} for ${refund} gp.`);
   return ok(s);
@@ -2160,18 +2176,7 @@ function doCastDreadSpell(s: HQState, m: Monster, spellId: DreadSpellId): void {
       if (!victim) break;
       rustTarget.items = rustTarget.items.filter(i => i.id !== victim.id);
       // Recalculate attack/defense after losing the item.
-      const remainingWeapons = rustTarget.items.filter(i => i.kind === 'weapon');
-      const bestWeaponAttack = remainingWeapons.reduce((max, i) => Math.max(max, i.attack ?? 0), 0);
-      if (metalWeapon) {
-        const base = HERO_DEFAULTS[rustTarget.klass].baseAttack;
-        rustTarget.attack = Math.max(base, bestWeaponAttack);
-      }
-      const armorDice = rustTarget.items.filter(i => i.kind === 'armor')
-        .reduce((sum, i) => sum + (i.defense ?? 0), 0);
-      if (helmet) {
-        const base = HERO_DEFAULTS[rustTarget.klass].baseDefense;
-        rustTarget.defense = base + armorDice;
-      }
+      recalcHeroCombatStats(rustTarget);
       pushLog(s, 'spell',
         `${heroLabel(rustTarget)}'s ${victim.name} crumbles to rust and is destroyed permanently!`,
       );

@@ -1207,10 +1207,10 @@ function IntermissionView({
                     <CoinIcon size={10} />{h.gold ?? 0} gp
                   </span>
                 </div>
-                {/* Attack / Defense dice */}
+                {/* Attack / Defense dice — live values from equipped gear */}
                 <div className="flex gap-2 text-[9px] text-amber-400/60">
-                  <span>⚔ {def.baseAttack} atk</span>
-                  <span>🛡 {def.baseDefense} def</span>
+                  <span>⚔ {h.attack} atk</span>
+                  <span>🛡 {h.defense} def</span>
                 </div>
                 {/* Equipment */}
                 {(h.items?.length ?? 0) > 0 && (
