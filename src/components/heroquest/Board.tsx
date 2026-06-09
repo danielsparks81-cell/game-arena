@@ -404,19 +404,32 @@ export default function HeroQuestBoardCanvas({
   }, [dragging]);
 
   // ---- Doors the active hero can open: a closed, visible door with the hero
-  // standing on one of its squares (the doorway). ----
+  // standing on one of its squares (the doorway), OR one step away from a
+  // doorway cell that is occupied by a friendly hero (pass-through open). ----
   const openableDoors = useMemo(() => {
     const out: HQDoor[] = [];
     if (!isMyTurn || !myHero) return out;
     for (const d of state.doors) {
       if (d.open || (d.secret && !d.found)) continue;
-      const onDoorway = d.crossings.some(c =>
-        (c.a.x === myHero.at.x && c.a.y === myHero.at.y) ||
-        (c.b.x === myHero.at.x && c.b.y === myHero.at.y));
-      if (onDoorway) out.push(d);
+      const doorCells = d.crossings.flatMap(c => [c.a, c.b]);
+      const onDoorway = doorCells.some(c =>
+        c.x === myHero.at.x && c.y === myHero.at.y);
+      if (onDoorway) { out.push(d); continue; }
+      // "Pass-through open": hero is adjacent to a doorway cell that is
+      // occupied by a friendly hero, and has ≥2 movement left to pass through.
+      if (myHero.moveLeft >= 2) {
+        const canPassThrough = doorCells.some(dc => {
+          const adj = Math.abs(dc.x - myHero.at.x) + Math.abs(dc.y - myHero.at.y) === 1;
+          const blockedByHero = state.heroes.some(
+            o => o.seat !== myHero.seat && o.body > 0 && o.at.x === dc.x && o.at.y === dc.y,
+          );
+          return adj && blockedByHero;
+        });
+        if (canPassThrough) out.push(d);
+      }
     }
     return out;
-  }, [isMyTurn, myHero, state.doors]);
+  }, [isMyTurn, myHero, state.doors, state.heroes]);
 
   // ---- Per-room flooring: every room gets its OWN (colour, pattern), so no two
   // rooms ever render the same tiles. Rooms are assigned in room-number order

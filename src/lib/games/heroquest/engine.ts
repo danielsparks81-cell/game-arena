@@ -890,7 +890,21 @@ function doOpenDoor(state: HQState, hero: Hero, doorId: string): ApplyResult {
   // doorway, on either side of the opening).
   const doorCells = door.crossings.flatMap(c => [c.a, c.b]);
   const atDoorway = doorCells.some(c => c.x === hero.at.x && c.y === hero.at.y);
-  if (!atDoorway) return err('You must be in the doorway to open it.');
+
+  // "Pass-through open": the acting hero is one step away from a doorway cell
+  // that is occupied by a friendly hero who is blocking it.  The acting hero
+  // needs ≥2 moveLeft so they can actually pass through the occupied cell and
+  // enter the opened room — otherwise they'd be opening a door they can't walk
+  // into yet, which the rules don't allow.
+  const passThroughOpen = !atDoorway && hero.moveLeft >= 2 && doorCells.some(dc => {
+    const adjacent = Math.abs(dc.x - hero.at.x) + Math.abs(dc.y - hero.at.y) === 1;
+    const blockedByHero = state.heroes.some(
+      o => o.seat !== hero.seat && o.body > 0 && o.at.x === dc.x && o.at.y === dc.y,
+    );
+    return adjacent && blockedByHero;
+  });
+
+  if (!atDoorway && !passThroughOpen) return err('You must be in the doorway to open it.');
 
   const s = clone(state);
   const d = s.doors.find(dx => dx.id === doorId)!;
