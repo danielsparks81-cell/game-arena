@@ -387,6 +387,19 @@ export function applyAction(
       return err('Quest already underway.');
     const claimed = state.heroes.filter(h => h.playerId);
     if (claimed.length < 1) return err('Need at least one player to start the quest.');
+    // During intermission all players must mark themselves ready before the
+    // host can advance — prevents accidental skips of the Armory stop.
+    if (state.phase === 'intermission') {
+      const allPlayerIds = [...new Set(state.heroes.map(h => h.playerId).filter(Boolean))] as string[];
+      const readySet = new Set(state.intermissionReady ?? []);
+      const waiting = allPlayerIds.filter(id => !readySet.has(id));
+      if (waiting.length > 0) {
+        const names = waiting
+          .map(id => state.heroes.find(h => h.playerId === id)?.username ?? 'a player')
+          .join(', ');
+        return err(`Waiting for ${names} to finish shopping.`);
+      }
+    }
     // Quest routing:
     //   lobby        → always start from the top of the campaign (CAMPAIGN[0]).
     //   intermission → heroes won and visited the Armory → advance to next quest.
@@ -478,8 +491,12 @@ export function applyAction(
   if (action.kind === 'zargon_step') return doZargonStep(state);
 
   // Intermission: between-quest Armory. Any player may buy/trade for their heroes.
-  if (action.kind === 'buy_item')  return doIntermissionBuyItem(state, playerId, action.heroSeat, action.itemId);
-  if (action.kind === 'pass_item') return doIntermissionPassItem(state, playerId, action.heroSeat, action.itemId, action.toHeroSeat);
+  if (action.kind === 'buy_item')                  return doIntermissionBuyItem(state, playerId, action.heroSeat, action.itemId);
+  if (action.kind === 'pass_item')                 return doIntermissionPassItem(state, playerId, action.heroSeat, action.itemId, action.toHeroSeat);
+  if (action.kind === 'pass_potion_intermission')  return doIntermissionPassPotion(state, playerId, action.heroSeat, action.potionId, action.toHeroSeat);
+  if (action.kind === 'sell_item')                 return doIntermissionSellItem(state, playerId, action.heroSeat, action.itemId);
+  if (action.kind === 'sell_potion')               return doIntermissionSellPotion(state, playerId, action.heroSeat, action.potionId);
+  if (action.kind === 'intermission_ready')        return doIntermissionReady(state, playerId, action.ready);
 
   // Mid-game gating: only the active player can act.
   if (state.phase !== 'heroes') return err('Wait for the engine to finish.');
@@ -1324,6 +1341,94 @@ function doIntermissionPassItem(state: HQState, playerId: string, heroSeat: numb
   g.items = g.items.filter((_, i) => i !== itemIdx);
   r.items = [...(r.items ?? []), { ...item }];
   pushLog(s, 'move', `${heroLabel(g)} gives ${item.name} to ${heroLabel(r)}.`);
+  return ok(s);
+}
+
+/** Pass a held potion between heroes during intermission (no adjacency required). */
+function doIntermissionPassPotion(state: HQState, playerId: string, heroSeat: number, potionId: string, toHeroSeat: number): ApplyResult {
+  if ((state.phase as string) !== 'intermission') return err('Potions can only be freely traded between quests.');
+  const giver = state.heroes[heroSeat];
+  if (!giver) return err('Invalid hero seat.');
+  if (giver.playerId !== playerId) return err('You do not control that hero.');
+  const receiver = state.heroes[toHeroSeat];
+  if (!receiver) return err('Invalid target hero seat.');
+  if (receiver.seat === giver.seat) return err('Cannot pass a potion to yourself.');
+
+  const potionIdx = (giver.foundPotions ?? []).findIndex(p => p.id === potionId);
+  if (potionIdx < 0) return err('That hero does not have that potion.');
+  const potion = giver.foundPotions![potionIdx];
+
+  const s = clone(state);
+  const g = s.heroes[heroSeat];
+  const r = s.heroes[toHeroSeat];
+  g.foundPotions = (g.foundPotions ?? []).filter((_, i) => i !== potionIdx);
+  r.foundPotions = [...(r.foundPotions ?? []), { ...potion }];
+  pushLog(s, 'move', `${heroLabel(g)} gives ${potion.name} to ${heroLabel(r)}.`);
+  return ok(s);
+}
+
+/** Sell price for an item: 10% of cost rounded up, or 8 gp flat for potions. */
+function itemSellPrice(item: { kind?: string; cost?: number }): number {
+  if (item.kind === 'potion') return 8;
+  return Math.ceil((item.cost ?? 0) * 0.1);
+}
+
+/** Sell an item back to the Armory during intermission. */
+function doIntermissionSellItem(state: HQState, playerId: string, heroSeat: number, itemId: string): ApplyResult {
+  if ((state.phase as string) !== 'intermission') return err('The Armory only buys back items between quests.');
+  const hero = state.heroes[heroSeat];
+  if (!hero) return err('Invalid hero seat.');
+  if (hero.playerId !== playerId) return err('You do not control that hero.');
+
+  const itemIdx = (hero.items ?? []).findIndex(it => it.id === itemId);
+  if (itemIdx < 0) return err('That hero does not have that item.');
+  const item = hero.items[itemIdx];
+  const refund = itemSellPrice(item);
+
+  const s = clone(state);
+  const h = s.heroes[heroSeat];
+  h.items = h.items.filter((_, i) => i !== itemIdx);
+  h.gold = (h.gold ?? 0) + refund;
+  pushLog(s, 'search', `${heroLabel(h)} sells ${item.name} for ${refund} gp.`);
+  return ok(s);
+}
+
+/** Sell a held potion back to the Armory during intermission (always 8 gp). */
+function doIntermissionSellPotion(state: HQState, playerId: string, heroSeat: number, potionId: string): ApplyResult {
+  if ((state.phase as string) !== 'intermission') return err('The Armory only buys back potions between quests.');
+  const hero = state.heroes[heroSeat];
+  if (!hero) return err('Invalid hero seat.');
+  if (hero.playerId !== playerId) return err('You do not control that hero.');
+
+  const potionIdx = (hero.foundPotions ?? []).findIndex(p => p.id === potionId);
+  if (potionIdx < 0) return err('That hero does not have that potion.');
+  const potion = hero.foundPotions![potionIdx];
+  const POTION_SELL_PRICE = 8;
+
+  const s = clone(state);
+  const h = s.heroes[heroSeat];
+  h.foundPotions = (h.foundPotions ?? []).filter((_, i) => i !== potionIdx);
+  h.gold = (h.gold ?? 0) + POTION_SELL_PRICE;
+  pushLog(s, 'search', `${heroLabel(h)} sells ${potion.name} for ${POTION_SELL_PRICE} gp.`);
+  return ok(s);
+}
+
+/** Toggle the current player's "ready for next quest" status. */
+function doIntermissionReady(state: HQState, playerId: string, ready: boolean): ApplyResult {
+  if ((state.phase as string) !== 'intermission') return err('Not in intermission.');
+  const s = clone(state);
+  const readyList = s.intermissionReady ?? [];
+  if (ready) {
+    if (!readyList.includes(playerId)) {
+      s.intermissionReady = [...readyList, playerId];
+      const h = s.heroes.find(h => h.playerId === playerId);
+      pushLog(s, 'system', `${h?.username ?? 'A player'} is ready for the next quest.`);
+    }
+  } else {
+    s.intermissionReady = readyList.filter(id => id !== playerId);
+    const h = s.heroes.find(h => h.playerId === playerId);
+    pushLog(s, 'system', `${h?.username ?? 'A player'} is still shopping.`);
+  }
   return ok(s);
 }
 
@@ -2823,6 +2928,9 @@ function heroesWin(s: HQState, message: string): void {
   const hasNextQuest = idx >= 0 && idx + 1 < CAMPAIGN.length;
   s.phase = hasNextQuest ? 'intermission' : 'finished';
   s.winner = 'heroes';
+  // Reset the ready list every time we enter intermission so every player
+  // must explicitly confirm before the host can advance the campaign.
+  if (s.phase === 'intermission') s.intermissionReady = [];
   pushLog(s, 'system', message);
   const reward = s.quest.reward;
   if (reward.kind === 'gold') {

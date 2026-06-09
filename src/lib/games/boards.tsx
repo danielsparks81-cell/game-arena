@@ -251,6 +251,10 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onFallingBlockMove={(at) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'falling_block_move', at }); })}
       onBuyItem={(heroSeat, itemId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'buy_item', heroSeat, itemId }); })}
       onPassItem={(heroSeat, itemId, toHeroSeat) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'pass_item', heroSeat, itemId, toHeroSeat }); })}
+      onPassPotionIntermission={(heroSeat, potionId, toHeroSeat) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'pass_potion_intermission', heroSeat, potionId, toHeroSeat }); })}
+      onSellItem={(heroSeat, itemId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'sell_item', heroSeat, itemId }); })}
+      onSellPotion={(heroSeat, potionId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'sell_potion', heroSeat, potionId }); })}
+      onIntermissionReady={(ready) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'intermission_ready', ready }); })}
     />
   ),
 

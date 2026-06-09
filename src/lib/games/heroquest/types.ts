@@ -521,6 +521,10 @@ export type HQState = {
   } | null;
   /** Loot piles left by fallen heroes — auto-collected by any living hero who steps on the square. */
   lootPiles?: LootPile[];
+  /** During intermission: set of playerIds who have clicked "Ready for next quest".
+   *  The host cannot start the next quest until every player is in this set.
+   *  Reset to [] each time the game enters intermission phase. */
+  intermissionReady?: string[];
   /** Final result. */
   winner: Winner;
 };
@@ -588,8 +592,17 @@ export type HQAction =
   // ── Intermission (between-quest Armory) ──────────────────────────────────
   /** Hero buys an item from the Armory using their gold. */
   | { kind: 'buy_item'; heroSeat: number; itemId: string }
-  /** Hero passes a non-potion item to an adjacent hero (free during intermission). */
-  | { kind: 'pass_item'; heroSeat: number; itemId: string; toHeroSeat: number };
+  /** Hero passes a non-potion item to any hero (free during intermission, no adjacency required). */
+  | { kind: 'pass_item'; heroSeat: number; itemId: string; toHeroSeat: number }
+  /** Hero passes a held potion to any other hero during intermission (free, no adjacency). */
+  | { kind: 'pass_potion_intermission'; heroSeat: number; potionId: string; toHeroSeat: number }
+  /** Sell an item back to the Armory for 10% of its cost (rounded up), or 8 gp if it's a potion. */
+  | { kind: 'sell_item'; heroSeat: number; itemId: string }
+  /** Sell a held potion back to the Armory for 8 gp. */
+  | { kind: 'sell_potion'; heroSeat: number; potionId: string }
+  /** Player marks themselves as ready (or not ready) for the next quest.
+   *  The host cannot begin the next quest until all players are ready. */
+  | { kind: 'intermission_ready'; ready: boolean };
 
 export type ApplyResult =
   | { ok: true; state: HQState }

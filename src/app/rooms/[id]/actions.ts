@@ -703,7 +703,11 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'exit_dungeon'; confirm: boolean }
   | { game: 'heroquest'; kind: 'falling_block_move'; at: HQCoord }
   | { game: 'heroquest'; kind: 'buy_item'; heroSeat: number; itemId: string }
-  | { game: 'heroquest'; kind: 'pass_item'; heroSeat: number; itemId: string; toHeroSeat: number };
+  | { game: 'heroquest'; kind: 'pass_item'; heroSeat: number; itemId: string; toHeroSeat: number }
+  | { game: 'heroquest'; kind: 'pass_potion_intermission'; heroSeat: number; potionId: string; toHeroSeat: number }
+  | { game: 'heroquest'; kind: 'sell_item'; heroSeat: number; itemId: string }
+  | { game: 'heroquest'; kind: 'sell_potion'; heroSeat: number; potionId: string }
+  | { game: 'heroquest'; kind: 'intermission_ready'; ready: boolean };
 
 /**
  * Single entry point for every in-game action. Boards call this through the

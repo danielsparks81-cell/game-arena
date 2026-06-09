@@ -15,6 +15,7 @@ import {
   HERO_DEFAULTS,
   CAMPAIGN,
   ARMORY,
+  QUESTS,
   hasLineOfSight,
   SPELLS,
 } from '@/lib/games/heroquest';
@@ -68,6 +69,14 @@ export type HeroQuestBoardProps = {
   onBuyItem: (heroSeat: number, itemId: string) => void;
   /** Intermission: pass a non-potion item between heroes. */
   onPassItem: (heroSeat: number, itemId: string, toHeroSeat: number) => void;
+  /** Intermission: pass a potion between heroes (no adjacency required between quests). */
+  onPassPotionIntermission: (heroSeat: number, potionId: string, toHeroSeat: number) => void;
+  /** Intermission: sell an item back to the Armory (10% of cost, rounded up; potions → 8 gp). */
+  onSellItem: (heroSeat: number, itemId: string) => void;
+  /** Intermission: sell a held potion back to the Armory (8 gp). */
+  onSellPotion: (heroSeat: number, potionId: string) => void;
+  /** Intermission: toggle the current player's "ready for next quest" flag. */
+  onIntermissionReady: (ready: boolean) => void;
 };
 
 export default function HeroQuestBoard(props: HeroQuestBoardProps) {
@@ -127,6 +136,10 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
         onStart={props.onStart}
         onBuyItem={props.onBuyItem}
         onPassItem={props.onPassItem}
+        onPassPotionIntermission={props.onPassPotionIntermission}
+        onSellItem={props.onSellItem}
+        onSellPotion={props.onSellPotion}
+        onIntermissionReady={props.onIntermissionReady}
       />
     );
   }
@@ -956,8 +969,15 @@ function LogView({ state }: { state: HQState }) {
 
 const PARCHMENT_BG = 'radial-gradient(ellipse, #2a1a08 0%, #120a02 100%)';
 
+/** Sell price for an item: 8 gp for potions; otherwise 10% of cost rounded up. */
+function sellPrice(item: { kind?: string; cost?: number }): number {
+  if (item.kind === 'potion') return 8;
+  return Math.ceil((item.cost ?? 0) * 0.1);
+}
+
 function IntermissionView({
   state, currentUserId, isHost, onStart, onBuyItem, onPassItem,
+  onPassPotionIntermission, onSellItem, onSellPotion, onIntermissionReady,
 }: {
   state: HQState;
   currentUserId: string;
@@ -965,106 +985,317 @@ function IntermissionView({
   onStart: () => void;
   onBuyItem: (heroSeat: number, itemId: string) => void;
   onPassItem: (heroSeat: number, itemId: string, toHeroSeat: number) => void;
+  onPassPotionIntermission: (heroSeat: number, potionId: string, toHeroSeat: number) => void;
+  onSellItem: (heroSeat: number, itemId: string) => void;
+  onSellPotion: (heroSeat: number, potionId: string) => void;
+  onIntermissionReady: (ready: boolean) => void;
 }) {
   const currentIdx = CAMPAIGN.indexOf(state.questId);
   const nextQuestId = currentIdx >= 0 && currentIdx + 1 < CAMPAIGN.length
     ? CAMPAIGN[currentIdx + 1]
     : null;
+  const nextQuest = nextQuestId ? QUESTS[nextQuestId] : null;
 
-  // For the "pass item" interaction: select source hero + item, then target hero.
-  const [passing, setPassing] = useState<{ heroSeat: number; itemId: string } | null>(null);
+  // Act 1 = Victory splash; Act 2 = Town/Armory.
+  // Purely local — each player advances their own view independently.
+  const [inTown, setInTown] = useState(false);
 
-  // Which hero panels belong to the current user
+  // For the "pass item / pass potion" interaction.
+  const [passing, setPassing] = useState<
+    | { kind: 'item';   heroSeat: number; itemId: string }
+    | { kind: 'potion'; heroSeat: number; potionId: string }
+    | null
+  >(null);
+
+  // Flash "✓ Saved" for 2 s after any purchase/pass.
+  const [savedFlash, setSavedFlash] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function flashSaved() {
+    setSavedFlash(true);
+    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+    savedTimerRef.current = setTimeout(() => setSavedFlash(false), 2000);
+  }
+
+  // Which hero panels belong to the current user.
   const mySeats = new Set(state.heroes.filter(h => h.playerId === currentUserId).map(h => h.seat));
 
+  // Ready-gate.
+  const allPlayerIds = [...new Set(state.heroes.map(h => h.playerId).filter(Boolean))] as string[];
+  const readySet = new Set(state.intermissionReady ?? []);
+  const iAmReady = readySet.has(currentUserId);
+  const allReady = allPlayerIds.every(id => readySet.has(id));
+  const readyCount = allPlayerIds.filter(id => readySet.has(id)).length;
+
+  // ── ACT 1: VICTORY SPLASH ───────────────────────────────────────────────
+  if (!inTown) {
+    const wc = state.quest.winCondition;
+    const escapees = state.heroes.filter(h => h.escaped);
+    const fallen   = state.heroes.filter(h => h.body <= 0);
+    const totalGold = state.heroes.reduce((s, h) => s + (h.gold ?? 0), 0);
+
+    return (
+      <div className="space-y-4">
+        {/* ── Big victory banner ── */}
+        <div
+          className="rounded-xl border-4 p-6 text-center shadow-2xl"
+          style={{
+            borderColor: '#d4a043',
+            background: 'radial-gradient(ellipse at 50% 30%, #6b3c08 0%, #1a0a00 100%)',
+            color: '#ffd84d',
+          }}
+        >
+          <div
+            className="text-5xl font-black uppercase tracking-widest"
+            style={{ fontFamily: 'Georgia, serif', textShadow: '0 0 32px rgba(255,200,50,0.7)' }}
+          >
+            ★ Victory! ★
+          </div>
+          <div className="mt-2 text-lg font-semibold" style={{ fontFamily: 'serif', color: '#f5d97a' }}>
+            {state.quest.name} — Complete
+          </div>
+          {wc.kind === 'kill_and_exit' && (
+            <div className="mt-1 text-sm" style={{ color: '#e5c36a' }}>
+              {wc.monsterDisplayName} has been slain. The heroes escape to safety.
+            </div>
+          )}
+        </div>
+
+        {/* ── Quest summary ── */}
+        <div
+          className="rounded-lg border p-3 space-y-3"
+          style={{ background: PARCHMENT_BG, borderColor: '#7a5a08' }}
+        >
+          <div className="text-[11px] uppercase tracking-widest font-bold text-amber-400" style={{ fontFamily: 'serif' }}>
+            Quest Summary
+          </div>
+
+          {/* Hero results */}
+          <div className="space-y-1.5">
+            {state.heroes.map(h => {
+              const def = HERO_DEFAULTS[h.klass];
+              const accent = safeAccent(h.accent_color);
+              const survived = h.escaped;
+              const dead = h.body <= 0 && !h.escaped;
+              return (
+                <div key={h.seat} className="flex items-center gap-2 text-xs">
+                  <span
+                    className="text-sm"
+                    style={{ color: survived ? '#ffd84d' : dead ? '#ef4444' : '#a37c2a' }}
+                  >
+                    {survived ? '★' : dead ? '✟' : '·'}
+                  </span>
+                  <span className="font-semibold" style={{ color: accent }}>{h.username}</span>
+                  <span className="text-amber-400/60 text-[9px]">{def.name}</span>
+                  <span className={`ml-auto text-[9px] ${survived ? 'text-green-400' : dead ? 'text-red-400' : 'text-amber-500/60'}`}>
+                    {survived ? 'Escaped' : dead ? 'Fell in battle' : 'Remained behind'}
+                  </span>
+                  <span className="flex items-center gap-0.5 text-amber-300 text-[10px]">
+                    <CoinIcon size={10} />{h.gold ?? 0}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Party totals */}
+          <div className="border-t border-amber-900/40 pt-2 flex items-center justify-between text-xs">
+            <span className="text-amber-400/70">Party gold</span>
+            <span className="flex items-center gap-1 font-bold text-amber-300">
+              <CoinIcon size={11} />{totalGold} gp
+            </span>
+          </div>
+          {fallen.length > 0 && (
+            <div className="text-[10px] text-red-400/60 italic">
+              {fallen.map(h => h.username).join(' and ')} will be revived at full strength for the next quest.
+            </div>
+          )}
+        </div>
+
+        {/* ── Next-quest teaser ── */}
+        {nextQuest && (
+          <div
+            className="rounded-lg border p-3 space-y-1"
+            style={{ background: PARCHMENT_BG, borderColor: '#7a5a08' }}
+          >
+            <div className="text-[11px] uppercase tracking-widest font-bold text-amber-400" style={{ fontFamily: 'serif' }}>
+              Coming Up Next
+            </div>
+            <div className="text-sm font-semibold text-amber-200">{nextQuest.name}</div>
+            <div className="text-[10px] text-amber-300/60 leading-relaxed line-clamp-3">
+              {nextQuest.briefing}
+            </div>
+          </div>
+        )}
+
+        {/* ── Return to town button ── */}
+        <button
+          onClick={() => setInTown(true)}
+          className="w-full rounded-lg border-2 py-3 text-sm font-bold uppercase tracking-widest transition hover:scale-[1.01]"
+          style={{
+            borderColor: '#d4a043',
+            background: 'rgba(212,160,67,0.18)',
+            color: '#ffd84d',
+          }}
+        >
+          🏘 Return to Town →
+        </button>
+      </div>
+    );
+  }
+
+  // ── ACT 2: TOWN / ARMORY ────────────────────────────────────────────────
   return (
     <div className="space-y-4">
-      {/* ── Victory banner ── */}
+      {/* ── Town header ── */}
       <div
-        className="rounded-xl border-4 p-4 text-center shadow-2xl"
+        className="rounded-xl border-2 p-3 text-center"
         style={{
-          borderColor: '#d4a043',
-          background: 'radial-gradient(ellipse, #5a3a08 0%, #1a0a00 100%)',
-          color: '#ffd84d',
+          borderColor: '#7a5a08',
+          background: 'radial-gradient(ellipse, #3a2008 0%, #120a02 100%)',
         }}
       >
-        <div className="text-3xl font-bold uppercase tracking-widest" style={{ fontFamily: 'Georgia, serif' }}>
-          ★ Quest Complete ★
+        <div className="text-xl font-bold uppercase tracking-widest text-amber-300" style={{ fontFamily: 'Georgia, serif' }}>
+          🏘 Return to Town
         </div>
-        <div className="mt-1 text-sm" style={{ fontFamily: 'serif', color: '#f5d97a' }}>
-          The heroes return to town. Visit the Armory before the next quest.
+        {nextQuest && (
+          <div className="mt-0.5 text-xs text-amber-400/70">
+            Prepare your party for <span className="font-semibold text-amber-300">{nextQuest.name}</span>
+          </div>
+        )}
+        {/* Auto-save badge */}
+        <div className="mt-1 text-[10px] flex items-center justify-center gap-1">
+          <span className={`transition-opacity duration-500 ${savedFlash ? 'text-green-400 opacity-100' : 'text-green-600/50 opacity-70'}`}>
+            ✓ {savedFlash ? 'Saved!' : 'Progress auto-saved'}
+          </span>
         </div>
       </div>
 
-      {/* ── Hero panels with inventory ── */}
-      <div className="grid grid-cols-2 gap-2">
-        {state.heroes.map(h => {
-          const isMine = mySeats.has(h.seat);
-          const accent = safeAccent(h.accent_color);
-          const def = HERO_DEFAULTS[h.klass];
-          return (
-            <div
-              key={h.seat}
-              className="rounded-lg border p-2 text-xs space-y-1"
-              style={{
-                background: PARCHMENT_BG,
-                borderColor: isMine ? accent : '#7a5a08',
-                boxShadow: isMine ? `0 0 8px 1px ${accent}55` : undefined,
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold" style={{ color: accent }}>{h.username}</span>
-                <span className="text-[10px] text-amber-300/70">{def.name}</span>
-              </div>
-              <div className="flex items-center gap-2 text-amber-200/80">
-                <span>❤ {h.body}/{h.bodyMax}</span>
-                <span className="ml-auto flex items-center gap-1"><CoinIcon size={11} />{h.gold ?? 0} gp</span>
-              </div>
-              {/* Items */}
-              {(h.items?.length ?? 0) > 0 && (
-                <div className="space-y-0.5">
-                  <div className="text-[9px] uppercase tracking-widest text-amber-400/60">Equipment</div>
-                  {h.items.map((it, idx) => {
-                    const isPassing = passing?.heroSeat === h.seat && passing?.itemId === it.id;
-                    return (
-                      <div key={`${it.id}-${idx}`} className="flex items-center justify-between gap-1">
-                        <span className="text-amber-100/90">{it.name}</span>
-                        {isMine && !passing && (
-                          <button
-                            onClick={() => setPassing({ heroSeat: h.seat, itemId: it.id })}
-                            className="rounded px-1 py-0.5 text-[9px] text-amber-400 border border-amber-700/40 hover:bg-amber-900/40"
-                          >
-                            Pass
-                          </button>
-                        )}
-                        {isPassing && (
-                          <button
-                            onClick={() => setPassing(null)}
-                            className="rounded px-1 py-0.5 text-[9px] text-red-400 border border-red-700/40"
-                          >
-                            Cancel
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+      {/* ── Hero panels: carry-over kit ── */}
+      <div
+        className="rounded-lg border p-3 space-y-2"
+        style={{ background: PARCHMENT_BG, borderColor: '#7a5a08' }}
+      >
+        <div className="text-[11px] uppercase tracking-widest font-bold text-amber-400" style={{ fontFamily: 'serif' }}>
+          Your Party — Kit for Next Quest
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {state.heroes.map(h => {
+            const isMine = mySeats.has(h.seat);
+            const accent = safeAccent(h.accent_color);
+            const def = HERO_DEFAULTS[h.klass];
+            const ownerReady = readySet.has(h.playerId ?? '');
+            return (
+              <div
+                key={h.seat}
+                className="rounded-lg border p-2 text-xs space-y-1"
+                style={{
+                  background: 'rgba(0,0,0,0.3)',
+                  borderColor: isMine ? accent : '#5a3a08',
+                  boxShadow: isMine ? `0 0 8px 1px ${accent}44` : undefined,
+                }}
+              >
+                {/* Header */}
+                <div className="flex items-center gap-1">
+                  <span className="font-bold truncate" style={{ color: accent }}>{h.username}</span>
+                  <span className="text-[9px] text-amber-300/50 shrink-0">{def.name}</span>
+                  {ownerReady && <span className="ml-auto text-green-400 text-[10px] shrink-0">✓</span>}
                 </div>
-              )}
-              {/* Receive-pass button */}
-              {passing && passing.heroSeat !== h.seat && (
-                <button
-                  onClick={() => {
-                    onPassItem(passing.heroSeat, passing.itemId, h.seat);
-                    setPassing(null);
-                  }}
-                  className="w-full rounded border border-amber-500/60 py-0.5 text-[9px] text-amber-300 hover:bg-amber-900/40"
-                >
-                  ← Give to {h.username}
-                </button>
-              )}
-            </div>
-          );
-        })}
+                {/* Stats: BP restores to full next quest */}
+                <div className="flex gap-3 text-[10px] text-amber-200/70">
+                  <span title="Restores to full at quest start">❤ {h.bodyMax}/{h.bodyMax} (full)</span>
+                  <span className="ml-auto flex items-center gap-0.5 font-semibold text-amber-300">
+                    <CoinIcon size={10} />{h.gold ?? 0} gp
+                  </span>
+                </div>
+                {/* Attack / Defense dice */}
+                <div className="flex gap-2 text-[9px] text-amber-400/60">
+                  <span>⚔ {def.baseAttack} atk</span>
+                  <span>🛡 {def.baseDefense} def</span>
+                </div>
+                {/* Equipment */}
+                {(h.items?.length ?? 0) > 0 && (
+                  <div className="space-y-0.5">
+                    <div className="text-[9px] uppercase tracking-widest text-amber-400/50">Equipment</div>
+                    {h.items.map((it, idx) => {
+                      const isPassing = passing?.kind === 'item' && passing.heroSeat === h.seat && passing.itemId === it.id;
+                      const sp = sellPrice(it);
+                      return (
+                        <div key={`${it.id}-${idx}`} className="flex items-center justify-between gap-1">
+                          <span className="text-amber-100/80 truncate">{it.name}</span>
+                          {isMine && !passing && (
+                            <div className="flex gap-0.5 shrink-0">
+                              <button
+                                onClick={() => setPassing({ kind: 'item', heroSeat: h.seat, itemId: it.id })}
+                                className="rounded px-1 py-0.5 text-[9px] text-amber-400 border border-amber-700/40 hover:bg-amber-900/40"
+                              >Pass</button>
+                              <button
+                                onClick={() => { onSellItem(h.seat, it.id); flashSaved(); }}
+                                title={`Sell for ${sp} gp (10% of value)`}
+                                className="rounded px-1 py-0.5 text-[9px] text-rose-400 border border-rose-800/50 hover:bg-rose-900/40"
+                              >Sell {sp}g</button>
+                            </div>
+                          )}
+                          {isPassing && (
+                            <button onClick={() => setPassing(null)}
+                              className="rounded px-1 py-0.5 text-[9px] text-red-400 border border-red-700/40 shrink-0">✕</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Potions */}
+                {(h.foundPotions?.length ?? 0) > 0 && (
+                  <div className="space-y-0.5">
+                    <div className="text-[9px] uppercase tracking-widest text-amber-400/50">Potions</div>
+                    {h.foundPotions!.map((p, idx) => {
+                      const isPassing = passing?.kind === 'potion' && passing.heroSeat === h.seat && passing.potionId === p.id;
+                      return (
+                        <div key={`${p.id}-${idx}`} className="flex items-center justify-between gap-1">
+                          <span className="text-amber-100/80 truncate">{p.name}</span>
+                          {isMine && !passing && (
+                            <div className="flex gap-0.5 shrink-0">
+                              <button
+                                onClick={() => setPassing({ kind: 'potion', heroSeat: h.seat, potionId: p.id })}
+                                className="rounded px-1 py-0.5 text-[9px] text-sky-400 border border-sky-700/40 hover:bg-sky-900/40"
+                              >Pass</button>
+                              <button
+                                onClick={() => { onSellPotion(h.seat, p.id); flashSaved(); }}
+                                title="Sell for 8 gp"
+                                className="rounded px-1 py-0.5 text-[9px] text-rose-400 border border-rose-800/50 hover:bg-rose-900/40"
+                              >Sell 8g</button>
+                            </div>
+                          )}
+                          {isPassing && (
+                            <button onClick={() => setPassing(null)}
+                              className="rounded px-1 py-0.5 text-[9px] text-red-400 border border-red-700/40 shrink-0">✕</button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* Receive-pass */}
+                {passing && passing.heroSeat !== h.seat && (
+                  <button
+                    onClick={() => {
+                      if (passing.kind === 'item') {
+                        onPassItem(passing.heroSeat, passing.itemId, h.seat);
+                      } else {
+                        onPassPotionIntermission(passing.heroSeat, passing.potionId, h.seat);
+                      }
+                      setPassing(null);
+                      flashSaved();
+                    }}
+                    className="w-full rounded border border-amber-500/60 py-0.5 text-[9px] text-amber-300 hover:bg-amber-900/40"
+                  >
+                    ← Give to {h.username}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       {/* ── Armory ── */}
@@ -1072,7 +1303,7 @@ function IntermissionView({
         className="rounded-lg border p-3 space-y-2"
         style={{ background: PARCHMENT_BG, borderColor: '#7a5a08' }}
       >
-        <div className="text-[11px] uppercase tracking-widest font-bold text-amber-300" style={{ fontFamily: 'serif' }}>
+        <div className="text-[11px] uppercase tracking-widest font-bold text-amber-400" style={{ fontFamily: 'serif' }}>
           ⚔ The Armory
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -1088,7 +1319,6 @@ function IntermissionView({
                 </span>
               </div>
               <div className="text-[9px] text-neutral-400 leading-tight">{item.description}</div>
-              {/* Buy buttons — one per hero the current user controls */}
               <div className="flex flex-wrap gap-1 pt-0.5">
                 {state.heroes
                   .filter(h => mySeats.has(h.seat))
@@ -1101,7 +1331,7 @@ function IntermissionView({
                       <button
                         key={h.seat}
                         disabled={disabled}
-                        onClick={() => onBuyItem(h.seat, item.id)}
+                        onClick={() => { onBuyItem(h.seat, item.id); flashSaved(); }}
                         title={
                           forbidden ? `The ${def.name} cannot use this`
                           : !canAfford ? `Need ${(item.cost ?? 0) - (h.gold ?? 0)} more gp`
@@ -1123,18 +1353,62 @@ function IntermissionView({
         </div>
       </div>
 
-      {/* ── Proceed button (host only) ── */}
+      {/* ── Ready system ── */}
+      <div
+        className="rounded-lg border p-3 space-y-2"
+        style={{ background: PARCHMENT_BG, borderColor: '#7a5a08' }}
+      >
+        <div className="text-[11px] uppercase tracking-widest font-bold text-amber-400" style={{ fontFamily: 'serif' }}>
+          Ready to Depart?
+        </div>
+        <div className="space-y-1">
+          {allPlayerIds.map(playerId => {
+            const name = state.heroes.find(h => h.playerId === playerId)?.username ?? 'Player';
+            const isReady = readySet.has(playerId);
+            return (
+              <div key={playerId} className="flex items-center gap-2 text-xs">
+                <span className={`text-sm ${isReady ? 'text-green-400' : 'text-amber-500/50'}`}>
+                  {isReady ? '✓' : '○'}
+                </span>
+                <span className={isReady ? 'text-amber-100' : 'text-amber-400/60'}>{name}</span>
+                <span className={`ml-auto text-[9px] ${isReady ? 'text-green-400/70' : 'text-amber-500/40'}`}>
+                  {isReady ? 'Ready' : 'Shopping…'}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => onIntermissionReady(!iAmReady)}
+          className={`w-full rounded border py-1.5 text-xs font-semibold uppercase tracking-widest transition ${
+            iAmReady
+              ? 'border-green-700 bg-green-900/30 text-green-400 hover:bg-green-900/50'
+              : 'border-amber-600 bg-amber-900/20 text-amber-300 hover:bg-amber-900/40'
+          }`}
+        >
+          {iAmReady ? '✓ Ready — click to keep shopping' : '⚔ I\'m done shopping'}
+        </button>
+      </div>
+
+      {/* ── Host proceed button ── */}
       {isHost && (
         <button
+          disabled={!allReady}
           onClick={onStart}
-          className="w-full rounded-lg border-2 py-2.5 text-sm font-bold uppercase tracking-widest transition"
+          title={allReady ? undefined : `Waiting for ${allPlayerIds.length - readyCount} player(s) to finish shopping`}
+          className={`w-full rounded-lg border-2 py-2.5 text-sm font-bold uppercase tracking-widest transition ${
+            allReady ? 'cursor-pointer hover:scale-[1.01]' : 'cursor-not-allowed opacity-40'
+          }`}
           style={{
             borderColor: '#d4a043',
-            background: 'rgba(212,160,67,0.15)',
+            background: allReady ? 'rgba(212,160,67,0.15)' : 'rgba(100,80,30,0.10)',
             color: '#ffd84d',
           }}
         >
-          {nextQuestId ? '⚔ Begin Next Quest →' : '⚔ Play Again'}
+          {allReady
+            ? (nextQuestId ? `⚔ Begin ${nextQuest?.name ?? 'Next Quest'} →` : '⚔ Play Again')
+            : `Waiting… (${readyCount}/${allPlayerIds.length} ready)`
+          }
         </button>
       )}
     </div>
