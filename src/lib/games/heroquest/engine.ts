@@ -869,10 +869,10 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
       s.monsters = s.monsters.filter(mm => mm.id !== m.id);
     }
   }
-  // Both attack bonuses are consumed on this strike. If this was the free
-  // Heroic Brew / Courage extra attack, consume that flag too; otherwise it
-  // is the hero's normal action for the turn.
-  h.attackBonus    = 0;
+  // Strength potion bonus is consumed on this strike (one-shot per cast).
+  // Courage (attackBonus) is NOT consumed here — it persists for every attack
+  // as long as the hero can see at least one monster (expires via LOS check
+  // in checkHeroTurnStart).
   h.potionAtkBonus = 0;
   if (usingExtraAttack) h.extraAttack = false;
   else markActed(h);
@@ -1500,8 +1500,9 @@ function endHeroTurn(s: HQState): boolean {
   // through the upcoming Zargon turn and clears when the hero's next turn
   // begins. Similarly, Potion of Defense (potionDefBonus) persists until the
   // hero is actually hit — it is NOT cleared at turn end.
-  h.attackBonus    = 0;  // Courage: +2 dice carries into same turn only
-  h.potionAtkBonus = 0;  // Potion of Strength (unused strength potion expires at turn end)
+  // Courage (attackBonus) does NOT expire at turn end — it persists until the
+  // hero has no monsters in LOS (checked in checkHeroTurnStart each turn).
+  h.potionAtkBonus = 0;  // Potion of Strength: unused bonus expires at turn end
   h.extraAttack    = false;
   h.phaseWalls     = false;
   h.phaseMonsters  = false; // Veil of Mist: clears after the hero's move turn
@@ -2124,6 +2125,15 @@ function doCommandedHeroAct(s: HQState, h: Hero): void {
 function checkHeroTurnStart(s: HQState): void {
   const h = s.heroes[s.turnIndex];
   if (!h || h.body <= 0) return;
+
+  // Courage (attackBonus) expires when the hero can no longer see any monster.
+  if ((h.attackBonus ?? 0) > 0) {
+    const canSeeMonster = s.monsters.some(mm => hasLineOfSight(s, h.at, mm.at));
+    if (!canSeeMonster) {
+      h.attackBonus = 0;
+      pushLog(s, 'spell', `${heroLabel(h)}'s Courage fades — no monsters in sight.`);
+    }
+  }
 
   const effects: Array<{ flag: keyof Hero; label: string }> = [
     { flag: 'feared',    label: 'Fear' },

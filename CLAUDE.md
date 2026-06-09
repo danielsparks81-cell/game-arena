@@ -98,16 +98,22 @@ full movement remaining after casting, because the spell's value is movement-bas
 
 **Courage** (`courage`) — attack buff
 - Target: any living hero (self or ally; LOS required for allies)
-- Effect: adds **+2 to `attackBonus`** — the target rolls 2 extra dice on their next attack
+- Effect: adds **+2 to `attackBonus`** — the target rolls 2 extra attack dice on every attack
 - Does **not** grant `extraAttack` (no free second swing)
-- The bonus is consumed on the next attack and reset to 0 in `doAttack`; unused bonus also
-  expires at the end of the target hero's turn in `endHeroTurn`
+- Duration: **persists until the hero can no longer see any monster** (LOS-based expiry).
+  The bonus carries across multiple attacks and multiple turns. At the start of each of the
+  target hero's turns, `checkHeroTurnStart` checks whether any monster is in LOS — if none
+  are, `attackBonus` is cleared and a log message fires. The bonus is NOT consumed when
+  used in `doAttack` and does NOT expire at turn end.
 
-**Fire of Wrath** (`fire_of_wrath`) — 1 BP to one monster
+**Fire of Wrath** (`fire_of_wrath`) — roll-based 1 BP
 - Target: one visible monster (LOS required)
-- Effect: **1 automatic BP damage** (no attack roll)
-- Mitigation: monster rolls **1d6** — a **6** reduces damage by 1 (to 0)
-- The save die is shown as `lastDefenseRoll` for the dice-overlay animation
+- Effect: **no base (guaranteed) damage** — damage is entirely determined by the roll
+- Mechanic: monster rolls **1d6**:
+  - **1–5 (skull):** monster takes **1 BP** damage
+  - **6 (shield):** the flame is deflected — monster takes **0 damage**
+- The roll is shown as `lastDefenseRoll` for the dice-overlay animation
+- Overall: ~83% chance of 1 BP damage, ~17% chance of no damage
 
 ---
 
@@ -143,8 +149,8 @@ full movement remaining after casting, because the spell's value is movement-bas
 |---|---|---|
 | `phaseWalls` | Pass Through Rock | End of that hero's turn (`endHeroTurn`) |
 | `phaseMonsters` | Veil of Mist | End of that hero's turn (`endHeroTurn`) |
-| `attackBonus` | Courage / Strength Potion | Consumed on next attack; or end of turn |
-| `potionAtkBonus` | Strength Potion | Consumed on next attack; or end of turn |
+| `attackBonus` | Courage spell | Persists across attacks and turns; clears when hero has no monsters in LOS (checked in `checkHeroTurnStart`) |
+| `potionAtkBonus` | Strength Potion | Consumed on next attack; or end of turn if unused |
 | `defenseBonus` | Rock Skin / Defense Potion | Hero takes ≥1 BP damage (`doMonsterAttack`) |
 | `sleeping` | Sleep (hero spell) | Monster rolls 6 on mind-die at Zargon turn start |
 | `stunned` | Tempest (hero spell) | Monster's skipped Zargon turn fires |
