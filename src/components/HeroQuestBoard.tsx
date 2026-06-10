@@ -1294,7 +1294,7 @@ function IntermissionView({
         <div className="text-[11px] uppercase tracking-widest font-bold text-amber-400" style={{ fontFamily: 'serif' }}>
           Your Party — Kit for Next Quest
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-4 gap-2">
           {state.heroes.map(h => {
             const isMine = mySeats.has(h.seat);
             const accent = safeAccent(h.accent_color);
@@ -1508,14 +1508,17 @@ function IntermissionView({
           ⚔ The Armory
         </div>
 
-        {/* Two columns: weapons left, armor right */}
-        <div className="grid grid-cols-2 gap-x-2 gap-y-0">
+        {/* Three columns: weapons | armor | supplies */}
+        <div className="grid grid-cols-3 gap-x-2 gap-y-0">
           {/* Column headers */}
           <div className="text-[9px] uppercase tracking-widest text-orange-400/70 font-bold pb-1 border-b border-orange-900/40">
             ⚔ Weapons
           </div>
           <div className="text-[9px] uppercase tracking-widest text-blue-400/70 font-bold pb-1 border-b border-blue-900/40">
             🛡 Armor
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-emerald-400/70 font-bold pb-1 border-b border-emerald-900/40">
+            🧪 Supplies
           </div>
 
           {/* Weapon items — sorted most expensive first */}
@@ -1551,31 +1554,24 @@ function IntermissionView({
                 />
               ))}
           </div>
-        </div>
 
-        {/* Utility row (potions + tool kit) spanning both columns */}
-        {ARMORY.filter(i => i.kind === 'potion' || i.kind === 'tool').length > 0 && (
-          <div>
-            <div className="text-[9px] uppercase tracking-widest text-emerald-400/70 font-bold py-1 border-t border-emerald-900/30 mt-1">
-              🧪 Supplies
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {ARMORY.filter(i => i.kind === 'potion' || i.kind === 'tool')
-                .slice()
-                .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
-                .map(item => (
-                  <ArmoryItemCard
-                    key={item.id}
-                    item={item}
-                    heroes={state.heroes}
-                    mySeats={mySeats}
-                    onBuyItem={onBuyItem}
-                    flashSaved={flashSaved}
-                  />
-                ))}
-            </div>
+          {/* Supplies (potions + tool kit) — sorted most expensive first */}
+          <div className="space-y-1 pt-1">
+            {ARMORY.filter(i => i.kind === 'potion' || i.kind === 'tool')
+              .slice()
+              .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
+              .map(item => (
+                <ArmoryItemCard
+                  key={item.id}
+                  item={item}
+                  heroes={state.heroes}
+                  mySeats={mySeats}
+                  onBuyItem={onBuyItem}
+                  flashSaved={flashSaved}
+                />
+              ))}
           </div>
-        )}
+        </div>
       </div>
 
       {/* ── Ready system ── */}
