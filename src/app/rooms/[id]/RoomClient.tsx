@@ -413,9 +413,9 @@ function Seats({
   const labels = SEAT_LABELS[room.game_type];
   const seated = [...room.room_players].sort((a, b) => a.seat - b.seat);
   const slots = Array.from({ length: room.max_players }, (_, i) => seated.find(p => p.seat === i));
-  // For larger games (Long Shot up to 8), use a grid so seats wrap; for 2-player games keep a row.
+  // Always a single row of up to 8 seats.
   const grid = room.max_players > 2
-    ? 'grid grid-cols-2 gap-2 sm:grid-cols-4'
+    ? 'grid gap-2 grid-cols-8'
     : 'flex gap-2';
   return (
     <div className={`mb-4 ${grid}`}>
