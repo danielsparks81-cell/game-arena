@@ -600,6 +600,8 @@ export type HQAction =
   | { kind: 'sell_item'; heroSeat: number; itemId: string }
   /** Sell a held potion back to the Armory for 8 gp. */
   | { kind: 'sell_potion'; heroSeat: number; potionId: string }
+  /** One hero gives gold to another hero during intermission (free trade). */
+  | { kind: 'gift_gold'; fromSeat: number; toSeat: number; amount: number }
   /** Player marks themselves as ready (or not ready) for the next quest.
    *  The host cannot begin the next quest until all players are ready. */
   | { kind: 'intermission_ready'; ready: boolean };

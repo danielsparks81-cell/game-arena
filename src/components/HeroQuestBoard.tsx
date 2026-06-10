@@ -10,6 +10,7 @@ import {
   type HQState,
   type Hero,
   type HeroClass,
+  type Item,
   type Coord,
   type SpellElement,
   HERO_DEFAULTS,
@@ -75,6 +76,8 @@ export type HeroQuestBoardProps = {
   onSellItem: (heroSeat: number, itemId: string) => void;
   /** Intermission: sell a held potion back to the Armory (8 gp). */
   onSellPotion: (heroSeat: number, potionId: string) => void;
+  /** Intermission: give gold from one hero to another. */
+  onGiftGold: (fromSeat: number, toSeat: number, amount: number) => void;
   /** Intermission: toggle the current player's "ready for next quest" flag. */
   onIntermissionReady: (ready: boolean) => void;
 };
@@ -139,6 +142,7 @@ export default function HeroQuestBoard(props: HeroQuestBoardProps) {
         onPassPotionIntermission={props.onPassPotionIntermission}
         onSellItem={props.onSellItem}
         onSellPotion={props.onSellPotion}
+        onGiftGold={props.onGiftGold}
         onIntermissionReady={props.onIntermissionReady}
       />
     );
@@ -975,9 +979,117 @@ function sellPrice(item: { kind?: string; cost?: number }): number {
   return Math.ceil((item.cost ?? 0) * 0.1);
 }
 
+/** One visual combat die — red for attack, blue for defense. */
+function ArmoryDie({ type }: { type: 'attack' | 'defense' }) {
+  const isAtk = type === 'attack';
+  const bg     = isAtk ? '#6b1c1c' : '#1c3058';
+  const border = isAtk ? '#dc2626' : '#2563eb';
+  const dot    = isAtk ? '#fca5a5' : '#93c5fd';
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" style={{ display: 'inline-block', verticalAlign: 'middle' }}>
+      <rect x="0.5" y="0.5" width="12" height="12" rx="2.5" fill={bg} stroke={border} strokeWidth="1.2" />
+      {/* skull/shield centre pip */}
+      <circle cx="6.5" cy="6.5" r="2.2" fill={dot} />
+    </svg>
+  );
+}
+
+/** An armory item card with visual dice and buy buttons. */
+function ArmoryItemCard({
+  item, heroes, mySeats, onBuyItem, flashSaved,
+}: {
+  item: Item;
+  heroes: Hero[];
+  mySeats: Set<number>;
+  onBuyItem: (seat: number, itemId: string) => void;
+  flashSaved: () => void;
+}) {
+  const attackDice  = item.attack;
+  const defenseDice = item.defense;
+
+  return (
+    <div className="rounded border border-amber-900/40 bg-neutral-900/60 p-1.5 text-xs space-y-1">
+      {/* Name + cost */}
+      <div className="flex items-center justify-between gap-1">
+        <span className="font-semibold text-amber-100 text-[10px] leading-tight">{item.name}</span>
+        <span className="flex items-center gap-0.5 text-amber-300 text-[11px] font-semibold shrink-0">
+          <CoinIcon size={11} />{item.cost}
+        </span>
+      </div>
+
+      {/* Dice row */}
+      {(attackDice || defenseDice) && (
+        <div className="flex items-center gap-1.5">
+          {attackDice !== undefined && attackDice > 0 && (
+            <span className="flex items-center gap-0.5">
+              {Array.from({ length: attackDice }).map((_, i) => (
+                <ArmoryDie key={i} type="attack" />
+              ))}
+              <span className="text-[8px] text-orange-400/70 ml-0.5">atk</span>
+            </span>
+          )}
+          {defenseDice !== undefined && defenseDice > 0 && (
+            <span className="flex items-center gap-0.5">
+              {Array.from({ length: defenseDice }).map((_, i) => (
+                <ArmoryDie key={i} type="defense" />
+              ))}
+              <span className="text-[8px] text-blue-400/70 ml-0.5">def</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Restrictions / notes (short) — noWizard is shown via the red W button, not text */}
+      <div className="text-[8px] text-neutral-500 leading-tight">
+        {[
+          item.twoHanded ? 'two-handed' : '',
+          item.ranged    ? 'ranged'     : '',
+          item.diagonal  ? 'diagonal'   : '',
+        ].filter(Boolean).join(' · ')}
+        {!item.twoHanded && !item.ranged && !item.diagonal
+          ? item.description?.slice(0, 60)
+          : ''}
+      </div>
+
+      {/* Buy buttons (one per my hero) */}
+      <div className="flex flex-wrap gap-1">
+        {heroes
+          .filter(h => mySeats.has(h.seat))
+          .map(h => {
+            const canAfford = (h.gold ?? 0) >= (item.cost ?? 0);
+            const forbidden = item.noWizard && h.klass === 'wizard';
+            const disabled  = !canAfford || forbidden;
+            const def = HERO_DEFAULTS[h.klass as HeroClass];
+            return (
+              <button
+                key={h.seat}
+                disabled={disabled}
+                onClick={() => { onBuyItem(h.seat, item.id); flashSaved(); }}
+                title={
+                  forbidden ? `The ${def.name} cannot use this`
+                  : !canAfford ? `Need ${(item.cost ?? 0) - (h.gold ?? 0)} more gp`
+                  : `Buy for ${h.username} (${def.name})`
+                }
+                className={`relative rounded border px-1.5 py-0.5 text-[9px] transition ${
+                  forbidden
+                    ? 'cursor-not-allowed border-red-900 text-red-600/70 line-through'
+                    : !canAfford
+                    ? 'cursor-not-allowed border-neutral-700 text-neutral-600'
+                    : 'border-amber-600 text-amber-300 hover:bg-amber-900/40'
+                }`}
+              >
+                {def.name[0]}
+              </button>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
 function IntermissionView({
   state, currentUserId, isHost, onStart, onBuyItem, onPassItem,
-  onPassPotionIntermission, onSellItem, onSellPotion, onIntermissionReady,
+  onPassPotionIntermission, onSellItem, onSellPotion, onGiftGold, onIntermissionReady,
 }: {
   state: HQState;
   currentUserId: string;
@@ -988,6 +1100,7 @@ function IntermissionView({
   onPassPotionIntermission: (heroSeat: number, potionId: string, toHeroSeat: number) => void;
   onSellItem: (heroSeat: number, itemId: string) => void;
   onSellPotion: (heroSeat: number, potionId: string) => void;
+  onGiftGold: (fromSeat: number, toSeat: number, amount: number) => void;
   onIntermissionReady: (ready: boolean) => void;
 }) {
   const currentIdx = CAMPAIGN.indexOf(state.questId);
@@ -1006,6 +1119,9 @@ function IntermissionView({
     | { kind: 'potion'; heroSeat: number; potionId: string }
     | null
   >(null);
+
+  // For gold gifting: which hero is sending, and the typed amount.
+  const [givingGold, setGivingGold] = useState<{ heroSeat: number; amount: string } | null>(null);
 
   // Flash "✓ Saved" for 2 s after any purchase/pass.
   const [savedFlash, setSavedFlash] = useState(false);
@@ -1275,7 +1391,7 @@ function IntermissionView({
                     })}
                   </div>
                 )}
-                {/* Receive-pass */}
+                {/* Receive-pass (item or potion being handed to this hero) */}
                 {passing && passing.heroSeat !== h.seat && (
                   <button
                     onClick={() => {
@@ -1292,6 +1408,91 @@ function IntermissionView({
                     ← Give to {h.username}
                   </button>
                 )}
+                {/* Gold gifting — give button on my hero */}
+                {isMine && !passing && !givingGold && (h.gold ?? 0) > 0 && state.heroes.length > 1 && (
+                  <button
+                    onClick={() => setGivingGold({ heroSeat: h.seat, amount: '' })}
+                    className="w-full rounded border border-yellow-700/50 py-0.5 text-[9px] text-yellow-400/80 hover:bg-yellow-900/30"
+                  >
+                    💰 Give gold…
+                  </button>
+                )}
+                {/* Gold gifting — expanded send UI on the source hero */}
+                {givingGold?.heroSeat === h.seat && (
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="number"
+                        min={1}
+                        max={h.gold ?? 0}
+                        value={givingGold.amount}
+                        onChange={e => setGivingGold({ ...givingGold, amount: e.target.value })}
+                        placeholder="gp"
+                        className="w-14 rounded border border-yellow-700/50 bg-black/40 px-1 py-0.5 text-[9px] text-yellow-200 text-center"
+                      />
+                      {[10, 25, 50, 100].filter(n => n <= (h.gold ?? 0)).map(n => (
+                        <button
+                          key={n}
+                          onClick={() => setGivingGold({ ...givingGold, amount: String(n) })}
+                          className="rounded border border-yellow-800/50 px-1 py-0.5 text-[8px] text-yellow-500 hover:bg-yellow-900/30"
+                        >{n}</button>
+                      ))}
+                      <button
+                        onClick={() => setGivingGold(null)}
+                        className="ml-auto rounded border border-neutral-700 px-1 py-0.5 text-[8px] text-neutral-500 hover:bg-neutral-800"
+                      >✕</button>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {state.heroes.filter(o => o.seat !== h.seat).map(target => {
+                        const amt = parseInt(givingGold.amount, 10);
+                        const valid = !isNaN(amt) && amt > 0 && amt <= (h.gold ?? 0);
+                        return (
+                          <button
+                            key={target.seat}
+                            disabled={!valid}
+                            onClick={() => {
+                              if (!valid) return;
+                              onGiftGold(h.seat, target.seat, amt);
+                              setGivingGold(null);
+                              flashSaved();
+                            }}
+                            className={`rounded border px-1.5 py-0.5 text-[9px] transition ${
+                              valid
+                                ? 'border-yellow-600 text-yellow-300 hover:bg-yellow-900/40'
+                                : 'cursor-not-allowed border-neutral-700 text-neutral-600'
+                            }`}
+                          >
+                            → {target.username} <span className="opacity-50">({HERO_DEFAULTS[target.klass as HeroClass].name})</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {/* Receive gold — shown on every OTHER hero while someone is in gold-give mode */}
+                {givingGold && givingGold.heroSeat !== h.seat && (() => {
+                  const sender = state.heroes[givingGold.heroSeat];
+                  const amt = parseInt(givingGold.amount, 10);
+                  const valid = !isNaN(amt) && amt > 0 && amt <= (sender?.gold ?? 0);
+                  return (
+                    <button
+                      disabled={!valid}
+                      onClick={() => {
+                        if (!valid) return;
+                        onGiftGold(givingGold.heroSeat, h.seat, amt);
+                        setGivingGold(null);
+                        flashSaved();
+                      }}
+                      className={`w-full rounded border py-0.5 text-[9px] transition ${
+                        valid
+                          ? 'border-yellow-600/60 text-yellow-400 hover:bg-yellow-900/30'
+                          : 'cursor-not-allowed border-neutral-700 text-neutral-600'
+                      }`}
+                    >
+                      💰 Receive {valid ? `${amt} gp` : 'gold'} from {sender?.username}{sender ? ` (${HERO_DEFAULTS[sender.klass as HeroClass].name})` : ''}
+                    </button>
+                  );
+                })()}
               </div>
             );
           })}
@@ -1306,51 +1507,75 @@ function IntermissionView({
         <div className="text-[11px] uppercase tracking-widest font-bold text-amber-400" style={{ fontFamily: 'serif' }}>
           ⚔ The Armory
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {ARMORY.map(item => (
-            <div
-              key={item.id}
-              className="rounded border border-amber-900/40 bg-neutral-900/60 p-1.5 text-xs space-y-0.5"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="font-semibold text-amber-100">{item.name}</span>
-                <span className="flex items-center gap-0.5 text-amber-400 text-[10px]">
-                  <CoinIcon size={10} />{item.cost}
-                </span>
-              </div>
-              <div className="text-[9px] text-neutral-400 leading-tight">{item.description}</div>
-              <div className="flex flex-wrap gap-1 pt-0.5">
-                {state.heroes
-                  .filter(h => mySeats.has(h.seat))
-                  .map(h => {
-                    const canAfford = (h.gold ?? 0) >= (item.cost ?? 0);
-                    const forbidden = item.noWizard && h.klass === 'wizard';
-                    const disabled = !canAfford || forbidden;
-                    const def = HERO_DEFAULTS[h.klass];
-                    return (
-                      <button
-                        key={h.seat}
-                        disabled={disabled}
-                        onClick={() => { onBuyItem(h.seat, item.id); flashSaved(); }}
-                        title={
-                          forbidden ? `The ${def.name} cannot use this`
-                          : !canAfford ? `Need ${(item.cost ?? 0) - (h.gold ?? 0)} more gp`
-                          : `Buy for ${h.username} (${def.name})`
-                        }
-                        className={`rounded border px-1.5 py-0.5 text-[9px] transition ${
-                          disabled
-                            ? 'cursor-not-allowed border-neutral-700 text-neutral-600'
-                            : 'border-amber-600 text-amber-300 hover:bg-amber-900/40'
-                        }`}
-                      >
-                        {def.name[0]}
-                      </button>
-                    );
-                  })}
-              </div>
-            </div>
-          ))}
+
+        {/* Two columns: weapons left, armor right */}
+        <div className="grid grid-cols-2 gap-x-2 gap-y-0">
+          {/* Column headers */}
+          <div className="text-[9px] uppercase tracking-widest text-orange-400/70 font-bold pb-1 border-b border-orange-900/40">
+            ⚔ Weapons
+          </div>
+          <div className="text-[9px] uppercase tracking-widest text-blue-400/70 font-bold pb-1 border-b border-blue-900/40">
+            🛡 Armor
+          </div>
+
+          {/* Weapon items — sorted most expensive first */}
+          <div className="space-y-1 pt-1">
+            {ARMORY.filter(i => i.kind === 'weapon')
+              .slice()
+              .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
+              .map(item => (
+                <ArmoryItemCard
+                  key={item.id}
+                  item={item}
+                  heroes={state.heroes}
+                  mySeats={mySeats}
+                  onBuyItem={onBuyItem}
+                  flashSaved={flashSaved}
+                />
+              ))}
+          </div>
+
+          {/* Armor items — sorted most expensive first */}
+          <div className="space-y-1 pt-1">
+            {ARMORY.filter(i => i.kind === 'armor')
+              .slice()
+              .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
+              .map(item => (
+                <ArmoryItemCard
+                  key={item.id}
+                  item={item}
+                  heroes={state.heroes}
+                  mySeats={mySeats}
+                  onBuyItem={onBuyItem}
+                  flashSaved={flashSaved}
+                />
+              ))}
+          </div>
         </div>
+
+        {/* Utility row (potions + tool kit) spanning both columns */}
+        {ARMORY.filter(i => i.kind === 'potion' || i.kind === 'tool').length > 0 && (
+          <div>
+            <div className="text-[9px] uppercase tracking-widest text-emerald-400/70 font-bold py-1 border-t border-emerald-900/30 mt-1">
+              🧪 Supplies
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {ARMORY.filter(i => i.kind === 'potion' || i.kind === 'tool')
+                .slice()
+                .sort((a, b) => (b.cost ?? 0) - (a.cost ?? 0))
+                .map(item => (
+                  <ArmoryItemCard
+                    key={item.id}
+                    item={item}
+                    heroes={state.heroes}
+                    mySeats={mySeats}
+                    onBuyItem={onBuyItem}
+                    flashSaved={flashSaved}
+                  />
+                ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── Ready system ── */}

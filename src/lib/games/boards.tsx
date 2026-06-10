@@ -254,6 +254,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onPassPotionIntermission={(heroSeat, potionId, toHeroSeat) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'pass_potion_intermission', heroSeat, potionId, toHeroSeat }); })}
       onSellItem={(heroSeat, itemId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'sell_item', heroSeat, itemId }); })}
       onSellPotion={(heroSeat, potionId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'sell_potion', heroSeat, potionId }); })}
+      onGiftGold={(fromSeat, toSeat, amount) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'gift_gold', fromSeat, toSeat, amount }); })}
       onIntermissionReady={(ready) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'intermission_ready', ready }); })}
     />
   ),

@@ -707,6 +707,7 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'pass_potion_intermission'; heroSeat: number; potionId: string; toHeroSeat: number }
   | { game: 'heroquest'; kind: 'sell_item'; heroSeat: number; itemId: string }
   | { game: 'heroquest'; kind: 'sell_potion'; heroSeat: number; potionId: string }
+  | { game: 'heroquest'; kind: 'gift_gold'; fromSeat: number; toSeat: number; amount: number }
   | { game: 'heroquest'; kind: 'intermission_ready'; ready: boolean };
 
 /**

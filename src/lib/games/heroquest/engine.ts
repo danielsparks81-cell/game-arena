@@ -496,6 +496,7 @@ export function applyAction(
   if (action.kind === 'pass_potion_intermission')  return doIntermissionPassPotion(state, playerId, action.heroSeat, action.potionId, action.toHeroSeat);
   if (action.kind === 'sell_item')                 return doIntermissionSellItem(state, playerId, action.heroSeat, action.itemId);
   if (action.kind === 'sell_potion')               return doIntermissionSellPotion(state, playerId, action.heroSeat, action.potionId);
+  if (action.kind === 'gift_gold')                 return doIntermissionGiftGold(state, playerId, action.fromSeat, action.toSeat, action.amount);
   if (action.kind === 'intermission_ready')        return doIntermissionReady(state, playerId, action.ready);
 
   // Mid-game gating: only the active player can act.
@@ -1453,6 +1454,25 @@ function doIntermissionSellPotion(state: HQState, playerId: string, heroSeat: nu
   h.foundPotions = (h.foundPotions ?? []).filter((_, i) => i !== potionIdx);
   h.gold = (h.gold ?? 0) + POTION_SELL_PRICE;
   pushLog(s, 'search', `${heroLabel(h)} sells ${potion.name} for ${POTION_SELL_PRICE} gp.`);
+  return ok(s);
+}
+
+/** Give gold from one hero to another during intermission. */
+function doIntermissionGiftGold(state: HQState, playerId: string, fromSeat: number, toSeat: number, amount: number): ApplyResult {
+  if ((state.phase as string) !== 'intermission') return err('Gold can only be gifted between quests.');
+  const giver = state.heroes[fromSeat];
+  const receiver = state.heroes[toSeat];
+  if (!giver) return err('Invalid sender seat.');
+  if (!receiver) return err('Invalid recipient seat.');
+  if (giver.playerId !== playerId) return err("You can only give your own hero's gold.");
+  if (fromSeat === toSeat) return err('Cannot give gold to yourself.');
+  const amt = Math.floor(amount);
+  if (amt <= 0) return err('Amount must be a positive whole number.');
+  if ((giver.gold ?? 0) < amt) return err(`${heroLabel(giver)} only has ${giver.gold ?? 0} gp.`);
+  const s = clone(state);
+  s.heroes[fromSeat].gold = (s.heroes[fromSeat].gold ?? 0) - amt;
+  s.heroes[toSeat].gold   = (s.heroes[toSeat].gold   ?? 0) + amt;
+  pushLog(s, 'system', `${heroLabel(s.heroes[fromSeat])} gives ${amt} gp to ${heroLabel(s.heroes[toSeat])}.`);
   return ok(s);
 }
 
