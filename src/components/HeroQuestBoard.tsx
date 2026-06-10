@@ -994,7 +994,10 @@ function ArmoryDie({ type }: { type: 'attack' | 'defense' }) {
   );
 }
 
-/** An armory item card with visual dice and buy buttons. */
+/**
+ * Armory item row — five fixed columns so everything lines up:
+ * Name | Dice | Notes | Cost | Buy buttons
+ */
 function ArmoryItemCard({
   item, heroes, mySeats, onBuyItem, flashSaved,
 }: {
@@ -1004,85 +1007,67 @@ function ArmoryItemCard({
   onBuyItem: (seat: number, itemId: string) => void;
   flashSaved: () => void;
 }) {
-  const attackDice  = item.attack;
-  const defenseDice = item.defense;
+  const attackDice  = item.attack  ?? 0;
+  const defenseDice = item.defense ?? 0;
 
   return (
-    <div className="rounded border border-amber-900/40 bg-neutral-900/60 p-1.5 text-xs space-y-1">
-      {/* Name + cost */}
-      <div className="flex items-center justify-between gap-1">
-        <span className="font-semibold text-amber-100 text-[10px] leading-tight">{item.name}</span>
-        <span className="flex items-center gap-0.5 text-amber-300 text-[11px] font-semibold shrink-0">
-          <CoinIcon size={11} />{item.cost}
-        </span>
-      </div>
+    <div className="flex items-center gap-2 rounded border border-amber-900/40 bg-neutral-900/60 px-2 py-1">
 
-      {/* Dice row */}
-      {(attackDice || defenseDice) && (
-        <div className="flex items-center gap-1.5">
-          {attackDice !== undefined && attackDice > 0 && (
-            <span className="flex items-center gap-0.5">
-              {Array.from({ length: attackDice }).map((_, i) => (
-                <ArmoryDie key={i} type="attack" />
-              ))}
-              <span className="text-[8px] text-orange-400/70 ml-0.5">atk</span>
-            </span>
-          )}
-          {defenseDice !== undefined && defenseDice > 0 && (
-            <span className="flex items-center gap-0.5">
-              {Array.from({ length: defenseDice }).map((_, i) => (
-                <ArmoryDie key={i} type="defense" />
-              ))}
-              <span className="text-[8px] text-blue-400/70 ml-0.5">def</span>
-            </span>
-          )}
-        </div>
-      )}
+      {/* ① Name — fixed width so all rows align */}
+      <span className="w-[88px] shrink-0 font-semibold text-amber-100 text-[10px] leading-none truncate">
+        {item.name}
+      </span>
 
-      {/* Restrictions / notes (short) — noWizard is shown via the red W button, not text */}
-      <div className="text-[8px] text-neutral-500 leading-tight">
-        {[
-          item.twoHanded ? 'two-handed' : '',
-          item.ranged    ? 'ranged'     : '',
-          item.diagonal  ? 'diagonal'   : '',
-        ].filter(Boolean).join(' · ')}
-        {!item.twoHanded && !item.ranged && !item.diagonal
-          ? item.description?.slice(0, 60)
-          : ''}
-      </div>
+      {/* ② Dice — fixed width for up to 4 dice */}
+      <span className="w-[58px] shrink-0 flex items-center gap-0.5">
+        {attackDice  > 0 && Array.from({ length: attackDice  }).map((_, i) => <ArmoryDie key={i} type="attack"  />)}
+        {defenseDice > 0 && Array.from({ length: defenseDice }).map((_, i) => <ArmoryDie key={i} type="defense" />)}
+      </span>
 
-      {/* Buy buttons (one per my hero) */}
-      <div className="flex flex-wrap gap-1">
-        {heroes
-          .filter(h => mySeats.has(h.seat))
-          .map(h => {
-            const canAfford = (h.gold ?? 0) >= (item.cost ?? 0);
-            const forbidden = item.noWizard && h.klass === 'wizard';
-            const disabled  = !canAfford || forbidden;
-            const def = HERO_DEFAULTS[h.klass as HeroClass];
-            return (
-              <button
-                key={h.seat}
-                disabled={disabled}
-                onClick={() => { onBuyItem(h.seat, item.id); flashSaved(); }}
-                title={
-                  forbidden ? `The ${def.name} cannot use this`
-                  : !canAfford ? `Need ${(item.cost ?? 0) - (h.gold ?? 0)} more gp`
-                  : `Buy for ${h.username} (${def.name})`
-                }
-                className={`relative rounded border px-1.5 py-0.5 text-[9px] transition ${
-                  forbidden
-                    ? 'cursor-not-allowed border-red-900 text-red-600/70 line-through'
-                    : !canAfford
-                    ? 'cursor-not-allowed border-neutral-700 text-neutral-600'
-                    : 'border-amber-600 text-amber-300 hover:bg-amber-900/40'
-                }`}
-              >
-                {def.name[0]}
-              </button>
-            );
-          })}
-      </div>
+      {/* ③ Notes — grows to fill remaining space; full description shown, clipped to 2 lines */}
+      <span
+        className="flex-1 min-w-0 text-[9px] text-neutral-400 leading-tight"
+        style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+        title={item.description}
+      >
+        {item.description}
+      </span>
+
+      {/* ④ Cost */}
+      <span className="w-[46px] shrink-0 flex items-center justify-end gap-0.5 text-amber-300 text-[12px] font-bold">
+        <CoinIcon size={11} />{item.cost}
+      </span>
+
+      {/* ⑤ Buy buttons */}
+      <span className="shrink-0 flex gap-0.5">
+        {heroes.filter(h => mySeats.has(h.seat)).map(h => {
+          const canAfford = (h.gold ?? 0) >= (item.cost ?? 0);
+          const forbidden = item.noWizard && h.klass === 'wizard';
+          const disabled  = !canAfford || forbidden;
+          const def = HERO_DEFAULTS[h.klass as HeroClass];
+          return (
+            <button
+              key={h.seat}
+              disabled={disabled}
+              onClick={() => { onBuyItem(h.seat, item.id); flashSaved(); }}
+              title={
+                forbidden ? `The ${def.name} cannot use this`
+                : !canAfford ? `Need ${(item.cost ?? 0) - (h.gold ?? 0)} more gp`
+                : `Buy for ${h.username} (${def.name})`
+              }
+              className={`rounded border px-1.5 py-0.5 text-[9px] transition ${
+                forbidden
+                  ? 'cursor-not-allowed border-red-900 text-red-600/70 line-through'
+                  : !canAfford
+                  ? 'cursor-not-allowed border-neutral-700 text-neutral-600'
+                  : 'border-amber-600 text-amber-300 hover:bg-amber-900/40'
+              }`}
+            >
+              {def.name[0]}
+            </button>
+          );
+        })}
+      </span>
     </div>
   );
 }
@@ -1310,23 +1295,22 @@ function IntermissionView({
                   boxShadow: isMine ? `0 0 8px 1px ${accent}44` : undefined,
                 }}
               >
-                {/* Header */}
-                <div className="flex items-center gap-1">
+                {/* Row 1: name + class + atk/def + ready tick */}
+                <div className="flex items-center gap-1 flex-wrap">
                   <span className="font-bold truncate" style={{ color: accent }}>{h.username}</span>
                   <span className="text-[9px] text-amber-300/50 shrink-0">{def.name}</span>
-                  {ownerReady && <span className="ml-auto text-green-400 text-[10px] shrink-0">✓</span>}
-                </div>
-                {/* Stats: BP restores to full next quest */}
-                <div className="flex gap-3 text-[10px] text-amber-200/70">
-                  <span title="Restores to full at quest start">❤ {h.bodyMax}/{h.bodyMax} (full)</span>
-                  <span className="ml-auto flex items-center gap-0.5 font-semibold text-amber-300">
-                    <CoinIcon size={10} />{h.gold ?? 0} gp
+                  <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                    <span className="text-[11px] font-semibold text-orange-300">⚔{h.attack}</span>
+                    <span className="text-[11px] font-semibold text-sky-300">🛡{h.defense}</span>
+                    {ownerReady && <span className="text-green-400 text-[11px]">✓</span>}
                   </span>
                 </div>
-                {/* Attack / Defense dice — live values from equipped gear */}
-                <div className="flex gap-2 text-[9px] text-amber-400/60">
-                  <span>⚔ {h.attack} atk</span>
-                  <span>🛡 {h.defense} def</span>
+                {/* Row 2: HP + gold */}
+                <div className="flex items-center gap-2 text-[10px] text-amber-200/70">
+                  <span title="Restores to full at quest start">❤ {h.bodyMax}</span>
+                  <span className="ml-auto flex items-center gap-0.5 font-bold text-amber-300 text-[13px]">
+                    <CoinIcon size={12} />{h.gold ?? 0}<span className="text-[10px] font-normal">gp</span>
+                  </span>
                 </div>
                 {/* Equipment */}
                 {(h.items?.length ?? 0) > 0 && (
