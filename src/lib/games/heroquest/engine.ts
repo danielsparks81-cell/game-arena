@@ -984,11 +984,7 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
     escaped = tryAutoEscape(s, m);
     if (!escaped) {
       pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
-      if (m.goldMin !== undefined && m.goldMax !== undefined) {
-        const gold = m.goldMin + Math.floor(Math.random() * (m.goldMax - m.goldMin + 1));
-        h.gold += gold;
-        pushLog(s, 'system', `${heroLabel(h)} loots ${gold} gold from the fallen ${monsterDisplay(m)}.`);
-      }
+      awardKillGold(s, h, m);
       s.monsters = s.monsters.filter(mm => mm.id !== m.id);
     }
   }
@@ -1586,6 +1582,7 @@ function doCastSpell(
       }
       if (m.body <= 0) {
         pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+        awardKillGold(s, h, m);
         s.monsters = s.monsters.filter(mm => mm.id !== m.id);
         maybeFinishOnKill(s, m);
       }
@@ -1614,6 +1611,7 @@ function doCastSpell(
       );
       if (m.body <= 0) {
         pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+        awardKillGold(s, h, m);
         s.monsters = s.monsters.filter(mm => mm.id !== m.id);
         maybeFinishOnKill(s, m);
       }
@@ -1651,6 +1649,7 @@ function doCastSpell(
       pushLog(s, 'spell', `The genie strikes ${monsterDisplay(m)} for ${genieDmg} BP!`);
       if (m.body <= 0) {
         pushLog(s, 'death', `${monsterDisplay(m)} is destroyed!`);
+        awardKillGold(s, h, m);
         s.monsters = s.monsters.filter(mm => mm.id !== m.id);
         maybeFinishOnKill(s, m);
       }
@@ -2921,6 +2920,15 @@ function doDeathSave(state: HQState, playerId: string, choice: 'potion' | 'spell
 // ============================================================================
 // Win conditions
 // ============================================================================
+
+/** Award the per-monster gold bounty to the killing hero, then log it.
+ *  Call this from EVERY code path that destroys a monster (attack + all spells). */
+function awardKillGold(s: HQState, killer: Hero, m: Monster): void {
+  if (m.goldMin === undefined || m.goldMax === undefined) return;
+  const gold = m.goldMin + Math.floor(Math.random() * (m.goldMax - m.goldMin + 1));
+  killer.gold += gold;
+  pushLog(s, 'system', `${heroLabel(killer)} loots ${gold} gold from the fallen ${monsterDisplay(m)}.`);
+}
 
 function maybeFinishOnKill(s: HQState, killed: Monster): void {
   const wc = s.quest.winCondition;
