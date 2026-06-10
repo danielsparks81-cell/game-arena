@@ -36,26 +36,26 @@ export type HeroDefaults = {
 
 // ---- The Armory (between-quests shop). Faithful to the Armory card. ----
 // Weapons
-const DAGGER: Item = { id: 'dagger', name: 'Dagger', kind: 'weapon', attack: 1, cost: 25, description: 'Attack 1 die. Can be thrown at a monster you can see (lost once thrown).' };
-const STAFF: Item = { id: 'staff', name: 'Staff', kind: 'weapon', attack: 1, diagonal: true, twoHanded: true, cost: 100, description: 'Attack 1 die; attacks diagonally. No shield while using it.' };
-const SHORT_SWORD: Item = { id: 'short_sword', name: 'Shortsword', kind: 'weapon', attack: 2, cost: 150, noWizard: true, description: 'Attack 2 dice.' };
-const BROADSWORD: Item = { id: 'broadsword', name: 'Broadsword', kind: 'weapon', attack: 3, cost: 250, noWizard: true, description: 'Attack 3 dice.' };
-const LONGSWORD: Item = { id: 'longsword', name: 'Longsword', kind: 'weapon', attack: 3, diagonal: true, cost: 350, noWizard: true, description: 'Attack 3 dice; attacks diagonally.' };
-const CROSSBOW: Item = { id: 'crossbow', name: 'Crossbow', kind: 'weapon', attack: 3, ranged: true, cost: 350, noWizard: true, description: 'Attack 3 dice; fire at any monster you can see, but not an adjacent one.' };
-const HANDAXE: Item = { id: 'handaxe', name: 'Handaxe', kind: 'weapon', attack: 2, ranged: true, cost: 200, description: 'Attack 2 dice; can be thrown at a monster in line of sight (lost once thrown). Usable by any hero.' };
-const BATTLE_AXE: Item = { id: 'battle_axe', name: 'Battle Axe', kind: 'weapon', attack: 4, twoHanded: true, cost: 450, noWizard: true, description: 'Attack 4 dice. No shield while using it.' };
+const DAGGER: Item = { id: 'dagger', name: 'Dagger', kind: 'weapon', attack: 1, cost: 25, description: 'Throwable at any visible monster (lost on throw).' };
+const STAFF: Item = { id: 'staff', name: 'Staff', kind: 'weapon', attack: 1, diagonal: true, twoHanded: true, cost: 100, description: 'Attacks diagonally. Cannot use a shield with it.' };
+const SHORT_SWORD: Item = { id: 'short_sword', name: 'Shortsword', kind: 'weapon', attack: 2, cost: 150, noWizard: true, description: 'Standard melee weapon.' };
+const BROADSWORD: Item = { id: 'broadsword', name: 'Broadsword', kind: 'weapon', attack: 3, cost: 250, noWizard: true, description: 'Standard melee weapon.' };
+const LONGSWORD: Item = { id: 'longsword', name: 'Longsword', kind: 'weapon', attack: 3, diagonal: true, cost: 350, noWizard: true, description: 'Attacks diagonally as well as orthogonally.' };
+const CROSSBOW: Item = { id: 'crossbow', name: 'Crossbow', kind: 'weapon', attack: 3, ranged: true, cost: 350, noWizard: true, description: 'Fire at any visible monster; cannot target adjacent ones.' };
+const HANDAXE: Item = { id: 'handaxe', name: 'Handaxe', kind: 'weapon', attack: 2, ranged: true, cost: 200, description: 'Throwable (lost on throw). Any hero can use it.' };
+const BATTLE_AXE: Item = { id: 'battle_axe', name: 'Battle Axe', kind: 'weapon', attack: 4, twoHanded: true, cost: 450, noWizard: true, description: 'Heaviest melee weapon. Cannot use a shield with it.' };
 // Armor (defense bonuses stack additively)
-const HELMET: Item = { id: 'helmet', name: 'Helmet', kind: 'armor', defense: 1, cost: 125, noWizard: true, description: '+1 Defend die.' };
-const SHIELD: Item = { id: 'shield', name: 'Shield', kind: 'armor', defense: 1, cost: 150, noWizard: true, description: '+1 Defend die. Not with the Battle Axe or Staff.' };
-const CHAIN_MAIL: Item = { id: 'chain_mail', name: 'Chain Mail', kind: 'armor', defense: 1, cost: 500, noWizard: true, description: '+1 Defend die. Combines with Helmet and/or Shield.' };
+const HELMET: Item = { id: 'helmet', name: 'Helmet', kind: 'armor', defense: 1, cost: 125, noWizard: true, description: 'Stacks with Shield and body armor.' };
+const SHIELD: Item = { id: 'shield', name: 'Shield', kind: 'armor', defense: 1, cost: 150, noWizard: true, description: 'Cannot use with Battle Axe or Staff.' };
+const CHAIN_MAIL: Item = { id: 'chain_mail', name: 'Chain Mail', kind: 'armor', defense: 1, cost: 500, noWizard: true, description: 'Stacks with Helmet and/or Shield.' };
 // Bracers are leather, so the Wizard CAN wear them (the only armor they may use).
-const BRACERS: Item = { id: 'bracers', name: 'Bracers', kind: 'armor', defense: 1, cost: 550, description: '+1 Defend die. Combines with Helmet and/or Shield. Wearable by any hero (leather).' };
-const PLATE_MAIL: Item = { id: 'plate_mail', name: 'Plate Mail', kind: 'armor', defense: 2, cost: 850, noWizard: true, description: '+2 Defend dice. Combines with Helmet and/or Shield. Heavy: roll 1 less d4 for movement (2d4 instead of 3d4) while worn.' };
+const BRACERS: Item = { id: 'bracers', name: 'Bracers', kind: 'armor', defense: 1, cost: 550, description: 'Stacks with Helmet and/or Shield. Any hero can wear them.' };
+const PLATE_MAIL: Item = { id: 'plate_mail', name: 'Plate Mail', kind: 'armor', defense: 2, cost: 850, noWizard: true, description: 'Stacks with Helmet and/or Shield. Heavy: move on 2d4 instead of 3d4.' };
 /** Lets non-Dwarf heroes attempt to disarm traps (the Dwarf needs no kit). */
-export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', cost: 250, description: 'Lets any hero attempt to disarm traps (~50%). The Dwarf never needs one.' };
+export const TOOL_KIT: Item = { id: 'tool_kit', name: 'Tool Kit', kind: 'tool', cost: 250, description: 'Any hero can attempt to disarm traps (~50%). Dwarf never needs one.' };
 // Consumables sold in the equipment deck (one use, then discarded).
-const POTION_OF_SPEED: Item = { id: 'potion_of_speed', name: 'Potion of Speed', kind: 'potion', cost: 200, description: 'Drink any time: roll twice as many movement dice on your next move. One use.' };
-const HOLY_WATER: Item = { id: 'holy_water', name: 'Holy Water', kind: 'potion', cost: 400, description: 'Use instead of attacking to instantly kill any one undead (skeleton/zombie/mummy). One use.' };
+const POTION_OF_SPEED: Item = { id: 'potion_of_speed', name: 'Potion of Speed', kind: 'potion', cost: 200, description: 'Drink anytime: double your movement dice on your next move. One use.' };
+const HOLY_WATER: Item = { id: 'holy_water', name: 'Holy Water', kind: 'potion', cost: 400, description: 'Use instead of attacking to instantly destroy one undead. One use.' };
 
 /** Everything purchasable from the armory between quests, cheapest first. */
 export const ARMORY: Item[] = [

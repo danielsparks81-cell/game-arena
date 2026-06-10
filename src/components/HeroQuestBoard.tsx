@@ -1010,8 +1010,10 @@ function ArmoryItemCard({
   const attackDice  = item.attack  ?? 0;
   const defenseDice = item.defense ?? 0;
 
+  // Fixed row height = 2 lines of text (9px × 1.35 leading × 2) + 8px padding ≈ 32px.
+  // Every item is this height so the columns stay perfectly uniform.
   return (
-    <div className="flex items-center gap-2 rounded border border-amber-900/40 bg-neutral-900/60 px-2 py-1">
+    <div className="flex items-center gap-2 rounded border border-amber-900/40 bg-neutral-900/60 px-2" style={{ height: 34 }}>
 
       {/* ① Name — fixed width so all rows align */}
       <span className="w-[88px] shrink-0 font-semibold text-amber-100 text-[10px] leading-none truncate">
@@ -1024,10 +1026,10 @@ function ArmoryItemCard({
         {defenseDice > 0 && Array.from({ length: defenseDice }).map((_, i) => <ArmoryDie key={i} type="defense" />)}
       </span>
 
-      {/* ③ Notes — grows to fill remaining space; full description shown, clipped to 2 lines */}
+      {/* ③ Notes — fills remaining space; plain overflow-hidden, no ellipsis */}
       <span
-        className="flex-1 min-w-0 text-[9px] text-neutral-400 leading-tight"
-        style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
+        className="flex-1 min-w-0 text-[9px] text-neutral-400 overflow-hidden leading-[1.35]"
+        style={{ maxHeight: 'calc(2 * 1.35 * 9px)' }}
         title={item.description}
       >
         {item.description}
