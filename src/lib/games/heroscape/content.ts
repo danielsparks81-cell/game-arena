@@ -2,9 +2,9 @@
 //
 // Stats are AS PRINTED in docs/heroscape/cards.md (the rebalanced modern
 // printing — e.g. Marro Warriors are Range 6 / 105 points there, NOT the
-// classic 2004 values). The Basic Game uses only Move / Range / Attack /
-// Defense and IGNORES special powers entirely (01-components §2); Life and
-// Height ride along as card data for later slices.
+// classic 2004 values). Slice 2 uses Move / Range / Attack / Defense / Life
+// (Master combat wounds) and IGNORES special powers entirely; Height rides
+// along as card data for later slices.
 
 import type { CombatFace, HSCardDef } from './types';
 
@@ -93,6 +93,3 @@ export const COMBAT_DIE_FACES: readonly CombatFace[] = [
   'shield',
   'blank',
 ];
-
-/** First-player roll-off: each player rolls 6 combat dice (01-components §2). */
-export const ROLL_OFF_DICE = 6;

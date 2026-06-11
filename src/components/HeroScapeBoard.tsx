@@ -1,21 +1,27 @@
 'use client';
 
-// HeroScape board — slice 1 (Basic Game on the Training Field).
-// Flat map, fixed armies, alternate turns: pick ONE card, move its figures,
-// then attack. All legality comes from the engine's pure helpers so the
-// highlights can never disagree with the server's validation.
+// HeroScape board — slice 2 (Master Game rounds on the Training Field).
+// Each round: secretly place order markers 1/2/3/X → d20 initiative → three
+// turns per player, each driven by the automatically revealed marker. All
+// legality comes from the engine's pure helpers so the highlights can never
+// disagree with the server's validation. The state arriving here is already
+// PROJECTED: an opponent's unrevealed markers are literally 'hidden' — the
+// board renders every one of them as the same face-down chip (X included).
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   type HSState,
   type Figure,
   type CombatFace,
   type HexKey,
+  type OrderMarker,
+  type OrderMarkerValue,
   MAPS,
   HS_CARDS,
   legalDestinations,
   legalTargets,
   figureLabel,
+  getActiveCardUid,
   hexToPixel,
   hexCorners,
 } from '@/lib/games/heroscape';
@@ -24,6 +30,9 @@ const HEX = 34; // px size of a unit hex
 const PAD = 26;
 
 const SEAT_COLORS = ['#34d399', '#f87171']; // fallback accents by roster index
+const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
+
+type Assignment = { marker: OrderMarkerValue; cardUid: string };
 
 type Props = {
   state: HSState;
@@ -31,6 +40,7 @@ type Props = {
   isHost: boolean;
   disabled?: boolean;
   onStart: () => void;
+  onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onAttack: (attackerId: string, targetId: string) => void;
   onEndTurn: () => void;
@@ -50,17 +60,70 @@ function DieFace({ face, size = 22 }: { face: CombatFace; size?: number }) {
   );
 }
 
+/** One order-marker chip. A projected 'hidden' marker renders as the same
+ *  anonymous face-down chip every time — the X decoy must be visually
+ *  indistinguishable from 1/2/3 (slice-2 spec §Projection). */
+function MarkerChip({ m, size = 16 }: { m: OrderMarker; size?: number }) {
+  const faceDown = m.marker === 'hidden';
+  return (
+    <span
+      className={
+        'inline-flex shrink-0 items-center justify-center rounded-full border font-bold ' +
+        (faceDown
+          ? 'border-neutral-600 bg-neutral-800 text-neutral-800'
+          : m.revealed
+            ? 'border-amber-400 bg-amber-500/90 text-neutral-950'
+            : 'border-amber-700/70 bg-neutral-900 text-amber-300/90')
+      }
+      style={{ width: size, height: size, fontSize: size * 0.62 }}
+      title={
+        faceDown
+          ? 'Face-down order marker'
+          : `Order marker ${m.marker}${m.revealed ? ' (revealed)' : ''}`
+      }
+    >
+      {faceDown ? '' : m.marker}
+    </span>
+  );
+}
+
+/** ♥ pips for a hero: Life − wounds remaining. */
+function WoundPips({ life, wounds }: { life: number; wounds: number }) {
+  return (
+    <span className="tracking-tight" title={`${life - wounds}/${life} Life`}>
+      <span className="text-red-400">{'♥'.repeat(Math.max(0, life - wounds))}</span>
+      <span className="text-neutral-700">{'♥'.repeat(Math.min(life, wounds))}</span>
+    </span>
+  );
+}
+
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onMoveFigure, onAttack, onEndTurn,
+  onStart, onPlaceMarkers, onMoveFigure, onAttack, onEndTurn,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Marker-placement scratchpad: which card each chip sits on, and which chip
+  // the next card tap will drop. Reset every round.
+  const [assign, setAssign] = useState<Record<OrderMarkerValue, string | null>>({
+    '1': null, '2': null, '3': null, X: null,
+  });
+  const [pickedMarker, setPickedMarker] = useState<OrderMarkerValue>('1');
+  useEffect(() => {
+    setAssign({ '1': null, '2': null, '3': null, X: null });
+    setPickedMarker('1');
+    setSelectedId(null);
+  }, [state.round, state.phase]);
 
   const map = MAPS[state.mapId];
   const me = state.players.find(p => p.playerId === currentUserId);
   const turnPlayer = state.players.find(p => p.seat === state.turnSeat);
-  const myTurn = state.phase === 'playing' && !!me && state.turnSeat === me.seat;
+  const placing = state.phase === 'playing' && state.subPhase === 'place_markers';
+  const myTurn =
+    state.phase === 'playing' && state.subPhase === 'turns' && !!me && state.turnSeat === me.seat;
   const canAct = myTurn && !disabled;
+  const iAmReady = !!me && state.markersReady.includes(me.seat);
+  const activeCardUid = getActiveCardUid(state);
+  const activeCardDef = HS_CARDS[state.cards.find(c => c.uid === activeCardUid)?.cardId ?? ''];
 
   const seatColor = (seat: number) => {
     const idx = state.players.findIndex(p => p.seat === seat);
@@ -104,15 +167,31 @@ export default function HeroScapeBoard({
     if (!fig && selected && destinations.has(key)) { onMoveFigure(selected.id, key); return; }
   }
 
-  // Army roster panel data: cards with surviving / total figures.
+  // Army roster panel data: cards with surviving figures, wounds, markers.
   const roster = state.players.map(pl => ({
     pl,
     cards: state.cards.filter(c => c.ownerSeat === pl.seat).map(c => {
       const def = HS_CARDS[c.cardId];
-      const alive = state.figures.filter(f => f.cardUid === c.uid && f.at != null).length;
-      return { uid: c.uid, def, alive };
+      const figs = state.figures.filter(f => f.cardUid === c.uid);
+      const alive = figs.filter(f => f.at != null).length;
+      return { uid: c.uid, def, alive, heroWounds: figs[0]?.wounds ?? 0, markers: c.orderMarkers };
     }),
   }));
+  const myLivingCards =
+    me == null ? [] : roster.find(r => r.pl.seat === me.seat)?.cards.filter(c => c.alive > 0) ?? [];
+
+  function assignPicked(cardUid: string) {
+    const next = { ...assign, [pickedMarker]: cardUid };
+    setAssign(next);
+    const nextUnassigned = MARKERS.find(v => !next[v]);
+    if (nextUnassigned) setPickedMarker(nextUnassigned);
+  }
+  const allAssigned = MARKERS.every(v => assign[v]);
+
+  function lockIn() {
+    if (!allAssigned) return;
+    onPlaceMarkers(MARKERS.map(v => ({ marker: v, cardUid: assign[v]! })));
+  }
 
   // ---------- lobby ----------
   if (state.phase === 'lobby') {
@@ -120,9 +199,10 @@ export default function HeroScapeBoard({
       <div className="flex flex-col items-center gap-4 p-6">
         <h2 className="text-xl font-bold text-amber-100">HeroScape — Training Field</h2>
         <p className="text-sm text-neutral-400">
-          Basic Game (beta): {HS_CARDS.finn.name} + {HS_CARDS.tarn_vikings.name} vs{' '}
-          {HS_CARDS.thorgrim.name} + {HS_CARDS.marro_warriors.name}. First to wipe out the
-          enemy army wins.
+          Master Game (beta): {HS_CARDS.finn.name} + {HS_CARDS.tarn_vikings.name} vs{' '}
+          {HS_CARDS.thorgrim.name} + {HS_CARDS.marro_warriors.name}. Each round, secretly
+          schedule your three turns with order markers, roll for initiative, and fight —
+          first to wipe out the enemy army wins.
         </p>
         <div className="text-sm text-neutral-300">
           {state.players.length}/2 players seated{state.players.length < 2 ? ' — waiting…' : ''}
@@ -144,45 +224,137 @@ export default function HeroScapeBoard({
   // ---------- playing / finished ----------
   return (
     <div className="flex flex-col gap-3 p-3 lg:flex-row">
-      {/* Left column: status, dice, roster, log */}
+      {/* Left column: status, markers, dice, roster, log */}
       <div className="flex w-full shrink-0 flex-col gap-3 lg:w-[300px]">
-        {/* Turn / result banner */}
-        <div
-          className="rounded-lg border-2 px-3 py-2 text-center text-sm font-bold"
-          style={{
-            borderColor: state.phase === 'finished'
-              ? '#fbbf24'
-              : seatColor(state.turnSeat ?? 0),
-            color: state.phase === 'finished' ? '#fde68a' : seatColor(state.turnSeat ?? 0),
-          }}
-        >
-          {state.phase === 'finished'
-            ? `🏆 ${state.players.find(p => p.seat === state.winnerSeat)?.username ?? '—'} wins the battle!`
-            : myTurn
-              ? '⚔ Your turn'
-              : `${turnPlayer?.username ?? '…'}'s turn`}
-          {state.phase === 'playing' && state.activeCardUid && (
-            <div className="mt-0.5 text-[11px] font-normal opacity-80">
-              Active card: {HS_CARDS[state.cards.find(c => c.uid === state.activeCardUid)?.cardId ?? '']?.name}
+        {/* Marker placement panel (replaces the turn banner while placing) */}
+        {placing ? (
+          <div className="rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2">
+            <div className="text-center text-sm font-bold text-amber-300">
+              Round {state.round} — place order markers
             </div>
-          )}
-        </div>
-
-        {/* Opening roll-off */}
-        {state.rollOff && (
-          <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-[11px] text-neutral-300">
-            <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">First-turn roll</div>
-            {state.rollOff.rounds.map((rd, i) => (
-              <div key={i} className="flex items-center gap-1">
-                <span className="w-14 truncate">{state.players[0]?.username}</span>
-                {rd.seat0.map((f, j) => <DieFace key={j} face={f} size={14} />)}
-                <span className="mx-1 opacity-60">vs</span>
-                {rd.seat1.map((f, j) => <DieFace key={j} face={f} size={14} />)}
+            {me && !iAmReady ? (
+              <>
+                <div className="mt-2 flex items-center justify-center gap-2">
+                  {MARKERS.map(v => {
+                    const onCard = assign[v] ? HS_CARDS[state.cards.find(c => c.uid === assign[v])?.cardId ?? ''] : null;
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => setPickedMarker(v)}
+                        disabled={disabled}
+                        className={
+                          'flex w-12 flex-col items-center rounded-md border px-1 py-1 transition ' +
+                          (pickedMarker === v
+                            ? 'border-amber-400 bg-amber-900/40'
+                            : 'border-neutral-700 hover:border-neutral-500')
+                        }
+                        title={v === 'X' ? 'Decoy — grants no turn' : `Your turn ${v} this round`}
+                      >
+                        <span className={'text-base font-extrabold ' + (assign[v] ? 'text-amber-300' : 'text-neutral-300')}>
+                          {v}
+                        </span>
+                        <span className="h-3 truncate text-[9px] leading-3 text-neutral-400">
+                          {onCard?.shortName ?? '—'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex flex-col gap-1">
+                  {myLivingCards.map(({ uid, def }) => (
+                    <button
+                      key={uid}
+                      onClick={() => assignPicked(uid)}
+                      disabled={disabled}
+                      className="flex items-center justify-between rounded-md border border-neutral-700 px-2 py-1 text-left text-[11px] text-neutral-200 transition hover:border-amber-600 hover:bg-amber-900/20"
+                    >
+                      <span className="truncate">{def.name}</span>
+                      <span className="ml-2 flex shrink-0 gap-1">
+                        {MARKERS.filter(v => assign[v] === uid).map(v => (
+                          <MarkerChip key={v} m={{ marker: v, revealed: false }} />
+                        ))}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={lockIn}
+                  disabled={disabled || !allAssigned}
+                  className="mt-2 w-full rounded-lg border-2 border-emerald-600 px-4 py-1.5 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  🔒 Lock in markers
+                </button>
+                <div className="mt-1 text-center text-[10px] text-neutral-500">
+                  Tap a chip, then a card. X is a decoy — it never takes a turn.
+                </div>
+              </>
+            ) : (
+              <div className="mt-1 text-center text-xs text-neutral-400">
+                {me ? 'Markers locked in — waiting for the enemy…' : 'Players are placing markers…'}
               </div>
-            ))}
-            <div className="mt-1">
-              → {state.players.find(p => p.seat === state.rollOff!.winnerSeat)?.username} goes first
+            )}
+            <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-800 pt-1.5 text-[11px]">
+              {state.players.filter(p => p.playerId !== currentUserId).map(p => (
+                <div key={p.seat} className="flex items-center justify-between">
+                  <span style={{ color: seatColor(p.seat) }}>{p.username}</span>
+                  <span className={state.markersReady.includes(p.seat) ? 'text-emerald-400' : 'text-neutral-500'}>
+                    {state.markersReady.includes(p.seat) ? 'ready ✓' : 'placing…'}
+                  </span>
+                </div>
+              ))}
             </div>
+          </div>
+        ) : (
+          /* Turn / result banner */
+          <div
+            className="rounded-lg border-2 px-3 py-2 text-center text-sm font-bold"
+            style={{
+              borderColor: state.phase === 'finished'
+                ? '#fbbf24'
+                : seatColor(state.turnSeat ?? 0),
+              color: state.phase === 'finished' ? '#fde68a' : seatColor(state.turnSeat ?? 0),
+            }}
+          >
+            {state.phase === 'finished'
+              ? `🏆 ${state.players.find(p => p.seat === state.winnerSeat)?.username ?? '—'} wins the battle!`
+              : myTurn
+                ? '⚔ Your turn'
+                : `${turnPlayer?.username ?? '…'}'s turn`}
+            {state.phase === 'playing' && (
+              <div className="mt-0.5 text-[11px] font-normal opacity-80">
+                Round {state.round} · Turn {state.turnNumber}/3
+                {activeCardDef ? ` · ${activeCardDef.name}` : ''}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* This round's d20 initiative (every attempt, ties marked) */}
+        {state.subPhase === 'turns' && state.initiativeRolls.length > 0 && (
+          <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-[11px] text-neutral-300">
+            <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">
+              Round {state.round} initiative
+            </div>
+            {state.initiativeRolls.map((attempt, i) => {
+              const isLast = i === state.initiativeRolls.length - 1;
+              return (
+                <div key={i} className="flex items-center gap-1.5">
+                  {attempt.map(a => (
+                    <span key={a.seat}>
+                      <span style={{ color: seatColor(a.seat) }}>
+                        {state.players.find(p => p.seat === a.seat)?.username}
+                      </span>{' '}
+                      <span className="font-bold tabular-nums">{a.roll}</span>
+                    </span>
+                  ))}
+                  <span className={isLast ? 'text-amber-300' : 'text-neutral-500'}>
+                    {isLast
+                      ? `→ ${state.players.find(p => p.seat === state.initiative[0])?.username} first`
+                      : '— tie, re-roll'}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -201,23 +373,43 @@ export default function HeroScapeBoard({
               {state.lastAttack.defenseRoll.map((f, i) => <DieFace key={i} face={f} />)}
               <span className="ml-1 font-bold text-sky-300">{state.lastAttack.shields}</span>
             </div>
-            <div className={`mt-1 font-semibold ${state.lastAttack.destroyed ? 'text-red-400' : 'text-neutral-400'}`}>
-              {state.lastAttack.destroyed ? `${state.lastAttack.targetLabel} is destroyed!` : 'Attack blocked.'}
+            <div className={`mt-1 font-semibold ${state.lastAttack.destroyed ? 'text-red-400' : state.lastAttack.wounds > 0 ? 'text-orange-300' : 'text-neutral-400'}`}>
+              {state.lastAttack.destroyed
+                ? `${state.lastAttack.targetLabel} is destroyed!`
+                : state.lastAttack.wounds > 0
+                  ? `${state.lastAttack.wounds} wound${state.lastAttack.wounds === 1 ? '' : 's'} inflicted.`
+                  : 'Attack blocked.'}
             </div>
           </div>
         )}
 
-        {/* Armies */}
+        {/* Armies: figures, hero ♥, marker chips (enemy chips are face-down) */}
         {roster.map(({ pl, cards }) => (
           <div key={pl.seat} className="rounded-lg border border-neutral-800 bg-neutral-900/50 px-3 py-2">
             <div className="mb-1 text-xs font-bold" style={{ color: seatColor(pl.seat) }}>
               {pl.username}{pl.playerId === currentUserId ? ' (you)' : ''}
             </div>
-            {cards.map(({ uid, def, alive }) => (
-              <div key={uid} className="flex items-center justify-between text-[11px] text-neutral-300">
-                <span className={alive === 0 ? 'line-through opacity-50' : ''}>{def.name}</span>
+            {cards.map(({ uid, def, alive, heroWounds, markers }) => (
+              <div
+                key={uid}
+                className={
+                  'flex items-center justify-between rounded px-1 text-[11px] text-neutral-300 ' +
+                  (uid === activeCardUid ? 'bg-amber-900/30 outline outline-1 outline-amber-700/60' : '')
+                }
+              >
+                <span className={'flex min-w-0 items-center gap-1 ' + (alive === 0 ? 'line-through opacity-50' : '')}>
+                  <span className="truncate">{def.shortName}</span>
+                  {markers.length > 0 && (
+                    <span className="flex shrink-0 gap-0.5">
+                      {markers.map((m, i) => <MarkerChip key={i} m={m} size={14} />)}
+                    </span>
+                  )}
+                </span>
                 <span className="ml-2 shrink-0 tabular-nums">
-                  {alive}/{def.figures} · Mv {def.move} Rg {def.range} ⚔{def.attack} 🛡{def.defense}
+                  {def.type === 'hero'
+                    ? <WoundPips life={def.life} wounds={alive === 0 ? def.life : heroWounds} />
+                    : `${alive}/${def.figures}`}
+                  {' '}· Mv {def.move} Rg {def.range} ⚔{def.attack} 🛡{def.defense}
                 </span>
               </div>
             ))}
@@ -296,6 +488,19 @@ export default function HeroScapeBoard({
                 >
                   {def?.letter}{def?.type === 'squad' ? f.index : ''}
                 </text>
+                {f.wounds > 0 && (
+                  <g style={{ pointerEvents: 'none' }}>
+                    <circle cx={ctr.x - HEX * 0.34} cy={ctr.y - HEX * 0.34} r={6} fill="#dc2626" stroke="#0a0a0a" />
+                    <text
+                      x={ctr.x - HEX * 0.34} y={ctr.y - HEX * 0.34 + 0.5}
+                      textAnchor="middle" dominantBaseline="middle"
+                      fontSize={8} fontWeight={800} fill="#fee2e2"
+                      style={{ userSelect: 'none' }}
+                    >
+                      {f.wounds}
+                    </text>
+                  </g>
+                )}
                 {state.movedFigureIds.includes(f.id) && state.turnSeat === f.ownerSeat && (
                   <circle cx={ctr.x + HEX * 0.34} cy={ctr.y - HEX * 0.34} r={4.5} fill="#a3a3a3" stroke="#0a0a0a" />
                 )}
@@ -307,7 +512,12 @@ export default function HeroScapeBoard({
           <div className="mt-1 text-center text-[11px] text-neutral-500">
             {selected
               ? `${figureLabel(state, selected)} — click a highlighted hex to move, a marked enemy to attack, or another of your figures.`
-              : 'Click one of your figures. Your first move or attack locks in that card for the turn.'}
+              : `Order marker ${state.turnNumber} is revealed — only ${activeCardDef?.name ?? 'that card'}'s figures act this turn.`}
+          </div>
+        )}
+        {placing && me && !iAmReady && (
+          <div className="mt-1 text-center text-[11px] text-neutral-500">
+            Assign your order markers in the panel, then lock in.
           </div>
         )}
       </div>

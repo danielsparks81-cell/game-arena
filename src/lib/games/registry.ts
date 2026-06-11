@@ -181,11 +181,12 @@ export const GAME_GUIDES: Record<string, GameGuide> = {
     theme: 'A hex-battlefield miniatures skirmish: Viking champions and Marro raiders clash on the Training Field. 2 players, dice-driven combat.',
     objective: 'Destroy every figure in the enemy army — the last player with figures on the battlefield wins.',
     rules: [
-      'Each player commands a fixed army of one Champion and a 4-figure squad. A roll-off (most skulls on 6 combat dice) decides who goes first; turns then alternate.',
-      'On your turn, activate ONE of your army cards: move any of its figures up to their Move, then each of them may attack once.',
-      'Figures may pass through friendly figures but never enemies, and can never end on an occupied hex.',
-      'To attack, the target must be within Range and in line of sight. The attacker rolls attack dice (count skulls), the defender rolls defense dice (count shields).',
-      'More skulls than shields destroys the defender outright; ties favor the defender.',
+      'Each player commands a fixed army of one Champion and a 4-figure squad. The game is played in rounds of three turns per player.',
+      'Each round, both players SECRETLY place order markers 1, 2, 3, and X on their army cards — the numbers schedule which card acts on each of your turns; the X is a pure decoy. Stacking markers on one card is allowed.',
+      'Once both players lock in, everyone rolls a d20 for initiative (ties re-roll). On each of your turns the matching marker is revealed and ONLY that card acts: move any of its figures up to their Move, then each may attack once.',
+      'If the card holding a marker has been destroyed, that turn is lost — the marker is never revealed. Figures may pass through friendly figures but never enemies, and can never end on an occupied hex.',
+      'To attack, the target must be within Range and in line of sight. The attacker rolls attack dice (count skulls), the defender rolls defense dice (count shields); each unblocked skull is a wound.',
+      'A figure is destroyed when its wounds reach its Life; ties favor the defender.',
     ],
   },
   yahtzee: {
@@ -689,8 +690,11 @@ export const GAMES: Record<string, GameDef> = {
       hs.addPlayer(state as hs.HSState, playerId, username, seat, accent_color)
     ) as GameDef['addPlayer'],
     removePlayer: ((s, playerId) => hs.removePlayer(s as hs.HSState, playerId)) as GameDef['removePlayer'],
-    // No projectStateForViewer: slice 1 has no hidden information (order
-    // markers — the projection-critical feature — arrive in slice 2).
+    // Hidden information: opponents' unrevealed order markers (the X decoy
+    // included) project to 'hidden' before state ever leaves the server.
+    projectStateForViewer: ((state, viewerId) =>
+      hs.projectStateForViewer(state as hs.HSState, viewerId)
+    ) as GameDef['projectStateForViewer'],
     getActivePlayerId: (s) => hs.getActivePlayerId(s as hs.HSState),
     getOrderedPlayerIds: (s) => hs.getOrderedPlayerIds(s as hs.HSState),
     computeHistory: (s) => hs.computeHistory(s as hs.HSState),

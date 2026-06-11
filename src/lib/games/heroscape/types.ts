@@ -1,10 +1,11 @@
 // HeroScape — shared type definitions.
 //
-// SLICE 1 (docs/heroscape/ARCHITECTURE.md §11): the BASIC GAME only — 2
-// players, fixed armies, the flat TEST-1 "Training Field" map, strictly
-// alternating single turns (no order markers / d20 initiative / rounds), and
-// binary destruction (no wounds — a single unblocked hit destroys). Special
-// powers, elevation, water, engagement, and height advantage are later slices.
+// SLICE 2 (docs/heroscape/slice-2-spec.md): the MASTER GAME round engine — 2
+// players, fixed armies, the flat TEST-1 "Training Field" map. Each round:
+// secret order markers (1/2/3/X) → d20 initiative (ties re-roll) → 3 turns per
+// player driven by the revealed marker — plus Master combat (wounds vs Life).
+// Special powers, elevation, water, engagement, and height advantage are later
+// slices (3-5).
 
 /** Axial hex coordinate (pointy-top). Stored in state as a "q,r" key. */
 export type Axial = { q: number; r: number };
@@ -15,7 +16,7 @@ export type Terrain = 'grass' | 'rock' | 'sand' | 'water';
 export type HexCell = {
   q: number;
   r: number;
-  /** Tile-stack height in levels. Slice-1 maps are all height 1 (flat). */
+  /** Tile-stack height in levels. Slice-2 maps are all height 1 (flat). */
   height: number;
   terrain: Terrain;
 };
@@ -41,7 +42,7 @@ export type HSCardDef = {
   type: HSCardType;
   /** Figures fielded by the card (a Hero card = 1). */
   figures: number;
-  /** Printed Life. Unused in the Basic Game (binary destroy) — card data for later slices. */
+  /** Printed Life: a figure is destroyed when its wounds reach Life (p. 14). */
   life: number;
   move: number;
   range: number;
@@ -54,11 +55,29 @@ export type HSCardDef = {
   letter: string;
 };
 
+/** A placeable order-marker face: 1/2/3 grant your 1st/2nd/3rd turn this
+ *  round; X is a pure decoy and never grants a turn (02-rounds §Step 1). */
+export type OrderMarkerValue = '1' | '2' | '3' | 'X';
+
+/**
+ * An order marker sitting on an army card. Unrevealed marker values are
+ * SECRET to everyone but the owner: `projectStateForViewer` replaces them
+ * with the 'hidden' placeholder before state leaves the server, so 'hidden'
+ * only ever appears in PROJECTED states, never in stored server state. The
+ * X decoy must be indistinguishable from 1/2/3 in every projected byte.
+ */
+export type OrderMarker = {
+  marker: OrderMarkerValue | 'hidden';
+  revealed: boolean;
+};
+
 /** An army card in play, owned by a seat. */
 export type ArmyCardInstance = {
   uid: string; // unique within the game, e.g. "s0-finn"
   cardId: string; // -> HS_CARDS in content.ts
   ownerSeat: number;
+  /** This round's order markers on the card. Cleared every round. */
+  orderMarkers: OrderMarker[];
 };
 
 export type Figure = {
@@ -69,6 +88,8 @@ export type Figure = {
   at: HexKey | null;
   /** 1-based index within its card (squad disc numbering). */
   index: number;
+  /** Wound markers taken. Destroyed when wounds reach the card's Life. */
+  wounds: number;
 };
 
 export type HSPlayer = {
@@ -85,19 +106,9 @@ export type HSLogEntry = {
   tag: 'info' | 'roll' | 'move' | 'attack' | 'win';
 };
 
-/** One round of the first-player roll-off: 6 combat dice per player, most
- *  skulls takes the first turn, ties re-roll (01-components §2). Arrays are in
- *  ROSTER order (players[0], players[1]). Kept in state so the board can show
- *  the opening roll. */
-export type RollOffRound = {
-  seat0: CombatFace[];
-  seat1: CombatFace[];
-};
-
-export type RollOffResult = {
-  rounds: RollOffRound[];
-  winnerSeat: number;
-};
+/** One d20 initiative attempt: every seat's roll. Ties for highest re-roll;
+ *  every attempt (including the tied ones) is kept for the board's display. */
+export type InitiativeAttempt = { seat: number; roll: number }[];
 
 /** The most recent attack, for the board's dice display. */
 export type LastAttack = {
@@ -109,12 +120,19 @@ export type LastAttack = {
   defenseRoll: CombatFace[];
   skulls: number;
   shields: number;
+  /** Unblocked skulls = wounds inflicted (skulls − shields, min 0). */
+  wounds: number;
   destroyed: boolean;
   /** Monotonic counter so the UI can detect a fresh roll. */
   seq: number;
 };
 
 export type HSPhase = 'lobby' | 'playing' | 'finished';
+
+/** Where a round stands while phase === 'playing' (02-rounds §The round):
+ *  'place_markers' — all players simultaneously assign 1/2/3/X (ready-gated);
+ *  'turns'         — initiative is rolled; players take turns 1→2→3. */
+export type HSSubPhase = 'place_markers' | 'turns';
 
 export type HSState = {
   version: number;
@@ -125,16 +143,29 @@ export type HSState = {
   mapId: string;
   cards: ArmyCardInstance[];
   figures: Figure[];
-  /** Seat whose turn it is; null in lobby / finished. */
+  /** Round step — only meaningful while phase === 'playing'. */
+  subPhase: HSSubPhase;
+  /** 1-based round counter (the Round Marker Track). */
+  round: number;
+  /** Which of your 3 turns the current slot is (the marker being resolved). */
+  turnNumber: 1 | 2 | 3;
+  /** Seats in this round's acting order: the initiative winner first, then
+   *  passing left in seat order (02-rounds §Step 2). Empty until rolled. */
+  initiative: number[];
+  /** Every d20 attempt this round, ties included, for the board's display.
+   *  Replaced each round. */
+  initiativeRolls: InitiativeAttempt[];
+  /** Index into `initiative` of the player acting now. */
+  turnPointer: number;
+  /** Seats that have locked in their markers this round. */
+  markersReady: number[];
+  /** Seat whose turn it is; null while placing markers / lobby / finished.
+   *  Always initiative[turnPointer] during 'turns'. */
   turnSeat: number | null;
-  /** The ONE army card activated this turn (Basic Game: choose any one card →
-   *  move → attack). Locked in by the turn's first move or attack. */
-  activeCardUid: string | null;
   /** Figures that completed their (single) move this turn. */
   movedFigureIds: string[];
   /** Figures that attacked this turn. Any attack ends the turn's movement. */
   attackedFigureIds: string[];
-  rollOff: RollOffResult | null;
   lastAttack: LastAttack | null;
   winnerSeat: number | null;
   log: HSLogEntry[];
@@ -147,7 +178,20 @@ export type HSState = {
  * Math.random, so it stays pure, deterministic, and unit-testable.
  */
 export type HSAction =
-  | { kind: 'start_game'; rollOffs: RollOffRound[] }
+  | { kind: 'start_game' }
+  | {
+      kind: 'place_markers';
+      /** Exactly four: one each of 1/2/3/X, each on one of your living cards
+       *  (stacking — several markers on one card — is legal). */
+      assignments: { marker: OrderMarkerValue; cardUid: string }[];
+    }
+  | {
+      kind: 'roll_initiative';
+      /** Sent by the SERVER automatically when the last player locks in.
+       *  Every attempt before the last must be a tie for highest (that is why
+       *  it was re-rolled); the final attempt must be tie-free. */
+      attempts: InitiativeAttempt[];
+    }
   | { kind: 'move_figure'; figureId: string; to: HexKey }
   | {
       kind: 'attack';

@@ -84,11 +84,11 @@ import {
   applyAction as applyActionHS,
   attackDiceRequirements as hsAttackDiceRequirements,
   COMBAT_DIE_FACES as HS_COMBAT_DIE_FACES,
-  ROLL_OFF_DICE as HS_ROLL_OFF_DICE,
   type HSAction,
   type HSState,
   type CombatFace as HSCombatFace,
-  type RollOffRound as HSRollOffRound,
+  type InitiativeAttempt as HSInitiativeAttempt,
+  type OrderMarkerValue as HSOrderMarkerValue,
 } from '@/lib/games/heroscape';
 
 /**
@@ -720,10 +720,11 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'gift_gold'; fromSeat: number; toSeat: number; amount: number }
   | { game: 'heroquest'; kind: 'intermission_ready'; ready: boolean }
 
-  // HeroScape — hex-battlefield skirmish (Basic Game slice). The client sends
-  // intent only; makeMoveHS rolls every die server-side (first-turn roll-off,
+  // HeroScape — hex-battlefield skirmish (Master Game rounds). The client
+  // sends intent only; makeMoveHS rolls every die server-side (d20 initiative,
   // attack dice, defense dice) and injects the values into the pure engine.
   | { game: 'heroscape'; kind: 'start_game' }
+  | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'end_turn' };
@@ -1141,18 +1142,26 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
 
 /** HeroScape wire actions — what the board sends. Dice are deliberately NOT
  *  part of this type: makeMoveHS rolls them server-side and injects them into
- *  the engine's HSAction so a client can never choose its own dice. */
+ *  the engine's HSAction so a client can never choose its own dice. There is
+ *  no roll_initiative on the wire at all — the server triggers it itself when
+ *  the final player locks in their order markers. */
 type HSWireAction =
   | { kind: 'start_game' }
+  | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   | { kind: 'attack'; attackerId: string; targetId: string }
   | { kind: 'end_turn' };
 
+/** d20 attempts until tie-free: ALL seats re-roll on any tie for highest
+ *  (for 2 players that matches "the tying players re-roll", p. 9). Capped —
+ *  20 consecutive ties means something is deeply wrong with Math.random. */
+const HS_INITIATIVE_MAX_ATTEMPTS = 20;
+
 /**
  * Apply a HeroScape action. Server-authoritative: the pure engine validates
- * turn ownership, the one-card-per-turn lock, movement legality, range, and
- * line of sight. ALL randomness happens here —
- *   • start_game: the first-turn roll-off (6 combat dice each, re-roll ties)
+ * marker placement, turn ownership, the revealed-card rule, movement
+ * legality, range, and line of sight. ALL randomness happens here —
+ *   • place_markers (final player): the d20 initiative, ties re-rolled
  *   • attack: the attacker's attack dice + the defender's defense dice
  * — and the values are passed into the engine (Long Shot's rollDiceLS pattern).
  */
@@ -1179,21 +1188,9 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   const rollDie = (): HSCombatFace =>
     HS_COMBAT_DIE_FACES[Math.floor(Math.random() * HS_COMBAT_DIE_FACES.length)];
   const rollDice = (n: number): HSCombatFace[] => Array.from({ length: n }, rollDie);
-  const countSkulls = (faces: HSCombatFace[]) => faces.filter(f => f === 'skull').length;
 
   let engineAction: HSAction;
-  if (action.kind === 'start_game') {
-    // First-player roll-off: 6 combat dice each, most skulls goes first,
-    // re-roll ties until broken. Server-rolled, so the random-start invariant
-    // holds (the host gets no built-in first-turn advantage).
-    const rollOffs: HSRollOffRound[] = [];
-    for (let i = 0; i < 100; i++) {
-      const round = { seat0: rollDice(HS_ROLL_OFF_DICE), seat1: rollDice(HS_ROLL_OFF_DICE) };
-      rollOffs.push(round);
-      if (countSkulls(round.seat0) !== countSkulls(round.seat1)) break;
-    }
-    engineAction = { kind: 'start_game', rollOffs };
-  } else if (action.kind === 'attack') {
+  if (action.kind === 'attack') {
     // Roll exactly the printed Attack/Defense dice counts. Unknown figure ids
     // get empty rolls — the engine then rejects with its own clearer error.
     const req = hsAttackDiceRequirements(state, action.attackerId, action.targetId);
@@ -1208,8 +1205,36 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     engineAction = action;
   }
 
-  const next = applyActionHS(state, user.id, engineAction);
+  let next = applyActionHS(state, user.id, engineAction);
   if ('error' in next) throw new Error(next.error);
+
+  // The LAST lock-in triggers initiative in the same request: roll a d20 per
+  // seat, re-roll everyone on any tie for highest, and apply the tie-free
+  // sequence through the engine. The engine re-validates everything (ready
+  // gate, attempt shapes, the tie discipline), so a bug here fails loudly
+  // instead of corrupting the round.
+  if (
+    action.kind === 'place_markers' &&
+    next.subPhase === 'place_markers' &&
+    next.markersReady.length === next.players.length
+  ) {
+    const d20 = () => 1 + Math.floor(Math.random() * 20);
+    const attempts: HSInitiativeAttempt[] = [];
+    for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
+      const attempt = next.players.map(p => ({ seat: p.seat, roll: d20() }));
+      attempts.push(attempt);
+      const max = Math.max(...attempt.map(a => a.roll));
+      if (attempt.filter(a => a.roll === max).length === 1) break;
+    }
+    const last = attempts[attempts.length - 1];
+    const lastMax = Math.max(...last.map(a => a.roll));
+    if (last.filter(a => a.roll === lastMax).length !== 1) {
+      throw new Error('Initiative would not resolve after 20 attempts — try again');
+    }
+    const rolled = applyActionHS(next, user.id, { kind: 'roll_initiative', attempts });
+    if ('error' in rolled) throw new Error(rolled.error);
+    next = rolled;
+  }
 
   const updates: { state: HSState; status?: string; rematch_votes?: string[]; abandon_votes?: string[] } = {
     state: next,

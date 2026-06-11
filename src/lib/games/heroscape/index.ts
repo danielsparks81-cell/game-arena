@@ -1,4 +1,4 @@
-// HeroScape — public barrel for the engine (slice 1: Basic Game).
+// HeroScape — public barrel for the engine (slice 2: Master Game rounds).
 
 export {
   initialState,
@@ -9,6 +9,8 @@ export {
   getActivePlayerId,
   getOrderedPlayerIds,
   computeHistory,
+  projectStateForViewer,
+  getActiveCardUid,
   legalDestinations,
   legalTargets,
   attackDiceRequirements,
@@ -18,7 +20,7 @@ export {
   LOG_MAX,
 } from './engine';
 
-export { HS_CARDS, SLICE1_ARMIES, COMBAT_DIE_FACES, ROLL_OFF_DICE } from './content';
+export { HS_CARDS, SLICE1_ARMIES, COMBAT_DIE_FACES } from './content';
 
 export { MAPS, TRAINING_FIELD, parseMap } from './maps';
 export type { HSMap } from './maps';
@@ -47,14 +49,16 @@ export type {
   CombatFace,
   HSCardType,
   HSCardDef,
+  OrderMarkerValue,
+  OrderMarker,
   ArmyCardInstance,
   Figure,
   HSPlayer,
   HSLogEntry,
-  RollOffRound,
-  RollOffResult,
+  InitiativeAttempt,
   LastAttack,
   HSPhase,
+  HSSubPhase,
   HSState,
   HSAction,
   HSResult,

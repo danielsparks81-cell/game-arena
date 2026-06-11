@@ -52,7 +52,7 @@ import type { RPSState, RPSChoice } from './rps';
 import type { SDState, ResolvedTarget as SDResolvedTarget } from './spellduel';
 import type { LegendaryState } from './legendary';
 import type { HQState, HeroClass as HQHeroClass, Coord as HQCoord } from './heroquest';
-import type { HSState, HexKey as HSHexKey } from './heroscape';
+import type { HSState, HexKey as HSHexKey, OrderMarkerValue as HSOrderMarkerValue } from './heroscape';
 
 import { gameMove } from '@/app/rooms/[id]/actions';
 
@@ -268,6 +268,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       isHost={isHost}
       disabled={pending}
       onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game' }); })}
+      onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
       onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
       onAttack={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'attack', attackerId, targetId }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
