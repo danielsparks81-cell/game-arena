@@ -58,12 +58,26 @@ export type HSCardDef = {
   /** Single letter shown on the figure's disc. */
   letter: string;
   /**
-   * Special-power implementation status (slice 5).
-   *   • 'live' — the card's printed power(s) are implemented (Finn/Thorgrim
-   *     auras + Spirits, Tarn Berserker Charge, Marro Water Clone — slice 4).
+   * Printed SPECIES line ("Soulborg", "Orc", "Human", "Marro"…) and unit CLASS
+   * ("Guards", "Warriors", "Champion", "Archer"…) from cards.md (slice 6). These
+   * make the conditional powers data-driven instead of hard-coded ids — e.g.
+   * Range Enhancement reads "Soulborg Guards" and Orc Warrior Enhancement reads
+   * "Orc Warriors" off these fields, so any future card with the same
+   * species/class qualifies automatically. Populated for all 16 cards.
+   */
+  species: string;
+  unitClass: string;
+  /**
+   * Special-power implementation status (slice 5; extended slice 6).
+   *   • 'live' — the card's printed power(s) are implemented. slice 4:
+   *     Finn/Thorgrim auras + Spirits, Tarn Berserker Charge, Marro Water Clone.
+   *     slice 6 (stat-folding batch): Raelin (Extended Defensive Aura),
+   *     Deathwalker 9000 (Range Enhancement), Agent Carr (Sword of Reckoning 4),
+   *     Grimnak (Orc Warrior Enhancement), Zettian Guards (Zettian Targeting),
+   *     Syvarris (Double Attack).
    *   • 'wip'  — the card is draftable and fights with its printed stats, but
    *     its special power is NOT yet wired (no handler). The draft UI tags it
-   *     "⚡ powers WIP". The remaining powers land in slice 6+.
+   *     "⚡ powers WIP". The remaining 6 complex active powers land in slice 7.
    * The engine's power dispatch keys off card id, so a `wip` card simply has no
    * handler — this flag drives the UI label, not engine branching.
    */
@@ -347,8 +361,23 @@ export type HSState = {
   turnSeat: number | null;
   /** Figures that completed their (single) move this turn. */
   movedFigureIds: string[];
-  /** Figures that attacked this turn. Any attack ends the turn's movement. */
-  attackedFigureIds: string[];
+  /**
+   * Per-turn attack log (slice 6) — one entry per attack resolved this turn,
+   * in order. This is the SINGLE source of truth for "what has attacked":
+   *   • `turnAttacks.length > 0` → some figure has attacked → the turn's
+   *     movement is over and "instead of attacking" powers are spent.
+   *   • count of entries with a given `attackerId` → how many times that figure
+   *     has attacked → attack-eligibility gates on `count < maxAttacks(card)`
+   *     (Syvarris's Double Attack = 2, every other figure = 1).
+   *   • Zettian Targeting reads it to learn whether the FIRST Zettian Guard
+   *     already hit this target this turn.
+   * It is NOT a buff token — it is the turn's attack history, recomputed never
+   * (it accumulates as attacks resolve) and cleared at the same boundaries as
+   * `movedFigureIds` (turn start / end_turn / new active card / round rollover).
+   * (Replaces the slice-2 `attackedFigureIds` boolean array — the redundancy is
+   * removed; this carries strictly more information.)
+   */
+  turnAttacks: { attackerId: string; targetId: string }[];
   lastAttack: LastAttack | null;
   winnerSeat: number | null;
   /** Glyphs on the battlefield (slice 4). Placed from a per-map layout; a

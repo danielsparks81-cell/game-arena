@@ -61,7 +61,7 @@ import {
   type Occupancy,
 } from './board';
 
-export const STATE_VERSION = 5;
+export const STATE_VERSION = 6;
 export const LOG_MAX = 60;
 const SEATS = 2;
 const DEFAULT_MAP_ID = 'training_field';
@@ -84,6 +84,27 @@ const BERSERKER_THRESHOLD = 15;
 const WATER_CLONE_THRESHOLD = 15;
 const WATER_CLONE_WATER_THRESHOLD = 10;
 const DAGMAR_INITIATIVE_BONUS = 8;
+
+// ---- slice 6: stat-folding special powers (cards.md exact text) ----
+/** Aura/power source card ids the effective-stat helpers recompute from. */
+const RAELIN_CARD_ID = 'raelin';
+const DEATHWALKER_CARD_ID = 'deathwalker_9000';
+const AGENT_CARR_CARD_ID = 'agent_carr';
+const GRIMNAK_CARD_ID = 'grimnak';
+const ZETTIAN_CARD_ID = 'zettian_guards';
+const SYVARRIS_CARD_ID = 'syvarris';
+/** Raelin's EXTENDED DEFENSIVE AURA radius — 6 CLEAR SIGHT spaces (cards.md). */
+const RAELIN_AURA_RANGE = 6;
+/** Agent Carr's SWORD OF RECKONING 4 — +4 attack dice vs an adjacent figure. */
+const SWORD_OF_RECKONING_BONUS = 4;
+/** Deathwalker 9000's RANGE ENHANCEMENT — +2 Range to adjacent Soulborg Guards. */
+const RANGE_ENHANCEMENT_BONUS = 2;
+/** Species/class strings that gate the conditional powers (cards.md). Matched
+ *  against HSCardDef.species / .unitClass so the conditions are data-driven. */
+const SPECIES_SOULBORG = 'Soulborg';
+const CLASS_GUARDS = 'Guards';
+const SPECIES_ORC = 'Orc';
+const CLASS_WARRIORS = 'Warriors';
 
 // ============================================================================
 // State construction / lobby
@@ -108,7 +129,7 @@ export function initialState(): HSState {
     markersReady: [],
     turnSeat: null,
     movedFigureIds: [],
-    attackedFigureIds: [],
+    turnAttacks: [],
     lastAttack: null,
     winnerSeat: null,
     glyphs: [],
@@ -325,7 +346,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   s.markersReady = [];
   s.turnSeat = null;
   s.movedFigureIds = [];
-  s.attackedFigureIds = [];
+  s.turnAttacks = [];
   s.winnerSeat = null;
   delete s.pendingChoice;
   delete s.waterClonedThisTurn;
@@ -822,7 +843,7 @@ function beginTurnOrSkip(s: HSState): void {
       holder.orderMarkers.find(m => m.marker === String(s.turnNumber))!.revealed = true;
       s.turnSeat = seat;
       s.movedFigureIds = [];
-      s.attackedFigureIds = [];
+      s.turnAttacks = [];
       delete s.waterClonedThisTurn;
       delete s.berserkerSpent;
       pushLog(
@@ -866,7 +887,7 @@ function startNextRound(s: HSState): void {
   s.markersReady = [];
   s.turnSeat = null;
   s.movedFigureIds = [];
-  s.attackedFigureIds = [];
+  s.turnAttacks = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
   for (const card of s.cards) card.orderMarkers = [];
@@ -945,6 +966,48 @@ function engagedPair(state: HSState, fig: Figure, enemy: Figure): boolean {
   );
 }
 
+/**
+ * Are two LIVING figures ADJACENT for an "adjacent to X" special power (slice
+ * 6)? Same geometry as engagement (`areEngaged`) — hex-adjacency with the
+ * slice-3 elevation exception (a tall enough cliff between the two breaks
+ * adjacency, Example 14) — MINUS the enemy requirement, so it works for friend
+ * or foe. Every "adjacent to Grimnak / Deathwalker / an adjacent figure" power
+ * (Range Enhancement, Sword of Reckoning, Orc Warrior Enhancement) reuses this
+ * single helper, so the rule is consistent and recomputed from positions (never
+ * a stored token). `a`/`b` may be the same figure or unplaced → false.
+ */
+function figuresAdjacent(state: HSState, a: Figure, b: Figure): boolean {
+  if (a.id === b.id || a.at == null || b.at == null) return false;
+  return areEngaged(
+    a.at,
+    cardDefFor(state, a).height,
+    b.at,
+    cardDefFor(state, b).height,
+    (k: HexKey) => heightOfKey(state, k),
+  );
+}
+
+/** Is there a LIVING figure owned by `seat`, on a card of `cardId`, FIGURE-
+ *  ADJACENT (slice-6 elevation-exception geometry) to `fig`? The data-driven
+ *  basis for "adjacent to a friendly Deathwalker / Grimnak" (recomputed from
+ *  positions every time — no token). `fig` itself is excluded. */
+function hasFiguresAdjacentLivingCard(
+  state: HSState,
+  fig: Figure,
+  cardId: string,
+  seat: number,
+): boolean {
+  if (fig.at == null) return false;
+  return state.figures.some(
+    o =>
+      o.id !== fig.id &&
+      o.at != null &&
+      o.ownerSeat === seat &&
+      cardDefFor(state, o).id === cardId &&
+      figuresAdjacent(state, fig, o),
+  );
+}
+
 // ============================================================================
 // Adjacency + glyph control (slice 4)
 // ============================================================================
@@ -957,33 +1020,43 @@ function engagedPair(state: HSState, fig: Figure, enemy: Figure): boolean {
  * caveat, so we keep it as hex-adjacency (documented interpretation; the maps in
  * play rarely stack an aura source on a tall enough ledge for it to matter).
  */
-function hexAdjacent(a: HexKey | null, b: HexKey | null): boolean {
-  if (a == null || b == null || a === b) return false;
-  return neighborKeys(a).includes(b);
-}
-
-/** Living figures owned by `seat` that stand ADJACENT to `fig` (and not `fig`
- *  itself). */
-function adjacentFriendlies(state: HSState, fig: Figure): Figure[] {
-  if (fig.at == null) return [];
-  return state.figures.filter(
-    o => o.id !== fig.id && o.at != null && o.ownerSeat === fig.ownerSeat && hexAdjacent(o.at, fig.at),
-  );
-}
-
-/** Is there a LIVING figure owned by `seat`, on a card of `cardId`, adjacent to
- *  `fig`? Used for the Finn/Thorgrim auras (recomputed from positions every
- *  time — no stored token, 05-glyphs §4 / cards.md). */
-function hasAdjacentLivingCard(state: HSState, fig: Figure, cardId: string, seat: number): boolean {
-  if (fig.at == null) return false;
-  return state.figures.some(
-    o =>
-      o.id !== fig.id &&
-      o.at != null &&
-      o.ownerSeat === seat &&
-      hexAdjacent(o.at, fig.at) &&
-      cardDefFor(state, o).id === cardId,
-  );
+/**
+ * Does Raelin's EXTENDED DEFENSIVE AURA reach `defender` (slice 6, cards.md):
+ * "All figures YOU CONTROL within 6 clear sight spaces of Raelin add 1 to their
+ * defense dice. … does not affect Raelin."
+ *   • a LIVING Raelin owned by the DEFENDER's seat must exist (figures you
+ *     control = same owner — NOT all friendly-player figures),
+ *   • the defender is NOT that Raelin herself (explicit self-exclusion),
+ *   • the defender is within 6 RANGE-spaces of Raelin (counted around gaps,
+ *     elevation-free — the rulebook's clear-sight-spaces measurement), AND
+ *   • Raelin has a clear, elevation-aware LINE OF SIGHT to the defender.
+ * Recomputed from positions on every call (no token); stacks additively with
+ * Thorgrim/Gerda/height in the breakdown. Any LIVING Raelin reaching the
+ * defender qualifies (only one Raelin per army — she is a Unique Hero).
+ */
+function raelinAuraReaches(state: HSState, defender: Figure): boolean {
+  if (defender.at == null) return false;
+  const map = MAPS[state.mapId];
+  if (!map) return false;
+  return state.figures.some(raelin => {
+    if (raelin.at == null) return false;
+    if (raelin.ownerSeat !== defender.ownerSeat) return false; // figures YOU control
+    if (raelin.id === defender.id) return false; // does not affect Raelin herself
+    if (cardDefFor(state, raelin).id !== RAELIN_CARD_ID) return false;
+    // Within 6 range-spaces (around gaps, elevation-free). Both `at`s are guarded
+    // non-null above (the `!` is just for the closure, which widens the param).
+    const dist = rangeDistance(map.cells, raelin.at!, defender.at!);
+    if (dist == null || dist > RAELIN_AURA_RANGE) return false;
+    // Clear sight: an elevation-aware LOS from Raelin to the defender, with
+    // intervening figures (neither endpoint) blocking exactly as in combat LOS.
+    const occupied: HexKey[] = [];
+    for (const f of state.figures) {
+      if (f.at != null && f.id !== raelin.id && f.id !== defender.id) occupied.push(f.at);
+    }
+    return hasLineOfSight3D(map.cells, raelin.at!, defender.at!, occupied, (k: HexKey) =>
+      eyeHeightOfKey(state, k),
+    );
+  });
 }
 
 /** The glyph sitting on `key`, if any (slice-4 glyphs are unique per hex). The
@@ -1032,7 +1105,7 @@ function movableFigure(state: HSState, figureId: string): { fig: Figure } | { er
   if (fig.ownerSeat !== state.turnSeat) return { error: 'You can only move your own figures' };
   const cardErr = activeCardError(state, fig);
   if (cardErr) return { error: cardErr };
-  if (state.attackedFigureIds.length > 0) {
+  if (state.turnAttacks.length > 0) {
     return { error: 'Movement is over once attacking begins' };
   }
   // Water Clone is the card's attack-step action — once used, the turn's
@@ -1308,6 +1381,23 @@ function applyFall(
 // Attack
 // ============================================================================
 
+/**
+ * How many times a figure of `card` may attack in one turn (slice 6). Normally
+ * 1; Syvarris's DOUBLE ATTACK ("When Syvarris attacks, he may attack one
+ * additional time", cards.md) makes it 2. The second attack is OPTIONAL — this
+ * is a per-figure budget, not a forced second roll, so the player may simply
+ * stop after one. Data-driven on card id (only Syvarris in this roster).
+ */
+function maxAttacks(card: HSCardDef): number {
+  return card.id === SYVARRIS_CARD_ID ? 2 : 1;
+}
+
+/** How many times `figureId` has already attacked this turn — counted from the
+ *  single-source `turnAttacks` log (replaces the old boolean membership test). */
+function attacksThisTurn(state: HSState, figureId: string): number {
+  return state.turnAttacks.filter(a => a.attackerId === figureId).length;
+}
+
 /** Shared guard: can this figure attack right now? */
 function attackReadyFigure(state: HSState, attackerId: string): { fig: Figure } | { error: string } {
   if (state.phase !== 'playing' || state.subPhase !== 'turns') {
@@ -1323,7 +1413,10 @@ function attackReadyFigure(state: HSState, attackerId: string): { fig: Figure } 
   if (state.waterClonedThisTurn) {
     return { error: 'That figure has already attacked this turn (Water Clone was used instead)' };
   }
-  if (state.attackedFigureIds.includes(attackerId)) {
+  // Per-figure attack budget (slice 6): a figure may attack while its count this
+  // turn is below maxAttacks (1 for a normal figure, 2 for Syvarris's Double
+  // Attack). Replaces the old boolean "has this figure attacked" gate.
+  if (attacksThisTurn(state, attackerId) >= maxAttacks(cardDefFor(state, fig))) {
     return { error: 'That figure has already attacked this turn' };
   }
   return { fig };
@@ -1427,7 +1520,17 @@ export type EffectiveStat = { dice: number; breakdown: string[] };
  *   + Finn's ATTACK AURA 1  (+1 IFF NORMAL attack AND attacker printed Range 1
  *                            AND a living friendly Finn is adjacent — Finn does
  *                            not buff himself, no Finn buffs his own card)
+ *   + Agent Carr SWORD OF RECKONING 4 (slice 6) — +4 IFF NORMAL attack AND the
+ *                            attacker is Agent Carr AND the target is adjacent
+ *   + Grimnak ORC WARRIOR ENHANCEMENT (slice 6) — +1 IFF the attacker is an Orc
+ *                            Warrior (species Orc + class Warriors) adjacent to a
+ *                            living friendly Grimnak
+ *   + Zettian Guards ZETTIAN TARGETING (slice 6) — +1 IFF the attacker is a
+ *                            Zettian Guard AND an earlier Zettian Guard of the
+ *                            same card already attacked THIS target this turn
  *   + Glyph of Astrid       (+1 if the attacker's seat controls Astrid)
+ * Every slice-6 bonus is folded in HERE (the single source); the board preview
+ * and engine resolution both read this, so a shown count can never disagree.
  */
 export function effectiveAttackDice(
   state: HSState,
@@ -1453,16 +1556,71 @@ export function effectiveAttackDice(
   if (
     isNormalAttack &&
     def.range === 1 &&
-    hasAdjacentLivingCard(state, attacker, FINN_CARD_ID, attacker.ownerSeat)
+    hasFiguresAdjacentLivingCard(state, attacker, FINN_CARD_ID, attacker.ownerSeat)
   ) {
     dice += 1;
     breakdown.push('+1 Finn aura');
+  }
+  // Agent Carr's SWORD OF RECKONING 4 (slice 6, cards.md): "If Agent Carr is
+  // attacking an adjacent figure, add 4 dice to Agent Carr's attack." NORMAL
+  // attacks only (special attacks are unmodifiable; Carr has none here).
+  if (def.id === AGENT_CARR_CARD_ID && isNormalAttack && figuresAdjacent(state, attacker, target)) {
+    dice += SWORD_OF_RECKONING_BONUS;
+    breakdown.push(`+${SWORD_OF_RECKONING_BONUS} Sword of Reckoning`);
+  }
+  // Grimnak's ORC WARRIOR ENHANCEMENT (slice 6, cards.md): "All friendly Orc
+  // Warriors adjacent to Grimnak roll an additional attack die …" Data-driven on
+  // species Orc + class Warriors, same owner, adjacent to a living Grimnak. No
+  // Orc Warriors exist in the 16-card roster, so this never fires in practice —
+  // proven by a synthetic Orc Warrior in the tests.
+  if (
+    def.species === SPECIES_ORC &&
+    def.unitClass === CLASS_WARRIORS &&
+    hasFiguresAdjacentLivingCard(state, attacker, GRIMNAK_CARD_ID, attacker.ownerSeat)
+  ) {
+    dice += 1;
+    breakdown.push('+1 Grimnak aura');
+  }
+  // Zettian Guards' ZETTIAN TARGETING (slice 6, cards.md): "When attacking, if
+  // your second Zettian Guard attacks the same figure as the first Zettian Guard,
+  // add one attack die to the second Zettian Guard's attack." The FIRST Guard's
+  // attack against this target must already be logged in turnAttacks this turn
+  // (so the second Guard — and only the second — gets +1). The preview reads the
+  // same turnAttacks, keeping the single source intact. Imperative "add" — not
+  // optional.
+  if (def.id === ZETTIAN_CARD_ID && zettianTargetingApplies(state, attacker, target)) {
+    dice += 1;
+    breakdown.push('+1 Zettian Targeting');
   }
   if (seatControlsGlyph(state, attacker.ownerSeat, 'astrid')) {
     dice += 1;
     breakdown.push('+1 Astrid');
   }
   return { dice, breakdown };
+}
+
+/**
+ * Does ZETTIAN TARGETING grant `attacker` (a Zettian Guard) +1 vs `target`?
+ * True iff some EARLIER attack this turn (in `turnAttacks`) was made by a
+ * DIFFERENT Zettian Guard of the SAME card against the SAME target. So the
+ * FIRST Guard to hit a target never gets it (no prior entry), and a second Guard
+ * hitting a DIFFERENT target gets nothing. Reads only the per-turn attack log —
+ * the single source the preview shares.
+ */
+function zettianTargetingApplies(state: HSState, attacker: Figure, target: Figure): boolean {
+  if (cardDefFor(state, attacker).id !== ZETTIAN_CARD_ID) return false;
+  return state.turnAttacks.some(a => {
+    if (a.targetId !== target.id) return false;
+    if (a.attackerId === attacker.id) return false; // must be the OTHER Guard
+    const prior = state.figures.find(f => f.id === a.attackerId);
+    // The earlier attacker must be a Zettian Guard of the same card AND owner
+    // (your second Guard vs your first Guard — same squad).
+    return (
+      prior != null &&
+      prior.cardUid === attacker.cardUid &&
+      cardDefFor(state, prior).id === ZETTIAN_CARD_ID
+    );
+  });
 }
 
 /**
@@ -1473,6 +1631,11 @@ export function effectiveAttackDice(
  *   + Thorgrim's DEFENSIVE AURA 1 (+1 to ANY adjacent friendly — no Range
  *                              restriction, unlike Finn's; Thorgrim does not
  *                              buff himself)
+ *   + Raelin EXTENDED DEFENSIVE AURA (slice 6) — +1 to every figure the same
+ *                              player controls within 6 clear-sight spaces of a
+ *                              living Raelin, excluding Raelin herself
+ *   + Grimnak ORC WARRIOR ENHANCEMENT (slice 6) — +1 to a friendly Orc Warrior
+ *                              adjacent to a living Grimnak (the defense half)
  *   + Glyph of Gerda          (+1 if the defender's seat controls Gerda)
  * (Defense dice are NEVER stripped for a special attack — only the attacker's
  *  roll is unmodifiable, 05-glyphs §5 note.)
@@ -1495,9 +1658,29 @@ export function effectiveDefenseDice(
     dice += h.defender;
     breakdown.push(`+${h.defender} height`);
   }
-  if (hasAdjacentLivingCard(state, defender, THORGRIM_CARD_ID, defender.ownerSeat)) {
+  if (hasFiguresAdjacentLivingCard(state, defender, THORGRIM_CARD_ID, defender.ownerSeat)) {
     dice += 1;
     breakdown.push('+1 Thorgrim aura');
+  }
+  // Raelin's EXTENDED DEFENSIVE AURA (slice 6): +1 defense die to every figure
+  // the same player controls within 6 clear-sight spaces of a living Raelin
+  // (Raelin herself excluded — handled in raelinAuraReaches). Recomputed from
+  // positions; stacks with Thorgrim / Gerda / height.
+  if (raelinAuraReaches(state, defender)) {
+    dice += 1;
+    breakdown.push('+1 Raelin aura');
+  }
+  // Grimnak's ORC WARRIOR ENHANCEMENT — the defense half: "… and an additional
+  // defense die." Same gate as the attack half (Orc Warrior adjacent to a living
+  // friendly Grimnak). Inert in this roster (no Orc Warriors) but proven by a
+  // synthetic Orc Warrior test.
+  if (
+    def.species === SPECIES_ORC &&
+    def.unitClass === CLASS_WARRIORS &&
+    hasFiguresAdjacentLivingCard(state, defender, GRIMNAK_CARD_ID, defender.ownerSeat)
+  ) {
+    dice += 1;
+    breakdown.push('+1 Grimnak aura');
   }
   if (seatControlsGlyph(state, defender.ownerSeat, 'gerda')) {
     dice += 1;
@@ -1532,9 +1715,15 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
 }
 
 /**
- * Effective RANGE for `fig` (05-glyphs): printed Range + Glyph of Ivor (+4 ONLY
- * if the figure's printed Range ≥ 4 AND its seat controls Ivor — melee/Range 1-3
- * figures get nothing).
+ * Effective RANGE for `fig` (05-glyphs / cards.md):
+ *   printed Range
+ *   + Glyph of Ivor          (+4 ONLY if printed Range ≥ 4 AND seat controls Ivor)
+ *   + Deathwalker 9000 RANGE ENHANCEMENT (slice 6) — +2 if the figure is a
+ *                            Soulborg Guard (species Soulborg + class Guards)
+ *                            adjacent to a living friendly Deathwalker 9000.
+ *                            Zettian Guards qualify: Range 7 → 9 while adjacent.
+ * Folds into the range used by `targetBlockReason` and the board preview (single
+ * source), so the larger reach is both shown and enforced.
  */
 export function effectiveRange(state: HSState, fig: Figure): EffectiveStat {
   const def = cardDefFor(state, fig);
@@ -1543,6 +1732,17 @@ export function effectiveRange(state: HSState, fig: Figure): EffectiveStat {
   if (def.range >= 4 && seatControlsGlyph(state, fig.ownerSeat, 'ivor')) {
     range += 4;
     breakdown.push('+4 Ivor');
+  }
+  // Deathwalker 9000's RANGE ENHANCEMENT (cards.md): "Any Soulborg Guards
+  // adjacent to Deathwalker add 2 spaces to their range." Data-driven on species
+  // Soulborg + class Guards, adjacent to a living friendly Deathwalker.
+  if (
+    def.species === SPECIES_SOULBORG &&
+    def.unitClass === CLASS_GUARDS &&
+    hasFiguresAdjacentLivingCard(state, fig, DEATHWALKER_CARD_ID, fig.ownerSeat)
+  ) {
+    range += RANGE_ENHANCEMENT_BONUS;
+    breakdown.push(`+${RANGE_ENHANCEMENT_BONUS} Range Enhancement`);
   }
   return { dice: range, breakdown };
 }
@@ -1615,7 +1815,12 @@ function doAttack(
   const wounds = Math.max(0, skulls - shields);
 
   const s = clone(state);
-  s.attackedFigureIds.push(attacker.id);
+  // Record the attack in the per-turn log (slice-6 single source). Pushed AFTER
+  // `req` was computed from the pre-attack state, so a figure never sees its own
+  // current attack when folding Zettian Targeting / the attack budget — and the
+  // NEXT attack (e.g. the second Zettian Guard, or Syvarris's second shot) reads
+  // this entry. Movement-over and "already attacked" both derive from this list.
+  s.turnAttacks.push({ attackerId: attacker.id, targetId: target.id });
   const targetMut = s.figures.find(f => f.id === target.id)!;
   targetMut.wounds += wounds;
   const destroyed = targetMut.wounds >= tDef.life;
@@ -1768,7 +1973,7 @@ function doBerserkerCharge(state: HSState, seat: number, d20: number): HSResult 
   if (!activeCard || activeCard.cardId !== TARN_CARD_ID) {
     return { error: 'Only Tarn Viking Warriors may Berserker Charge' };
   }
-  if (state.attackedFigureIds.length > 0) {
+  if (state.turnAttacks.length > 0) {
     return { error: 'Berserker Charge happens after moving and BEFORE attacking' };
   }
   // "After moving" — at least one Tarn figure must have moved this turn.
@@ -1828,7 +2033,7 @@ function doWaterClone(
     return { error: 'Only Marro Warriors may Water Clone' };
   }
   // "Instead of attacking" — cannot clone after an attack, and not twice.
-  if (state.attackedFigureIds.length > 0) {
+  if (state.turnAttacks.length > 0) {
     return { error: 'Water Clone is instead of attacking — you have already attacked' };
   }
   if (state.waterClonedThisTurn) {
@@ -2013,7 +2218,7 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   pushLog(s, 'info', `${playerName(s, seat)} ends the turn.`);
   s.turnSeat = null;
   s.movedFigureIds = [];
-  s.attackedFigureIds = [];
+  s.turnAttacks = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
   if (advanceSlot(s)) beginTurnOrSkip(s);

@@ -6,11 +6,21 @@
 // Life (Master combat wounds); Height drives climbing/engagement/falls.
 //
 // SLICE 5 (docs/heroscape/slice-5-spec.md): all 16 cards become DRAFTABLE. Each
-// carries a `power: 'live' | 'wip'` flag — `live` cards (Finn, Thorgrim, Tarn,
-// Marro) keep their slice-4 special powers; the other 12 play STAT-ONLY (no
-// power handler — the engine's power dispatch keys off card id, so a `wip` card
-// simply has no handler and fights with its printed stats) and are tagged
-// "⚡ powers WIP" in the draft UI. The remaining powers land in slice 6+.
+// carries a `power: 'live' | 'wip'` flag — `live` cards keep their implemented
+// special powers; `wip` cards play STAT-ONLY (no power handler — the engine's
+// power dispatch keys off card id/condition, so a `wip` card simply has no
+// handler and fights with its printed stats) and are tagged "⚡ powers WIP" in
+// the draft UI.
+//
+// SLICE 6 (docs/heroscape/slice-6-spec.md): the stat-folding power batch lights
+// up 6 more cards (now 10 live, 6 wip). Each card also carries its printed
+// `species` + `unitClass` (cards.md) so the conditional powers — Range
+// Enhancement ("Soulborg Guards"), Orc Warrior Enhancement ("Orc Warriors") —
+// are data-driven. Now live: Raelin (Extended Defensive Aura), Deathwalker 9000
+// (Range Enhancement), Agent Carr (Sword of Reckoning 4), Grimnak (Orc Warrior
+// Enhancement), Zettian Guards (Zettian Targeting), Syvarris (Double Attack).
+// The remaining 6 complex active powers (Airborne/Drake/Ne-Gok-Sa/Mimring/Krav
+// Maga/Izumi) land in slice 7.
 //
 // Figure counts: Hero cards field 1; squad counts are rulebook-sourced
 // (cards.md §Roster summary): Tarn 4, Marro 4, Airborne Elite 4, Zettian 2,
@@ -34,6 +44,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 50,
     letter: 'T',
+    species: 'Human',
+    unitClass: 'Warriors',
     power: 'live',
   },
   finn: {
@@ -50,6 +62,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 80,
     letter: 'F',
+    species: 'Human',
+    unitClass: 'Champion',
     power: 'live',
   },
   thorgrim: {
@@ -66,6 +80,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 80,
     letter: 'T',
+    species: 'Human',
+    unitClass: 'Champion',
     power: 'live',
   },
   airborne_elite: {
@@ -82,7 +98,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 110,
     letter: 'A',
-    power: 'wip',
+    species: 'Human',
+    unitClass: 'Soldiers',
+    power: 'wip', // slice 7: Grenade Special Attack + The Drop
   },
   drake: {
     id: 'drake',
@@ -98,7 +116,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 110,
     letter: 'D',
-    power: 'wip',
+    species: 'Human',
+    unitClass: 'Soldier',
+    power: 'wip', // slice 7: Thorian Speed + Grapple Gun 25
   },
   raelin: {
     id: 'raelin',
@@ -114,7 +134,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 120,
     letter: 'R',
-    power: 'wip',
+    species: 'Kyrie',
+    unitClass: 'Warrior',
+    power: 'live', // slice 6: Extended Defensive Aura (Whirlwind/Flying → slice 7)
   },
   // ---- Utgar ----
   zettian_guards: {
@@ -131,7 +153,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 70,
     letter: 'Z',
-    power: 'wip',
+    species: 'Soulborg',
+    unitClass: 'Guards',
+    power: 'live', // slice 6: Zettian Targeting
   },
   ne_gok_sa: {
     id: 'ne_gok_sa',
@@ -147,7 +171,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 90,
     letter: 'N',
-    power: 'wip',
+    species: 'Marro',
+    unitClass: 'Warlord',
+    power: 'wip', // slice 7: Mind Shackle 20
   },
   marro_warriors: {
     id: 'marro_warriors',
@@ -163,6 +189,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 4,
     points: 105,
     letter: 'M',
+    species: 'Marro',
+    unitClass: 'Warriors',
     power: 'live',
   },
   deathwalker_9000: {
@@ -179,7 +207,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 7,
     points: 140,
     letter: 'W',
-    power: 'wip',
+    species: 'Soulborg',
+    unitClass: 'Deathwalker',
+    power: 'live', // slice 6: Range Enhancement (Explosion Special Attack → slice 7)
   },
   mimring: {
     id: 'mimring',
@@ -195,7 +225,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 9,
     points: 150,
     letter: 'Y',
-    power: 'wip',
+    species: 'Dragon',
+    unitClass: 'Beast',
+    power: 'wip', // slice 7: Fire Line Special Attack + Flying
   },
   grimnak: {
     id: 'grimnak',
@@ -211,7 +243,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 11,
     points: 160,
     letter: 'G',
-    power: 'wip',
+    species: 'Orc',
+    unitClass: 'Champion',
+    power: 'live', // slice 6: Orc Warrior Enhancement (Chomp → slice 7)
   },
   // ---- Ullar ----
   syvarris: {
@@ -228,7 +262,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 100,
     letter: 'S',
-    power: 'wip',
+    species: 'Elf',
+    unitClass: 'Archer',
+    power: 'live', // slice 6: Double Attack
   },
   // ---- Vydar ----
   agent_carr: {
@@ -245,7 +281,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 100,
     letter: 'C',
-    power: 'wip',
+    species: 'Human',
+    unitClass: 'Agent',
+    power: 'live', // slice 6: Sword of Reckoning 4 (Ghost Walk/Disengage → slice 7)
   },
   krav_maga: {
     id: 'krav_maga',
@@ -261,7 +299,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 4,
     points: 100,
     letter: 'K',
-    power: 'wip',
+    species: 'Human',
+    unitClass: 'Agents',
+    power: 'wip', // slice 7: Stealth Dodge
   },
   // ---- Einar ----
   izumi_samurai: {
@@ -278,7 +318,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 60,
     letter: 'I',
-    power: 'wip',
+    species: 'Human',
+    unitClass: 'Samurai',
+    power: 'wip', // slice 7: Counter Strike
   },
 };
 

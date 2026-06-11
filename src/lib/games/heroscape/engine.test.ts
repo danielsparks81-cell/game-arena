@@ -21,7 +21,7 @@ import {
   placeableHexes,
   POINT_BUDGETS,
 } from './engine';
-import { hexKey, offsetToAxial } from './board';
+import { hexKey, offsetToAxial, rangeDistance } from './board';
 import { MAPS, parseMap } from './maps';
 import { HS_CARDS, HS_DRAFT_POOL } from './content';
 import type {
@@ -484,7 +484,7 @@ describe('reveal flow (turns 1→2→3, then the next round)', () => {
     expect(s.movedFigureIds).toEqual([TARN(1)]);
     s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
     expect(s.movedFigureIds).toEqual([]);
-    expect(s.attackedFigureIds).toEqual([]);
+    expect(s.turnAttacks).toEqual([]);
   });
 
   it('rejects users who are not seated', () => {
@@ -808,7 +808,9 @@ describe('attack eligibility', () => {
       }),
     );
     expect(fig(s, THORGRIM).at).toBeNull(); // 3 + 1 = Life 4 — destroyed
-    expect(s.attackedFigureIds).toEqual([TARN(2), TARN(1), TARN(3)]);
+    // turnAttacks logs each attack (attacker + target) in order (slice 6).
+    expect(s.turnAttacks.map(a => a.attackerId)).toEqual([TARN(2), TARN(1), TARN(3)]);
+    expect(s.turnAttacks.every(a => a.targetId === THORGRIM)).toBe(true);
   });
 });
 
@@ -2561,32 +2563,40 @@ describe('slice 5: full 16-card roster', () => {
     expect(HS_CARDS.agent_carr).toMatchObject({ range: 6, attack: 2, defense: 4, points: 100 });
   });
 
-  it('power flags: only Finn/Thorgrim/Tarn/Marro are live; the rest are wip', () => {
+  it('power flags: slice-4 + slice-6 cards are live; the 6 complex powers stay wip', () => {
+    // slice 4 (Finn/Thorgrim/Tarn/Marro) + slice 6 (Raelin/Deathwalker/Agent
+    // Carr/Grimnak/Zettian/Syvarris) = 10 live; the remaining 6 (Airborne, Drake,
+    // Ne-Gok-Sa, Mimring, Krav Maga, Izumi) stay wip for slice 7.
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
-    expect(live).toEqual(['finn', 'marro_warriors', 'tarn_vikings', 'thorgrim']);
-    const wipCount = Object.values(HS_CARDS).filter(c => c.power === 'wip').length;
-    expect(wipCount).toBe(12);
+    expect(live).toEqual([
+      'agent_carr', 'deathwalker_9000', 'finn', 'grimnak', 'marro_warriors',
+      'raelin', 'syvarris', 'tarn_vikings', 'thorgrim', 'zettian_guards',
+    ]);
+    const wip = Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort();
+    expect(wip).toEqual([
+      'airborne_elite', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'ne_gok_sa',
+    ]);
   });
 
   it('a wip card fights with its printed stats (no power handler)', () => {
-    // Draft Syvarris (wip, Range 9, Attack 3) for p1; it attacks as printed.
+    // Draft Ne-Gok-Sa (still wip in slice 6, Attack 3) for p1; it attacks as
+    // printed (its Mind Shackle power is unimplemented — slice 7).
     let s = inDraft('p1', 500);
-    s = draftCard(s, 'syvarris'); // p1 opener (1) → p2's double turn
+    s = draftCard(s, 'ne_gok_sa'); // p1 opener (1) → p2's double turn
     s = draftCard(s, 'marro_warriors'); // p2 pick 1 of 2 (still p2's turn)
     s = draftPass(s); // p2 passes its 2nd pick voluntarily (1 card) → back to p1
-    s = draftPass(s); // p1 passes (Syvarris) → both passed → placement
+    s = draftPass(s); // p1 passes (Ne-Gok-Sa) → both passed → placement
     expect(s.phase).toBe('placement');
-    // Place Syvarris adjacent-ish to a Marro and verify attack dice = printed 3
-    // (no aura/glyph/height on flat ground).
+    // Place Ne-Gok-Sa and verify attack dice = printed 3 (no aura/glyph/height).
     const z0 = MAPS[s.mapId].startZones[0];
     const z1 = MAPS[s.mapId].startZones[1];
     s = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: s.hand![0][0], to: z0[0] }));
     s = unwrap(applyAction(s, 'p2', { kind: 'place_figure', figureId: s.hand![1][0], to: z1[0] }));
     s = unwrap(applyAction(s, 'p1', { kind: 'placement_ready' }));
     s = unwrap(applyAction(s, 'p2', { kind: 'placement_ready' }));
-    const syv = s.figures.find(f => f.ownerSeat === 0)!;
+    const negoksa = s.figures.find(f => f.ownerSeat === 0)!;
     const marro = s.figures.find(f => f.ownerSeat === 1)!;
-    expect(attackDiceRequirements(s, syv.id, marro.id)!.attack).toBe(3); // Syvarris printed Attack 3
+    expect(attackDiceRequirements(s, negoksa.id, marro.id)!.attack).toBe(3); // Ne-Gok-Sa printed Attack 3
   });
 });
 
@@ -2633,5 +2643,517 @@ describe('slice 5: quick-battle regression + projection', () => {
     s = draftPass(s);
     expect(s.phase).toBe('placement');
     expect(computeHistory(s)).toBeNull();
+  });
+});
+
+// ===========================================================================
+// SLICE 6 — special powers, batch 1 (stat-folding)
+// (docs/heroscape/slice-6-spec.md; cards.md exact printed text)
+//
+// Every bonus is folded into the slice-4 single-source effective-stat helpers,
+// so the board preview and the engine resolution read the SAME count. These
+// tests assert the helper output, that it folds through attackDiceRequirements,
+// and that the resolution enforces exactly the previewed count.
+// ===========================================================================
+
+// ---- custom-army staging --------------------------------------------------
+
+/** A wide, flat all-grass test map (12×4) registered for the test process only:
+ *  a straight-line ranged shot of 8+ spaces with unobstructed LOS is trivial, so
+ *  Deathwalker's Range Enhancement (7 → 9) can be demonstrated reaching a target
+ *  at distance 8 (the Training Field is only 7 wide — max range < 8 there). */
+const WIDE_MAP_ID = 'test_wide';
+beforeAll(() => {
+  MAPS[WIDE_MAP_ID] = parseMap(
+    WIDE_MAP_ID,
+    'Test Wide',
+    `
+    row1@1: G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1
+    row2:   G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1
+    row3:   G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1
+    row4@2: G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1 G1
+    `,
+  );
+});
+
+/** Build a 'turns'-ready battle with ARBITRARY card ids per seat (the quick
+ *  armies are fixed Finn/Tarn vs Thorgrim/Marro, so slice-6 cards like Raelin /
+ *  Zettian / Deathwalker need a custom army). Synthesizes cards + figures the
+ *  same way the engine's buildArmy does (uid `s{seat}-{cardId}`, figures
+ *  `${uid}-${n}`), drops them onto distinct flat hexes, strips the map glyphs,
+ *  stacks all four markers on each seat's FIRST card, and rolls initiative so
+ *  `first` acts. Tests then teleport figures with `place`. */
+function customBattle(
+  p1cards: string[],
+  p2cards: string[],
+  first: 'p1' | 'p2' = 'p1',
+  mapId = 'training_field',
+): HSState {
+  const cols = MAPS[mapId].cols;
+  const rows = MAPS[mapId].rows;
+  let s = noGlyphs(startedOn(mapId));
+  // Default landing hexes: seat 0 on the top two rows, seat 1 on the bottom two
+  // (enough for any army; tests reposition as needed).
+  const hexesFor = (seat: number): string[] => {
+    const useRows = seat === 0 ? [0, 1] : [rows - 2, rows - 1];
+    const out: string[] = [];
+    for (const row of useRows) for (let col = 0; col < cols; col++) out.push(at(col, row));
+    return out;
+  };
+  const cards: HSState['cards'] = [];
+  const figures: HSState['figures'] = [];
+  for (const [seat, ids] of [[0, p1cards], [1, p2cards]] as const) {
+    const slots = hexesFor(seat);
+    let slot = 0;
+    for (const cardId of ids) {
+      const def = HS_CARDS[cardId];
+      const uid = `s${seat}-${cardId}`;
+      cards.push({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+      for (let n = 1; n <= def.figures; n++) {
+        figures.push({ id: `${uid}-${n}`, cardUid: uid, ownerSeat: seat, at: slots[slot++], index: n, wounds: 0 });
+      }
+    }
+  }
+  const c: HSState = JSON.parse(JSON.stringify(s));
+  c.cards = cards;
+  c.figures = figures;
+  s = c;
+  // Stack all four markers on each seat's first card (a living card).
+  s = placed(s, 'p1', allOn(`s0-${p1cards[0]}`));
+  s = placed(s, 'p2', allOn(`s1-${p2cards[0]}`));
+  return unwrap(
+    applyAction(s, 'p2', {
+      kind: 'roll_initiative',
+      attempts: [first === 'p1' ? ATT(15, 3) : ATT(3, 15)],
+    }),
+  );
+}
+
+// ---- Raelin — EXTENDED DEFENSIVE AURA --------------------------------------
+
+describe('slice 6: Raelin Extended Defensive Aura', () => {
+  // p1: Raelin + Zettian Guards (a squad to receive the aura). p2: Marro (an
+  // enemy attacker). Raelin's aura is +1 defense to figures SHE controls within
+  // 6 clear spaces, excluding herself. Flat field → no height to muddy it.
+  const RAELIN = 's0-raelin-1';
+  const ZG = (n: number) => `s0-zettian_guards-${n}`;
+  const ENEMY = 's1-marro_warriors-1';
+  function aura(): HSState {
+    let s = customBattle(['raelin', 'zettian_guards'], ['marro_warriors'], 'p1');
+    s = clearExcept(s, RAELIN, ZG(1), ENEMY);
+    s = place(s, RAELIN, at(3, 3));
+    s = place(s, ZG(1), at(3, 4)); // 1 space from Raelin, clear sight
+    s = place(s, ENEMY, at(3, 6)); // a p2 attacker, well clear
+    return s;
+  }
+
+  it('a controlled figure within 6 clear spaces of Raelin gets +1 defense', () => {
+    const s = aura();
+    const eff = effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY));
+    expect(eff.dice).toBe(8); // Zettian Defense 7 + 1 Raelin aura
+    expect(eff.breakdown).toContain('+1 Raelin aura');
+    // Folds through requirements: an enemy attacking the Guard rolls 8 def dice.
+    expect(attackDiceRequirements(s, ENEMY, ZG(1))!.defense).toBe(8);
+  });
+
+  it('does NOT apply beyond 6 range-spaces', () => {
+    let s = aura();
+    s = place(s, ZG(1), at(3, 1)); // (3,3)→(3,1) is 2; move Raelin far instead
+    s = place(s, RAELIN, at(3, 7)); // now Raelin↔Guard distance is 6? make it 7
+    // (3,7) to (3,1): straight column = 6 spaces. Push one more out of range.
+    s = place(s, ZG(1), at(3, 0)); // (3,7)→(3,0) = 7 spaces > 6
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(7); // no aura
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).breakdown).not.toContain('+1 Raelin aura');
+  });
+
+  it('does NOT apply when line of sight to Raelin is blocked', () => {
+    // A blocker squarely between Raelin and the Guard breaks "clear sight".
+    // Use a HORIZONTAL row (offset row 3) so the midpoint figure is truly on the
+    // interior of the center-to-center line (mirrors the slice-3 LOS test).
+    let s = aura();
+    s = place(s, RAELIN, at(1, 3));
+    s = place(s, ZG(1), at(5, 3)); // 4 spaces away, in range
+    s = place(s, ZG(2), at(3, 3)); // a friendly body dead-center on the line
+    s = place(s, ENEMY, at(1, 6)); // attacker arg — off the Raelin↔Guard line
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(7); // LOS blocked → no aura
+    // Slide the blocker one row off the line → clear sight, aura returns.
+    s = place(s, ZG(2), at(3, 2));
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(8);
+  });
+
+  it('does NOT affect Raelin herself', () => {
+    const s = aura();
+    // Raelin's own defense: printed 3, no self-aura.
+    expect(effectiveDefenseDice(s, fig(s, RAELIN), fig(s, ENEMY)).dice).toBe(3);
+    expect(effectiveDefenseDice(s, fig(s, RAELIN), fig(s, ENEMY)).breakdown).not.toContain('+1 Raelin aura');
+  });
+
+  it('only buffs figures the SAME player controls (not the enemy)', () => {
+    // The enemy Marro is within 6 clear spaces of p1's Raelin but is NOT
+    // controlled by Raelin's owner → no aura.
+    let s = aura();
+    s = place(s, ENEMY, at(3, 4)); // right beside Raelin at (3,3), clear sight
+    expect(effectiveDefenseDice(s, fig(s, ENEMY), fig(s, ZG(1))).dice).toBe(3); // Marro Def 3, no aura
+  });
+
+  it('a destroyed (non-living) Raelin grants no aura', () => {
+    let s = aura();
+    s = place(s, RAELIN, null); // Raelin gone
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(7);
+  });
+
+  it('stacks with Thorgrim + height in the breakdown', () => {
+    // On The Knoll: a friendly Marro on the R4 summit (3,3) — adjacent to a
+    // friendly Thorgrim AND in a friendly Raelin's aura — defended against an
+    // enemy Finn on the lower R3 (2,3). Defense = printed 3 + Thorgrim 1 +
+    // Raelin 1 + height 1 = 6, all four lines in the breakdown.
+    let s = customBattle(['raelin', 'thorgrim', 'marro_warriors'], ['finn'], 'p1', 'the_knoll');
+    const MARRO1 = 's0-marro_warriors-1';
+    const THORG = 's0-thorgrim-1';
+    const RA = 's0-raelin-1';
+    const FENEMY = 's1-finn-1';
+    s = clearExcept(s, MARRO1, THORG, RA, FENEMY);
+    s = place(s, MARRO1, at(3, 3)); // R4 summit — the beneficiary
+    s = place(s, THORG, at(4, 3)); // R4, adjacent → +1 Thorgrim
+    s = place(s, RA, at(3, 2)); // adjacent → clear sight → +1 Raelin
+    s = place(s, FENEMY, at(2, 3)); // R3, lower & adjacent → attacker, defender +1 height
+    // Confirm the height geometry first.
+    expect(heightAdvantage(s, fig(s, FENEMY), fig(s, MARRO1))).toEqual({ attacker: 0, defender: 1 });
+    const eff = effectiveDefenseDice(s, fig(s, MARRO1), fig(s, FENEMY));
+    expect(eff.dice).toBe(6); // Marro Def 3 + Thorgrim 1 + Raelin 1 + height 1
+    expect(eff.breakdown).toEqual(
+      expect.arrayContaining(['Defense 3 printed', '+1 height', '+1 Thorgrim aura', '+1 Raelin aura']),
+    );
+  });
+});
+
+// ---- Deathwalker 9000 — RANGE ENHANCEMENT ----------------------------------
+
+describe('slice 6: Deathwalker 9000 Range Enhancement', () => {
+  // p1: Deathwalker + Zettian Guards (Soulborg Guards — qualify). p2: Finn (a
+  // far target). +2 Range to a Soulborg Guard adjacent to a living Deathwalker:
+  // Zettian Range 7 → 9.
+  const DW = 's0-deathwalker_9000-1';
+  const ZG = (n: number) => `s0-zettian_guards-${n}`;
+  const TARGET = 's1-finn-1';
+
+  it('a Zettian Guard adjacent to friendly Deathwalker has Range 9 and reaches an 8-away target only when enhanced', () => {
+    // Wide flat map: a straight ROW shot. Guard at (0,1), target at (8,1) — a
+    // clean 8 spaces apart with unobstructed LOS; DW adjacent at (0,0), off the
+    // row so it never blocks the sightline. The Training Field is only 7 wide
+    // (max range < 8), so this needs the wider test map.
+    // Zettian Guards must be the ACTIVE card (first in the army) so legalTargets
+    // applies to a Guard; Deathwalker rides along to supply the adjacency.
+    let s = customBattle(['zettian_guards', 'deathwalker_9000'], ['finn'], 'p1', WIDE_MAP_ID);
+    s = clearExcept(s, DW, ZG(1), TARGET);
+    const guardHex = at(0, 1);
+    const targetHex = at(8, 1);
+    expect(rangeDistance(MAPS[s.mapId].cells, guardHex, targetHex)).toBe(8); // exactly 8 spaces
+    s = place(s, ZG(1), guardHex);
+    s = place(s, DW, at(0, 0)); // adjacent to the Guard, off the shooting row
+    s = place(s, TARGET, targetHex);
+    expect(effectiveRange(s, fig(s, ZG(1))).dice).toBe(9); // 7 + 2
+    expect(effectiveRange(s, fig(s, ZG(1))).breakdown).toContain('+2 Range Enhancement');
+    // With Deathwalker adjacent (Range 9) the 8-away target is reachable…
+    expect(legalTargets(s, ZG(1))).toContain(TARGET);
+    // …but remove Deathwalker from the board (plain Range 7) and it drops out.
+    const plain = place(s, DW, null);
+    expect(effectiveRange(plain, fig(plain, ZG(1))).dice).toBe(7);
+    expect(legalTargets(plain, ZG(1))).not.toContain(TARGET);
+  });
+
+  it('a Zettian Guard NOT adjacent to Deathwalker keeps Range 7', () => {
+    let s = customBattle(['deathwalker_9000', 'zettian_guards'], ['finn'], 'p1');
+    s = clearExcept(s, DW, ZG(1), TARGET);
+    s = place(s, ZG(1), at(3, 0));
+    s = place(s, DW, at(3, 3)); // far from the Guard
+    expect(effectiveRange(s, fig(s, ZG(1))).dice).toBe(7); // printed only
+    expect(effectiveRange(s, fig(s, ZG(1))).breakdown).not.toContain('+2 Range Enhancement');
+  });
+
+  it('a NON-Soulborg-Guard adjacent to Deathwalker gets no bonus', () => {
+    // Marro Warriors (species Marro, class Warriors) adjacent to a friendly
+    // Deathwalker do NOT qualify (the power names Soulborg Guards).
+    let s = customBattle(['deathwalker_9000', 'marro_warriors'], ['finn'], 'p1');
+    const MARRO1 = 's0-marro_warriors-1';
+    s = clearExcept(s, DW, MARRO1, TARGET);
+    s = place(s, MARRO1, at(3, 0));
+    s = place(s, DW, at(4, 0)); // adjacent, but Marro ≠ Soulborg Guard
+    expect(effectiveRange(s, fig(s, MARRO1)).dice).toBe(6); // Marro Range 6, no bonus
+  });
+});
+
+// ---- Agent Carr — SWORD OF RECKONING 4 -------------------------------------
+
+describe('slice 6: Agent Carr Sword of Reckoning 4', () => {
+  const CARR = 's0-agent_carr-1';
+  const ENEMY = 's1-finn-1';
+
+  it('Agent Carr attacking an ADJACENT figure rolls attack + 4', () => {
+    let s = customBattle(['agent_carr'], ['finn'], 'p1');
+    s = clearExcept(s, CARR, ENEMY);
+    s = place(s, CARR, at(3, 3));
+    s = place(s, ENEMY, at(3, 4)); // adjacent
+    const eff = effectiveAttackDice(s, fig(s, CARR), fig(s, ENEMY));
+    expect(eff.dice).toBe(6); // Agent Carr Attack 2 + 4 Sword of Reckoning
+    expect(eff.breakdown).toContain('+4 Sword of Reckoning');
+    // Folds through requirements; resolution must roll exactly 6 and reject 2.
+    expect(attackDiceRequirements(s, CARR, ENEMY)!.attack).toBe(6);
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: CARR, targetId: ENEMY, attackRoll: F('kk'), defenseRoll: F('ssss') })),
+    ).toMatch(/Malformed attack roll/);
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: CARR, targetId: ENEMY, attackRoll: F('kkkkkk'), defenseRoll: F('ssss') }));
+    expect(hit.lastAttack!.breakdown).toContain('+4 Sword of Reckoning');
+  });
+
+  it('Agent Carr attacking a NON-adjacent figure gets no bonus (Carr Range 6)', () => {
+    let s = customBattle(['agent_carr'], ['finn'], 'p1');
+    s = clearExcept(s, CARR, ENEMY);
+    s = place(s, CARR, at(3, 3));
+    s = place(s, ENEMY, at(3, 5)); // 2 spaces — in Range 6 but not adjacent
+    const eff = effectiveAttackDice(s, fig(s, CARR), fig(s, ENEMY));
+    expect(eff.dice).toBe(2); // printed only — no Sword
+    expect(eff.breakdown).not.toContain('+4 Sword of Reckoning');
+    expect(attackDiceRequirements(s, CARR, ENEMY)!.attack).toBe(2);
+  });
+});
+
+// ---- Grimnak — ORC WARRIOR ENHANCEMENT (synthetic Orc Warrior) --------------
+
+describe('slice 6: Grimnak Orc Warrior Enhancement', () => {
+  // No Orc Warrior exists in the 16-card roster, so the rule never fires in
+  // practice. Prove it data-driven with a SYNTHETIC Orc Warrior card injected
+  // into HS_CARDS for the test process only.
+  const ORC_CARD = 'test_orc_warrior';
+  beforeAll(() => {
+    (HS_CARDS as Record<string, typeof HS_CARDS['finn']>)[ORC_CARD] = {
+      id: ORC_CARD, name: 'Test Orc Warrior', shortName: 'Orc', type: 'squad',
+      figures: 2, life: 1, move: 5, range: 1, attack: 3, defense: 3, height: 5,
+      points: 50, letter: 'O', species: 'Orc', unitClass: 'Warriors', power: 'wip',
+    };
+  });
+
+  const GRIM = 's0-grimnak-1';
+  const ORC = (n: number) => `s0-${ORC_CARD}-${n}`;
+  const ENEMY = 's1-finn-1';
+
+  it('an Orc Warrior adjacent to a friendly Grimnak gets +1 attack AND +1 defense', () => {
+    let s = customBattle(['grimnak', ORC_CARD], ['finn'], 'p1');
+    s = clearExcept(s, GRIM, ORC(1), ENEMY);
+    s = place(s, ORC(1), at(3, 3));
+    s = place(s, GRIM, at(3, 2)); // adjacent
+    s = place(s, ENEMY, at(3, 4)); // an enemy adjacent to the Orc (for the attack)
+    const atk = effectiveAttackDice(s, fig(s, ORC(1)), fig(s, ENEMY));
+    expect(atk.dice).toBe(4); // Orc Attack 3 + 1 Grimnak
+    expect(atk.breakdown).toContain('+1 Grimnak aura');
+    const def = effectiveDefenseDice(s, fig(s, ORC(1)), fig(s, ENEMY));
+    expect(def.dice).toBe(4); // Orc Defense 3 + 1 Grimnak
+    expect(def.breakdown).toContain('+1 Grimnak aura');
+  });
+
+  it('does NOT apply when the Orc Warrior is not adjacent to Grimnak', () => {
+    let s = customBattle(['grimnak', ORC_CARD], ['finn'], 'p1');
+    s = clearExcept(s, GRIM, ORC(1), ENEMY);
+    s = place(s, ORC(1), at(3, 3));
+    s = place(s, GRIM, at(0, 0)); // far away
+    s = place(s, ENEMY, at(3, 4));
+    expect(effectiveAttackDice(s, fig(s, ORC(1)), fig(s, ENEMY)).dice).toBe(3);
+    expect(effectiveDefenseDice(s, fig(s, ORC(1)), fig(s, ENEMY)).dice).toBe(3);
+  });
+
+  it('does NOT apply to a non-Orc-Warrior adjacent to Grimnak', () => {
+    // Marro Warriors (Marro, not Orc) adjacent to Grimnak get nothing.
+    let s = customBattle(['grimnak', 'marro_warriors'], ['finn'], 'p1');
+    const MARRO1 = 's0-marro_warriors-1';
+    s = clearExcept(s, GRIM, MARRO1, ENEMY);
+    s = place(s, MARRO1, at(3, 3));
+    s = place(s, GRIM, at(3, 2)); // adjacent, but Marro ≠ Orc
+    s = place(s, ENEMY, at(3, 4));
+    expect(effectiveAttackDice(s, fig(s, MARRO1), fig(s, ENEMY)).dice).toBe(2); // Marro Attack 2
+    expect(effectiveDefenseDice(s, fig(s, MARRO1), fig(s, ENEMY)).dice).toBe(3); // Marro Defense 3
+  });
+});
+
+// ---- Zettian Guards — ZETTIAN TARGETING ------------------------------------
+
+describe('slice 6: Zettian Targeting', () => {
+  // p1: Zettian Guards (2 figures). p2: Finn + Thorgrim (two distinct targets,
+  // Life 4 so they survive the first hits). +1 to the SECOND Guard when it hits
+  // the SAME figure the first Guard already hit this turn.
+  const ZG = (n: number) => `s0-zettian_guards-${n}`;
+  const T1 = 's1-finn-1';
+  const T2 = 's1-thorgrim-1';
+  function staged(): HSState {
+    let s = customBattle(['zettian_guards'], ['finn', 'thorgrim'], 'p1');
+    s = clearExcept(s, ZG(1), ZG(2), T1, T2);
+    s = place(s, ZG(1), at(2, 3));
+    s = place(s, ZG(2), at(4, 3));
+    s = place(s, T1, at(3, 3)); // both Guards in range + clear sight
+    s = place(s, T2, at(3, 5));
+    return s;
+  }
+
+  it('the SECOND Guard hitting the SAME target as the first rolls +1; the FIRST never gets it', () => {
+    let s = staged();
+    // First Guard attacks Finn — printed Attack 2, no Targeting (no prior).
+    expect(effectiveAttackDice(s, fig(s, ZG(1)), fig(s, T1)).dice).toBe(2);
+    expect(attackDiceRequirements(s, ZG(1), T1)!.attack).toBe(2);
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: ZG(1), targetId: T1, attackRoll: F('bb'), defenseRoll: F('ssss') }));
+    expect(s.turnAttacks).toEqual([{ attackerId: ZG(1), targetId: T1 }]);
+    // Second Guard now hits the SAME Finn → +1 (Attack 3).
+    const eff = effectiveAttackDice(s, fig(s, ZG(2)), fig(s, T1));
+    expect(eff.dice).toBe(3); // 2 + 1 Zettian Targeting
+    expect(eff.breakdown).toContain('+1 Zettian Targeting');
+    expect(attackDiceRequirements(s, ZG(2), T1)!.attack).toBe(3);
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: ZG(2), targetId: T1, attackRoll: F('kbb'), defenseRoll: F('ssss') }));
+    expect(hit.lastAttack!.breakdown).toContain('+1 Zettian Targeting');
+  });
+
+  it('the second Guard hitting a DIFFERENT target gets no bonus', () => {
+    let s = staged();
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: ZG(1), targetId: T1, attackRoll: F('bb'), defenseRoll: F('ssss') }));
+    // Second Guard hits Thorgrim (different from the first Guard's Finn) → no +1.
+    const eff = effectiveAttackDice(s, fig(s, ZG(2)), fig(s, T2));
+    expect(eff.dice).toBe(2);
+    expect(eff.breakdown).not.toContain('+1 Zettian Targeting');
+  });
+
+  it('the FIRST Guard never gets Targeting even attacking a fresh target', () => {
+    const s = staged();
+    // No prior attacks this turn → the first shot is always plain.
+    expect(effectiveAttackDice(s, fig(s, ZG(1)), fig(s, T1)).breakdown).not.toContain('+1 Zettian Targeting');
+    expect(effectiveAttackDice(s, fig(s, ZG(2)), fig(s, T2)).breakdown).not.toContain('+1 Zettian Targeting');
+  });
+
+  it('Targeting clears at end of turn (next turn the first Guard is plain again)', () => {
+    let s = staged();
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: ZG(1), targetId: T1, attackRoll: F('bb'), defenseRoll: F('ssss') }));
+    expect(s.turnAttacks).toHaveLength(1);
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    expect(s.turnAttacks).toEqual([]); // cleared at the turn boundary
+  });
+});
+
+// ---- Syvarris — DOUBLE ATTACK ----------------------------------------------
+
+describe('slice 6: Syvarris Double Attack', () => {
+  // p1: Syvarris (Range 9). p2: Finn + Thorgrim (Life 4 — survive two hits).
+  const SYV = 's0-syvarris-1';
+  const T1 = 's1-finn-1';
+  function staged(): HSState {
+    let s = customBattle(['syvarris'], ['finn', 'thorgrim'], 'p1');
+    s = clearExcept(s, SYV, T1, 's1-thorgrim-1');
+    s = place(s, SYV, at(3, 3));
+    s = place(s, T1, at(3, 5)); // ranged target, clear sight
+    s = place(s, 's1-thorgrim-1', at(0, 7)); // keep p2 alive elsewhere
+    return s;
+  }
+
+  it('Syvarris may attack TWICE (two separate rolls)', () => {
+    let s = staged();
+    // Finn (T1) has Defense 4 → 4 blank dice let each skull land.
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T1, attackRoll: F('kbb'), defenseRoll: F('bbbb') }));
+    expect(fig(s, T1).wounds).toBe(1); // first roll landed
+    expect(s.turnAttacks).toHaveLength(1);
+    // The SECOND attack is allowed (count 1 < maxAttacks 2).
+    expect(legalTargets(s, SYV)).toContain(T1);
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T1, attackRoll: F('kbb'), defenseRoll: F('bbbb') }));
+    expect(fig(s, T1).wounds).toBe(2); // second roll landed too — two separate rolls
+    expect(s.turnAttacks.map(a => a.attackerId)).toEqual([SYV, SYV]);
+    // A THIRD attack is rejected (exactly one additional, no more).
+    expect(legalTargets(s, SYV)).not.toContain(T1);
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T1, attackRoll: F('kbb'), defenseRoll: F('bbbb') })),
+    ).toMatch(/already attacked/);
+  });
+
+  it('Syvarris MAY stop after one attack (the second is optional)', () => {
+    let s = staged();
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T1, attackRoll: F('kbb'), defenseRoll: F('ssss') }));
+    // The player simply ends the turn — no forced second attack.
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    expect(s.turnSeat).toBe(1); // turn passed; only one attack happened
+    expect(s.turnAttacks).toEqual([]);
+  });
+
+  it('Double Attack grants NO extra movement', () => {
+    let s = staged();
+    // First attack ends movement (the slice-2 rule still holds for Syvarris).
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T1, attackRoll: F('kbb'), defenseRoll: F('ssss') }));
+    expect(legalDestinations(s, SYV).size).toBe(0); // cannot move between/after attacks
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'move_figure', figureId: SYV, to: at(3, 2) })),
+    ).toMatch(/Movement is over/);
+  });
+
+  it('a NON-Syvarris figure is still capped at one attack', () => {
+    // Finn (a normal figure) attacks once, then a second attack is rejected.
+    let s = customBattle(['finn'], ['thorgrim', 'marro_warriors'], 'p1');
+    const FN = 's0-finn-1';
+    const TH = 's1-thorgrim-1';
+    s = clearExcept(s, FN, TH, 's1-marro_warriors-1');
+    s = place(s, FN, at(3, 3));
+    s = place(s, TH, at(3, 4)); // adjacent (Finn Range 1)
+    s = place(s, 's1-marro_warriors-1', at(0, 7)); // keep p2 alive
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: FN, targetId: TH, attackRoll: F('kkk'), defenseRoll: F('ssss') }));
+    expect(s.turnAttacks).toHaveLength(1);
+    expect(legalTargets(s, FN)).not.toContain(TH);
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: FN, targetId: TH, attackRoll: F('kkk'), defenseRoll: F('ssss') })),
+    ).toMatch(/already attacked/);
+  });
+});
+
+// ---- Single-source: preview == resolution; projection; history -------------
+
+describe('slice 6: single-source + projection + history', () => {
+  it('every slice-6 bonus folds through attackDiceRequirements (preview == the rolled count)', () => {
+    // Sword of Reckoning is the biggest swing — prove the server-side roll count
+    // (attackDiceRequirements, the single source actions.ts uses) matches the
+    // effective helper and the resolution all at once.
+    let s = customBattle(['agent_carr'], ['finn'], 'p1');
+    const CARR = 's0-agent_carr-1';
+    const ENEMY = 's1-finn-1';
+    s = clearExcept(s, CARR, ENEMY);
+    s = place(s, CARR, at(3, 3));
+    s = place(s, ENEMY, at(3, 4)); // adjacent
+    const eff = effectiveAttackDice(s, fig(s, CARR), fig(s, ENEMY)).dice;
+    const req = attackDiceRequirements(s, CARR, ENEMY)!.attack;
+    expect(req).toBe(eff); // single source — the preview number IS the rolled number
+    // The resolution accepts exactly that many dice (and nothing else).
+    const ok = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: CARR, targetId: ENEMY, attackRoll: F('k'.repeat(req) as string), defenseRoll: F('ssss') }));
+    expect(ok.lastAttack!.attackRoll).toHaveLength(req);
+  });
+
+  it('projection stays leak-free with the new powers (turnAttacks carries no hidden info)', () => {
+    let s = customBattle(['zettian_guards'], ['finn', 'thorgrim'], 'p1');
+    const ZG = (n: number) => `s0-zettian_guards-${n}`;
+    s = clearExcept(s, ZG(1), ZG(2), 's1-finn-1', 's1-thorgrim-1');
+    s = place(s, ZG(1), at(2, 3));
+    s = place(s, ZG(2), at(4, 3));
+    s = place(s, 's1-finn-1', at(3, 3));
+    s = place(s, 's1-thorgrim-1', at(3, 5));
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: ZG(1), targetId: 's1-finn-1', attackRoll: F('bb'), defenseRoll: F('ssss') }));
+    const before = JSON.stringify(s);
+    const forP2 = projectStateForViewer(s, 'p2');
+    // turnAttacks is public (figure ids, no marker values) — survives identically.
+    expect(forP2.turnAttacks).toEqual(s.turnAttacks);
+    // p1's UNREVEALED markers (2/3/X) never decode in p2's view.
+    const p1Cards = JSON.stringify(forP2.cards.filter(c => c.ownerSeat === 0));
+    expect(p1Cards.split('"marker":"2"').length - 1).toBe(0);
+    expect(p1Cards.split('"marker":"X"').length - 1).toBe(0);
+    expect(JSON.stringify(s)).toBe(before); // never mutates
+  });
+
+  it('history stays gated on finished through a slice-6 attack', () => {
+    let s = customBattle(['syvarris'], ['finn', 'thorgrim'], 'p1');
+    const SYV = 's0-syvarris-1';
+    s = clearExcept(s, SYV, 's1-finn-1', 's1-thorgrim-1');
+    s = place(s, SYV, at(3, 3));
+    s = place(s, 's1-finn-1', at(3, 5));
+    s = place(s, 's1-thorgrim-1', at(0, 7));
+    expect(computeHistory(s)).toBeNull();
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: 's1-finn-1', attackRoll: F('kbb'), defenseRoll: F('ssss') }));
+    expect(computeHistory(s)).toBeNull(); // mid-game — still null
   });
 });

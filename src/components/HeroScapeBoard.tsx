@@ -268,7 +268,7 @@ export default function HeroScapeBoard({
     myTurnReady(state, me) &&
     activeCard?.cardId === 'tarn_vikings' &&
     movedActiveCard &&
-    state.attackedFigureIds.length === 0 &&
+    state.turnAttacks.length === 0 &&
     !state.berserkerSpent &&
     !pending;
   // The Marro Water Clone prompt: my Marro turn, ≥1 Marro moved, none attacked,
@@ -277,8 +277,17 @@ export default function HeroScapeBoard({
     myTurnReady(state, me) &&
     activeCard?.cardId === 'marro_warriors' &&
     movedActiveCard &&
-    state.attackedFigureIds.length === 0 &&
+    state.turnAttacks.length === 0 &&
     !state.waterClonedThisTurn &&
+    !pending;
+  // slice 6: Syvarris's DOUBLE ATTACK — after his FIRST attack he MAY attack one
+  // more time. Surface a hint (the engine keeps his targets highlighted on its
+  // own, since legalTargets still allows him while his attack count < 2). True
+  // when my Syvarris is the active card and he has attacked exactly once.
+  const canDoubleAttack =
+    myTurnReady(state, me) &&
+    activeCard?.cardId === 'syvarris' &&
+    state.turnAttacks.length === 1 &&
     !pending;
 
   const seatColor = (seat: number) => {
@@ -371,7 +380,15 @@ export default function HeroScapeBoard({
     if (!canAct) return;
     const fig = figureAt(key);
     if (fig && fig.ownerSeat === me!.seat) { setSelectedId(fig.id === selectedId ? null : fig.id); return; }
-    if (fig && selected && targets.has(fig.id)) { onAttack(selected.id, fig.id); setSelectedId(null); return; }
+    if (fig && selected && targets.has(fig.id)) {
+      onAttack(selected.id, fig.id);
+      // slice 6: keep Syvarris selected after his first attack so his targets
+      // stay highlighted for the optional Double Attack (legalTargets re-allows
+      // him while his count < 2). Other figures deselect on attack as before.
+      const attackerCardId = state.cards.find(c => c.uid === selected.cardUid)?.cardId;
+      if (!(attackerCardId === 'syvarris' && state.turnAttacks.length === 0)) setSelectedId(null);
+      return;
+    }
     if (!fig && selected && destinations.has(key)) { onMoveFigure(selected.id, key); return; }
   }
 
@@ -843,6 +860,17 @@ export default function HeroScapeBoard({
           >
             🌊 Water Clone (instead of attacking)
           </button>
+        )}
+        {/* slice 6: Double Attack hint — Syvarris may take one more attack. No
+            modal: his targets stay highlighted (legalTargets still allows him);
+            the player either clicks a marked enemy again or ends the turn. */}
+        {canDoubleAttack && (
+          <div className="rounded-lg border-2 border-emerald-600 bg-neutral-900/70 px-3 py-2 text-center">
+            <div className="text-sm font-bold text-emerald-300">🏹 Double Attack</div>
+            <div className="mt-0.5 text-[11px] text-neutral-400">
+              Syvarris may attack again or end his turn.
+            </div>
+          </div>
         )}
 
         {/* slice 4: Berserker Charge re-move choice (the optional "may") */}
