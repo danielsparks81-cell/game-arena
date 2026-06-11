@@ -433,11 +433,11 @@ export function applyAction(
       // Intermission purchases are already in old.items / old.foundPotions.
       if (old.gold) s.heroes[i].gold = old.gold;
       if (old.foundPotions?.length) s.heroes[i].foundPotions = [...old.foundPotions];
-      // Carry over items bought/earned during the quest (exclude starting items
-      // that the fresh initialState already provides to avoid duplicates).
-      const startingIds = new Set(s.heroes[i].items.map((it: { id: string }) => it.id));
-      const extra = (old.items ?? []).filter(it => !startingIds.has(it.id));
-      if (extra.length) s.heroes[i].items = [...s.heroes[i].items, ...extra];
+      // Use old.items as the source of truth — it already reflects any starting
+      // items that were sold and any armory purchases. Then recalc so h.attack
+      // reflects the carried-over gear, not just starting equipment.
+      s.heroes[i].items = (old.items ?? []).map(it => ({ ...it }));
+      recalcHeroCombatStats(s.heroes[i]);
     });
     // Auto-fill any unclaimed hero slots by cycling through claimed players.
     // With 1 player → that player owns all 4. With 2 players → round-robin
@@ -955,9 +955,17 @@ function doAttack(state: HQState, hero: Hero, monsterId: string): ApplyResult {
   const spellBonus  = h.attackBonus    ?? 0;
   const potionBonus = h.potionAtkBonus ?? 0;
   const bonus = spellBonus + potionBonus;
+  // Crossbows can't fire at point-blank range. When adjacent, fall back to the
+  // best non-ranged weapon (or base attack if carrying only a crossbow).
+  const meleeAttack = adj
+    ? Math.max(
+        HERO_DEFAULTS[h.klass as HeroClass].baseAttack,
+        h.items.filter(i => !i.ranged).reduce((mx, i) => Math.max(mx, i.attack ?? 0), 0),
+      )
+    : h.attack;
   const baseAttackDice = h.feared
     ? 1  // Dread Fear: only 1 die regardless of gear or bonuses
-    : Math.max(1, h.attack + bonus - (h.inPit ? 1 : 0));
+    : Math.max(1, meleeAttack + bonus - (h.inPit ? 1 : 0));
   const atk = rollDice(baseAttackDice, 'hero');
   if (h.feared) {
     pushLog(s, 'spell', `${heroLabel(h)} is gripped by Fear — attacking with only 1 die!`);

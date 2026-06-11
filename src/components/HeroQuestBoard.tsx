@@ -1318,7 +1318,7 @@ function IntermissionView({
                 {(h.items?.length ?? 0) > 0 && (
                   <div className="space-y-0.5">
                     <div className="text-[9px] uppercase tracking-widest text-amber-400/50">Equipment</div>
-                    {h.items.map((it, idx) => {
+                    {[...h.items].sort((a, b) => (b.attack ?? 0) - (a.attack ?? 0)).map((it, idx) => {
                       const isPassing = passing?.kind === 'item' && passing.heroSeat === h.seat && passing.itemId === it.id;
                       const sp = sellPrice(it);
                       return (
