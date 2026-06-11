@@ -4,8 +4,12 @@
 // players, fixed armies, the flat TEST-1 "Training Field" map. Each round:
 // secret order markers (1/2/3/X) → d20 initiative (ties re-roll) → 3 turns per
 // player driven by the revealed marker — plus Master combat (wounds vs Life).
-// Special powers, elevation, water, engagement, and height advantage are later
-// slices (3-5).
+//
+// SLICE 4 (docs/heroscape/slice-4-spec.md): GLYPHS + SPECIAL POWERS. Glyphs on
+// the battlefield (forced stop on entry; permanent-while-occupied vs
+// fire-once-temporary), the four cards' printed powers (Finn/Thorgrim auras +
+// Spirits, Tarn Berserker Charge, Marro Water Clone), and the PendingChoice
+// machinery — player decisions are PROMPTED, never auto-resolved.
 
 /** Axial hex coordinate (pointy-top). Stored in state as a "q,r" key. */
 export type Axial = { q: number; r: number };
@@ -78,6 +82,13 @@ export type ArmyCardInstance = {
   ownerSeat: number;
   /** This round's order markers on the card. Cleared every round. */
   orderMarkers: OrderMarker[];
+  /** PERMANENT Spirit bonuses (slice 4). When Finn is destroyed his Warrior's
+   *  Attack Spirit is placed on any unique Army Card, adding +1 to that card's
+   *  attack number forever (cards.md); Thorgrim's Armor Spirit adds +1 defense.
+   *  These persist for the rest of the game and fold into the effective-stat
+   *  helpers. Default 0; absent on slice-2/3 saves → treated as 0. */
+  attackMod: number;
+  defenseMod: number;
 };
 
 export type Figure = {
@@ -103,14 +114,24 @@ export type HSPlayer = {
 export type HSLogEntry = {
   seq: number;
   text: string;
-  /** 'fall' surfaces falling-damage and leaving-engagement swipe rolls; the
-   *  rest are slice-2 categories. */
-  tag: 'info' | 'roll' | 'move' | 'attack' | 'fall' | 'win';
+  /** 'fall' surfaces falling-damage and leaving-engagement swipe rolls; 'power'
+   *  surfaces special-power triggers (Berserker Charge, Water Clone, Spirits);
+   *  'glyph' surfaces glyph activations/heals; the rest are slice-2 categories. */
+  tag: 'info' | 'roll' | 'move' | 'attack' | 'fall' | 'win' | 'power' | 'glyph';
 };
 
-/** One d20 initiative attempt: every seat's roll. Ties for highest re-roll;
- *  every attempt (including the tied ones) is kept for the board's display. */
-export type InitiativeAttempt = { seat: number; roll: number }[];
+/**
+ * One d20 initiative attempt: every seat's roll. Ties for highest re-roll;
+ * every attempt (including the tied ones) is kept for the board's display.
+ *
+ * `roll` is the EFFECTIVE roll used to decide order. Slice 4: the Glyph of
+ * Dagmar adds +8 to its controller's initiative (05-glyphs), so the server may
+ * report a `roll` above 20. The optional `raw`/`bonus` break it out for the
+ * engine to re-validate (raw 1-20, bonus exactly the Dagmar +8 the controlling
+ * seat is owed) and for the board to show "14 (+8 Dagmar)". When `raw`/`bonus`
+ * are absent (slice-2/3 attempts), `roll` is a bare 1-20 d20.
+ */
+export type InitiativeAttempt = { seat: number; roll: number; raw?: number; bonus?: number }[];
 
 /** The most recent attack, for the board's dice display. */
 export type LastAttack = {
@@ -131,9 +152,91 @@ export type LastAttack = {
    *  caption only — the counts are already reflected in attack/defenseRoll. */
   heightBonusAttacker?: number;
   heightBonusDefender?: number;
+  /** Human-readable breakdown of HOW the attack/defense dice counts were
+   *  reached (slice 4): e.g. ["Attack 3 printed", "+1 height", "+1 Astrid"],
+   *  then ["Defense 4 printed", "+1 Thorgrim aura"]. Drives the dice-panel
+   *  caption so a player can see why the count is what it is. The values are
+   *  already folded into attackRoll/defenseRoll. */
+  breakdown?: string[];
   /** Monotonic counter so the UI can detect a fresh roll. */
   seq: number;
 };
+
+// ============================================================================
+// Glyphs (slice 4 — docs/heroscape/05-glyphs-special-powers.md)
+// ============================================================================
+
+/**
+ * Glyph identity. Slice 4 implements the five PERMANENT glyphs
+ * (Astrid/Gerda/Ivor/Valda/Dagmar) and the temporary HEALER glyph (Kelda).
+ * Erland (summon) and Mitonsoul (mass curse) and the two Brandar artifacts are
+ * deferred (slice 5 / scenario) — the framework carries them so they slot in
+ * later, but their effects are inert in slice 4.
+ */
+export type HSGlyphId =
+  | 'astrid' // Attack +1 for all your figures (permanent, while occupied)
+  | 'gerda' // Defense +1 for all your figures (permanent)
+  | 'ivor' // Range +4 for your figures with printed Range ≥ 4 (permanent)
+  | 'valda' // Move +2 for all your figures (permanent)
+  | 'dagmar' // Initiative +8 (permanent)
+  | 'kelda' // Heal all wounds, then removed (temporary; only the wounded may stop)
+  | 'erland' // slice 5: summon (temporary)
+  | 'mitonsoul' // slice 5: mass curse (temporary)
+  | 'brandar'; // scenario: artifact (no fixed power)
+
+/**
+ * A glyph on the battlefield. `faceUp` (power-side up) is always true in
+ * slice 4 — glyphs are placed power-side-up so their effects are known. The
+ * symbol-side-up + flip-on-first-land mechanic (faceUp:false) is deferred; the
+ * shape carries the flag so it slots in later (05-glyphs §1).
+ */
+export type HSGlyph = {
+  id: HSGlyphId;
+  at: HexKey;
+  faceUp: boolean;
+};
+
+// ============================================================================
+// PendingChoice (slice 4 — Long Shot / Legendary pattern)
+// ============================================================================
+
+/**
+ * A player decision that must be PROMPTED, never auto-resolved
+ * (rules-fidelity §choice). While `HSState.pendingChoice` is set, the engine
+ * blocks every normal action and accepts ONLY a matching `resolve_choice` from
+ * the owning `seat`. `getActivePlayerId` points at that seat so the hourglass
+ * follows the decider.
+ *   • berserker_charge   — Tarn's "you MAY move all again" after a 15+ d20.
+ *   • water_clone_place  — choose each returned Marro Warrior's landing hex.
+ *   • spirit_placement   — on Finn/Thorgrim's destruction, choose any unique
+ *                          Army Card to receive the +1 attack/defense Spirit.
+ */
+export type HSPendingChoice =
+  | { kind: 'berserker_charge'; seat: number; cardUid: string }
+  | {
+      kind: 'water_clone_place';
+      seat: number;
+      /** One entry per SUCCESSFUL Water Clone roll that has a legal landing AND
+       *  a destroyed Marro available. `cloneFigureId` is the destroyed Marro
+       *  being returned; `options` are the same-level empty hexes adjacent to
+       *  the Warrior that rolled. Resolved in order; `chosen` accumulates. */
+      placements: { cloneFigureId: string; rollerFigureId: string; options: HexKey[] }[];
+      chosen: HexKey[];
+    }
+  | {
+      kind: 'spirit_placement';
+      seat: number;
+      spirit: 'attack' | 'defense';
+      /** Living unique Army Card uids the Spirit may be placed on (ANY owner —
+       *  Finn/Thorgrim's text is not friendly-restricted, cards.md). */
+      options: string[];
+    };
+
+/** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
+export type HSChoiceResolution =
+  | { kind: 'berserker_charge'; remove: boolean } // true = re-move (re-grant), false = decline
+  | { kind: 'water_clone_place'; hex: HexKey } // landing for the NEXT pending placement
+  | { kind: 'spirit_placement'; cardUid: string }; // unique card to receive the Spirit
 
 export type HSPhase = 'lobby' | 'playing' | 'finished';
 
@@ -176,6 +279,22 @@ export type HSState = {
   attackedFigureIds: string[];
   lastAttack: LastAttack | null;
   winnerSeat: number | null;
+  /** Glyphs on the battlefield (slice 4). Placed from a per-map layout; a
+   *  temporary glyph (Kelda) is spliced out of this array once it fires. A
+   *  permanent glyph's effect is active only while a figure stands on its hex —
+   *  recomputed from positions, never stored as a token. */
+  glyphs: HSGlyph[];
+  /** An open player decision (slice 4). While set, ONLY the owning seat may act
+   *  and ONLY via resolve_choice. Public — projection adds no hidden info. */
+  pendingChoice?: HSPendingChoice;
+  /** Whether the active card has already used its once-per-turn "instead of
+   *  attacking" Water Clone this turn (slice 4) — set when Marro Water Clones,
+   *  so the engine knows the card's attack is consumed. Cleared each turn. */
+  waterClonedThisTurn?: boolean;
+  /** Whether Tarn's Berserker Charge has been SPENT this turn by a FAILED d20
+   *  (<15) — "one roll" on a miss (cards.md). A SUCCESS does not set this (the
+   *  charge may repeat). Cleared each turn. */
+  berserkerSpent?: boolean;
   log: HSLogEntry[];
   logSeq: number;
 };
@@ -228,6 +347,28 @@ export type HSAction =
       targetId: string;
       attackRoll: CombatFace[];
       defenseRoll: CombatFace[];
+    }
+  | {
+      // Tarn BERSERKER CHARGE (cards.md) — rolled AFTER moving, BEFORE attacking.
+      // The SERVER rolls the d20; on 15+ the engine offers a berserker_charge
+      // PendingChoice (the re-move is the player's "may"). On <15 the charge is
+      // spent for the turn. The roll itself is this explicit action.
+      kind: 'berserker_charge';
+      d20: number;
+    }
+  | {
+      // Marro WATER CLONE (cards.md) — INSTEAD of attacking, only AFTER moving.
+      // The SERVER rolls one d20 per living Marro Warrior; the engine validates
+      // the set and the per-Warrior threshold (15+, or 10+ on water), then
+      // collects a water_clone_place PendingChoice for each viable success.
+      kind: 'water_clone';
+      rolls: { marroFigureId: string; d20: number }[];
+    }
+  | {
+      // Resolve the open pendingChoice. Only the owning seat may send it and the
+      // payload kind must match (engine-validated). NEVER auto-issued.
+      kind: 'resolve_choice';
+      choice: HSChoiceResolution;
     }
   | { kind: 'end_turn' };
 

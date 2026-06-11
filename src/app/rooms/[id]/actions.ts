@@ -84,6 +84,8 @@ import {
   applyAction as applyActionHS,
   attackDiceRequirements as hsAttackDiceRequirements,
   moveConsequences as hsMoveConsequences,
+  getActiveCardUid as hsGetActiveCardUid,
+  HS_GLYPHS,
   COMBAT_DIE_FACES as HS_COMBAT_DIE_FACES,
   type HSAction,
   type HSState,
@@ -91,6 +93,7 @@ import {
   type CombatFace as HSCombatFace,
   type InitiativeAttempt as HSInitiativeAttempt,
   type OrderMarkerValue as HSOrderMarkerValue,
+  type HSChoiceResolution,
 } from '@/lib/games/heroscape';
 
 /**
@@ -730,6 +733,9 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
+  | { game: 'heroscape'; kind: 'berserker_charge' }
+  | { game: 'heroscape'; kind: 'water_clone' }
+  | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
   | { game: 'heroscape'; kind: 'end_turn' };
 
 /**
@@ -1153,6 +1159,11 @@ type HSWireAction =
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   | { kind: 'attack'; attackerId: string; targetId: string }
+  // Special powers (slice 4): the d20(s) are NOT on the wire — makeMoveHS rolls
+  // them server-side and injects the values into the engine action.
+  | { kind: 'berserker_charge' }
+  | { kind: 'water_clone' }
+  | { kind: 'resolve_choice'; choice: HSChoiceResolution }
   | { kind: 'end_turn' };
 
 /** d20 attempts until tie-free: ALL seats re-roll on any tie for highest
@@ -1234,6 +1245,24 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
           }
         : {}),
     };
+  } else if (action.kind === 'berserker_charge') {
+    // Tarn BERSERKER CHARGE — the server rolls the single d20; the engine
+    // validates timing + threshold and (on 15+) opens the optional re-move.
+    engineAction = { kind: 'berserker_charge', d20: d20() };
+  } else if (action.kind === 'water_clone') {
+    // Marro WATER CLONE — roll one d20 per LIVING Marro Warrior of the active
+    // card; the engine validates the set + per-Warrior threshold and collects
+    // the placement choices.
+    const activeUid = hsGetActiveCardUid(state);
+    const livingMarro = (state.figures ?? []).filter(
+      f => f.cardUid === activeUid && f.at != null,
+    );
+    engineAction = {
+      kind: 'water_clone',
+      rolls: livingMarro.map(f => ({ marroFigureId: f.id, d20: d20() })),
+    };
+  } else if (action.kind === 'resolve_choice') {
+    engineAction = { kind: 'resolve_choice', choice: action.choice };
   } else if (action.kind === 'start_game') {
     engineAction = { kind: 'start_game', mapId: action.mapId };
   } else {
@@ -1253,9 +1282,30 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     next.subPhase === 'place_markers' &&
     next.markersReady.length === next.players.length
   ) {
+    // Glyph of Dagmar (slice 4): +8 to its controller's initiative. Determine
+    // control from the post-placement state (a living figure of that seat on a
+    // power-side-up Dagmar glyph), then carry raw+bonus so the engine re-checks.
+    const afterPlace: HSState = next;
+    const dagmarBonus = (seat: number): number => {
+      const controls = (afterPlace.glyphs ?? []).some(
+        g =>
+          g.id === 'dagmar' &&
+          g.faceUp &&
+          HS_GLYPHS.dagmar.active &&
+          (afterPlace.figures ?? []).some(f => f.at === g.at && f.ownerSeat === seat),
+      );
+      return controls ? 8 : 0;
+    };
+    // Re-roll everyone on any tie for highest (Dagmar's +8 carries into re-rolls).
     const attempts: HSInitiativeAttempt[] = [];
     for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
-      const attempt = next.players.map(p => ({ seat: p.seat, roll: d20() }));
+      const attempt = next.players.map(p => {
+        const raw = d20();
+        const bonus = dagmarBonus(p.seat);
+        return bonus > 0
+          ? { seat: p.seat, roll: raw + bonus, raw, bonus }
+          : { seat: p.seat, roll: raw };
+      });
       attempts.push(attempt);
       const max = Math.max(...attempt.map(a => a.roll));
       if (attempt.filter(a => a.roll === max).length === 1) break;

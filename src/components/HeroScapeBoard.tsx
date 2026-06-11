@@ -16,8 +16,10 @@ import {
   type HexKey,
   type OrderMarker,
   type OrderMarkerValue,
+  type HSChoiceResolution,
   MAPS,
   HS_CARDS,
+  HS_GLYPHS,
   legalDestinations,
   legalTargets,
   figureLabel,
@@ -68,7 +70,28 @@ type Props = {
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onAttack: (attackerId: string, targetId: string) => void;
+  onBerserkerCharge: () => void;
+  onWaterClone: () => void;
+  onResolveChoice: (choice: HSChoiceResolution) => void;
   onEndTurn: () => void;
+};
+
+/** Is it my live turn (in 'turns', I am the turn seat)? */
+function myTurnReady(state: HSState, me: { seat: number } | undefined): boolean {
+  return state.phase === 'playing' && state.subPhase === 'turns' && !!me && state.turnSeat === me.seat;
+}
+
+/** Colored badge per glyph letter (matches the rulebook's Glyphs Key). */
+const GLYPH_BADGE: Record<string, { bg: string; ring: string }> = {
+  A: { bg: '#b91c1c', ring: '#fca5a5' }, // Astrid (attack)
+  G: { bg: '#1d4ed8', ring: '#93c5fd' }, // Gerda (defense)
+  I: { bg: '#7c3aed', ring: '#c4b5fd' }, // Ivor (range)
+  V: { bg: '#047857', ring: '#6ee7b7' }, // Valda (move)
+  D: { bg: '#b45309', ring: '#fcd34d' }, // Dagmar (initiative)
+  K: { bg: '#0e7490', ring: '#67e8f9' }, // Kelda (heal)
+  E: { bg: '#52525b', ring: '#a1a1aa' }, // Erland (deferred)
+  M: { bg: '#52525b', ring: '#a1a1aa' }, // Mitonsoul (deferred)
+  B: { bg: '#52525b', ring: '#a1a1aa' }, // Brandar (scenario)
 };
 
 function DieFace({ face, size = 22 }: { face: CombatFace; size?: number }) {
@@ -124,7 +147,8 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onPlaceMarkers, onMoveFigure, onAttack, onEndTurn,
+  onStart, onPlaceMarkers, onMoveFigure, onAttack,
+  onBerserkerCharge, onWaterClone, onResolveChoice, onEndTurn,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Lobby: the host's chosen battlefield (sent with start_game).
@@ -150,7 +174,33 @@ export default function HeroScapeBoard({
   const canAct = myTurn && !disabled;
   const iAmReady = !!me && state.markersReady.includes(me.seat);
   const activeCardUid = getActiveCardUid(state);
-  const activeCardDef = HS_CARDS[state.cards.find(c => c.uid === activeCardUid)?.cardId ?? ''];
+  const activeCard = state.cards.find(c => c.uid === activeCardUid);
+  const activeCardDef = HS_CARDS[activeCard?.cardId ?? ''];
+
+  // --- slice 4: pending choice + special-power availability (only mine) ------
+  const pending = state.pendingChoice;
+  const myChoice = !!me && pending != null && pending.seat === me.seat ? pending : null;
+  // The Tarn Berserker Charge prompt: my Tarn turn, ≥1 Tarn moved, none
+  // attacked, the charge not spent, and no other choice open.
+  const movedActiveCard =
+    activeCardUid != null &&
+    state.movedFigureIds.some(id => state.figures.find(f => f.id === id)?.cardUid === activeCardUid);
+  const canBerserk =
+    myTurnReady(state, me) &&
+    activeCard?.cardId === 'tarn_vikings' &&
+    movedActiveCard &&
+    state.attackedFigureIds.length === 0 &&
+    !state.berserkerSpent &&
+    !pending;
+  // The Marro Water Clone prompt: my Marro turn, ≥1 Marro moved, none attacked,
+  // not already cloned, no choice open.
+  const canWaterClone =
+    myTurnReady(state, me) &&
+    activeCard?.cardId === 'marro_warriors' &&
+    movedActiveCard &&
+    state.attackedFigureIds.length === 0 &&
+    !state.waterClonedThisTurn &&
+    !pending;
 
   const seatColor = (seat: number) => {
     const idx = state.players.findIndex(p => p.seat === seat);
@@ -168,6 +218,19 @@ export default function HeroScapeBoard({
   const targets = useMemo(
     () => (canAct && selected ? new Set(legalTargets(state, selected.id)) : new Set<string>()),
     [state, selected, canAct],
+  );
+
+  // slice 4: the NEXT Water Clone landing the player must pick (the placement at
+  // index chosen.length). Its same-level adjacent options light up the board;
+  // clicking one resolves it.
+  const clonePlacement =
+    myChoice?.kind === 'water_clone_place' ? myChoice.placements[myChoice.chosen.length] : null;
+  const cloneChosen = myChoice?.kind === 'water_clone_place' ? myChoice.chosen : [];
+  const cloneOptions = useMemo(
+    // Exclude hexes already taken by an earlier clone this resolution (the
+    // engine rejects them too) so the board never highlights an invalid landing.
+    () => new Set<HexKey>((clonePlacement?.options ?? []).filter(h => !cloneChosen.includes(h))),
+    [clonePlacement, cloneChosen],
   );
 
   // Geometry: scale unit-space pixel coords to screen px and translate into view.
@@ -200,6 +263,12 @@ export default function HeroScapeBoard({
   const figureAt = (key: HexKey) => state.figures.find(f => f.at === key) ?? null;
 
   function clickHex(key: HexKey) {
+    // Water Clone placement takes priority: click a highlighted same-level
+    // adjacent hex to land the returning Marro Warrior.
+    if (cloneOptions.has(key) && !disabled) {
+      onResolveChoice({ kind: 'water_clone_place', hex: key });
+      return;
+    }
     if (!canAct) return;
     const fig = figureAt(key);
     if (fig && fig.ownerSeat === me!.seat) { setSelectedId(fig.id === selectedId ? null : fig.id); return; }
@@ -392,15 +461,12 @@ export default function HeroScapeBoard({
           <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-200">
             <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">Last attack</div>
             <div className="mb-1">{state.lastAttack.attackerLabel} → {state.lastAttack.targetLabel}</div>
-            {/* Height-advantage caption: the bonus die is already in the rolls */}
-            {(state.lastAttack.heightBonusAttacker ?? 0) > 0 && (
+            {/* Dice breakdown caption (slice 4): WHY the dice counts are what
+                they are — printed + height + auras + glyphs + Spirit. The
+                bonuses are already folded into the rolls below. */}
+            {state.lastAttack.breakdown && state.lastAttack.breakdown.length > 0 && (
               <div className="mb-1 text-[10px] font-semibold text-amber-300">
-                ⬆ Height advantage: attacker +{state.lastAttack.heightBonusAttacker} attack die
-              </div>
-            )}
-            {(state.lastAttack.heightBonusDefender ?? 0) > 0 && (
-              <div className="mb-1 text-[10px] font-semibold text-sky-300">
-                ⬆ Height advantage: defender +{state.lastAttack.heightBonusDefender} defense die
+                {state.lastAttack.breakdown.join('  ·  ')}
               </div>
             )}
             <div className="flex items-center gap-1">
@@ -425,8 +491,97 @@ export default function HeroScapeBoard({
 
         {/* (Army cards render below the board — see the main column.) */}
 
+        {/* slice 4: special-power buttons (after moving, before attacking) */}
+        {canBerserk && (
+          <button
+            onClick={onBerserkerCharge}
+            disabled={disabled}
+            title="Roll a d20 — on 15+ you may move all Tarn Viking Warriors again."
+            className="rounded-lg border-2 border-orange-600 px-4 py-2 text-sm font-semibold text-orange-300 transition hover:bg-orange-900/40 disabled:opacity-40"
+          >
+            ⚡ Berserker Charge (roll d20)
+          </button>
+        )}
+        {canWaterClone && (
+          <button
+            onClick={onWaterClone}
+            disabled={disabled}
+            title="Instead of attacking: roll a d20 per Marro Warrior (15+, or 10+ on water) to return slain Warriors."
+            className="rounded-lg border-2 border-cyan-600 px-4 py-2 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-900/40 disabled:opacity-40"
+          >
+            🌊 Water Clone (instead of attacking)
+          </button>
+        )}
+
+        {/* slice 4: Berserker Charge re-move choice (the optional "may") */}
+        {myChoice?.kind === 'berserker_charge' && (
+          <div className="rounded-lg border-2 border-orange-600 bg-neutral-900/70 px-3 py-2">
+            <div className="text-sm font-bold text-orange-300">⚡ Berserker Charge!</div>
+            <div className="mt-0.5 text-[11px] text-neutral-400">
+              You rolled 15+. Move all Tarn Viking Warriors again, or decline.
+            </div>
+            <div className="mt-2 flex gap-2">
+              <button
+                onClick={() => onResolveChoice({ kind: 'berserker_charge', remove: true })}
+                disabled={disabled}
+                className="flex-1 rounded-md border-2 border-emerald-600 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:opacity-40"
+              >
+                Move again
+              </button>
+              <button
+                onClick={() => onResolveChoice({ kind: 'berserker_charge', remove: false })}
+                disabled={disabled}
+                className="flex-1 rounded-md border-2 border-neutral-600 px-2 py-1 text-xs font-semibold text-neutral-300 transition hover:bg-neutral-800 disabled:opacity-40"
+              >
+                Decline
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* slice 4: Water Clone placement — click a highlighted hex on the board */}
+        {myChoice?.kind === 'water_clone_place' && (
+          <div className="rounded-lg border-2 border-cyan-600 bg-neutral-900/70 px-3 py-2">
+            <div className="text-sm font-bold text-cyan-300">🌊 Water Clone — place a Warrior</div>
+            <div className="mt-0.5 text-[11px] text-neutral-400">
+              Returning {myChoice.chosen.length + 1} of {myChoice.placements.length}. Click a
+              highlighted same-level space adjacent to the Warrior that rolled.
+            </div>
+          </div>
+        )}
+
+        {/* slice 4: Spirit placement — pick any living unique card */}
+        {myChoice?.kind === 'spirit_placement' && (
+          <div className="rounded-lg border-2 border-amber-500 bg-neutral-900/80 px-3 py-2">
+            <div className="text-sm font-bold text-amber-300">
+              {myChoice.spirit === 'attack' ? "Warrior's Attack Spirit" : "Warrior's Armor Spirit"}
+            </div>
+            <div className="mt-0.5 text-[11px] text-neutral-400">
+              Place the Spirit on any unique Army Card — +1 {myChoice.spirit} forever.
+            </div>
+            <div className="mt-2 flex flex-col gap-1">
+              {myChoice.options.map(uid => {
+                const c = state.cards.find(x => x.uid === uid);
+                const def = HS_CARDS[c?.cardId ?? ''];
+                const ownerName = state.players.find(p => p.seat === c?.ownerSeat)?.username ?? '';
+                return (
+                  <button
+                    key={uid}
+                    onClick={() => onResolveChoice({ kind: 'spirit_placement', cardUid: uid })}
+                    disabled={disabled}
+                    className="flex items-center justify-between rounded-md border border-amber-700 px-2 py-1 text-left text-xs text-amber-100 transition hover:border-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
+                  >
+                    <span className="font-semibold">{def?.name ?? uid}</span>
+                    <span className="text-[10px] text-neutral-400">{ownerName}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* End turn */}
-        {myTurn && (
+        {myTurn && !pending && (
           <button
             onClick={() => { onEndTurn(); setSelectedId(null); }}
             disabled={disabled}
@@ -467,16 +622,18 @@ export default function HeroScapeBoard({
             const ctr = toScreen(key);
             const pts = hexCorners(ctr, HEX * 0.985).map(p => `${p.x},${p.y}`).join(' ');
             const isDest = destinations.has(key);
+            const isCloneOpt = cloneOptions.has(key);
             const { fill, stroke } = hexFill(c.terrain, c.height, isDest);
             const startZoneSeat = Object.entries(map.startZones).find(([, keys]) => keys.includes(key))?.[0];
             const occupied = !!figureAt(key);
+            const clickable = canAct || isCloneOpt;
             return (
-              <g key={key} onClick={() => clickHex(key)} className={canAct ? 'cursor-pointer' : ''}>
+              <g key={key} onClick={() => clickHex(key)} className={clickable ? 'cursor-pointer' : ''}>
                 <polygon
                   points={pts}
-                  fill={fill}
-                  stroke={isDest ? '#34d399' : stroke}
-                  strokeWidth={isDest ? 2 : 1}
+                  fill={isCloneOpt ? '#0e4f6e' : fill}
+                  stroke={isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : stroke}
+                  strokeWidth={isCloneOpt || isDest ? 2 : 1}
                 />
                 {/* Height pip for elevated / water hexes (skip flat grass and
                     occupied hexes where the figure disc covers it). */}
@@ -494,6 +651,42 @@ export default function HeroScapeBoard({
                 {state.phase === 'playing' && startZoneSeat != null && !figureAt(key) && (
                   <circle cx={ctr.x} cy={ctr.y} r={3} fill={seatColor(Number(startZoneSeat))} opacity={0.25} />
                 )}
+              </g>
+            );
+          })}
+
+          {/* Glyphs — a colored letter badge on each glyph hex. Dimmed when no
+              figure stands on it, LIT when occupied (its power is active). When
+              a figure is on the hex the badge tucks into the top-left corner so
+              the figure disc stays legible. */}
+          {(state.glyphs ?? []).map(g => {
+            const ctr = toScreen(g.at);
+            const def = HS_GLYPHS[g.id];
+            const badge = GLYPH_BADGE[def.letter] ?? GLYPH_BADGE.B;
+            const occ = figureAt(g.at);
+            const lit = occ != null;
+            const cx = occ ? ctr.x - HEX * 0.46 : ctr.x;
+            const cy = occ ? ctr.y + HEX * 0.46 : ctr.y;
+            const r = occ ? HEX * 0.26 : HEX * 0.34;
+            return (
+              <g key={`glyph-${g.at}`} onClick={() => clickHex(g.at)} style={{ pointerEvents: occ ? 'none' : undefined }} className={canAct && !occ ? 'cursor-pointer' : ''}>
+                <title>{`${def.name}${lit ? ' (active)' : ''} — ${def.effect}`}</title>
+                <circle
+                  cx={cx} cy={cy} r={r}
+                  fill={badge.bg}
+                  stroke={lit ? badge.ring : '#0a0a0a'}
+                  strokeWidth={lit ? 2.5 : 1.5}
+                  opacity={lit ? 1 : 0.6}
+                />
+                <text
+                  x={cx} y={cy + 0.5}
+                  textAnchor="middle" dominantBaseline="middle"
+                  fontSize={r * 1.1} fontWeight={900} fill="#fafafa"
+                  opacity={lit ? 1 : 0.85}
+                  style={{ userSelect: 'none', pointerEvents: 'none' }}
+                >
+                  {def.letter}
+                </text>
               </g>
             );
           })}

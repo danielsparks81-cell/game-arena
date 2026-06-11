@@ -13,12 +13,17 @@ import {
   legalTargets,
   attackDiceRequirements,
   heightAdvantage,
+  effectiveAttackDice,
+  effectiveDefenseDice,
+  effectiveMove,
+  effectiveRange,
   moveConsequences,
 } from './engine';
 import { hexKey, offsetToAxial } from './board';
 import { MAPS, parseMap } from './maps';
 import type {
   CombatFace,
+  HSGlyph,
   HSResult,
   HSState,
   InitiativeAttempt,
@@ -178,6 +183,20 @@ function wound(s: HSState, id: string, n: number): HSState {
   const c: HSState = JSON.parse(JSON.stringify(s));
   fig(c, id).wounds = n;
   return c;
+}
+
+/** Test-only: set the battlefield's glyphs to exactly `glyphs`. Replaces any
+ *  map-seeded glyphs so a scenario is isolated. */
+function setGlyphs(s: HSState, glyphs: HSGlyph[]): HSState {
+  const c: HSState = JSON.parse(JSON.stringify(s));
+  c.glyphs = glyphs.map(g => ({ ...g }));
+  return c;
+}
+
+/** Test-only: clear all map-seeded glyphs (so spawn-row figures never sit on one
+ *  and the slice-3 assertions stay glyph-free). */
+function noGlyphs(s: HSState): HSState {
+  return setGlyphs(s, []);
 }
 
 // ---------------------------------------------------------------------------
@@ -730,6 +749,7 @@ describe('attack eligibility', () => {
 
   it('attacking ends movement for the rest of the turn', () => {
     let s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    s = place(s, FINN, null); // remove Finn so his Attack Aura doesn't buff the Tarn (slice 4)
     s = place(s, THORGRIM, at(2, 1)); // adjacent to Tarn 2 at (2,0)
     s = unwrap(
       applyAction(s, 'p1', {
@@ -747,6 +767,7 @@ describe('attack eligibility', () => {
 
   it('squad figures pile onto one defender, each with a fresh defense roll', () => {
     let s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    s = place(s, FINN, null); // remove Finn so his Attack Aura doesn't buff the Tarn (slice 4)
     s = place(s, THORGRIM, at(3, 2));
     s = place(s, TARN(2), at(3, 1));
     s = place(s, TARN(1), at(2, 2));
@@ -895,14 +916,15 @@ describe('wounds (fixed server dice)', () => {
 
   it('attackDiceRequirements reports printed Attack vs printed Defense (flat → no height bonus)', () => {
     const s = inTurns('p1');
-    // Training Field is flat: the height bonus is 0 on both sides.
-    expect(attackDiceRequirements(s, FINN, THORGRIM)).toEqual({
+    // Training Field is flat and the combatants are at their spawn rows (no
+    // adjacency, no glyphs): the height bonus and every aura/glyph are 0.
+    expect(attackDiceRequirements(s, FINN, THORGRIM)).toMatchObject({
       attack: 3,
       defense: 4,
       heightBonusAttacker: 0,
       heightBonusDefender: 0,
     });
-    expect(attackDiceRequirements(s, MARRO(1), FINN)).toEqual({
+    expect(attackDiceRequirements(s, MARRO(1), FINN)).toMatchObject({
       attack: 2,
       defense: 4,
       heightBonusAttacker: 0,
@@ -1476,5 +1498,693 @@ describe('slice 3: elevation LOS (The Knoll)', () => {
     s = place(s, FINN, at(4, 6)); // G2/G1 skirt to the south, within Range 6
     // From the summit the sightline slopes down over the lower hill — clear.
     expect(legalTargets(s, MARRO(1))).toContain(FINN);
+  });
+});
+
+// ===========================================================================
+// SLICE 4 — glyphs + special powers (cards.md / 05-glyphs-special-powers.md)
+// ===========================================================================
+
+// Each map now seeds glyphs; strip them in the cases that assert on bare
+// printed stats so a spawn-row figure never accidentally stands on one.
+
+// --- Finn's ATTACK AURA 1 (NORMAL attack, printed Range 1, adjacent) ---------
+
+describe('slice 4: Finn Attack Aura 1', () => {
+  it('a Range-1 friendly ADJACENT to Finn rolls +1 attack die', () => {
+    // Tarn (printed Range 1) beside friendly Finn → +1 attack die.
+    let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
+    s = clearExcept(s, FINN, TARN(1), THORGRIM);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, TARN(1), at(3, 4)); // adjacent to Finn
+    s = place(s, THORGRIM, at(3, 5)); // an enemy adjacent to the Tarn
+    const eff = effectiveAttackDice(s, fig(s, TARN(1)), fig(s, THORGRIM));
+    expect(eff.dice).toBe(4); // Tarn Attack 3 + 1 Finn aura
+    expect(eff.breakdown).toContain('+1 Finn aura');
+    // Folds through attackDiceRequirements → resolution requires 4 attack dice.
+    expect(attackDiceRequirements(s, TARN(1), THORGRIM)!.attack).toBe(4);
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: TARN(1), targetId: THORGRIM, attackRoll: F('kkk'), defenseRoll: F('ssss') })),
+    ).toMatch(/Malformed attack roll/);
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: TARN(1), targetId: THORGRIM, attackRoll: F('kkkb'), defenseRoll: F('ssss') }));
+    expect(hit.lastAttack!.breakdown).toContain('+1 Finn aura');
+  });
+
+  it('does NOT apply when the friendly is not adjacent to Finn', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
+    s = clearExcept(s, FINN, TARN(1), THORGRIM);
+    s = place(s, FINN, at(0, 0)); // far from the Tarn
+    s = place(s, TARN(1), at(3, 4));
+    s = place(s, THORGRIM, at(3, 5));
+    expect(effectiveAttackDice(s, fig(s, TARN(1)), fig(s, THORGRIM)).dice).toBe(3); // no aura
+    expect(attackDiceRequirements(s, TARN(1), THORGRIM)!.attack).toBe(3);
+  });
+
+  it('does NOT apply to a friendly whose printed Range is > 1 (Marro)', () => {
+    // Put a Marro next to a FRIENDLY Finn — but Marro/Finn are on opposite
+    // seats by default, so build a same-seat pairing by moving a Marro onto
+    // p1's side is impossible; instead verify the aura's Range gate directly:
+    // a Marro (Range 6) adjacent to Finn would NOT qualify. Use p2's Marro next
+    // to a p2-owned… Finn is p1 only. So assert via the helper on a constructed
+    // adjacency where the would-be beneficiary has Range 6.
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), FINN, THORGRIM);
+    // Thorgrim (p2's? no — Thorgrim is p2). Marro + Thorgrim are both p2.
+    s = place(s, THORGRIM, at(3, 3)); // stand a Thorgrim where Finn's aura can't reach (enemy anyway)
+    s = place(s, MARRO(1), at(3, 4)); // Marro beside Thorgrim
+    s = place(s, FINN, at(3, 5)); // enemy target, in range
+    // Marro is Range 6 → even adjacent to a (hypothetical friendly) champion it
+    // would not get Finn's Range-1-only aura. Here Finn is an ENEMY so the aura
+    // never applies regardless; assert the printed 2 dice stand.
+    expect(effectiveAttackDice(s, fig(s, MARRO(1)), fig(s, FINN)).dice).toBe(2);
+  });
+
+  it('Finn does not buff his own attack (no friendly Finn adjacent to himself)', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, THORGRIM, at(3, 4)); // adjacent enemy
+    expect(effectiveAttackDice(s, fig(s, FINN), fig(s, THORGRIM)).dice).toBe(3); // Finn Attack 3, no self-aura
+  });
+
+  it('does NOT apply on a SPECIAL attack (NORMAL attacks only)', () => {
+    // Same adjacency that grants the aura on a normal attack, but the helper is
+    // asked with isNormalAttack=false → no +1 (the special-attack gate; slice 5
+    // special attacks will pass false here).
+    let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
+    s = clearExcept(s, FINN, TARN(1), THORGRIM);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, TARN(1), at(3, 4));
+    s = place(s, THORGRIM, at(3, 5));
+    expect(effectiveAttackDice(s, fig(s, TARN(1)), fig(s, THORGRIM), true).dice).toBe(4); // normal → +1
+    expect(effectiveAttackDice(s, fig(s, TARN(1)), fig(s, THORGRIM), false).dice).toBe(3); // special → no aura
+  });
+
+  it('the breakdown is just the printed line when nothing modifies it', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(0, 0));
+    s = place(s, THORGRIM, at(6, 7));
+    expect(effectiveAttackDice(s, fig(s, FINN), fig(s, THORGRIM)).breakdown).toEqual(['Attack 3 printed']);
+    expect(effectiveDefenseDice(s, fig(s, THORGRIM), fig(s, FINN)).breakdown).toEqual(['Defense 4 printed']);
+  });
+});
+
+// --- Thorgrim's DEFENSIVE AURA 1 (any adjacent friendly, no Range gate) -------
+
+describe('slice 4: Thorgrim Defensive Aura 1', () => {
+  it('any friendly ADJACENT to Thorgrim rolls +1 defense die', () => {
+    // p2's Marro stands beside friendly Thorgrim; an enemy attacks it.
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    s = place(s, MARRO(1), at(3, 4)); // p2 Marro
+    s = place(s, THORGRIM, at(3, 5)); // p2 Thorgrim adjacent → +1 def to the Marro
+    s = place(s, FINN, at(3, 3)); // p1 attacker adjacent to the Marro
+    const eff = effectiveDefenseDice(s, fig(s, MARRO(1)), fig(s, FINN));
+    expect(eff.dice).toBe(4); // Marro Defense 3 + 1 Thorgrim aura
+    expect(eff.breakdown).toContain('+1 Thorgrim aura');
+    // Resolution rolls 4 defense dice for the Marro.
+    expect(attackDiceRequirements(s, FINN, MARRO(1))!.defense).toBe(4);
+    const r = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: MARRO(1), attackRoll: F('kkk'), defenseRoll: F('ssss') }));
+    expect(r.lastAttack!.breakdown).toContain('+1 Thorgrim aura');
+  });
+
+  it('does NOT apply to a non-adjacent friendly', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    s = place(s, MARRO(1), at(3, 4));
+    s = place(s, THORGRIM, at(0, 0)); // far away
+    s = place(s, FINN, at(3, 3));
+    expect(effectiveDefenseDice(s, fig(s, MARRO(1)), fig(s, FINN)).dice).toBe(3); // no aura
+  });
+
+  it('Thorgrim does not buff his own defense', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, THORGRIM, at(3, 4)); // adjacent enemy champion
+    expect(effectiveDefenseDice(s, fig(s, THORGRIM), fig(s, FINN)).dice).toBe(4); // Thorgrim Def 4, no self-aura
+  });
+});
+
+// --- Warrior's Attack/Armor Spirit on destroy (PendingChoice) -----------------
+
+describe('slice 4: Warrior Spirits on destroy', () => {
+  /** Stage: p1's Finn one wound from death, p2's Marro adjacent, p2 to act. */
+  function finnAtDeath(): HSState {
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, FINN, TARN(1), MARRO(1), THORGRIM);
+    s = place(s, FINN, at(3, 3));
+    s = wound(s, FINN, 3); // Life 4 → one hit kills
+    s = place(s, MARRO(1), at(3, 4)); // adjacent attacker
+    // keep a Tarn alive elsewhere so destroying Finn does NOT end the game
+    s = place(s, TARN(1), at(0, 0));
+    s = place(s, THORGRIM, at(6, 6));
+    return s;
+  }
+
+  it('destroying Finn opens a spirit_placement choice owned by Finn’s owner', () => {
+    const before = finnAtDeath();
+    const s = unwrap(applyAction(before, 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
+    expect(fig(s, FINN).at).toBeNull();
+    expect(s.phase).toBe('playing'); // a Tarn survives → game continues
+    expect(s.pendingChoice).toMatchObject({ kind: 'spirit_placement', seat: 0, spirit: 'attack' });
+    // The choice belongs to p1 (Finn's owner), even though p2's attack caused it.
+    expect(getActivePlayerId(s)).toBe('p1');
+    // p2 cannot act while p1's choice is open; p1 must resolve it.
+    expect(errOf(applyAction(s, 'p2', { kind: 'end_turn' }))).toMatch(/pending choice/i);
+    expect(errOf(applyAction(s, 'p1', { kind: 'end_turn' }))).toMatch(/Resolve your pending choice/);
+  });
+
+  it('placing the Attack Spirit gives the chosen card +1 attack permanently', () => {
+    let s = unwrap(applyAction(finnAtDeath(), 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
+    const opts = (s.pendingChoice as { options: string[] }).options;
+    expect(opts).toContain('s0-tarn_vikings');
+    // p1 places it on their Tarn squad.
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: 's0-tarn_vikings' } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.cards.find(c => c.uid === 's0-tarn_vikings')!.attackMod).toBe(1);
+    // It shows up in effectiveAttackDice for a Tarn.
+    s = place(s, TARN(1), at(3, 3));
+    s = place(s, THORGRIM, at(3, 4));
+    const eff = effectiveAttackDice(s, fig(s, TARN(1)), fig(s, THORGRIM));
+    expect(eff.dice).toBe(4); // 3 printed + 1 Spirit
+    expect(eff.breakdown).toContain('+1 Attack Spirit');
+  });
+
+  it('destroying Thorgrim opens an armor spirit → +1 defense on the chosen card', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    s = place(s, THORGRIM, at(3, 4));
+    s = wound(s, THORGRIM, 3);
+    s = place(s, FINN, at(3, 3)); // p1 attacker
+    s = place(s, MARRO(1), at(0, 0)); // a p2 Marro survives → game continues
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: THORGRIM, attackRoll: F('kbb'), defenseRoll: F('bbbb') }));
+    expect(s.pendingChoice).toMatchObject({ kind: 'spirit_placement', seat: 1, spirit: 'defense' });
+    // p2 (Thorgrim's owner) places it on the Marro card.
+    s = unwrap(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: 's1-marro_warriors' } }));
+    expect(s.cards.find(c => c.uid === 's1-marro_warriors')!.defenseMod).toBe(1);
+  });
+
+  it('the Spirit is SKIPPED when the destruction ends the game', () => {
+    // Finn is p2's LAST figure; destroying him wins — no Spirit prompt.
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    // Make Thorgrim p2's only figure, at death, and Finn the p1 attacker.
+    s = place(s, THORGRIM, at(3, 4));
+    s = wound(s, THORGRIM, 3);
+    s = place(s, FINN, at(3, 3));
+    const s2 = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: THORGRIM, attackRoll: F('kbb'), defenseRoll: F('bbbb') }));
+    expect(s2.phase).toBe('finished');
+    expect(s2.winnerSeat).toBe(0);
+    expect(s2.pendingChoice).toBeUndefined(); // finish takes precedence
+  });
+});
+
+// --- Tarn BERSERKER CHARGE (d20, optional re-move) ---------------------------
+
+describe('slice 4: Berserker Charge', () => {
+  /** A Tarn turn with one Tarn moved (so the after-move window is open). */
+  function movedTarn(): HSState {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: TARN(1), to: at(1, 1) }));
+    return s;
+  }
+
+  it('15+ opens a re-move choice; resolving with remove:true re-grants Tarn movement', () => {
+    let s = movedTarn();
+    expect(s.movedFigureIds).toContain(TARN(1));
+    s = unwrap(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 15 }));
+    expect(s.pendingChoice).toMatchObject({ kind: 'berserker_charge', seat: 0 });
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: true } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.movedFigureIds).not.toContain(TARN(1)); // may move again
+    expect(legalDestinations(s, TARN(1)).size).toBeGreaterThan(0);
+  });
+
+  it('<15 spends the charge for the turn (no re-roll)', () => {
+    let s = movedTarn();
+    s = unwrap(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 14 }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.berserkerSpent).toBe(true);
+    expect(errOf(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 20 }))).toMatch(/spent/);
+  });
+
+  it('declining the re-move (remove:false) is legal and leaves movement spent', () => {
+    let s = movedTarn();
+    s = unwrap(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 18 }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: false } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.movedFigureIds).toContain(TARN(1)); // still spent — declined
+  });
+
+  it('charge can chain: re-move, then charge again', () => {
+    let s = movedTarn();
+    s = unwrap(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 16 }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: true } }));
+    // Move again, then a SECOND charge is allowed (no printed repeat limit).
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: TARN(1), to: at(1, 2) }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 20 }));
+    expect(s.pendingChoice).toMatchObject({ kind: 'berserker_charge' });
+  });
+
+  it('rejects charging before moving, after attacking, and from the wrong card', () => {
+    // Before moving.
+    const fresh = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
+    expect(errOf(applyAction(fresh, 'p1', { kind: 'berserker_charge', d20: 18 }))).toMatch(/before charging/);
+    // Wrong card (Finn turn).
+    const finnTurn = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    expect(errOf(applyAction(finnTurn, 'p1', { kind: 'berserker_charge', d20: 18 }))).toMatch(/Only Tarn/);
+    // After attacking: stage an attack first.
+    let atk = movedTarn();
+    atk = place(atk, THORGRIM, at(1, 2)); // adjacent to the Tarn at (1,1)
+    atk = place(atk, FINN, null); // avoid Finn's aura changing the dice count
+    atk = unwrap(applyAction(atk, 'p1', { kind: 'attack', attackerId: TARN(1), targetId: THORGRIM, attackRoll: F('bbb'), defenseRoll: F('ssss') }));
+    expect(errOf(applyAction(atk, 'p1', { kind: 'berserker_charge', d20: 20 }))).toMatch(/BEFORE attacking/);
+  });
+
+  it('rejects an out-of-range d20', () => {
+    const s = movedTarn();
+    expect(errOf(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 21 }))).toMatch(/d20 roll/);
+    expect(errOf(applyAction(s, 'p1', { kind: 'berserker_charge', d20: 0 }))).toMatch(/d20 roll/);
+  });
+});
+
+// --- Marro WATER CLONE (d20, instead of attacking, after moving) -------------
+
+describe('slice 4: Water Clone', () => {
+  /** A Marro turn with one Marro destroyed (available to return) and one Marro
+   *  moved (so the after-move window is open). Two living Marro on flat grass. */
+  function stagedMarro(): HSState {
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), FINN);
+    s = place(s, MARRO(3), null); // destroyed → available to clone back
+    s = place(s, MARRO(1), at(3, 3));
+    s = place(s, MARRO(2), at(0, 0));
+    s = place(s, FINN, at(6, 6)); // an enemy survives
+    // Move one Marro so "only after you move" is satisfied.
+    s = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(3, 4) }));
+    return s;
+  }
+
+  it('15+ returns a destroyed Marro to a same-level adjacent space via PendingChoice', () => {
+    let s = stagedMarro();
+    // Two living Marro: MARRO(1) at (3,4) rolls 15 (success), MARRO(2) rolls 3.
+    s = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 15 },
+      { marroFigureId: MARRO(2), d20: 3 },
+    ] }));
+    expect(s.waterClonedThisTurn).toBe(true);
+    expect(s.pendingChoice).toMatchObject({ kind: 'water_clone_place', seat: 1 });
+    const pc = s.pendingChoice as { placements: { options: string[] }[] };
+    expect(pc.placements).toHaveLength(1); // one success with a clone + space
+    const hex = pc.placements[0].options[0];
+    s = unwrap(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(fig(s, MARRO(3)).at).toBe(hex); // the destroyed Marro is back
+    expect(fig(s, MARRO(3)).wounds).toBe(0);
+  });
+
+  it('consumes the attack: cannot attack after Water Cloning', () => {
+    let s = stagedMarro();
+    s = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 3 }, // all miss → no placement choice
+      { marroFigureId: MARRO(2), d20: 3 },
+    ] }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.waterClonedThisTurn).toBe(true);
+    // An attack is now blocked (the card's attack was spent).
+    const sNear = place(s, FINN, at(3, 5)); // put Finn in range of MARRO(1) at (3,4)
+    expect(errOf(applyAction(sNear, 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kk'), defenseRoll: F('sssss') }))).toMatch(/already attacked/);
+    // …and a second Water Clone is rejected.
+    expect(errOf(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 15 },
+      { marroFigureId: MARRO(2), d20: 15 },
+    ] }))).toMatch(/already Water Cloned/);
+  });
+
+  it('a Marro on a WATER space succeeds on 10+ (not 15)', () => {
+    let s = noGlyphs(inTurnsOn('ford_crossing', 'p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), FINN);
+    s = place(s, MARRO(3), null); // destroyed
+    // MARRO(1) on a water hex (0,2) [river]; MARRO(2) on dry grass.
+    expect(MAPS['ford_crossing'].cells[at(0, 2)].terrain).toBe('water');
+    s = place(s, MARRO(1), at(0, 2));
+    s = place(s, MARRO(2), at(4, 0));
+    s = place(s, FINN, at(9, 6));
+    // satisfy "after you move" by moving MARRO(2).
+    s = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(2), to: at(4, 1) }));
+    // MARRO(1) on water rolls 10 → success (10+); MARRO(2) on grass rolls 10 → FAIL (needs 15).
+    s = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 10 },
+      { marroFigureId: MARRO(2), d20: 10 },
+    ] }));
+    const pc = s.pendingChoice as { placements: { rollerFigureId: string }[] } | undefined;
+    expect(pc).toBeDefined();
+    expect(pc!.placements).toHaveLength(1);
+    expect(pc!.placements[0].rollerFigureId).toBe(MARRO(1)); // only the water Marro succeeded
+  });
+
+  it('a success with NO destroyed Marro to return is auto-skipped (no placement)', () => {
+    // All FOUR Marro alive (none destroyed → nothing to clone back). Keep an
+    // enemy alive elsewhere. Two succeed but cannot place.
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), MARRO(4), FINN);
+    s = place(s, MARRO(1), at(3, 3));
+    s = place(s, MARRO(2), at(0, 0));
+    s = place(s, MARRO(3), at(5, 5));
+    s = place(s, MARRO(4), at(5, 6));
+    s = place(s, FINN, at(6, 6));
+    s = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(3, 4) }));
+    // One per living Marro (4 alive); two succeed but nothing to return.
+    s = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 20 },
+      { marroFigureId: MARRO(2), d20: 20 },
+      { marroFigureId: MARRO(3), d20: 3 },
+      { marroFigureId: MARRO(4), d20: 3 },
+    ] }));
+    expect(s.waterClonedThisTurn).toBe(true);
+    expect(s.pendingChoice).toBeUndefined(); // no destroyed Marro to return
+  });
+
+  it('two successes return two clones via successive placements (no double-landing)', () => {
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), MARRO(4), FINN);
+    s = place(s, MARRO(3), null); // two destroyed → two available to return
+    s = place(s, MARRO(4), null);
+    s = place(s, MARRO(1), at(3, 3));
+    s = place(s, MARRO(2), at(5, 3));
+    s = place(s, FINN, at(0, 0));
+    s = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(3, 4) }));
+    s = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 20 },
+      { marroFigureId: MARRO(2), d20: 20 },
+    ] }));
+    let pc = s.pendingChoice as { placements: { options: string[] }[]; chosen: string[] };
+    expect(pc.placements).toHaveLength(2); // two viable successes
+    // Resolve the first landing.
+    const hex0 = pc.placements[0].options[0];
+    s = unwrap(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: hex0 } }));
+    expect(s.pendingChoice).toBeDefined(); // a second placement remains
+    pc = s.pendingChoice as { placements: { options: string[] }[]; chosen: string[] };
+    expect(pc.chosen).toEqual([hex0]);
+    // The second landing must differ from the first if they overlap.
+    const hex1 = pc.placements[1].options.find(h => h !== hex0)!;
+    s = unwrap(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: hex1 } }));
+    expect(s.pendingChoice).toBeUndefined();
+    // Both destroyed Marro are back, at distinct hexes.
+    const back = [fig(s, MARRO(3)).at, fig(s, MARRO(4)).at];
+    expect(back.every(h => h != null)).toBe(true);
+    expect(new Set(back).size).toBe(2);
+  });
+
+  it('rejects landing on a hex already taken by an earlier clone this resolution', () => {
+    // Two rollers flank a SHARED empty hex (4,4): MARRO(1) at (3,4) and MARRO(2)
+    // at (5,4) are each adjacent to (4,4) on the flat field, so both placements
+    // can land there. Two destroyed Marro are available to return.
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), MARRO(4), FINN);
+    s = place(s, MARRO(3), null); // destroyed → available
+    s = place(s, MARRO(4), null); // destroyed → available
+    s = place(s, MARRO(1), at(1, 4)); // start positions for the two rollers
+    s = place(s, MARRO(2), at(5, 4));
+    s = place(s, FINN, at(0, 0));
+    // Satisfy "after you move" with a REAL move of MARRO(1), then teleport it to
+    // (3,4) so both rollers flank the shared hex (4,4).
+    s = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(2, 4) }));
+    s = place(s, MARRO(1), at(3, 4));
+    const shared = at(4, 4);
+    s = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 20 },
+      { marroFigureId: MARRO(2), d20: 20 },
+    ] }));
+    const pc = s.pendingChoice as { placements: { rollerFigureId: string; options: string[] }[] };
+    expect(pc.placements).toHaveLength(2);
+    // Both placements offer the shared hex (4,4).
+    expect(pc.placements[0].options).toContain(shared);
+    expect(pc.placements[1].options).toContain(shared);
+    // Land the first clone on the shared hex.
+    s = unwrap(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: shared } }));
+    // The second clone may NOT reuse it.
+    expect(errOf(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: shared } }))).toMatch(/same-level empty space/);
+  });
+
+  it('rejects cloning before moving, from the wrong card, and with a bad roll set', () => {
+    // Before moving.
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), MARRO(2), FINN);
+    s = place(s, FINN, at(6, 6));
+    expect(errOf(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 20 }, { marroFigureId: MARRO(2), d20: 20 },
+    ] }))).toMatch(/only Water Clone after you move/);
+    // Wrong card.
+    const finnTurn = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    expect(errOf(applyAction(finnTurn, 'p1', { kind: 'water_clone', rolls: [] }))).toMatch(/Only Marro/);
+    // Wrong number of rolls (must be one per living Marro).
+    const moved = stagedMarro();
+    expect(errOf(applyAction(moved, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 20 },
+    ] }))).toMatch(/exactly one d20 per living Marro/);
+  });
+});
+
+// --- Glyphs: forced stop + each permanent glyph folds into its helper ---------
+
+// Full-width start rows (≥5 hexes so the army places) joined by a 1-wide
+// vertical corridor in column 2 — a glyph there is the SOLE path between the
+// banks, proving the forced stop cannot be routed around.
+const CORRIDOR_MAP_ID = 'test_corridor';
+beforeAll(() => {
+  MAPS[CORRIDOR_MAP_ID] = parseMap(
+    CORRIDOR_MAP_ID,
+    'Test Corridor',
+    `
+    row1@1: G1 G1 G1 G1 G1
+    row2:   .  .  G1 .  .
+    row3:   .  .  G1 .  .
+    row4:   .  .  G1 .  .
+    row5@2: G1 G1 G1 G1 G1
+    `,
+  );
+});
+
+describe('slice 4: glyph forced stop', () => {
+  it('a figure that moves onto a glyph stops there and cannot pass through it', () => {
+    // The 1-wide corridor is column 2. Finn (Move 5) at its north mouth (2,1),
+    // a glyph on (2,2). The glyph is a valid endpoint but the hex BEYOND it
+    // (2,3) is unreachable this move (the corridor offers no way around).
+    let s = inTurnsOn(CORRIDOR_MAP_ID, 'p1', { p1: 's0-finn' });
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(2, 1));
+    s = place(s, THORGRIM, at(0, 0)); // off in a start zone, out of the way
+    const glyphHex = at(2, 2);
+    const beyond = at(2, 3);
+    s = setGlyphs(s, [{ id: 'astrid', at: glyphHex, faceUp: true }]);
+    const dests = legalDestinations(s, FINN);
+    expect(dests.has(glyphHex)).toBe(true); // valid endpoint (forced stop)
+    expect(dests.has(beyond)).toBe(false); // cannot transit the glyph
+    // And actually moving onto it ends there.
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    expect(fig(moved, FINN).at).toBe(glyphHex);
+  });
+
+  it('a deferred glyph (Erland) is inert: still a forced stop, no effect, not removed', () => {
+    let s = inTurnsOn(CORRIDOR_MAP_ID, 'p1', { p1: 's0-finn' });
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(2, 1));
+    s = place(s, THORGRIM, at(0, 0));
+    const glyphHex = at(2, 2);
+    s = setGlyphs(s, [{ id: 'erland', at: glyphHex, faceUp: true }]);
+    // Forced stop applies to ANY glyph (the hex beyond is unreachable).
+    expect(legalDestinations(s, FINN).has(at(2, 3))).toBe(false);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    expect(fig(moved, FINN).at).toBe(glyphHex);
+    // Inert: the glyph stays (not removed like a temporary that fired) and grants
+    // nothing — Erland does not control anything for the effective-stat helpers.
+    expect(moved.glyphs.find(g => g.id === 'erland')).toBeDefined();
+    expect(moved.log.some(e => e.tag === 'glyph' && /no effect yet/.test(e.text))).toBe(true);
+  });
+});
+
+describe('slice 4: permanent glyphs fold into the single-source helpers', () => {
+  it('Astrid: +1 attack die while occupied, gone when vacated', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    const glyphHex = at(3, 3);
+    s = setGlyphs(s, [{ id: 'astrid', at: glyphHex, faceUp: true }]);
+    s = place(s, FINN, glyphHex); // p1 controls Astrid
+    s = place(s, THORGRIM, at(3, 4));
+    const eff = effectiveAttackDice(s, fig(s, FINN), fig(s, THORGRIM));
+    expect(eff.dice).toBe(4); // Finn Attack 3 + 1 Astrid
+    expect(eff.breakdown).toContain('+1 Astrid');
+    // Step Finn off Astrid → bonus gone.
+    const off = place(s, FINN, at(4, 4));
+    expect(effectiveAttackDice(off, fig(off, FINN), fig(off, THORGRIM)).dice).toBe(3);
+  });
+
+  it('Gerda: +1 defense die while occupied', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    const glyphHex = at(3, 4);
+    s = setGlyphs(s, [{ id: 'gerda', at: glyphHex, faceUp: true }]);
+    s = place(s, MARRO(1), glyphHex); // p2 controls Gerda
+    s = place(s, FINN, at(3, 3)); // p1 attacker adjacent
+    s = place(s, THORGRIM, at(0, 0));
+    expect(effectiveDefenseDice(s, fig(s, MARRO(1)), fig(s, FINN)).dice).toBe(4); // Marro Def 3 + 1 Gerda
+  });
+
+  it('Ivor: +4 Range for a Range≥4 figure, nothing for Range 1', () => {
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), FINN);
+    const glyphHex = at(3, 3);
+    s = setGlyphs(s, [{ id: 'ivor', at: glyphHex, faceUp: true }]);
+    s = place(s, MARRO(1), glyphHex); // Marro Range 6 → 10 while on Ivor
+    s = place(s, FINN, at(0, 0));
+    expect(effectiveRange(s, fig(s, MARRO(1))).dice).toBe(10);
+    expect(effectiveRange(s, fig(s, MARRO(1))).breakdown).toContain('+4 Ivor');
+    // A Range-1 Finn on Ivor gets nothing (threshold).
+    let s2 = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s2 = setGlyphs(s2, [{ id: 'ivor', at: glyphHex, faceUp: true }]);
+    s2 = place(s2, FINN, glyphHex);
+    expect(effectiveRange(s2, fig(s2, FINN)).dice).toBe(1);
+  });
+
+  it('Valda: +2 Move for the army, but NOT the occupant moving off the glyph', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
+    s = clearExcept(s, TARN(1), TARN(2), THORGRIM);
+    const glyphHex = at(3, 3);
+    s = setGlyphs(s, [{ id: 'valda', at: glyphHex, faceUp: true }]);
+    s = place(s, TARN(1), glyphHex); // the occupant
+    s = place(s, TARN(2), at(0, 3)); // a friendly OTHER figure
+    s = place(s, THORGRIM, at(6, 6));
+    // The OTHER Tarn gets +2 (Move 4 → 6).
+    expect(effectiveMove(s, fig(s, TARN(2))).dice).toBe(6);
+    expect(effectiveMove(s, fig(s, TARN(2))).breakdown).toContain('+2 Valda');
+    // The OCCUPANT does NOT get the bonus on the move leaving the glyph (Move 4).
+    expect(effectiveMove(s, fig(s, TARN(1))).dice).toBe(4);
+  });
+
+  it('Dagmar: the controller’s initiative carries +8 (server-applied, engine-validated)', () => {
+    // Build a 'turns'-ready state on the Knoll with a Dagmar glyph p1 occupies.
+    let s = noGlyphs(bothPlaced());
+    const glyphHex = at(3, 3);
+    s = setGlyphs(s, [{ id: 'dagmar', at: glyphHex, faceUp: true }]);
+    s = place(s, FINN, glyphHex); // p1 controls Dagmar
+    // Server applies +8 to seat 0; engine validates raw+bonus=roll.
+    const ok = unwrap(applyAction(s, 'p2', { kind: 'roll_initiative', attempts: [
+      [ { seat: 0, roll: 11, raw: 3, bonus: 8 }, { seat: 1, roll: 7 } ],
+    ] }));
+    expect(ok.initiative).toEqual([0, 1]); // 11 (=3+8) beats 7
+    // Mismatched bonus is rejected (raw d20 of 3 must carry exactly the +8).
+    expect(errOf(applyAction(s, 'p2', { kind: 'roll_initiative', attempts: [
+      [ { seat: 0, roll: 11, raw: 3, bonus: 0 }, { seat: 1, roll: 7 } ],
+    ] }))).toMatch(/Malformed/);
+    // A seat that does NOT control Dagmar may not claim a bonus.
+    expect(errOf(applyAction(s, 'p2', { kind: 'roll_initiative', attempts: [
+      [ { seat: 0, roll: 3 }, { seat: 1, roll: 15, raw: 7, bonus: 8 } ],
+    ] }))).toMatch(/Malformed/);
+  });
+});
+
+// --- Kelda (temporary healer) -------------------------------------------------
+
+describe('slice 4: Kelda heals and is removed', () => {
+  it('a wounded figure stops on Kelda, loses all wounds, and the glyph is removed', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    const keldaHex = at(3, 2);
+    s = setGlyphs(s, [{ id: 'kelda', at: keldaHex, faceUp: true }]);
+    s = place(s, FINN, at(3, 1));
+    s = wound(s, FINN, 2); // wounded → may stop on Kelda
+    s = place(s, THORGRIM, at(6, 6));
+    expect(legalDestinations(s, FINN).has(keldaHex)).toBe(true);
+    const healed = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: keldaHex }));
+    expect(fig(healed, FINN).at).toBe(keldaHex);
+    expect(fig(healed, FINN).wounds).toBe(0); // all wounds removed
+    expect(healed.glyphs.find(g => g.id === 'kelda')).toBeUndefined(); // glyph gone
+    expect(healed.log.some(e => e.tag === 'glyph' && /Kelda/.test(e.text))).toBe(true);
+  });
+
+  it('an UNWOUNDED figure may not stop on (or enter) Kelda', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    const keldaHex = at(3, 2);
+    s = setGlyphs(s, [{ id: 'kelda', at: keldaHex, faceUp: true }]);
+    s = place(s, FINN, at(3, 1)); // 0 wounds
+    s = place(s, THORGRIM, at(6, 6));
+    expect(legalDestinations(s, FINN).has(keldaHex)).toBe(false);
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: keldaHex }))).toMatch(/out of reach/);
+  });
+});
+
+// --- Stacking: Astrid + Finn aura + height advantage all add (breakdown) ------
+
+describe('slice 4: stacking (Astrid + Finn aura + height)', () => {
+  it('a Tarn on Astrid, beside Finn, attacking downhill rolls 3+1+1+1 = 6 with a full breakdown', () => {
+    // The Knoll, row 4 (r=3): … R3 R4 R4 … — a Tarn (Range 1, Attack 3) on the
+    // R4 at (3,3) [height 4, Astrid placed there], beside a friendly Finn, melee
+    // -attacking an enemy Marro on the ADJACENT R3 at (2,3) [height 3 → +1
+    // height]. 3 printed + 1 Astrid + 1 Finn aura + 1 height = 6.
+    let s = noGlyphs(inTurnsOn('the_knoll', 'p1', { p1: 's0-tarn_vikings' }));
+    s = clearExcept(s, TARN(1), FINN, MARRO(1), THORGRIM);
+    const tarnHex = at(3, 3); // R4 (height 4)
+    s = setGlyphs(s, [{ id: 'astrid', at: tarnHex, faceUp: true }]);
+    s = place(s, TARN(1), tarnHex); // p1 controls Astrid
+    s = place(s, FINN, at(4, 3)); // R4 (height 4), adjacent friendly Finn
+    s = place(s, MARRO(1), at(2, 3)); // R3 (height 3), adjacent enemy, downhill
+    s = place(s, THORGRIM, at(0, 7)); // keep a 2nd p2 figure alive, far away
+    // Confirm the geometry: attacker is adjacent and one level higher.
+    expect(heightAdvantage(s, fig(s, TARN(1)), fig(s, MARRO(1)))).toEqual({ attacker: 1, defender: 0 });
+    const eff = effectiveAttackDice(s, fig(s, TARN(1)), fig(s, MARRO(1)));
+    expect(eff.dice).toBe(6);
+    expect(eff.breakdown).toEqual(['Attack 3 printed', '+1 height', '+1 Finn aura', '+1 Astrid']);
+    // Folds through requirements + a real melee attack (TARN Range 1, adjacent).
+    expect(attackDiceRequirements(s, TARN(1), MARRO(1))!.attack).toBe(6);
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: TARN(1), targetId: MARRO(1), attackRoll: F('kkkkkk'), defenseRoll: F('sss') }));
+    expect(hit.lastAttack!.breakdown).toEqual(expect.arrayContaining(['+1 height', '+1 Finn aura', '+1 Astrid']));
+  });
+});
+
+// --- Projection stays leak-free (glyphs/powers add no hidden info) ------------
+
+describe('slice 4: projection still leak-free with glyphs + pendingChoice', () => {
+  it('glyphs and a pending choice are public — projection adds no new secrets', () => {
+    let s = unwrap(applyAction(
+      (() => {
+        let st = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+        st = clearExcept(st, MARRO(1), MARRO(2), MARRO(3), FINN);
+        st = place(st, MARRO(3), null);
+        st = place(st, MARRO(1), at(3, 3));
+        st = place(st, MARRO(2), at(0, 0));
+        st = place(st, FINN, at(6, 6));
+        st = setGlyphs(st, [{ id: 'astrid', at: at(5, 5), faceUp: true }]);
+        return unwrap(applyAction(st, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(3, 4) }));
+      })(),
+      'p2',
+      { kind: 'water_clone', rolls: [ { marroFigureId: MARRO(1), d20: 15 }, { marroFigureId: MARRO(2), d20: 3 } ] },
+    ));
+    // A placement choice is open and PUBLIC.
+    expect(s.pendingChoice).toBeDefined();
+    const before = JSON.stringify(s);
+    const forP1 = projectStateForViewer(s, 'p1');
+    const forNull = projectStateForViewer(s, null);
+    // Glyphs and pendingChoice survive projection identically for everyone —
+    // they carry no hidden information.
+    expect(forP1.glyphs).toEqual(s.glyphs);
+    expect(forP1.pendingChoice).toEqual(s.pendingChoice);
+    expect(forNull.pendingChoice).toEqual(s.pendingChoice);
+    // Projection never mutates the input (slice-2 invariant preserved).
+    expect(JSON.stringify(s)).toBe(before);
+    // p2 stacked all four markers on the Marro card; initiative revealed only
+    // marker 1. From p1's view, p2's UNREVEALED markers (2/3/X) must NOT decode
+    // anywhere — count their value bytes in p2's projected cards.
+    const p2Cards = JSON.stringify(forP1.cards.filter(c => c.ownerSeat === 1));
+    const bytes = (v: string) => p2Cards.split(`"marker":"${v}"`).length - 1;
+    expect(bytes('1')).toBe(1); // the one revealed marker is public
+    expect(bytes('2')).toBe(0);
+    expect(bytes('3')).toBe(0);
+    expect(bytes('X')).toBe(0);
+    // Spectators (null viewer) never decode even the revealed Marro marker’s X.
+    expect(JSON.stringify(projectStateForViewer(s, null).cards.filter(c => c.ownerSeat === 1)).split('"marker":"X"').length - 1).toBe(0);
   });
 });

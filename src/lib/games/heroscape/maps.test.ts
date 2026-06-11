@@ -126,6 +126,43 @@ describe('TEST-3 "Ford Crossing" (water + voids)', () => {
   });
 });
 
+describe('slice 4: per-map glyph layouts', () => {
+  it('Training Field seeds Astrid + Gerda on mid-row grass (not in a start zone)', () => {
+    const ids = TRAINING_FIELD.glyphs.map(g => g.id).sort();
+    expect(ids).toEqual(['astrid', 'gerda']);
+    for (const g of TRAINING_FIELD.glyphs) {
+      expect(TRAINING_FIELD.cells[g.at]).toBeDefined(); // on a real cell
+      expect(TRAINING_FIELD.startZones[0]).not.toContain(g.at);
+      expect(TRAINING_FIELD.startZones[1]).not.toContain(g.at);
+    }
+    expect(TRAINING_FIELD.glyphs.find(g => g.id === 'astrid')!.at).toBe(at(2, 3));
+    expect(TRAINING_FIELD.glyphs.find(g => g.id === 'gerda')!.at).toBe(at(4, 3));
+  });
+
+  it('The Knoll seeds Astrid on the R4 summit and Valda on low grass', () => {
+    const astrid = THE_KNOLL.glyphs.find(g => g.id === 'astrid')!;
+    const valda = THE_KNOLL.glyphs.find(g => g.id === 'valda')!;
+    expect(THE_KNOLL.cells[astrid.at]).toMatchObject({ terrain: 'rock', height: 4 });
+    expect(THE_KNOLL.cells[valda.at]).toMatchObject({ height: 1 });
+  });
+
+  it('Ford Crossing seeds Kelda on a bank and Ivor on the ford', () => {
+    const ids = FORD_CROSSING.glyphs.map(g => g.id).sort();
+    expect(ids).toEqual(['ivor', 'kelda']);
+    const ivor = FORD_CROSSING.glyphs.find(g => g.id === 'ivor')!;
+    expect(FORD_CROSSING.cells[ivor.at]).toMatchObject({ terrain: 'grass' });
+  });
+
+  it('parseMap validates a glyph lands on a real cell', () => {
+    expect(() =>
+      parseMap('g_ok', 'G OK', 'row1: G1 G1', [{ id: 'astrid', col: 0, row: 0 }]),
+    ).not.toThrow();
+    expect(() =>
+      parseMap('g_bad', 'G Bad', 'row1: G1 G1', [{ id: 'astrid', col: 5, row: 5 }]),
+    ).toThrow(/off-map/);
+  });
+});
+
 describe('parseMap notation', () => {
   it('parses terrain letters, heights, voids, glyph spots, and start zones', () => {
     const m = parseMap(

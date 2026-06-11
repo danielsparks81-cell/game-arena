@@ -9,8 +9,12 @@
 // Maps are parsed once at module load into static constants — they are
 // CONTENT, not state (state stores only `mapId`), keeping the room JSONB lean.
 
-import type { HexKey, HexCell, Terrain } from './types';
+import type { HexKey, HexCell, Terrain, HSGlyphId, HSGlyph } from './types';
 import { hexKey, offsetToAxial } from './board';
+
+/** A glyph placed on a map: its identity and the hex it sits on. The runtime
+ *  `HSGlyph` (with `faceUp`) is materialized from this at game start. */
+export type HSGlyphPlacement = { id: HSGlyphId; at: HexKey };
 
 export type HSMap = {
   id: string;
@@ -22,6 +26,11 @@ export type HSMap = {
   startZones: Record<number, HexKey[]>;
   /** Glyph spots (`*` tokens) — parsed for forward-compat, unused in slice 1. */
   glyphSpots: HexKey[];
+  /** Slice-4 glyph layout: which glyph sits on which hex. Deterministic per
+   *  map (no scenario randomization yet). Placed power-side-up at game start.
+   *  Every hex here must be a real cell and not a start-zone hex (glyphs sit on
+   *  neutral mid-board terrain). */
+  glyphs: HSGlyphPlacement[];
 };
 
 const TERRAIN_BY_TOKEN: Record<string, Terrain> = {
@@ -32,8 +41,15 @@ const TERRAIN_BY_TOKEN: Record<string, Terrain> = {
 };
 
 /** Parse a token-grid map spec. Throws on malformed input (maps are static
- *  content compiled in at build time — a bad map should fail loudly). */
-export function parseMap(id: string, name: string, spec: string): HSMap {
+ *  content compiled in at build time — a bad map should fail loudly).
+ *  `glyphs` is an optional slice-4 glyph layout (id → offset col,row); each
+ *  placement is validated to land on a real cell. */
+export function parseMap(
+  id: string,
+  name: string,
+  spec: string,
+  glyphLayout: { id: HSGlyphId; col: number; row: number }[] = [],
+): HSMap {
   const cells: Record<HexKey, HexCell> = {};
   const startZones: Record<number, HexKey[]> = {};
   const glyphSpots: HexKey[] = [];
@@ -64,7 +80,19 @@ export function parseMap(id: string, name: string, spec: string): HSMap {
       }
     });
   }
-  return { id, name, cols, rows, cells, startZones, glyphSpots };
+
+  // Materialize the glyph layout into axial keys, validating each lands on a
+  // real cell (a typo in a layout should fail loudly at build time).
+  const glyphs: HSGlyphPlacement[] = glyphLayout.map(g => {
+    const { q, r } = offsetToAxial(g.col, g.row);
+    const key = hexKey(q, r);
+    if (!cells[key]) {
+      throw new Error(`heroscape maps: glyph "${g.id}" placed off-map at (${g.col + 1}, ${g.row + 1}) in "${id}"`);
+    }
+    return { id: g.id, at: key };
+  });
+
+  return { id, name, cols, rows, cells, startZones, glyphSpots, glyphs };
 }
 
 /** TEST-1 "Training Field" (docs/heroscape/test-maps.md) — 7×8, all grass
@@ -83,6 +111,12 @@ export const TRAINING_FIELD: HSMap = parseMap(
   row7:   G1 G1 G1 G1 G1 G1 G1
   row8@2: G1 G1 G1 G1 G1 G1 G1
   `,
+  // Slice-4 glyphs: Astrid (+1 attack) and Gerda (+1 defense) on two mid-row
+  // hexes — flat ground makes the buffs easy to read and test.
+  [
+    { id: 'astrid', col: 2, row: 3 }, // (3,4) — left of center
+    { id: 'gerda', col: 4, row: 3 }, // (5,4) — right of center
+  ],
 );
 
 /** TEST-2 "The Knoll" (docs/heroscape/test-maps.md) — 9×8 with a 3-tier rock
@@ -104,6 +138,13 @@ export const THE_KNOLL: HSMap = parseMap(
   row7:   G1 G1 G1 G2 G2 G2 G1 G1 G1
   row8@2: G1 G1 G1 G1 G1 G1 G1 G1 G1
   `,
+  // Slice-4 glyphs: Astrid on the R4 summit (height advantage stacks with the
+  // +1 attack die — the spec's "stacking" scenario), Valda on a low west grass
+  // hex (the Move +2 boost rewards holding the flank).
+  [
+    { id: 'astrid', col: 4, row: 3 }, // (5,4) — central R4 summit (height 4)
+    { id: 'valda', col: 0, row: 4 }, // (1,5) — low grass (height 1)
+  ],
 );
 
 /** TEST-3 "Ford Crossing" (docs/heroscape/test-maps.md) — 10×7. A water river
@@ -126,6 +167,13 @@ export const FORD_CROSSING: HSMap = parseMap(
   row6:   G1 G1 G1 G1 G2 G1 G1 .  G1 G1
   row7@2: G1 G1 G1 G2 G2 G1 G1 G1 G1 G1
   `,
+  // Slice-4 glyphs: Kelda (Healer) on a south-bank grass hex (heal up after
+  // fording), Ivor on the mid-river ford grass (Range +4 for the long-ranged
+  // Marro / Range≥4 figures who hold the crossing).
+  [
+    { id: 'kelda', col: 1, row: 5 }, // (2,6) — south bank grass (height 1)
+    { id: 'ivor', col: 4, row: 3 }, // (5,4) — the ford, ringed by water/sand
+  ],
 );
 
 export const MAPS: Record<string, HSMap> = {

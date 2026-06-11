@@ -188,6 +188,8 @@ export const GAME_GUIDES: Record<string, GameGuide> = {
       'Moving next to an enemy ENGAGES you; leaving that engagement lets each abandoned enemy take a free swipe (1 die, no defense). A tall enough cliff between two figures breaks adjacency so they are not engaged.',
       'To attack, the target must be within Range and in a clear, elevation-aware line of sight — tall terrain can block the shot. Standing HIGHER than your foe grants Height Advantage: +1 attack die when you attack from above, +1 defense die when you are attacked from below.',
       'The attacker rolls attack dice (count skulls), the defender rolls defense dice (count shields); each unblocked skull is a wound. A figure is destroyed when its wounds reach its Life; ties favor the defender.',
+      'Glyphs sit on the field and force a figure to STOP when it steps on one. While you stand on a permanent glyph it buffs your whole army — Astrid (+1 attack die), Gerda (+1 defense die), Ivor (+4 Range), Valda (+2 Move), or Dagmar (+8 initiative). Kelda is a one-shot healer: only a wounded figure may stop there, and it removes all wounds before the glyph vanishes.',
+      'Each army card has a special power. Finn’s Attack Aura gives +1 attack die to adjacent Range-1 friendlies; Thorgrim’s Defensive Aura gives +1 defense die to any adjacent friendly. When a champion is destroyed you place its Spirit on any unique card for a permanent +1. After moving, Tarn Viking Warriors may roll to Berserker Charge (move again on a 15+); instead of attacking, Marro Warriors may Water Clone to return a slain Warrior (15+, or 10+ on water).',
     ],
   },
   yahtzee: {

@@ -6,7 +6,7 @@
 // (Master combat wounds) and IGNORES special powers entirely; Height rides
 // along as card data for later slices.
 
-import type { CombatFace, HSCardDef } from './types';
+import type { CombatFace, HSCardDef, HSGlyphId } from './types';
 
 export const HS_CARDS: Record<string, HSCardDef> = {
   finn: {
@@ -93,3 +93,113 @@ export const COMBAT_DIE_FACES: readonly CombatFace[] = [
   'shield',
   'blank',
 ];
+
+// ============================================================================
+// Glyphs — static definitions (slice 4; docs/heroscape/05-glyphs-special-
+// powers.md + extraction/resolutions.md, verbatim effects).
+// ============================================================================
+
+/** How a glyph activates (05-glyphs §1, "Permanent vs. temporary"):
+ *  • 'permanent' — active ONLY while one of your figures stands on the glyph;
+ *    benefits the WHOLE army of the occupying figure's controller (army-wide
+ *    aura, not occupant-only). Switches controller on occupancy change.
+ *  • 'temporary' — fires exactly once when a figure stops on it, then the glyph
+ *    is removed from the game.
+ *  • 'artifact'  — Brandar; no fixed power (scenario-defined; deferred). */
+export type HSGlyphKind = 'permanent' | 'temporary' | 'artifact';
+
+export type HSGlyphDef = {
+  id: HSGlyphId;
+  /** Glyph's proper name (e.g. "Glyph of Astrid"). */
+  name: string;
+  /** Map/badge key letter (A/G/I/V/D/K/E/M/B) — 05-glyphs §1 / Glyphs Key. */
+  letter: string;
+  kind: HSGlyphKind;
+  /** One-line effect text for the UI tooltip. */
+  effect: string;
+  /** True once its effect is implemented in slice 4. Deferred glyphs
+   *  (Erland/Mitonsoul/Brandar) are placed but inert (still a forced stop). */
+  active: boolean;
+};
+
+/**
+ * Glyph effect table. Slice 4 implements the five PERMANENT glyphs and the
+ * temporary HEALER (Kelda); the rest carry definitions so the framework slots
+ * them in later but are inert (`active:false`). Effect text is taken verbatim
+ * from the resolutions extraction.
+ */
+export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
+  astrid: {
+    id: 'astrid',
+    name: 'Glyph of Astrid',
+    letter: 'A',
+    kind: 'permanent',
+    effect: 'Attack +1 — each figure you control rolls one extra attack die.',
+    active: true,
+  },
+  gerda: {
+    id: 'gerda',
+    name: 'Glyph of Gerda',
+    letter: 'G',
+    kind: 'permanent',
+    effect: 'Defense +1 — each figure you control rolls one extra defense die.',
+    active: true,
+  },
+  ivor: {
+    id: 'ivor',
+    name: 'Glyph of Ivor',
+    letter: 'I',
+    kind: 'permanent',
+    effect: 'Range +4 — each figure you control with Range 4 or more adds 4 to its Range.',
+    active: true,
+  },
+  valda: {
+    id: 'valda',
+    name: 'Glyph of Valda',
+    letter: 'V',
+    kind: 'permanent',
+    effect: 'Move +2 — each figure you control adds 2 to its Move (not the move off the glyph).',
+    active: true,
+  },
+  dagmar: {
+    id: 'dagmar',
+    name: 'Glyph of Dagmar',
+    letter: 'D',
+    kind: 'permanent',
+    effect: 'Initiative +8 — add 8 to your initiative roll.',
+    active: true,
+  },
+  kelda: {
+    id: 'kelda',
+    name: 'Glyph of Kelda',
+    letter: 'K',
+    kind: 'temporary',
+    effect: 'Healer — only a wounded figure may stop here; it loses all wounds, then the glyph is removed.',
+    active: true,
+  },
+  // ---- deferred (framework only; placed inert, still a forced stop) ----
+  erland: {
+    id: 'erland',
+    name: 'Glyph of Erland',
+    letter: 'E',
+    kind: 'temporary',
+    effect: 'Summoning (not yet implemented).',
+    active: false, // slice 5: Erland summon
+  },
+  mitonsoul: {
+    id: 'mitonsoul',
+    name: 'Glyph of Mitonsoul',
+    letter: 'M',
+    kind: 'temporary',
+    effect: 'Massive Curse (not yet implemented).',
+    active: false, // slice 5: Mitonsoul mass curse
+  },
+  brandar: {
+    id: 'brandar',
+    name: 'Glyph of Brandar',
+    letter: 'B',
+    kind: 'artifact',
+    effect: 'Artifact — rules vary per Game Scenario.',
+    active: false, // scenario: Brandar artifact
+  },
+};

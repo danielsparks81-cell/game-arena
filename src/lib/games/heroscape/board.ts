@@ -112,6 +112,20 @@ export function canStepUp(hFrom: number, hTo: number, cardHeight: number): boole
   return rise < cardHeight;
 }
 
+/** Optional movement modifiers (slice 4): glyph forced-stops and per-figure
+ *  end-restrictions. Omitting `options` keeps the slice-1/3 behaviour exactly. */
+export type ReachOptions = {
+  /** Hexes carrying a glyph. A glyph is a FORCED STOP (05-glyphs §1): a figure
+   *  that MOVES ONTO one must stop there — it is a valid endpoint but never a
+   *  pass-through node. (Mirrors water's forced stop.) The glyph's OWN hex is
+   *  not a stop for the figure starting on it. */
+  glyphHexes?: ReadonlySet<HexKey>;
+  /** Per-figure veto on ENDING a move on a hex (e.g. Kelda only admits a
+   *  wounded figure). Returns false → the hex is not a legal endpoint, but it
+   *  may still be transited if it is otherwise passable. Defaults to allow. */
+  canEndOn?: (key: HexKey) => boolean;
+};
+
 /**
  * Every hex a figure may legally END its move on, spending up to `move`
  * movement points under the full slice-3 terrain cost model (03-movement):
@@ -123,6 +137,8 @@ export function canStepUp(hFrom: number, hTo: number, cardHeight: number): boole
  *     lake is 1 space per turn). Encoded: a water node only ever continues to
  *     NON-water neighbors; reaching a water hex always makes it a valid
  *     endpoint (forced stop).
+ *   • Glyphs (slice 4, via `options.glyphHexes`) are a FORCED STOP too — a
+ *     valid endpoint that is never a pass-through node.
  *   • Voids are absent cells (impassable). May pass THROUGH friendly figures,
  *     never through enemies; may never END on any occupied hex.
  *
@@ -141,11 +157,16 @@ export function reachableDestinations(
   move: number,
   occupancyOf: (key: HexKey) => Occupancy,
   cardHeight = Infinity,
+  options: ReachOptions = {},
 ): Set<HexKey> {
   const out = new Set<HexKey>();
   if (!cells[from] || move <= 0) return out;
   const heightAt = (key: HexKey) => cells[key]?.height ?? 0;
   const isWater = (key: HexKey) => cells[key]?.terrain === 'water';
+  const glyphHexes = options.glyphHexes;
+  const canEndOn = options.canEndOn;
+  // A glyph the MOVER did not start on forces a stop on entry.
+  const isGlyphStop = (key: HexKey) => key !== from && !!glyphHexes?.has(key);
 
   // Cheapest known movement cost to reach each hex (uniform-cost search).
   const best = new Map<HexKey, number>([[from, 0]]);
@@ -167,8 +188,11 @@ export function reachableDestinations(
 
     // Water forces a stop: a figure standing on water may only step OFF it to
     // a non-water hex (never water→water). From any non-water hex, all six
-    // neighbours are candidates.
+    // neighbours are candidates. A glyph hex is a forced stop the same way —
+    // having reached one, the figure cannot step further from it.
     const curIsWater = cur !== from && isWater(cur);
+    const curIsGlyph = isGlyphStop(cur);
+    if (curIsGlyph) continue; // movement ended here; do not expand past a glyph
     for (const n of neighborKeys(cur)) {
       if (!cells[n]) continue; // void / off-map
       if (curIsWater && isWater(n)) continue; // can't transit two waters in a row
@@ -183,9 +207,11 @@ export function reachableDestinations(
         best.set(n, cost);
         settled.delete(n); // found a cheaper route — allow re-expansion
       }
-      // May only END on an empty hex (friend or foe block the endpoint); and
-      // never "end" back on the start hex (staying put is not a move).
-      if (occ === null && n !== from) out.add(n);
+      // May only END on an empty hex (friend or foe block the endpoint); never
+      // "end" back on the start hex (staying put is not a move); and a
+      // per-figure end-restriction (Kelda) can still veto an otherwise-legal
+      // endpoint.
+      if (occ === null && n !== from && (!canEndOn || canEndOn(n))) out.add(n);
     }
   }
   return out;

@@ -321,6 +321,49 @@ describe('reachableDestinations with water (forced stop)', () => {
   });
 });
 
+describe('reachableDestinations with glyphs (forced stop) — slice 4', () => {
+  it('a glyph hex is a valid endpoint but never a pass-through node', () => {
+    // A straight 1-wide corridor with a glyph on the middle hex.
+    const m = parseMap('glyph_corr', 'Glyph Corridor', `
+      row1: G1
+      row2: G1
+      row3: G1
+      row4: G1
+    `);
+    const start = at(0, 0);
+    const glyph = at(0, 1);
+    const beyond = at(0, 2);
+    const opts = { glyphHexes: new Set([glyph]) };
+    const dests = reachableDestinations(m.cells, start, 5, () => null, 5, opts);
+    expect(dests.has(glyph)).toBe(true); // valid stop
+    expect(dests.has(beyond)).toBe(false); // cannot transit the glyph
+    // Without the glyph option, the corridor is fully reachable.
+    const free = reachableDestinations(m.cells, start, 5, () => null, 5);
+    expect(free.has(beyond)).toBe(true);
+  });
+
+  it('a figure STARTING on a glyph is not stopped by its own hex', () => {
+    const m = parseMap('glyph_start', 'Glyph Start', `row1: G1 G1 G1`);
+    const start = at(0, 0);
+    const opts = { glyphHexes: new Set([start]) };
+    // Standing on a glyph, the figure may still move off it normally.
+    const dests = reachableDestinations(m.cells, start, 2, () => null, 5, opts);
+    expect(dests.has(at(2, 0))).toBe(true);
+  });
+
+  it('canEndOn vetoes an otherwise-legal endpoint (Kelda wounded-only)', () => {
+    const m = parseMap('kelda_corr', 'Kelda Corridor', `row1: G1 G1`);
+    const start = at(0, 0);
+    const kelda = at(1, 0);
+    // The figure is unwounded → canEndOn returns false for Kelda's hex.
+    const dests = reachableDestinations(m.cells, start, 3, () => null, 5, {
+      glyphHexes: new Set([kelda]),
+      canEndOn: () => false,
+    });
+    expect(dests.has(kelda)).toBe(false);
+  });
+});
+
 describe('reachableDestinations regression (flat map, no extra args)', () => {
   it('matches the old 1/hex BFS on the all-height-1 Training Field', () => {
     const cells = TRAINING_FIELD.cells;

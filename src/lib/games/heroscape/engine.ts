@@ -37,6 +37,9 @@ import type {
   HexKey,
   HSAction,
   HSCardDef,
+  HSChoiceResolution,
+  HSGlyph,
+  HSGlyphId,
   HSLogEntry,
   HSResult,
   HSState,
@@ -44,23 +47,34 @@ import type {
   OrderMarkerValue,
 } from './types';
 import { MAPS } from './maps';
-import { HS_CARDS, SLICE1_ARMIES } from './content';
+import { HS_CARDS, SLICE1_ARMIES, HS_GLYPHS } from './content';
 import {
   areEngaged,
   axialToOffset,
   computeFall,
   hasLineOfSight3D,
+  neighborKeys,
   rangeDistance,
   reachableDestinations,
   type FallTier,
   type Occupancy,
 } from './board';
 
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 4;
 export const LOG_MAX = 60;
 const SEATS = 2;
 const DEFAULT_MAP_ID = 'training_field';
 const MARKER_VALUES: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
+
+/** Card ids whose figures have a special power the engine acts on (slice 4). */
+const TARN_CARD_ID = 'tarn_vikings';
+const MARRO_CARD_ID = 'marro_warriors';
+const FINN_CARD_ID = 'finn';
+const THORGRIM_CARD_ID = 'thorgrim';
+const BERSERKER_THRESHOLD = 15;
+const WATER_CLONE_THRESHOLD = 15;
+const WATER_CLONE_WATER_THRESHOLD = 10;
+const DAGMAR_INITIATIVE_BONUS = 8;
 
 // ============================================================================
 // State construction / lobby
@@ -86,6 +100,7 @@ export function initialState(): HSState {
     attackedFigureIds: [],
     lastAttack: null,
     winnerSeat: null,
+    glyphs: [],
     log: [],
     logSeq: 0,
   };
@@ -137,6 +152,24 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   if (state.phase === 'finished') return { error: 'The battle is over' };
   const me = state.players.find(p => p.playerId === playerId)!;
 
+  // PendingChoice gate (slice 4): while a decision is open, the engine blocks
+  // every normal action for everyone except the owning seat, and the owner may
+  // ONLY resolve it. Never auto-resolved (rules-fidelity §choice).
+  if (state.pendingChoice) {
+    if (action.kind !== 'resolve_choice') {
+      return state.pendingChoice.seat === me.seat
+        ? { error: 'Resolve your pending choice first' }
+        : { error: 'An opponent has a pending choice — wait for them to resolve it' };
+    }
+    if (state.pendingChoice.seat !== me.seat) {
+      return { error: 'This choice belongs to another player' };
+    }
+    return doResolveChoice(state, me.seat, action.choice);
+  }
+  if (action.kind === 'resolve_choice') {
+    return { error: 'There is no pending choice to resolve' };
+  }
+
   switch (action.kind) {
     // Simultaneous round-start actions — no turn check (there is no turn yet).
     case 'place_markers':
@@ -146,6 +179,8 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     // Turn actions — only the revealed-marker player acts.
     case 'move_figure':
     case 'attack':
+    case 'berserker_charge':
+    case 'water_clone':
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
@@ -159,6 +194,8 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
           action.leaveRolls,
         );
       if (action.kind === 'attack') return doAttack(state, action);
+      if (action.kind === 'berserker_charge') return doBerserkerCharge(state, me.seat, action.d20);
+      if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
       return doEndTurn(state, me.seat);
     }
   }
@@ -201,6 +238,8 @@ function doStartGame(state: HSState, mapId?: string): HSResult {
         cardId,
         ownerSeat: player.seat,
         orderMarkers: [],
+        attackMod: 0,
+        defenseMod: 0,
       };
       s.cards.push(card);
       for (let n = 1; n <= def.figures; n++) {
@@ -216,6 +255,10 @@ function doStartGame(state: HSState, mapId?: string): HSResult {
     }
   }
 
+  // Materialize the map's glyph layout, placed POWER-side up (faceUp:true) so
+  // effects are known (slice 4; the symbol-side-up flip mechanic is deferred).
+  s.glyphs = (map.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: true }));
+
   s.phase = 'playing';
   s.subPhase = 'place_markers';
   s.round = 1;
@@ -228,8 +271,13 @@ function doStartGame(state: HSState, mapId?: string): HSResult {
   s.movedFigureIds = [];
   s.attackedFigureIds = [];
   s.winnerSeat = null;
+  delete s.pendingChoice;
+  delete s.waterClonedThisTurn;
 
-  pushLog(s, 'info', `Battle on the ${map.name}! Round 1 — all players secretly place their order markers.`);
+  const glyphNote = s.glyphs.length
+    ? ` ${s.glyphs.length} glyph${s.glyphs.length === 1 ? '' : 's'} await on the field.`
+    : '';
+  pushLog(s, 'info', `Battle on the ${map.name}! Round 1 — all players secretly place their order markers.${glyphNote}`);
   return s;
 }
 
@@ -303,14 +351,38 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
     return { error: 'Missing initiative rolls' };
   }
   const seats = state.players.map(p => p.seat);
+  // The Glyph of Dagmar adds +8 to its controller's initiative (05-glyphs). The
+  // SERVER applies it; the engine re-validates the bonus matches Dagmar control
+  // (controlled by whoever occupies the glyph right now). Each seat is owed
+  // exactly 0 or 8.
+  const dagmarBonusFor = (seat: number): number =>
+    seatControlsGlyph(state, seat, 'dagmar') ? DAGMAR_INITIATIVE_BONUS : 0;
   for (const attempt of attempts) {
     if (
       !Array.isArray(attempt) ||
       attempt.length !== seats.length ||
-      !seats.every(seat => attempt.some(a => a?.seat === seat)) ||
-      attempt.some(a => !Number.isInteger(a.roll) || a.roll < 1 || a.roll > 20)
+      !seats.every(seat => attempt.some(a => a?.seat === seat))
     ) {
       return { error: 'Malformed initiative rolls' };
+    }
+    for (const a of attempt) {
+      const owed = dagmarBonusFor(a.seat);
+      if (a.raw != null || a.bonus != null) {
+        // Broken-out form: raw d20 1-20, bonus exactly the Dagmar owed, roll the sum.
+        if (
+          !Number.isInteger(a.raw) || a.raw! < 1 || a.raw! > 20 ||
+          a.bonus !== owed ||
+          a.roll !== a.raw! + owed
+        ) {
+          return { error: 'Malformed initiative rolls' };
+        }
+      } else {
+        // Bare form (no Dagmar): roll is a plain 1-20, and no seat may be owed a
+        // bonus it didn't carry.
+        if (!Number.isInteger(a.roll) || a.roll < 1 || a.roll > 20 || owed !== 0) {
+          return { error: 'Malformed initiative rolls' };
+        }
+      }
     }
   }
   // Ties for highest re-roll until broken (02-rounds §Step 2): every attempt
@@ -337,7 +409,12 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
   s.turnPointer = 0;
 
   attempts.forEach((attempt, i) => {
-    const parts = attempt.map(a => `${playerName(s, a.seat)} ${a.roll}`).join(' — ');
+    const parts = attempt
+      .map(a => {
+        const dag = a.bonus && a.bonus > 0 ? ` (${a.raw}+${a.bonus} Dagmar)` : '';
+        return `${playerName(s, a.seat)} ${a.roll}${dag}`;
+      })
+      .join(' — ');
     const tie = i < attempts.length - 1 ? ' Tie — re-roll!' : '';
     pushLog(s, 'roll', `Initiative d20: ${parts}.${tie}`);
   });
@@ -377,6 +454,8 @@ function beginTurnOrSkip(s: HSState): void {
       s.turnSeat = seat;
       s.movedFigureIds = [];
       s.attackedFigureIds = [];
+      delete s.waterClonedThisTurn;
+      delete s.berserkerSpent;
       pushLog(
         s,
         'info',
@@ -419,6 +498,8 @@ function startNextRound(s: HSState): void {
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.attackedFigureIds = [];
+  delete s.waterClonedThisTurn;
+  delete s.berserkerSpent;
   for (const card of s.cards) card.orderMarkers = [];
   pushLog(s, 'info', `Round ${s.round} — all players place their order markers.`);
 }
@@ -496,6 +577,77 @@ function engagedPair(state: HSState, fig: Figure, enemy: Figure): boolean {
 }
 
 // ============================================================================
+// Adjacency + glyph control (slice 4)
+// ============================================================================
+
+/**
+ * Plain hex-adjacency between two living figures (distance 1) — the basis for
+ * the aura conditions (Finn/Thorgrim auras attach to "friendly figures adjacent
+ * to" the champion). Auras use simple hex-adjacency, NOT the elevation-broken
+ * engagement adjacency: the printed text says only "adjacent" with no Example-14
+ * caveat, so we keep it as hex-adjacency (documented interpretation; the maps in
+ * play rarely stack an aura source on a tall enough ledge for it to matter).
+ */
+function hexAdjacent(a: HexKey | null, b: HexKey | null): boolean {
+  if (a == null || b == null || a === b) return false;
+  return neighborKeys(a).includes(b);
+}
+
+/** Living figures owned by `seat` that stand ADJACENT to `fig` (and not `fig`
+ *  itself). */
+function adjacentFriendlies(state: HSState, fig: Figure): Figure[] {
+  if (fig.at == null) return [];
+  return state.figures.filter(
+    o => o.id !== fig.id && o.at != null && o.ownerSeat === fig.ownerSeat && hexAdjacent(o.at, fig.at),
+  );
+}
+
+/** Is there a LIVING figure owned by `seat`, on a card of `cardId`, adjacent to
+ *  `fig`? Used for the Finn/Thorgrim auras (recomputed from positions every
+ *  time — no stored token, 05-glyphs §4 / cards.md). */
+function hasAdjacentLivingCard(state: HSState, fig: Figure, cardId: string, seat: number): boolean {
+  if (fig.at == null) return false;
+  return state.figures.some(
+    o =>
+      o.id !== fig.id &&
+      o.at != null &&
+      o.ownerSeat === seat &&
+      hexAdjacent(o.at, fig.at) &&
+      cardDefFor(state, o).id === cardId,
+  );
+}
+
+/** The glyph sitting on `key`, if any (slice-4 glyphs are unique per hex). The
+ *  `?? []` tolerates a pre-slice-4 state with no glyphs array. */
+function glyphAt(state: HSState, key: HexKey | null): HSGlyph | undefined {
+  if (key == null) return undefined;
+  return (state.glyphs ?? []).find(g => g.at === key);
+}
+
+/** Set of hexes that currently carry a glyph (for the movement forced-stop). */
+function glyphHexSet(state: HSState): Set<HexKey> {
+  return new Set((state.glyphs ?? []).map(g => g.at));
+}
+
+/**
+ * Does `seat` CONTROL the (active, power-side-up) glyph `glyphId`? — i.e. one of
+ * that seat's LIVING figures stands on a glyph of that id (05-glyphs §1
+ * "permanent-glyph control follows occupancy"). A deferred/inert glyph
+ * (`active:false`) is never "controlled" for effect purposes. Permanent-glyph
+ * bonuses are army-wide auras, so the engine asks this once per seat and applies
+ * the bonus to every figure that seat controls.
+ */
+function seatControlsGlyph(state: HSState, seat: number, glyphId: HSGlyphId): boolean {
+  if (!HS_GLYPHS[glyphId]?.active) return false;
+  return (state.glyphs ?? []).some(
+    g =>
+      g.id === glyphId &&
+      g.faceUp &&
+      state.figures.some(f => f.at === g.at && f.ownerSeat === seat),
+  );
+}
+
+// ============================================================================
 // Movement
 // ============================================================================
 
@@ -513,6 +665,11 @@ function movableFigure(state: HSState, figureId: string): { fig: Figure } | { er
   if (cardErr) return { error: cardErr };
   if (state.attackedFigureIds.length > 0) {
     return { error: 'Movement is over once attacking begins' };
+  }
+  // Water Clone is the card's attack-step action — once used, the turn's
+  // movement is likewise over (slice 4).
+  if (state.waterClonedThisTurn) {
+    return { error: 'Movement is over — the Marro Warriors Water Cloned this turn' };
   }
   if (state.movedFigureIds.includes(figureId)) {
     return { error: 'That figure has already moved this turn' };
@@ -532,9 +689,24 @@ function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
   const map = MAPS[state.mapId];
   if (!map || fig.at == null) return new Set();
   const def = cardDefFor(state, fig);
-  // slice 4: Flying bypasses the climb cost / climb limit / water stop baked
-  // into reachableDestinations — pass the figure's Height for the climb limit.
-  return reachableDestinations(map.cells, fig.at, def.move, occupancyLookup(state, fig), def.height);
+  // Effective Move folds in the Glyph of Valda (single source of truth — the
+  // board preview reads the same helper).
+  const move = effectiveMove(state, fig).dice;
+  // slice 4: glyphs are a FORCED STOP (valid endpoint, never transited), and
+  // Kelda admits only a WOUNDED figure as an endpoint (an unwounded figure may
+  // not stop — and therefore may not enter — its space).
+  const glyphHexes = glyphHexSet(state);
+  const canEndOn = (key: HexKey): boolean => {
+    const g = glyphAt(state, key);
+    if (g && g.id === 'kelda' && g.faceUp && fig.wounds < 1) return false;
+    return true;
+  };
+  // slice 4 (future): Flying bypasses the climb cost / climb limit / water stop
+  // / glyph stop baked into reachableDestinations.
+  return reachableDestinations(map.cells, fig.at, move, occupancyLookup(state, fig), def.height, {
+    glyphHexes,
+    canEndOn,
+  });
 }
 
 function occupancyLookup(state: HSState, mover: Figure): (key: HexKey) => Occupancy {
@@ -670,9 +842,58 @@ function doMove(
     applyFall(s, fig, fromKey, to, tier, fallRoll ?? [], extremeFallD20);
   }
 
+  // --- glyph effect on stopping (slice 4): the forced stop already routed the
+  // figure to END here. A TEMPORARY glyph (Kelda) fires once and is removed; a
+  // PERMANENT glyph just becomes active by occupancy (handled live in the
+  // effective-stat helpers, nothing to do on entry). Only fires if the mover
+  // survived the swipes/fall and actually occupies the glyph hex. ---
+  if (fig.at != null && fig.at === to) {
+    applyGlyphOnStop(s, fig);
+  }
+
   // A mid-move destruction can win the game (last enemy of a seat removed).
+  // Resolve elimination FIRST so a champion death that ends the game skips its
+  // Spirit (finish takes precedence). A swipe/fall can destroy the MOVER, who
+  // may be Finn/Thorgrim — queue its Spirit if the game is still live.
   checkEliminationWin(s);
+  if (fig.at == null && fig.wounds >= cardDefFor(s, fig).life) {
+    maybeQueueSpiritOnDestroy(s, fig);
+  }
   return s;
+}
+
+/**
+ * Resolve a glyph's effect when `fig` STOPS on it (slice 4). Permanent glyphs
+ * are passive (their bonus lives in the effective-stat helpers); only the
+ * temporary HEALER (Kelda) acts here: remove ALL wound markers from the figure,
+ * then remove the glyph from the game (05-glyphs §2). The wounded-only entry
+ * restriction is already enforced upstream (movementDestinations), so a figure
+ * that reached Kelda is guaranteed to have ≥1 wound. Deferred temporary glyphs
+ * (Erland/Mitonsoul) are inert — logged but the glyph stays (so the framework
+ * is visible) per the slice-4 "treat as inert, still a forced stop" rule.
+ */
+function applyGlyphOnStop(s: HSState, fig: Figure): void {
+  const g = glyphAt(s, fig.at);
+  if (!g || !g.faceUp) return;
+  const def = HS_GLYPHS[g.id];
+  if (g.id === 'kelda') {
+    const healed = fig.wounds;
+    fig.wounds = 0;
+    s.glyphs = s.glyphs.filter(x => x.at !== g.at);
+    pushLog(
+      s,
+      'glyph',
+      `${figureLabel(s, fig)} stops on the Glyph of Kelda — healed of ${healed} wound${healed === 1 ? '' : 's'}; the glyph fades.`,
+    );
+    return;
+  }
+  if (def.kind === 'permanent' && def.active) {
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} claims the ${def.name} — ${def.effect}`);
+    return;
+  }
+  // Deferred / inert glyph (Erland, Mitonsoul, Brandar): a forced stop with no
+  // effect yet (slice 5 / scenario). Log it so the framework is visible.
+  pushLog(s, 'glyph', `${figureLabel(s, fig)} stops on the ${def.name} — no effect yet.`);
 }
 
 /** Apply a resolved fall to the mover (03-movement §4). Fall/Major: 1 wound per
@@ -728,6 +949,11 @@ function attackReadyFigure(state: HSState, attackerId: string): { fig: Figure } 
   if (fig.ownerSeat !== state.turnSeat) return { error: 'You can only attack with your own figures' };
   const cardErr = activeCardError(state, fig);
   if (cardErr) return { error: cardErr };
+  // Water Clone is "instead of attacking" — once the active card has cloned this
+  // turn its attack is spent (slice 4, cards.md). Treat as already-attacked.
+  if (state.waterClonedThisTurn) {
+    return { error: 'That figure has already attacked this turn (Water Clone was used instead)' };
+  }
   if (state.attackedFigureIds.includes(attackerId)) {
     return { error: 'That figure has already attacked this turn' };
   }
@@ -743,7 +969,6 @@ function targetBlockReason(state: HSState, attacker: Figure, target: Figure): st
   if (target.at == null) return 'No such target on the battlefield';
   if (target.ownerSeat === attacker.ownerSeat) return 'You cannot attack your own figures';
   const map = MAPS[state.mapId];
-  const def = cardDefFor(state, attacker);
 
   // Engaged figures can't shoot past their engagement: if the attacker is
   // engaged with any enemy, it may attack ONLY an enemy it is engaged with.
@@ -752,8 +977,9 @@ function targetBlockReason(state: HSState, attacker: Figure, target: Figure): st
     return 'Engaged — you may only attack a figure you are engaged with';
   }
 
+  const range = effectiveRange(state, attacker).dice;
   const dist = rangeDistance(map.cells, attacker.at!, target.at);
-  if (dist == null || dist > def.range) return `Out of range (Range ${def.range})`;
+  if (dist == null || dist > range) return `Out of range (Range ${range})`;
   const occupied: HexKey[] = [];
   for (const f of state.figures) {
     if (f.at != null && f.id !== attacker.id && f.id !== target.id) occupied.push(f.at);
@@ -808,31 +1034,183 @@ export function heightAdvantage(
   return { attacker: 0, defender: big ? 2 : 1 };
 }
 
+// ============================================================================
+// SINGLE-SOURCE effective-stat helpers (slice 4)
+//
+// Auras, glyphs, height advantage, and Spirit mods all stack ADDITIVELY and are
+// BOTH displayed and enforced — so each effective stat is computed in EXACTLY
+// ONE helper that the engine resolution AND the board preview call (rules-
+// fidelity §math). A displayed die count can therefore never disagree with an
+// enforced one. Each returns the value plus a human-readable `breakdown`.
+//
+// `isNormalAttack` is true for the slice-4 cards (none have a special attack
+// yet); the parameter is threaded through so Finn's Attack Aura — NORMAL attacks
+// only — and the special-attack unmodifiable rule slot in for slice 5.
+// ============================================================================
+
+export type EffectiveStat = { dice: number; breakdown: string[] };
+
 /**
- * Dice the server must roll for an attack: the printed Attack/Defense numbers
- * WITH the height-advantage bonus already folded in (the SINGLE source of
- * truth — board preview and engine resolution both read this, so a displayed
- * count can never disagree with an enforced one). `heightBonusAttacker` /
- * `heightBonusDefender` break out the bonus for the dice-panel caption.
- * Null when either figure id is unknown — the engine then rejects with a real
- * error message.
- *
- * slice 4: powers/glyphs add further bonus dice here on BOTH sides.
+ * Effective ATTACK dice for `attacker` striking `target` (cards.md / 05-glyphs):
+ *   printed Attack
+ *   + card.attackMod        (Warrior's Attack Spirit — permanent +1 per Spirit)
+ *   + height advantage      (heightAdvantage, attacker side)
+ *   + Finn's ATTACK AURA 1  (+1 IFF NORMAL attack AND attacker printed Range 1
+ *                            AND a living friendly Finn is adjacent — Finn does
+ *                            not buff himself, no Finn buffs his own card)
+ *   + Glyph of Astrid       (+1 if the attacker's seat controls Astrid)
+ */
+export function effectiveAttackDice(
+  state: HSState,
+  attacker: Figure,
+  target: Figure,
+  isNormalAttack = true,
+): EffectiveStat {
+  const def = cardDefFor(state, attacker);
+  const mod = cardModFor(state, attacker).attackMod;
+  const breakdown: string[] = [`Attack ${def.attack} printed`];
+  let dice = def.attack;
+  if (mod !== 0) {
+    dice += mod;
+    breakdown.push(`${mod > 0 ? '+' : ''}${mod} Attack Spirit`);
+  }
+  const h = heightAdvantage(state, attacker, target);
+  if (h.attacker > 0) {
+    dice += h.attacker;
+    breakdown.push(`+${h.attacker} height`);
+  }
+  // Finn's Attack Aura: NORMAL attacks only, attacker printed Range 1, adjacent
+  // to a living friendly Finn (recomputed from positions — no token).
+  if (
+    isNormalAttack &&
+    def.range === 1 &&
+    hasAdjacentLivingCard(state, attacker, FINN_CARD_ID, attacker.ownerSeat)
+  ) {
+    dice += 1;
+    breakdown.push('+1 Finn aura');
+  }
+  if (seatControlsGlyph(state, attacker.ownerSeat, 'astrid')) {
+    dice += 1;
+    breakdown.push('+1 Astrid');
+  }
+  return { dice, breakdown };
+}
+
+/**
+ * Effective DEFENSE dice for `defender` against `attacker` (cards.md/05-glyphs):
+ *   printed Defense
+ *   + card.defenseMod         (Warrior's Armor Spirit — permanent +1 per Spirit)
+ *   + height advantage        (heightAdvantage, defender side)
+ *   + Thorgrim's DEFENSIVE AURA 1 (+1 to ANY adjacent friendly — no Range
+ *                              restriction, unlike Finn's; Thorgrim does not
+ *                              buff himself)
+ *   + Glyph of Gerda          (+1 if the defender's seat controls Gerda)
+ * (Defense dice are NEVER stripped for a special attack — only the attacker's
+ *  roll is unmodifiable, 05-glyphs §5 note.)
+ */
+export function effectiveDefenseDice(
+  state: HSState,
+  defender: Figure,
+  attacker: Figure,
+): EffectiveStat {
+  const def = cardDefFor(state, defender);
+  const mod = cardModFor(state, defender).defenseMod;
+  const breakdown: string[] = [`Defense ${def.defense} printed`];
+  let dice = def.defense;
+  if (mod !== 0) {
+    dice += mod;
+    breakdown.push(`${mod > 0 ? '+' : ''}${mod} Armor Spirit`);
+  }
+  const h = heightAdvantage(state, attacker, defender);
+  if (h.defender > 0) {
+    dice += h.defender;
+    breakdown.push(`+${h.defender} height`);
+  }
+  if (hasAdjacentLivingCard(state, defender, THORGRIM_CARD_ID, defender.ownerSeat)) {
+    dice += 1;
+    breakdown.push('+1 Thorgrim aura');
+  }
+  if (seatControlsGlyph(state, defender.ownerSeat, 'gerda')) {
+    dice += 1;
+    breakdown.push('+1 Gerda');
+  }
+  return { dice, breakdown };
+}
+
+/**
+ * Effective MOVE for `fig` (05-glyphs): printed Move + Glyph of Valda (+2 if the
+ * figure's seat controls Valda). VALDA EXIT CAVEAT (resolutions): "Do not use
+ * this power when moving off of the Glyph." Faithful model: the OCCUPANT of
+ * Valda does not get +2 on the move that leaves it (it moves with its unboosted
+ * Move), while every OTHER friendly figure keeps +2. `movingOffValda` flags the
+ * occupant's own move so we drop the bonus for it.
+ */
+export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
+  const def = cardDefFor(state, fig);
+  const breakdown: string[] = [`Move ${def.move} printed`];
+  let move = def.move;
+  if (seatControlsGlyph(state, fig.ownerSeat, 'valda')) {
+    // The occupant of Valda gets no boost on the move that leaves it.
+    const onValda = (state.glyphs ?? []).some(g => g.id === 'valda' && g.at === fig.at);
+    if (!onValda) {
+      move += 2;
+      breakdown.push('+2 Valda');
+    } else {
+      breakdown.push('(no Valda bonus moving off the glyph)');
+    }
+  }
+  return { dice: move, breakdown };
+}
+
+/**
+ * Effective RANGE for `fig` (05-glyphs): printed Range + Glyph of Ivor (+4 ONLY
+ * if the figure's printed Range ≥ 4 AND its seat controls Ivor — melee/Range 1-3
+ * figures get nothing).
+ */
+export function effectiveRange(state: HSState, fig: Figure): EffectiveStat {
+  const def = cardDefFor(state, fig);
+  const breakdown: string[] = [`Range ${def.range} printed`];
+  let range = def.range;
+  if (def.range >= 4 && seatControlsGlyph(state, fig.ownerSeat, 'ivor')) {
+    range += 4;
+    breakdown.push('+4 Ivor');
+  }
+  return { dice: range, breakdown };
+}
+
+/**
+ * Dice the server must roll for an attack: the effective Attack/Defense numbers
+ * (printed + Spirit + height + auras + glyphs) from the SINGLE source of truth —
+ * board preview and engine resolution both read this, so a displayed count can
+ * never disagree with an enforced one. `heightBonusAttacker`/`heightBonusDefender`
+ * and the two `breakdown` arrays feed the dice-panel caption. Null when either
+ * figure id is unknown — the engine then rejects with a real error message.
  */
 export function attackDiceRequirements(
   state: HSState,
   attackerId: string,
   targetId: string,
-): { attack: number; defense: number; heightBonusAttacker: number; heightBonusDefender: number } | null {
+): {
+  attack: number;
+  defense: number;
+  heightBonusAttacker: number;
+  heightBonusDefender: number;
+  attackBreakdown: string[];
+  defenseBreakdown: string[];
+} | null {
   const attacker = state.figures.find(f => f.id === attackerId);
   const target = state.figures.find(f => f.id === targetId);
   if (!attacker || !target) return null;
   const bonus = heightAdvantage(state, attacker, target);
+  const atk = effectiveAttackDice(state, attacker, target, true);
+  const def = effectiveDefenseDice(state, target, attacker);
   return {
-    attack: cardDefFor(state, attacker).attack + bonus.attacker,
-    defense: cardDefFor(state, target).defense + bonus.defender,
+    attack: atk.dice,
+    defense: def.dice,
     heightBonusAttacker: bonus.attacker,
     heightBonusDefender: bonus.defender,
+    attackBreakdown: atk.breakdown,
+    defenseBreakdown: def.breakdown,
   };
 }
 
@@ -876,6 +1254,9 @@ function doAttack(
 
   const attackerLabel = figureLabel(s, attacker);
   const targetLabel = figureLabel(s, targetMut);
+  // Build the dice-panel breakdown: the attack reasons followed by the defense
+  // reasons (printed base + every modifier), for the caption.
+  const breakdown = buildAttackBreakdown(req);
   s.lastAttack = {
     attackerId: attacker.id,
     targetId: target.id,
@@ -889,6 +1270,7 @@ function doAttack(
     destroyed,
     heightBonusAttacker: req.heightBonusAttacker,
     heightBonusDefender: req.heightBonusDefender,
+    breakdown,
     seq: s.logSeq + 1,
   };
   const outcome = destroyed
@@ -908,9 +1290,55 @@ function doAttack(
     `${attackerLabel} attacks ${targetLabel}${height}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${outcome}`,
   );
 
-  // Elimination win: the last player with figures remaining wins.
+  // Elimination win: the last player with figures remaining wins. Resolve this
+  // FIRST — if the destruction ends the game, the on-destroy Spirit is skipped
+  // entirely ("finish takes precedence", slice-4 spec §Server).
   checkEliminationWin(s);
+  if (destroyed) maybeQueueSpiritOnDestroy(s, targetMut);
   return s;
+}
+
+/** Compact dice-panel breakdown from a requirements result: only the non-base
+ *  contribution lines (skip the bare "Attack N printed" / "Defense N printed"
+ *  unless nothing else modified them, so the caption stays terse). */
+function buildAttackBreakdown(req: {
+  attackBreakdown: string[];
+  defenseBreakdown: string[];
+}): string[] {
+  return [...req.attackBreakdown, ...req.defenseBreakdown];
+}
+
+/**
+ * On-destroy Spirit (Finn's Warrior's Attack Spirit / Thorgrim's Warrior's Armor
+ * Spirit, cards.md). When the destroyed figure is Finn or Thorgrim AND the game
+ * is still in progress, queue a `spirit_placement` PendingChoice OWNED BY THE
+ * DESTROYED CHAMPION'S OWNER (not the attacker). The owner then places the
+ * Spirit on ANY living unique Army Card (any owner — the text is not friendly-
+ * restricted), permanently +1 attack (Finn) or +1 defense (Thorgrim).
+ *
+ * Skipped when the game just finished (phase !== 'playing') — no Spirit once a
+ * side is wiped (slice-4 spec §Server). Also a no-op if there are no living
+ * unique cards to place on (every slice-4 card is a Unique Hero/Squad, so this
+ * only bites in pathological wiped-board cases the finish-gate already covers).
+ */
+function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
+  if (s.phase !== 'playing') return; // finish takes precedence
+  if (s.pendingChoice) return; // one decision at a time
+  const cardId = cardDefFor(s, destroyed).id;
+  const spirit: 'attack' | 'defense' | null =
+    cardId === FINN_CARD_ID ? 'attack' : cardId === THORGRIM_CARD_ID ? 'defense' : null;
+  if (!spirit) return;
+  const ownerSeat = destroyed.ownerSeat;
+  // "any unique Army Card" — every card in play is unique; offer all that still
+  // have at least one living figure (a card with no figures left is out of play).
+  const options = s.cards.filter(c => cardHasLivingFigures(s, c.uid)).map(c => c.uid);
+  if (options.length === 0) return; // nothing to place it on
+  s.pendingChoice = { kind: 'spirit_placement', seat: ownerSeat, spirit, options };
+  pushLog(
+    s,
+    'power',
+    `${cardDef(cardId).shortName} is destroyed — ${playerName(s, ownerSeat)} may place the Warrior's ${spirit === 'attack' ? 'Attack' : 'Armor'} Spirit on any unique Army Card.`,
+  );
 }
 
 /**
@@ -940,6 +1368,274 @@ function checkEliminationWin(s: HSState): void {
 }
 
 // ============================================================================
+// Special powers — Berserker Charge, Water Clone (slice 4)
+// ============================================================================
+
+/** Living figures of the active card owned by `seat` (for the squad powers). */
+function activeCardFigures(state: HSState, seat: number): Figure[] {
+  const activeUid = getActiveCardUid(state);
+  if (!activeUid) return [];
+  return state.figures.filter(f => f.cardUid === activeUid && f.ownerSeat === seat && f.at != null);
+}
+
+/**
+ * Tarn BERSERKER CHARGE (cards.md): "After moving and before attacking, roll the
+ * 20-sided die. If you roll a 15 or higher, you may move all Tarn Viking Warriors
+ * again." The SERVER rolls the d20; the engine validates timing + threshold.
+ *   • timing: the active card must be Tarn, ≥1 Tarn figure must have moved this
+ *     turn, no figure may have attacked yet, and the charge must not be SPENT by
+ *     an earlier failed roll this turn (one roll on a miss).
+ *   • 15+  → open a `berserker_charge` PendingChoice — the re-move is the
+ *     player's "may" (resolve_choice with remove:true re-grants movement;
+ *     remove:false declines). The charge may then repeat.
+ *   • <15  → the charge is spent for the turn; log the miss.
+ */
+function doBerserkerCharge(state: HSState, seat: number, d20: number): HSResult {
+  if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) {
+    return { error: 'Berserker Charge requires a d20 roll (1-20)' };
+  }
+  const activeUid = getActiveCardUid(state);
+  const activeCard = state.cards.find(c => c.uid === activeUid);
+  if (!activeCard || activeCard.cardId !== TARN_CARD_ID) {
+    return { error: 'Only Tarn Viking Warriors may Berserker Charge' };
+  }
+  if (state.attackedFigureIds.length > 0) {
+    return { error: 'Berserker Charge happens after moving and BEFORE attacking' };
+  }
+  // "After moving" — at least one Tarn figure must have moved this turn.
+  const movedThisCard = state.movedFigureIds.some(id => {
+    const f = state.figures.find(x => x.id === id);
+    return f && f.cardUid === activeUid;
+  });
+  if (!movedThisCard) {
+    return { error: 'Move at least one Tarn Viking Warrior before charging' };
+  }
+  if (state.berserkerSpent) {
+    return { error: 'Berserker Charge is spent for this turn' };
+  }
+
+  const s = clone(state);
+  if (d20 >= BERSERKER_THRESHOLD) {
+    // Success — offer the optional re-move (never auto-applied).
+    s.pendingChoice = { kind: 'berserker_charge', seat, cardUid: activeCard.uid };
+    pushLog(
+      s,
+      'power',
+      `Berserker Charge — ${playerName(s, seat)} rolls ${d20} (≥${BERSERKER_THRESHOLD})! They may move all Tarn Viking Warriors again.`,
+    );
+  } else {
+    s.berserkerSpent = true;
+    pushLog(
+      s,
+      'power',
+      `Berserker Charge — ${playerName(s, seat)} rolls ${d20} (<${BERSERKER_THRESHOLD}). No extra move.`,
+    );
+  }
+  return s;
+}
+
+/**
+ * Marro WATER CLONE (cards.md): "Instead of attacking with the Marro Warriors,
+ * roll the 20-sided die for each Marro Warrior in play. If you roll a 15 or
+ * higher, place a previously destroyed Marro Warrior on a same-level space
+ * adjacent to that Marro Warrior. Any Marro Warrior on a water space needs a 10
+ * or higher … You may only Water Clone after you move."
+ *
+ * The SERVER rolls one d20 per LIVING Marro Warrior of the active card; the
+ * engine validates the set + per-Warrior threshold (15+, or 10+ on water), then
+ * collects a `water_clone_place` PendingChoice with one entry per VIABLE success
+ * (a success that has ≥1 same-level empty adjacent hex AND a destroyed Marro
+ * still available to return). Successes with no legal landing / no clone left
+ * auto-skip and are logged. Consumes the card's attack for the turn.
+ */
+function doWaterClone(
+  state: HSState,
+  seat: number,
+  rolls: { marroFigureId: string; d20: number }[],
+): HSResult {
+  const activeUid = getActiveCardUid(state);
+  const activeCard = state.cards.find(c => c.uid === activeUid);
+  if (!activeCard || activeCard.cardId !== MARRO_CARD_ID) {
+    return { error: 'Only Marro Warriors may Water Clone' };
+  }
+  // "Instead of attacking" — cannot clone after an attack, and not twice.
+  if (state.attackedFigureIds.length > 0) {
+    return { error: 'Water Clone is instead of attacking — you have already attacked' };
+  }
+  if (state.waterClonedThisTurn) {
+    return { error: 'The Marro Warriors have already Water Cloned this turn' };
+  }
+  // "You may only Water Clone after you move" — at least one Marro must have
+  // moved this turn (the squad's activation must include a move).
+  const movedThisCard = state.movedFigureIds.some(id => {
+    const f = state.figures.find(x => x.id === id);
+    return f && f.cardUid === activeUid;
+  });
+  if (!movedThisCard) {
+    return { error: 'You may only Water Clone after you move' };
+  }
+
+  // The rolls must be exactly one per LIVING Marro Warrior of the active card.
+  const livingMarro = activeCardFigures(state, seat);
+  const livingIds = new Set(livingMarro.map(f => f.id));
+  if (
+    !Array.isArray(rolls) ||
+    rolls.length !== livingMarro.length ||
+    new Set(rolls.map(r => r.marroFigureId)).size !== rolls.length ||
+    !rolls.every(r => livingIds.has(r.marroFigureId)) ||
+    !rolls.every(r => Number.isInteger(r.d20) && r.d20 >= 1 && r.d20 <= 20)
+  ) {
+    return { error: 'Water Clone needs exactly one d20 per living Marro Warrior' };
+  }
+
+  const map = MAPS[state.mapId];
+  const s = clone(state);
+  s.waterClonedThisTurn = true; // consumes the attack for the turn
+
+  // Destroyed Marro Warriors available to return (figures of the active card
+  // with no position). Each success consumes one; we walk successes in figure
+  // order and assign destroyed clones in id order for determinism.
+  const destroyedClones = s.figures
+    .filter(f => f.cardUid === activeUid && f.at == null)
+    .map(f => f.id);
+
+  const placements: { cloneFigureId: string; rollerFigureId: string; options: HexKey[] }[] = [];
+  // Occupied hexes (live figures) — landing spaces must be EMPTY. Glyph hexes
+  // are not blocked for placement (the rules only require same-level adjacency);
+  // a clone placed on a glyph does not "move onto" it, so no forced-stop/heal.
+  const occupied = new Set(s.figures.filter(f => f.at != null).map(f => f.at!));
+
+  let successes = 0;
+  let skippedNoSpace = 0;
+  for (const roller of livingMarro) {
+    const roll = rolls.find(r => r.marroFigureId === roller.id)!;
+    const onWater = map?.cells[roller.at!]?.terrain === 'water';
+    const threshold = onWater ? WATER_CLONE_WATER_THRESHOLD : WATER_CLONE_THRESHOLD;
+    if (roll.d20 < threshold) continue; // failed roll
+    successes += 1;
+    if (placements.length >= destroyedClones.length) {
+      // No destroyed Marro left to return — the success can't place.
+      skippedNoSpace += 1;
+      continue;
+    }
+    // Same-level, empty, in-bounds hexes adjacent to the roller.
+    const myLevel = map?.cells[roller.at!]?.height;
+    const options = neighborKeys(roller.at!).filter(k => {
+      const cell = map?.cells[k];
+      return cell != null && cell.height === myLevel && !occupied.has(k);
+    });
+    if (options.length === 0) {
+      skippedNoSpace += 1;
+      continue;
+    }
+    const cloneFigureId = destroyedClones[placements.length];
+    placements.push({ cloneFigureId, rollerFigureId: roller.id, options });
+  }
+
+  pushLog(
+    s,
+    'power',
+    `Water Clone — ${playerName(s, seat)} rolls for ${livingMarro.length} Marro Warrior${livingMarro.length === 1 ? '' : 's'}: ${successes} success${successes === 1 ? '' : 'es'}${
+      skippedNoSpace > 0 ? `, ${skippedNoSpace} with no landing/clone (skipped)` : ''
+    }. (Instead of attacking.)`,
+  );
+
+  if (placements.length > 0) {
+    // Prompt the owner to choose each landing (never auto-placed).
+    s.pendingChoice = { kind: 'water_clone_place', seat, placements, chosen: [] };
+  }
+  // If no viable placement, the Water Clone simply spent the attack with no
+  // returns (all successes lacked a clone or a legal space).
+  return s;
+}
+
+// ============================================================================
+// Resolve a PendingChoice (slice 4) — never auto-issued; the owning seat sends
+// the matching resolution. The engine validates the payload kind matches the
+// open choice and that the chosen option is legal.
+// ============================================================================
+
+function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolution): HSResult {
+  const pc = state.pendingChoice!;
+  if (pc.kind !== choice.kind) {
+    return { error: `Expected a ${pc.kind} resolution` };
+  }
+
+  // --- Spirit placement (Finn/Thorgrim on destroy) ---
+  if (pc.kind === 'spirit_placement' && choice.kind === 'spirit_placement') {
+    if (!pc.options.includes(choice.cardUid)) {
+      return { error: 'The Spirit must be placed on a living unique Army Card' };
+    }
+    const s = clone(state);
+    const card = s.cards.find(c => c.uid === choice.cardUid)!;
+    if (pc.spirit === 'attack') card.attackMod += 1;
+    else card.defenseMod += 1;
+    delete s.pendingChoice;
+    pushLog(
+      s,
+      'power',
+      `${playerName(s, seat)} places the Warrior's ${pc.spirit === 'attack' ? 'Attack' : 'Armor'} Spirit on ${cardDef(card.cardId).name} — +1 ${pc.spirit} forever.`,
+    );
+    return s;
+  }
+
+  // --- Berserker Charge re-move (optional "may") ---
+  if (pc.kind === 'berserker_charge' && choice.kind === 'berserker_charge') {
+    const s = clone(state);
+    delete s.pendingChoice;
+    if (choice.remove) {
+      // Re-grant movement to ALL Tarn Viking Warriors (clear the active card's
+      // moved flags). They may move again — and may charge again afterwards (no
+      // printed repeat limit; the charge is not marked spent on a success).
+      s.movedFigureIds = s.movedFigureIds.filter(id => {
+        const f = s.figures.find(x => x.id === id);
+        return !(f && f.cardUid === pc.cardUid);
+      });
+      pushLog(s, 'power', `${playerName(s, seat)} charges again — all Tarn Viking Warriors may move once more!`);
+    } else {
+      pushLog(s, 'power', `${playerName(s, seat)} declines the Berserker Charge re-move.`);
+    }
+    return s;
+  }
+
+  // --- Water Clone placement (one landing per viable success, in order) ---
+  if (pc.kind === 'water_clone_place' && choice.kind === 'water_clone_place') {
+    const idx = pc.chosen.length; // the placement being resolved now
+    const placement = pc.placements[idx];
+    if (!placement) return { error: 'No Water Clone placement is pending' };
+    // The chosen hex must be one of this placement's same-level adjacent options
+    // AND not already taken by an earlier clone this resolution.
+    if (!placement.options.includes(choice.hex) || pc.chosen.includes(choice.hex)) {
+      return { error: 'Choose a same-level empty space adjacent to that Marro Warrior' };
+    }
+    // It must also still be empty (a live figure could not have moved here while
+    // the choice was open, but guard anyway).
+    if (state.figures.some(f => f.at === choice.hex)) {
+      return { error: 'That space is occupied' };
+    }
+    const s = clone(state);
+    const clone_ = s.figures.find(f => f.id === placement.cloneFigureId)!;
+    clone_.at = choice.hex;
+    clone_.wounds = 0; // a returned figure comes back fresh
+    const chosen = [...pc.chosen, choice.hex];
+    pushLog(
+      s,
+      'power',
+      `Water Clone — ${figureLabel(s, clone_)} returns to the battlefield at ${hexLabel(choice.hex)}.`,
+    );
+    if (chosen.length < pc.placements.length) {
+      // More clones to place — keep the choice open with the updated progress.
+      s.pendingChoice = { ...pc, chosen };
+    } else {
+      delete s.pendingChoice;
+    }
+    return s;
+  }
+
+  return { error: 'Unhandled choice resolution' };
+}
+
+// ============================================================================
 // End turn
 // ============================================================================
 
@@ -949,6 +1645,8 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.attackedFigureIds = [];
+  delete s.waterClonedThisTurn;
+  delete s.berserkerSpent;
   if (advanceSlot(s)) beginTurnOrSkip(s);
   return s;
 }
@@ -958,9 +1656,16 @@ function doEndTurn(state: HSState, seat: number): HSResult {
 // ============================================================================
 
 export function getActivePlayerId(state: HSState): string | null {
+  if (state.phase !== 'playing') return null;
+  // A pending choice points the hourglass at the DECIDER (slice 4) — which may
+  // be the opponent (a Spirit placement triggers on whoever's turn caused the
+  // destruction, but the choice belongs to the destroyed champion's owner).
+  if (state.pendingChoice) {
+    return state.players.find(p => p.seat === state.pendingChoice!.seat)?.playerId ?? null;
+  }
   // Null while placing markers (simultaneous, ready-gated) and in lobby /
   // finished — there is a single active player only during a turn.
-  if (state.phase !== 'playing' || state.turnSeat == null) return null;
+  if (state.turnSeat == null) return null;
   return state.players.find(p => p.seat === state.turnSeat)?.playerId ?? null;
 }
 
@@ -1027,6 +1732,13 @@ export function cardDef(cardId: string): HSCardDef {
 function cardDefFor(state: HSState, fig: Figure): HSCardDef {
   const card = state.cards.find(c => c.uid === fig.cardUid);
   return HS_CARDS[card?.cardId ?? ''] ?? HS_CARDS.finn;
+}
+
+/** The PERMANENT Spirit mods on `fig`'s army card (slice 4). Defaults to 0/0 if
+ *  the card is missing or the fields are absent (slice-2/3 saves). */
+function cardModFor(state: HSState, fig: Figure): { attackMod: number; defenseMod: number } {
+  const card = state.cards.find(c => c.uid === fig.cardUid);
+  return { attackMod: card?.attackMod ?? 0, defenseMod: card?.defenseMod ?? 0 };
 }
 
 function cardHasLivingFigures(state: HSState, cardUid: string): boolean {
