@@ -34,12 +34,36 @@ const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
 type Assignment = { marker: OrderMarkerValue; cardUid: string };
 
+/**
+ * Terrain + elevation hex fill. Grass/rock/sand get a base hue that lightens
+ * with height (so a 4-tier hill reads as a hill); water is a flat blue. A
+ * matching darker stroke separates the tiers. Keeps the slice-2 grass look at
+ * height 1 while making the slice-3 maps legible at a glance.
+ */
+function hexFill(terrain: string, height: number, isDest: boolean): { fill: string; stroke: string } {
+  if (isDest) return { fill: '#155e3b', stroke: '#34d399' };
+  if (terrain === 'water') return { fill: '#1e3a5f', stroke: '#2c5a8c' };
+  // Lightness ramp by height (1→4). Hue per terrain.
+  const lift = Math.min(Math.max(height - 1, 0), 3); // 0..3
+  if (terrain === 'rock') {
+    const fills = ['#3a3f45', '#4a5159', '#5b636d', '#6c7682'];
+    return { fill: fills[lift], stroke: '#23262a' };
+  }
+  if (terrain === 'sand') {
+    const fills = ['#7a6a3f', '#8c7b49', '#9e8c54', '#b09d60'];
+    return { fill: fills[lift], stroke: '#3a3322' };
+  }
+  // grass
+  const fills = ['#2f4a2a', '#3a5a33', '#46693c', '#527845'];
+  return { fill: fills[lift], stroke: '#1c2c1a' };
+}
+
 type Props = {
   state: HSState;
   currentUserId: string;
   isHost: boolean;
   disabled?: boolean;
-  onStart: () => void;
+  onStart: (mapId?: string) => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onAttack: (attackerId: string, targetId: string) => void;
@@ -102,6 +126,8 @@ export default function HeroScapeBoard({
   onStart, onPlaceMarkers, onMoveFigure, onAttack, onEndTurn,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Lobby: the host's chosen battlefield (sent with start_game).
+  const [lobbyMapId, setLobbyMapId] = useState<string>('training_field');
   // Marker-placement scratchpad: which card each chip sits on, and which chip
   // the next card tap will drop. Reset every round.
   const [assign, setAssign] = useState<Record<OrderMarkerValue, string | null>>({
@@ -195,21 +221,66 @@ export default function HeroScapeBoard({
 
   // ---------- lobby ----------
   if (state.phase === 'lobby') {
+    const mapList = Object.values(MAPS);
+    const mapBlurb: Record<string, string> = {
+      training_field: 'Flat grass — learn the ropes.',
+      the_knoll: 'A 3-tier rock hill — climb for height advantage.',
+      ford_crossing: 'A water river split by a narrow ford.',
+    };
     return (
       <div className="flex flex-col items-center gap-4 p-6">
-        <h2 className="text-xl font-bold text-amber-100">HeroScape — Training Field</h2>
-        <p className="text-sm text-neutral-400">
+        <h2 className="text-xl font-bold text-amber-100">HeroScape</h2>
+        <p className="max-w-md text-center text-sm text-neutral-400">
           Master Game (beta): {HS_CARDS.finn.name} + {HS_CARDS.tarn_vikings.name} vs{' '}
           {HS_CARDS.thorgrim.name} + {HS_CARDS.marro_warriors.name}. Each round, secretly
-          schedule your three turns with order markers, roll for initiative, and fight —
-          first to wipe out the enemy army wins.
+          schedule your three turns with order markers, roll for initiative, and fight on
+          3-D terrain — climb for height advantage, mind the falls and water — first to wipe
+          out the enemy army wins.
         </p>
         <div className="text-sm text-neutral-300">
           {state.players.length}/2 players seated{state.players.length < 2 ? ' — waiting…' : ''}
         </div>
+
+        {/* Battlefield picker (host chooses; others see the selection) */}
+        <div className="flex flex-col items-center gap-1">
+          <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            Battlefield
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {mapList.map(m => {
+              const active = lobbyMapId === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => isHost && setLobbyMapId(m.id)}
+                  disabled={!isHost || disabled}
+                  title={mapBlurb[m.id]}
+                  className={
+                    'flex w-40 flex-col items-start rounded-lg border-2 px-3 py-2 text-left transition ' +
+                    (active
+                      ? 'border-amber-400 bg-amber-900/30'
+                      : 'border-neutral-700 hover:border-neutral-500') +
+                    (isHost ? '' : ' cursor-default opacity-90')
+                  }
+                >
+                  <span className={'text-sm font-bold ' + (active ? 'text-amber-200' : 'text-neutral-200')}>
+                    {m.name}
+                  </span>
+                  <span className="text-[10px] text-neutral-400">
+                    {m.cols}×{m.rows} · {mapBlurb[m.id] ?? ''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {!isHost && (
+            <div className="mt-0.5 text-[10px] text-neutral-500">The host chooses the battlefield.</div>
+          )}
+        </div>
+
         {isHost && (
           <button
-            onClick={onStart}
+            onClick={() => onStart(lobbyMapId)}
             disabled={disabled || state.players.length < 2}
             className="rounded-lg border-2 border-emerald-600 px-6 py-2 font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -322,7 +393,7 @@ export default function HeroScapeBoard({
                 : `${turnPlayer?.username ?? '…'}'s turn`}
             {state.phase === 'playing' && (
               <div className="mt-0.5 text-[11px] font-normal opacity-80">
-                Round {state.round} · Turn {state.turnNumber}/3
+                {map?.name ? `${map.name} · ` : ''}Round {state.round} · Turn {state.turnNumber}/3
                 {activeCardDef ? ` · ${activeCardDef.name}` : ''}
               </div>
             )}
@@ -363,6 +434,17 @@ export default function HeroScapeBoard({
           <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-200">
             <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">Last attack</div>
             <div className="mb-1">{state.lastAttack.attackerLabel} → {state.lastAttack.targetLabel}</div>
+            {/* Height-advantage caption: the bonus die is already in the rolls */}
+            {(state.lastAttack.heightBonusAttacker ?? 0) > 0 && (
+              <div className="mb-1 text-[10px] font-semibold text-amber-300">
+                ⬆ Height advantage: attacker +{state.lastAttack.heightBonusAttacker} attack die
+              </div>
+            )}
+            {(state.lastAttack.heightBonusDefender ?? 0) > 0 && (
+              <div className="mb-1 text-[10px] font-semibold text-sky-300">
+                ⬆ Height advantage: defender +{state.lastAttack.heightBonusDefender} defense die
+              </div>
+            )}
             <div className="flex items-center gap-1">
               <span className="text-orange-300">⚔</span>
               {state.lastAttack.attackRoll.map((f, i) => <DieFace key={i} face={f} />)}
@@ -430,7 +512,18 @@ export default function HeroScapeBoard({
         {/* Log */}
         <div className="max-h-44 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400">
           {state.log.slice(-12).map(e => (
-            <div key={e.seq} className={e.tag === 'win' ? 'font-bold text-amber-300' : e.tag === 'attack' ? 'text-red-300/80' : ''}>
+            <div
+              key={e.seq}
+              className={
+                e.tag === 'win'
+                  ? 'font-bold text-amber-300'
+                  : e.tag === 'attack'
+                    ? 'text-red-300/80'
+                    : e.tag === 'fall'
+                      ? 'text-orange-300/90'
+                      : ''
+              }
+            >
               {e.text}
             </div>
           ))}
@@ -440,21 +533,36 @@ export default function HeroScapeBoard({
       {/* Board */}
       <div className="min-w-0 flex-1 overflow-auto">
         <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block max-w-[860px]" style={{ minWidth: 420 }}>
-          {/* Hexes */}
+          {/* Hexes — terrain + elevation shading (height lightens the fill) */}
           {cells.map(c => {
             const key: HexKey = `${c.q},${c.r}`;
             const ctr = toScreen(key);
             const pts = hexCorners(ctr, HEX * 0.985).map(p => `${p.x},${p.y}`).join(' ');
             const isDest = destinations.has(key);
+            const { fill, stroke } = hexFill(c.terrain, c.height, isDest);
             const startZoneSeat = Object.entries(map.startZones).find(([, keys]) => keys.includes(key))?.[0];
+            const occupied = !!figureAt(key);
             return (
               <g key={key} onClick={() => clickHex(key)} className={canAct ? 'cursor-pointer' : ''}>
                 <polygon
                   points={pts}
-                  fill={isDest ? '#155e3b' : '#2f4a2a'}
-                  stroke={isDest ? '#34d399' : '#1c2c1a'}
+                  fill={fill}
+                  stroke={isDest ? '#34d399' : stroke}
                   strokeWidth={isDest ? 2 : 1}
                 />
+                {/* Height pip for elevated / water hexes (skip flat grass and
+                    occupied hexes where the figure disc covers it). */}
+                {!occupied && (c.height > 1 || c.terrain === 'water') && (
+                  <text
+                    x={ctr.x + HEX * 0.6} y={ctr.y - HEX * 0.55}
+                    textAnchor="middle" dominantBaseline="middle"
+                    fontSize={HEX * 0.32} fontWeight={700}
+                    fill={c.terrain === 'water' ? '#7dd3fc' : '#e7e5e4'} opacity={0.75}
+                    style={{ userSelect: 'none', pointerEvents: 'none' }}
+                  >
+                    {c.terrain === 'water' ? '≈' : c.height}
+                  </text>
+                )}
                 {state.phase === 'playing' && startZoneSeat != null && !figureAt(key) && (
                   <circle cx={ctr.x} cy={ctr.y} r={3} fill={seatColor(Number(startZoneSeat))} opacity={0.25} />
                 )}

@@ -46,10 +46,13 @@ import type {
 import { MAPS } from './maps';
 import { HS_CARDS, SLICE1_ARMIES } from './content';
 import {
+  areEngaged,
   axialToOffset,
-  hasLineOfSight,
+  computeFall,
+  hasLineOfSight3D,
   rangeDistance,
   reachableDestinations,
+  type FallTier,
   type Occupancy,
 } from './board';
 
@@ -127,8 +130,8 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   }
   if (action.kind === 'start_game') {
     // Host gating happens in the server action (room.host_id); the engine
-    // validates the game shape.
-    return doStartGame(state);
+    // validates the game shape (and the chosen battlefield).
+    return doStartGame(state, action.mapId);
   }
   if (state.phase === 'lobby') return { error: 'The battle has not started yet' };
   if (state.phase === 'finished') return { error: 'The battle is over' };
@@ -146,8 +149,16 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
-      if (action.kind === 'move_figure') return doMove(state, action.figureId, action.to);
-      if (action.kind === 'attack') return doAttack(state, me.seat, action);
+      if (action.kind === 'move_figure')
+        return doMove(
+          state,
+          action.figureId,
+          action.to,
+          action.fallRoll,
+          action.extremeFallD20,
+          action.leaveRolls,
+        );
+      if (action.kind === 'attack') return doAttack(state, action);
       return doEndTurn(state, me.seat);
     }
   }
@@ -157,13 +168,16 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
 // Start: fixed armies + auto-placement (no roll-off — initiative is per-round)
 // ============================================================================
 
-function doStartGame(state: HSState): HSResult {
+function doStartGame(state: HSState, mapId?: string): HSResult {
   if (state.phase !== 'lobby') return { error: 'The battle has already started' };
   if (state.players.length !== SEATS) return { error: 'HeroScape needs exactly 2 players' };
-  const map = MAPS[state.mapId];
-  if (!map) return { error: `Unknown battlefield "${state.mapId}"` };
+  // The host picks the battlefield at game start (default: Training Field).
+  const chosenMapId = mapId ?? state.mapId ?? DEFAULT_MAP_ID;
+  const map = MAPS[chosenMapId];
+  if (!map) return { error: `Unknown battlefield "${chosenMapId}"` };
 
   const s = clone(state);
+  s.mapId = chosenMapId;
   s.cards = [];
   s.figures = [];
 
@@ -437,6 +451,51 @@ function activeCardError(state: HSState, fig: Figure): string | null {
 }
 
 // ============================================================================
+// Terrain geometry helpers (height / eye / engagement) — slice 3
+// ============================================================================
+
+/** Tile-stack level the cell under `key` sits on (0 if off-map / null). */
+function heightOfKey(state: HSState, key: HexKey | null): number {
+  if (key == null) return 0;
+  return MAPS[state.mapId]?.cells[key]?.height ?? 0;
+}
+
+/** A figure's base level = the height of the cell it stands on. */
+function baseLevel(state: HSState, fig: Figure): number {
+  return heightOfKey(state, fig.at);
+}
+
+/** Sightline elevation of a figure for elevation-aware LOS (board §LOS): the
+ *  cell height + 1, so a figure on a taller column sees over a shorter one. */
+function eyeHeightOfKey(state: HSState, key: HexKey): number {
+  return heightOfKey(state, key) + 1;
+}
+
+/** Living ENEMY figures of `fig` that it is currently engaged with — pure
+ *  geometry (adjacency + the elevation exception, 03-movement §8). */
+function enemiesEngagedWith(state: HSState, fig: Figure): Figure[] {
+  if (fig.at == null) return [];
+  const figH = cardDefFor(state, fig).height;
+  const heightAt = (k: HexKey) => heightOfKey(state, k);
+  return state.figures.filter(other => {
+    if (other.at == null || other.ownerSeat === fig.ownerSeat || other.id === fig.id) return false;
+    return areEngaged(fig.at!, figH, other.at, cardDefFor(state, other).height, heightAt);
+  });
+}
+
+/** Is `fig` (at its current cell) engaged with `enemy` (at its current cell)? */
+function engagedPair(state: HSState, fig: Figure, enemy: Figure): boolean {
+  if (fig.at == null || enemy.at == null) return false;
+  return areEngaged(
+    fig.at,
+    cardDefFor(state, fig).height,
+    enemy.at,
+    cardDefFor(state, enemy).height,
+    (k: HexKey) => heightOfKey(state, k),
+  );
+}
+
+// ============================================================================
 // Movement
 // ============================================================================
 
@@ -473,7 +532,9 @@ function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
   const map = MAPS[state.mapId];
   if (!map || fig.at == null) return new Set();
   const def = cardDefFor(state, fig);
-  return reachableDestinations(map.cells, fig.at, def.move, occupancyLookup(state, fig));
+  // slice 4: Flying bypasses the climb cost / climb limit / water stop baked
+  // into reachableDestinations — pass the figure's Height for the climb limit.
+  return reachableDestinations(map.cells, fig.at, def.move, occupancyLookup(state, fig), def.height);
 }
 
 function occupancyLookup(state: HSState, mover: Figure): (key: HexKey) => Occupancy {
@@ -488,7 +549,51 @@ function occupancyLookup(state: HSState, mover: Figure): (key: HexKey) => Occupa
   };
 }
 
-function doMove(state: HSState, figureId: string, to: HexKey): HSResult {
+/**
+ * The dice a move from `fig.at` to `to` REQUIRES — a pure function of the
+ * pre-move state and the destination, so the server (actions.ts) and the
+ * engine's re-validation compute the SAME need (the slice-3 "server computes
+ * need, then rolls, engine re-validates" seam). Falls (03-movement §4) and
+ * leaving-engagement swipes (§9) are judged by START vs END geometry.
+ *
+ * slice 4: Flying bypasses both — a flyer does not fall, and only enemies it
+ * was engaged with WHEN IT STARTED its move swipe (takeoff), so the abandoned
+ * set would be computed differently.
+ */
+export function moveConsequences(
+  state: HSState,
+  fig: Figure,
+  to: HexKey,
+): { tier: FallTier; fallDice: number; abandonedEnemyIds: string[] } {
+  const from = fig.at;
+  const map = MAPS[state.mapId];
+  const cardHeight = cardDefFor(state, fig).height;
+
+  // Fall: drop = height(from) − height(to); none if landing on water.
+  const drop = from != null ? heightOfKey(state, from) - heightOfKey(state, to) : 0;
+  const intoWater = map?.cells[to]?.terrain === 'water';
+  const { tier, dice: fallDice } = computeFall(Math.max(0, drop), cardHeight, intoWater);
+
+  // Leaving engagement: enemies engaged at move START that the DESTINATION is
+  // no longer adjacent-engaged to. Build a hypothetical "fig stands on `to`"
+  // figure for the end-adjacency test.
+  const startEngaged = enemiesEngagedWith(state, fig);
+  const figAtDest: Figure = { ...fig, at: to };
+  const abandonedEnemyIds = startEngaged
+    .filter(enemy => !engagedPair(state, figAtDest, enemy))
+    .map(enemy => enemy.id);
+
+  return { tier, fallDice, abandonedEnemyIds };
+}
+
+function doMove(
+  state: HSState,
+  figureId: string,
+  to: HexKey,
+  fallRoll?: CombatFace[],
+  extremeFallD20?: number,
+  leaveRolls?: { enemyFigureId: string; roll: CombatFace }[],
+): HSResult {
   const r = movableFigure(state, figureId);
   if ('error' in r) return r;
   const map = MAPS[state.mapId];
@@ -496,12 +601,117 @@ function doMove(state: HSState, figureId: string, to: HexKey): HSResult {
   if (!movementDestinations(state, r.fig).has(to)) {
     return { error: 'That hex is out of reach for this figure' };
   }
+
+  // Recompute the exact dice this move needs (server-roll seam): the engine is
+  // the source of truth, so a missing-but-required or unneeded roll is rejected.
+  const { tier, fallDice, abandonedEnemyIds } = moveConsequences(state, r.fig, to);
+
+  // --- validate falling dice ---
+  if (tier === 'extreme') {
+    if (fallRoll != null && fallRoll.length > 0) return { error: 'Unexpected fall dice for an extreme fall' };
+    if (!Number.isInteger(extremeFallD20) || extremeFallD20! < 1 || extremeFallD20! > 20) {
+      return { error: 'Extreme fall requires a d20 roll (1-20)' };
+    }
+  } else {
+    if (extremeFallD20 != null) return { error: 'Unexpected d20 roll — this is not an extreme fall' };
+    if (!validFaces(fallRoll ?? [], fallDice)) {
+      return { error: fallDice > 0 ? `This fall requires ${fallDice} combat die roll(s)` : 'Unexpected fall dice — no fall is due' };
+    }
+  }
+
+  // --- validate the leaving-engagement swipe set matches exactly ---
+  const wantSwipe = new Set(abandonedEnemyIds);
+  const gotSwipe = leaveRolls ?? [];
+  if (gotSwipe.length !== wantSwipe.size) {
+    return { error: 'Leaving-engagement rolls do not match the abandoned enemies' };
+  }
+  for (const lr of gotSwipe) {
+    if (!wantSwipe.has(lr.enemyFigureId)) {
+      return { error: `${lr.enemyFigureId} is not a leaving-engagement attacker for this move` };
+    }
+    if (lr.roll !== 'skull' && lr.roll !== 'shield' && lr.roll !== 'blank') {
+      return { error: 'Malformed leaving-engagement roll' };
+    }
+  }
+  if (new Set(gotSwipe.map(lr => lr.enemyFigureId)).size !== gotSwipe.length) {
+    return { error: 'Duplicate leaving-engagement attacker' };
+  }
+
   const s = clone(state);
   const fig = s.figures.find(f => f.id === figureId)!;
+  const moverLabel = figureLabel(s, fig);
+  const fromKey = fig.at;
   fig.at = to;
   s.movedFigureIds.push(figureId);
-  pushLog(s, 'move', `${figureLabel(s, fig)} moves to ${hexLabel(to)}.`);
+  pushLog(s, 'move', `${moverLabel} moves to ${hexLabel(to)}.`);
+
+  // --- leaving-engagement swipes resolve first (mid-move, as the figure
+  // leaves): each abandoned enemy lands 1 unblockable wound per skull. A swipe
+  // that kills the mover removes it before it can land/fall (documented
+  // slice-3 reading: the move ends, no fall). ---
+  for (const lr of gotSwipe) {
+    if (fig.at == null) break; // already destroyed by an earlier swipe
+    const enemy = s.figures.find(f => f.id === lr.enemyFigureId);
+    const enemyLabel = enemy ? figureLabel(s, enemy) : 'an enemy';
+    const skull = lr.roll === 'skull' ? 1 : 0;
+    if (skull > 0) {
+      fig.wounds += 1;
+      const dead = fig.wounds >= cardDefFor(s, fig).life;
+      if (dead) fig.at = null;
+      pushLog(s, 'fall', `${enemyLabel} takes a leaving-engagement swipe at ${moverLabel} — 1 wound${dead ? `, ${moverLabel} is destroyed!` : '.'}`);
+    } else {
+      pushLog(s, 'fall', `${enemyLabel} swipes at ${moverLabel} as it leaves — miss.`);
+    }
+  }
+
+  // --- falling resolves after landing (skipped if a swipe already killed the
+  // mover, since it never landed). ---
+  if (fig.at != null && tier !== 'none') {
+    applyFall(s, fig, fromKey, to, tier, fallRoll ?? [], extremeFallD20);
+  }
+
+  // A mid-move destruction can win the game (last enemy of a seat removed).
+  checkEliminationWin(s);
   return s;
+}
+
+/** Apply a resolved fall to the mover (03-movement §4). Fall/Major: 1 wound per
+ *  skull. Extreme: d20 19-20 unharmed, 1-18 destroyed outright (no wound dice).
+ *  Wounds are unblockable. */
+function applyFall(
+  s: HSState,
+  fig: Figure,
+  fromKey: HexKey | null,
+  to: HexKey,
+  tier: FallTier,
+  fallRoll: CombatFace[],
+  extremeFallD20: number | undefined,
+): void {
+  const drop = Math.max(0, heightOfKey(s, fromKey) - heightOfKey(s, to));
+  const label = figureLabel(s, fig);
+  if (tier === 'extreme') {
+    const survived = (extremeFallD20 ?? 0) >= 19;
+    if (!survived) fig.at = null;
+    pushLog(
+      s,
+      'fall',
+      `${label} takes an EXTREME fall of ${drop} — d20 ${extremeFallD20}: ${survived ? 'survives unharmed.' : `destroyed!`}`,
+    );
+    return;
+  }
+  const skulls = fallRoll.filter(f => f === 'skull').length;
+  if (skulls > 0) {
+    fig.wounds += skulls;
+    const dead = fig.wounds >= cardDefFor(s, fig).life;
+    if (dead) fig.at = null;
+    pushLog(
+      s,
+      'fall',
+      `${label} ${tier === 'major' ? 'takes a MAJOR fall' : 'falls'} ${drop} level${drop === 1 ? '' : 's'} — ${skulls} skull${skulls === 1 ? '' : 's'}, ${skulls} wound${skulls === 1 ? '' : 's'}${dead ? `, destroyed!` : '.'}`,
+    );
+  } else {
+    pushLog(s, 'fall', `${label} ${tier === 'major' ? 'takes a MAJOR fall' : 'falls'} ${drop} level${drop === 1 ? '' : 's'} — no skulls, unharmed.`);
+  }
 }
 
 // ============================================================================
@@ -525,21 +735,35 @@ function attackReadyFigure(state: HSState, attackerId: string): { fig: Figure } 
 }
 
 /** Why `target` can't be attacked by `attacker` (null = legal target).
- *  Both eligibility tests are separate, per the rules: within Range AND a
- *  clear line of sight. */
+ *  Three separate gates per the rules: an ENGAGED figure may attack only the
+ *  enemies it is engaged with (04-combat §Who may attack, p. 13); the target
+ *  must be within Range (spaces, elevation-free); and there must be a clear,
+ *  elevation-aware Line of Sight. */
 function targetBlockReason(state: HSState, attacker: Figure, target: Figure): string | null {
   if (target.at == null) return 'No such target on the battlefield';
   if (target.ownerSeat === attacker.ownerSeat) return 'You cannot attack your own figures';
   const map = MAPS[state.mapId];
   const def = cardDefFor(state, attacker);
+
+  // Engaged figures can't shoot past their engagement: if the attacker is
+  // engaged with any enemy, it may attack ONLY an enemy it is engaged with.
+  const engaged = enemiesEngagedWith(state, attacker);
+  if (engaged.length > 0 && !engaged.some(e => e.id === target.id)) {
+    return 'Engaged — you may only attack a figure you are engaged with';
+  }
+
   const dist = rangeDistance(map.cells, attacker.at!, target.at);
   if (dist == null || dist > def.range) return `Out of range (Range ${def.range})`;
   const occupied: HexKey[] = [];
   for (const f of state.figures) {
     if (f.at != null && f.id !== attacker.id && f.id !== target.id) occupied.push(f.at);
   }
-  if (!hasLineOfSight(attacker.at!, target.at, occupied)) {
-    return 'No line of sight — a figure is in the way';
+  if (
+    !hasLineOfSight3D(map.cells, attacker.at!, target.at, occupied, (k: HexKey) =>
+      eyeHeightOfKey(state, k),
+    )
+  ) {
+    return 'No line of sight — terrain or a figure is in the way';
   }
   return null;
 }
@@ -555,27 +779,65 @@ export function legalTargets(state: HSState, attackerId: string): string[] {
     .map(t => t.id);
 }
 
-/** Dice the server must roll for an attack: the printed Attack vs the printed
- *  Defense (slice 2 has no height advantage / powers / glyph bonuses).
- *  Null when either figure id is unknown — the engine then rejects the action
- *  with a real error message. */
+/**
+ * Height advantage (04-combat §Height Advantage, resolved +2 rule) — the SINGLE
+ * source of truth for the bonus. Compare base elevations of the two cells:
+ *   • attacker higher → +1 ATTACK die (the higher figure rolls the extra die)
+ *   • defender higher → +1 DEFENSE die
+ *   • the "+2 instead" band: if the higher figure's base level is ≥ 10 above
+ *     the LOWER figure's HEIGHT number, +2 instead of +1 (keys off the lower
+ *     figure's Height, per the printed rule — never fires on slice-3 maps, but
+ *     implemented and tested).
+ *   • equal base elevation → 0.
+ * Returns the bonus on each side (one is always 0). Symmetric; computed once
+ * here so the board preview and the resolution can never disagree.
+ */
+export function heightAdvantage(
+  state: HSState,
+  attacker: Figure,
+  target: Figure,
+): { attacker: number; defender: number } {
+  const aBase = baseLevel(state, attacker);
+  const dBase = baseLevel(state, target);
+  if (aBase === dBase) return { attacker: 0, defender: 0 };
+  if (aBase > dBase) {
+    const big = aBase >= 10 + cardDefFor(state, target).height;
+    return { attacker: big ? 2 : 1, defender: 0 };
+  }
+  const big = dBase >= 10 + cardDefFor(state, attacker).height;
+  return { attacker: 0, defender: big ? 2 : 1 };
+}
+
+/**
+ * Dice the server must roll for an attack: the printed Attack/Defense numbers
+ * WITH the height-advantage bonus already folded in (the SINGLE source of
+ * truth — board preview and engine resolution both read this, so a displayed
+ * count can never disagree with an enforced one). `heightBonusAttacker` /
+ * `heightBonusDefender` break out the bonus for the dice-panel caption.
+ * Null when either figure id is unknown — the engine then rejects with a real
+ * error message.
+ *
+ * slice 4: powers/glyphs add further bonus dice here on BOTH sides.
+ */
 export function attackDiceRequirements(
   state: HSState,
   attackerId: string,
   targetId: string,
-): { attack: number; defense: number } | null {
+): { attack: number; defense: number; heightBonusAttacker: number; heightBonusDefender: number } | null {
   const attacker = state.figures.find(f => f.id === attackerId);
   const target = state.figures.find(f => f.id === targetId);
   if (!attacker || !target) return null;
+  const bonus = heightAdvantage(state, attacker, target);
   return {
-    attack: cardDefFor(state, attacker).attack,
-    defense: cardDefFor(state, target).defense,
+    attack: cardDefFor(state, attacker).attack + bonus.attacker,
+    defense: cardDefFor(state, target).defense + bonus.defender,
+    heightBonusAttacker: bonus.attacker,
+    heightBonusDefender: bonus.defender,
   };
 }
 
 function doAttack(
   state: HSState,
-  seat: number,
   action: { attackerId: string; targetId: string; attackRoll: CombatFace[]; defenseRoll: CombatFace[] },
 ): HSResult {
   const r = attackReadyFigure(state, action.attackerId);
@@ -586,10 +848,14 @@ function doAttack(
   const blockReason = targetBlockReason(state, attacker, target);
   if (blockReason) return { error: blockReason };
 
-  const aDef = cardDefFor(state, attacker);
+  // Read the required dice counts from the SINGLE source of truth — the same
+  // helper the board's preview uses — so the rolled-dice count the server sent
+  // is validated against exactly the displayed count (printed stat + height
+  // advantage). req is non-null here (both ids resolved above).
+  const req = attackDiceRequirements(state, attacker.id, target.id)!;
   const tDef = cardDefFor(state, target);
-  if (!validFaces(action.attackRoll, aDef.attack)) return { error: 'Malformed attack roll' };
-  if (!validFaces(action.defenseRoll, tDef.defense)) return { error: 'Malformed defense roll' };
+  if (!validFaces(action.attackRoll, req.attack)) return { error: 'Malformed attack roll' };
+  if (!validFaces(action.defenseRoll, req.defense)) return { error: 'Malformed defense roll' };
 
   // Count ONLY skulls on the attack and ONLY shields on the defense —
   // off-symbols and blanks never count (04-combat §Attack resolution).
@@ -621,6 +887,8 @@ function doAttack(
     shields,
     wounds,
     destroyed,
+    heightBonusAttacker: req.heightBonusAttacker,
+    heightBonusDefender: req.heightBonusDefender,
     seq: s.logSeq + 1,
   };
   const outcome = destroyed
@@ -628,21 +896,47 @@ function doAttack(
     : wounds > 0
       ? `${wounds} wound${wounds === 1 ? '' : 's'}.`
       : 'blocked.';
+  const height =
+    req.heightBonusAttacker > 0
+      ? ` (+${req.heightBonusAttacker} height advantage)`
+      : req.heightBonusDefender > 0
+        ? ` (defender +${req.heightBonusDefender} height advantage)`
+        : '';
   pushLog(
     s,
     'attack',
-    `${attackerLabel} attacks ${targetLabel}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${outcome}`,
+    `${attackerLabel} attacks ${targetLabel}${height}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${outcome}`,
   );
 
   // Elimination win: the last player with figures remaining wins.
-  const enemyAlive = s.figures.some(f => f.ownerSeat !== seat && f.at != null);
-  if (!enemyAlive) {
-    s.phase = 'finished';
-    s.winnerSeat = seat;
-    s.turnSeat = null;
-    pushLog(s, 'win', `${playerName(s, seat)} wins — the enemy army is destroyed!`);
-  }
+  checkEliminationWin(s);
   return s;
+}
+
+/**
+ * Finish the battle if exactly one seat still has living figures (the last
+ * army standing wins). Idempotent and roll-source-agnostic, so attack kills,
+ * fall deaths, and leaving-engagement swipes all settle the win the same way.
+ * A figure can be removed mid-move (a swipe/fall), so this is called after
+ * movement as well as after an attack.
+ */
+function checkEliminationWin(s: HSState): void {
+  if (s.phase !== 'playing') return;
+  const seatsAlive = new Set(
+    s.figures.filter(f => f.at != null).map(f => f.ownerSeat),
+  );
+  if (seatsAlive.size > 1) return;
+  // 0 or 1 seats remain. With 2 players a draw is impossible in practice (a
+  // turn belongs to one seat, whose own move can only kill via a swipe FROM
+  // the enemy or a self-inflicted fall — the surviving seat wins). If somehow
+  // nobody is left, the acting seat is gone too; fall back to the last living
+  // seat, else leave the game running.
+  const winner = [...seatsAlive][0];
+  if (winner == null) return;
+  s.phase = 'finished';
+  s.winnerSeat = winner;
+  s.turnSeat = null;
+  pushLog(s, 'win', `${playerName(s, winner)} wins — the enemy army is destroyed!`);
 }
 
 // ============================================================================

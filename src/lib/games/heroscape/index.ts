@@ -14,6 +14,8 @@ export {
   legalDestinations,
   legalTargets,
   attackDiceRequirements,
+  heightAdvantage,
+  moveConsequences,
   figureLabel,
   cardDef,
   STATE_VERSION,
@@ -22,7 +24,7 @@ export {
 
 export { HS_CARDS, SLICE1_ARMIES, COMBAT_DIE_FACES } from './content';
 
-export { MAPS, TRAINING_FIELD, parseMap } from './maps';
+export { MAPS, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, parseMap } from './maps';
 export type { HSMap } from './maps';
 
 export {
@@ -34,12 +36,17 @@ export {
   hexDistance,
   rangeDistance,
   reachableDestinations,
+  stepCost,
+  canStepUp,
+  areEngaged,
+  computeFall,
   hexToPixel,
   hexCorners,
   segmentCrossesHex,
   hasLineOfSight,
+  hasLineOfSight3D,
 } from './board';
-export type { Occupancy, Pixel } from './board';
+export type { Occupancy, Pixel, FallTier } from './board';
 
 export type {
   Axial,

@@ -178,15 +178,16 @@ export const GAME_GUIDES: Record<string, GameGuide> = {
     ],
   },
   heroscape: {
-    theme: 'A hex-battlefield miniatures skirmish: Viking champions and Marro raiders clash on the Training Field. 2 players, dice-driven combat.',
+    theme: 'A hex-battlefield miniatures skirmish: Viking champions and Marro raiders clash across grass, rock, and water. 2 players, dice-driven combat on 3-D terrain.',
     objective: 'Destroy every figure in the enemy army — the last player with figures on the battlefield wins.',
     rules: [
-      'Each player commands a fixed army of one Champion and a 4-figure squad. The game is played in rounds of three turns per player.',
+      'Each player commands a fixed army of one Champion and a 4-figure squad. The host picks the battlefield (Training Field, The Knoll, or Ford Crossing). The game is played in rounds of three turns per player.',
       'Each round, both players SECRETLY place order markers 1, 2, 3, and X on their army cards — the numbers schedule which card acts on each of your turns; the X is a pure decoy. Stacking markers on one card is allowed.',
       'Once both players lock in, everyone rolls a d20 for initiative (ties re-roll). On each of your turns the matching marker is revealed and ONLY that card acts: move any of its figures up to their Move, then each may attack once.',
-      'If the card holding a marker has been destroyed, that turn is lost — the marker is never revealed. Figures may pass through friendly figures but never enemies, and can never end on an occupied hex.',
-      'To attack, the target must be within Range and in line of sight. The attacker rolls attack dice (count skulls), the defender rolls defense dice (count shields); each unblocked skull is a wound.',
-      'A figure is destroyed when its wounds reach its Life; ties favor the defender.',
+      'Terrain has depth: climbing UP costs 1 extra movement per level (descent is free), a figure can never climb a number of levels equal to or above its Height in one step, and stepping into water ends that figure’s move. Dropping a long way down triggers a falling roll; landing in water is always safe.',
+      'Moving next to an enemy ENGAGES you; leaving that engagement lets each abandoned enemy take a free swipe (1 die, no defense). A tall enough cliff between two figures breaks adjacency so they are not engaged.',
+      'To attack, the target must be within Range and in a clear, elevation-aware line of sight — tall terrain can block the shot. Standing HIGHER than your foe grants Height Advantage: +1 attack die when you attack from above, +1 defense die when you are attacked from below.',
+      'The attacker rolls attack dice (count skulls), the defender rolls defense dice (count shields); each unblocked skull is a wound. A figure is destroyed when its wounds reach its Life; ties favor the defender.',
     ],
   },
   yahtzee: {
@@ -673,7 +674,7 @@ export const GAMES: Record<string, GameDef> = {
   heroscape: {
     id: 'heroscape',
     name: 'HeroScape',
-    description: 'Hex-battlefield skirmish. Vikings vs Marro on the Training Field — move, roll skulls, destroy the enemy army.',
+    description: 'Hex-battlefield skirmish on 3-D terrain. Vikings vs Marro across grass, rock, and water — climb for height advantage, roll skulls, destroy the enemy army.',
     minPlayers: 2,
     maxPlayers: 2,
     addedOn: '2026-06-10',

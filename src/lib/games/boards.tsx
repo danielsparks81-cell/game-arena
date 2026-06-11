@@ -267,7 +267,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       currentUserId={currentUserId}
       isHost={isHost}
       disabled={pending}
-      onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game' }); })}
+      onStart={(mapId?: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game', mapId }); })}
       onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
       onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
       onAttack={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'attack', attackerId, targetId }); })}

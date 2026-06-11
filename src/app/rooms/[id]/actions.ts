@@ -83,9 +83,11 @@ import {
 import {
   applyAction as applyActionHS,
   attackDiceRequirements as hsAttackDiceRequirements,
+  moveConsequences as hsMoveConsequences,
   COMBAT_DIE_FACES as HS_COMBAT_DIE_FACES,
   type HSAction,
   type HSState,
+  type Figure as HSFigure,
   type CombatFace as HSCombatFace,
   type InitiativeAttempt as HSInitiativeAttempt,
   type OrderMarkerValue as HSOrderMarkerValue,
@@ -722,8 +724,9 @@ export type GameAction =
 
   // HeroScape — hex-battlefield skirmish (Master Game rounds). The client
   // sends intent only; makeMoveHS rolls every die server-side (d20 initiative,
-  // attack dice, defense dice) and injects the values into the pure engine.
-  | { game: 'heroscape'; kind: 'start_game' }
+  // attack/defense dice, falling dice, leaving-engagement swipes) and injects
+  // the values into the pure engine. The host picks the battlefield at start.
+  | { game: 'heroscape'; kind: 'start_game'; mapId?: string }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
@@ -1146,7 +1149,7 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
  *  no roll_initiative on the wire at all — the server triggers it itself when
  *  the final player locks in their order markers. */
 type HSWireAction =
-  | { kind: 'start_game' }
+  | { kind: 'start_game'; mapId?: string }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   | { kind: 'attack'; attackerId: string; targetId: string }
@@ -1188,11 +1191,13 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   const rollDie = (): HSCombatFace =>
     HS_COMBAT_DIE_FACES[Math.floor(Math.random() * HS_COMBAT_DIE_FACES.length)];
   const rollDice = (n: number): HSCombatFace[] => Array.from({ length: n }, rollDie);
+  const d20 = () => 1 + Math.floor(Math.random() * 20);
 
   let engineAction: HSAction;
   if (action.kind === 'attack') {
-    // Roll exactly the printed Attack/Defense dice counts. Unknown figure ids
-    // get empty rolls — the engine then rejects with its own clearer error.
+    // Roll exactly the required Attack/Defense dice counts (printed stat +
+    // height advantage — the engine's single-source helper). Unknown figure
+    // ids get empty rolls — the engine then rejects with its own clearer error.
     const req = hsAttackDiceRequirements(state, action.attackerId, action.targetId);
     engineAction = {
       kind: 'attack',
@@ -1201,6 +1206,36 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       attackRoll: rollDice(req?.attack ?? 0),
       defenseRoll: rollDice(req?.defense ?? 0),
     };
+  } else if (action.kind === 'move_figure') {
+    // The server computes the move's NEED from the engine's pure helper, then
+    // rolls exactly those dice and passes them in (the engine re-validates the
+    // shapes). A fall: combat dice, or a d20 for an Extreme fall. Leaving
+    // engagement: one attack die per abandoned enemy. An unknown figure id
+    // yields no consequences and the engine rejects the move on its own.
+    const mover: HSFigure | undefined = state.figures?.find(f => f.id === action.figureId);
+    const cons = mover
+      ? hsMoveConsequences(state, mover, action.to)
+      : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+    engineAction = {
+      kind: 'move_figure',
+      figureId: action.figureId,
+      to: action.to,
+      ...(cons.tier === 'extreme'
+        ? { extremeFallD20: d20() }
+        : cons.fallDice > 0
+          ? { fallRoll: rollDice(cons.fallDice) }
+          : {}),
+      ...(cons.abandonedEnemyIds.length > 0
+        ? {
+            leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({
+              enemyFigureId,
+              roll: rollDie(),
+            })),
+          }
+        : {}),
+    };
+  } else if (action.kind === 'start_game') {
+    engineAction = { kind: 'start_game', mapId: action.mapId };
   } else {
     engineAction = action;
   }
@@ -1218,7 +1253,6 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     next.subPhase === 'place_markers' &&
     next.markersReady.length === next.players.length
   ) {
-    const d20 = () => 1 + Math.floor(Math.random() * 20);
     const attempts: HSInitiativeAttempt[] = [];
     for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
       const attempt = next.players.map(p => ({ seat: p.seat, roll: d20() }));

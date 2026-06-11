@@ -103,7 +103,9 @@ export type HSPlayer = {
 export type HSLogEntry = {
   seq: number;
   text: string;
-  tag: 'info' | 'roll' | 'move' | 'attack' | 'win';
+  /** 'fall' surfaces falling-damage and leaving-engagement swipe rolls; the
+   *  rest are slice-2 categories. */
+  tag: 'info' | 'roll' | 'move' | 'attack' | 'fall' | 'win';
 };
 
 /** One d20 initiative attempt: every seat's roll. Ties for highest re-roll;
@@ -123,6 +125,12 @@ export type LastAttack = {
   /** Unblocked skulls = wounds inflicted (skulls − shields, min 0). */
   wounds: number;
   destroyed: boolean;
+  /** Height-advantage bonus dice folded into the rolls (04-combat): extra
+   *  ATTACK dice the higher attacker rolled / extra DEFENSE dice the higher
+   *  defender rolled. 0 when neither figure was uphill. For the dice-panel
+   *  caption only — the counts are already reflected in attack/defenseRoll. */
+  heightBonusAttacker?: number;
+  heightBonusDefender?: number;
   /** Monotonic counter so the UI can detect a fresh roll. */
   seq: number;
 };
@@ -178,7 +186,12 @@ export type HSState = {
  * Math.random, so it stays pure, deterministic, and unit-testable.
  */
 export type HSAction =
-  | { kind: 'start_game' }
+  | {
+      kind: 'start_game';
+      /** Battlefield the host chose in the lobby (validated against MAPS).
+       *  Omitted → the default Training Field. */
+      mapId?: string;
+    }
   | {
       kind: 'place_markers';
       /** Exactly four: one each of 1/2/3/X, each on one of your living cards
@@ -192,7 +205,23 @@ export type HSAction =
        *  it was re-rolled); the final attempt must be tie-free. */
       attempts: InitiativeAttempt[];
     }
-  | { kind: 'move_figure'; figureId: string; to: HexKey }
+  | {
+      kind: 'move_figure';
+      figureId: string;
+      to: HexKey;
+      /** SERVER-rolled falling dice, supplied ONLY when the destination
+       *  triggers a Fall/Major Fall (03-movement §4). The engine recomputes
+       *  whether — and how many — dice are due and rejects a roll of the wrong
+       *  shape (an unneeded roll, or a missing-but-required one). */
+      fallRoll?: CombatFace[];
+      /** SERVER-rolled d20 for an Extreme Fall (drop − Height ≥ 20). */
+      extremeFallD20?: number;
+      /** SERVER-rolled leaving-engagement swipes (03-movement §9): one attack
+       *  die per enemy this move ABANDONS (engaged at move start, no longer
+       *  adjacent at the destination). The engine validates the set matches the
+       *  abandoned enemies exactly. */
+      leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+    }
   | {
       kind: 'attack';
       attackerId: string;

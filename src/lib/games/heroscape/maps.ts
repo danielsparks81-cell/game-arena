@@ -85,6 +85,51 @@ export const TRAINING_FIELD: HSMap = parseMap(
   `,
 );
 
+/** TEST-2 "The Knoll" (docs/heroscape/test-maps.md) — 9×8 with a 3-tier rock
+ *  hill in the center (heights 1→2→3→4). Start zones: full-width row 1
+ *  (player 1) and row 8 (player 2). Exercises climb cost / climb limit / free
+ *  descent / falling off the R4 summit / height advantage / engagement-breaking
+ *  elevation. The `*` summit glyph spot is parsed for forward-compat (slice 4).
+ *  Implemented exactly as the token grid specifies. */
+export const THE_KNOLL: HSMap = parseMap(
+  'the_knoll',
+  'The Knoll',
+  `
+  row1@1: G1 G1 G1 G1 G1 G1 G1 G1 G1
+  row2:   G1 G1 G1 G2 G2 G2 G1 G1 G1
+  row3:   G1 G1 G2 R3 R3 R3 G2 G1 G1
+  row4:   G1 G2 R3 R4 R4 R4 R3 G2 G1
+  row5:   G1 G2 R3 R4 R4 R4 R3 G2 G1
+  row6:   G1 G1 G2 R3 R3 R3 G2 G1 G1
+  row7:   G1 G1 G1 G2 G2 G2 G1 G1 G1
+  row8@2: G1 G1 G1 G1 G1 G1 G1 G1 G1
+  `,
+);
+
+/** TEST-3 "Ford Crossing" (docs/heroscape/test-maps.md) — 10×7. A water river
+ *  (rows 3-5) splits two grass banks; a 1-hex ford (col 5 grass) and a sand
+ *  spit (col 4/6 row 4) are the only dry crossings. Two void hexes (row 2/6
+ *  col 8) test Range counting around gaps. Start zones: full-width row 1
+ *  (player 1) and row 7 (player 2). Exercises water forced-stop, climbing out
+ *  of water, ranged attacks across the river, Range routed around voids.
+ *  NOTE: the `@2`/`@1` row tokens (G2 = grass height 2) are terrain heights,
+ *  NOT start-zone owners — only the `@N` row-label suffix marks a start zone. */
+export const FORD_CROSSING: HSMap = parseMap(
+  'ford_crossing',
+  'Ford Crossing',
+  `
+  row1@1: G1 G1 G1 G2 G2 G1 G1 G1 G1 G1
+  row2:   G1 G1 G1 G1 G2 G1 G1 .  G1 G1
+  row3:   W1 W1 W1 W1 G1 W1 W1 W1 W1 W1
+  row4:   W1 W1 W1 S1 G1 S1 W1 W1 W1 W1
+  row5:   W1 W1 W1 W1 G1 W1 W1 W1 W1 W1
+  row6:   G1 G1 G1 G1 G2 G1 G1 .  G1 G1
+  row7@2: G1 G1 G1 G2 G2 G1 G1 G1 G1 G1
+  `,
+);
+
 export const MAPS: Record<string, HSMap> = {
   [TRAINING_FIELD.id]: TRAINING_FIELD,
+  [THE_KNOLL.id]: THE_KNOLL,
+  [FORD_CROSSING.id]: FORD_CROSSING,
 };

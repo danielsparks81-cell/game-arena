@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import {
   initialState,
   addPlayer,
@@ -12,8 +12,11 @@ import {
   legalDestinations,
   legalTargets,
   attackDiceRequirements,
+  heightAdvantage,
+  moveConsequences,
 } from './engine';
 import { hexKey, offsetToAxial } from './board';
+import { MAPS, parseMap } from './maps';
 import type {
   CombatFace,
   HSResult,
@@ -92,6 +95,50 @@ function inTurns(
   );
 }
 
+/** start_game on a chosen battlefield (map picked by the host). */
+function startedOn(mapId: string): HSState {
+  return unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mapId }));
+}
+
+/** Battle staged into 'turns' on a chosen map, both stacking on one card. */
+function inTurnsOn(
+  mapId: string,
+  first: 'p1' | 'p2' = 'p1',
+  cards: { p1?: string; p2?: string } = {},
+): HSState {
+  let s = startedOn(mapId);
+  s = placed(s, 'p1', allOn(cards.p1 ?? 's0-finn'));
+  s = placed(s, 'p2', allOn(cards.p2 ?? 's1-thorgrim'));
+  return unwrap(
+    applyAction(s, 'p2', {
+      kind: 'roll_initiative',
+      attempts: [first === 'p1' ? ATT(15, 3) : ATT(3, 15)],
+    }),
+  );
+}
+
+/** A purpose-built test map with deep cliff pillars (heights 5/15/25) adjacent
+ *  to height-1 grass, so a normal Height-4 Marro can prove every fall band by
+ *  being teleported atop a pillar and stepping down one space (free descent —
+ *  no climb limit blocks a descent). Registered into MAPS (a mutable record)
+ *  for the test process only; production maps are untouched. */
+const CLIFF_MAP_ID = 'test_cliffs';
+beforeAll(() => {
+  MAPS[CLIFF_MAP_ID] = parseMap(
+    CLIFF_MAP_ID,
+    'Test Cliffs',
+    `
+    row1@1: G1 G1  G1 G1  G1 G1 G1
+    row2:   R5 G1  R15 G1 R25 G1 G1
+    row3:   G1 G1  G1 G1  G1 G1 G1
+    row4:   G1 G1  G1 G1  G1 G1 G1
+    row5:   G1 G1  G1 G1  G1 G1 G1
+    row6:   G1 G1  G1 G1  G1 G1 G1
+    row7@2: G1 G1  G1 G1  G1 G1 G1
+    `,
+  );
+});
+
 /** offset (col,row) → axial key for readable coordinates. */
 const at = (col: number, row: number) => {
   const { q, r } = offsetToAxial(col, row);
@@ -113,6 +160,16 @@ function fig(s: HSState, id: string) {
 function place(s: HSState, id: string, key: string | null): HSState {
   const c: HSState = JSON.parse(JSON.stringify(s));
   fig(c, id).at = key;
+  return c;
+}
+
+/** Test-only: remove every figure from the board EXCEPT the given ids — clears
+ *  the start-zone clutter so an elevation/engagement scenario is isolated.
+ *  Keep at least one figure per seat alive or the elimination check fires. */
+function clearExcept(s: HSState, ...keep: string[]): HSState {
+  const c: HSState = JSON.parse(JSON.stringify(s));
+  const set = new Set(keep);
+  for (const f of c.figures) if (!set.has(f.id)) f.at = null;
   return c;
 }
 
@@ -610,10 +667,14 @@ describe('attack eligibility', () => {
   });
 
   it('LOS: a figure squarely between attacker and target blocks the shot', () => {
+    // Spread the three figures so the blocker is NOT adjacent to the shooter
+    // (otherwise the engagement rule, not LOS, would gate the attack): Marro at
+    // offset (0,3), Finn at (4,3), blocker dead-center at (2,3) — two hexes
+    // from each, squarely on the line.
     let s = inTurns('p2', { p2: 's1-marro_warriors' });
-    s = place(s, MARRO(1), at(1, 3)); // axial (0,3)
-    s = place(s, FINN, at(3, 3)); // axial (2,3) — same axial row
-    const blocked = place(s, TARN(1), at(2, 3)); // axial (1,3), dead center
+    s = place(s, MARRO(1), at(0, 3));
+    s = place(s, FINN, at(4, 3)); // 4 spaces away, within Range 6
+    const blocked = place(s, TARN(1), at(2, 3)); // midpoint, on the line
     expect(
       errOf(
         applyAction(blocked, 'p2', {
@@ -832,10 +893,21 @@ describe('wounds (fixed server dice)', () => {
     ).toMatch(/Malformed defense roll/);
   });
 
-  it('attackDiceRequirements reports printed Attack vs printed Defense', () => {
+  it('attackDiceRequirements reports printed Attack vs printed Defense (flat → no height bonus)', () => {
     const s = inTurns('p1');
-    expect(attackDiceRequirements(s, FINN, THORGRIM)).toEqual({ attack: 3, defense: 4 });
-    expect(attackDiceRequirements(s, MARRO(1), FINN)).toEqual({ attack: 2, defense: 4 });
+    // Training Field is flat: the height bonus is 0 on both sides.
+    expect(attackDiceRequirements(s, FINN, THORGRIM)).toEqual({
+      attack: 3,
+      defense: 4,
+      heightBonusAttacker: 0,
+      heightBonusDefender: 0,
+    });
+    expect(attackDiceRequirements(s, MARRO(1), FINN)).toEqual({
+      attack: 2,
+      defense: 4,
+      heightBonusAttacker: 0,
+      heightBonusDefender: 0,
+    });
     expect(attackDiceRequirements(s, 'nope', FINN)).toBeNull();
   });
 });
@@ -1028,5 +1100,381 @@ describe('legal-move helpers for the board', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 1) }));
     expect(legalDestinations(s, FINN).size).toBe(0); // already moved
     expect(legalDestinations(started(), FINN).size).toBe(0); // placing markers
+  });
+});
+
+// ===========================================================================
+// SLICE 3 — terrain depth
+// ===========================================================================
+
+// --- map selection ---------------------------------------------------------
+
+describe('slice 3: map selection', () => {
+  it('the host picks the battlefield at start_game; figures land in its zones', () => {
+    const s = startedOn('the_knoll');
+    expect(s.mapId).toBe('the_knoll');
+    // 9-wide Knoll: hero centered at col 4 (zone[4]); squads flank.
+    expect(fig(s, FINN).at).toBe(at(4, 0));
+    expect(fig(s, THORGRIM).at).toBe(at(4, 7));
+    // Cells carry heights 1-4 on this map.
+    const heights = new Set(
+      Object.values(MAPS['the_knoll'].cells).map(c => c.height),
+    );
+    expect([...heights].sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it('an unknown map id is rejected; default stays the Training Field', () => {
+    expect(errOf(applyAction(lobby(), 'p1', { kind: 'start_game', mapId: 'atlantis' }))).toMatch(
+      /Unknown battlefield/,
+    );
+    expect(started().mapId).toBe('training_field'); // no mapId → default
+  });
+});
+
+// --- movement cost / climb limit on a real hill ----------------------------
+
+describe('slice 3: movement with elevation (The Knoll)', () => {
+  it('climbing costs budget: a Move-5 figure crests only where the cost allows', () => {
+    // Finn (Move 5) on grass at (0,3) [G1]. The east climb chain is
+    // G1→G2(cost2)→R3(cost4)→R4(cost6). Finn can reach the R3 (cost 4) but not
+    // the R4 summit (cost 6).
+    let s = inTurnsOn('the_knoll', 'p1', { p1: 's0-finn' });
+    s = place(s, FINN, at(0, 3));
+    const dests = legalDestinations(s, FINN);
+    expect(dests.has(at(1, 3))).toBe(true); // G2, cost 2
+    expect(dests.has(at(2, 3))).toBe(true); // R3, cost 4
+    expect(dests.has(at(3, 3))).toBe(false); // R4 summit, cost 6 > Move 5
+  });
+
+  it('descent is free: a figure on the summit can step far down for 1', () => {
+    let s = inTurnsOn('the_knoll', 'p1', { p1: 's0-finn' });
+    s = place(s, FINN, at(3, 3)); // R4 summit
+    // The adjacent off-summit R3 (2,3) is one descent step (cost 1) — reachable
+    // even though climbing back up would cost 2.
+    expect(legalDestinations(s, FINN).has(at(2, 3))).toBe(true);
+  });
+
+  it('climb limit: a Height-4 Marro cannot scale a 4-level wall in one step', () => {
+    // On Test Cliffs, the R5 pillar (0,1) rises 4 over its (1,1) grass
+    // neighbour. A Marro (Height 4) standing on (1,1) may NOT step up onto it.
+    let s = inTurnsOn(CLIFF_MAP_ID, 'p2', { p2: 's1-marro_warriors' });
+    s = place(s, MARRO(1), at(1, 1)); // grass beside the R5 pillar
+    expect(legalDestinations(s, MARRO(1)).has(at(0, 1))).toBe(false); // rise 4 == Height
+  });
+});
+
+// --- falling ---------------------------------------------------------------
+
+describe('slice 3: falling (server-rolled, engine re-validates)', () => {
+  // Marro Warrior, Height 4. Teleport onto a pillar, step down to the grass
+  // beside it. Drop = pillar height − 1. Clear the board to just this Marro and
+  // one enemy (Finn, parked far away) so no start-zone engagement adds a swipe.
+  function onPillar(pillarCol: number): { s: HSState; from: string; to: string } {
+    let s = inTurnsOn(CLIFF_MAP_ID, 'p2', { p2: 's1-marro_warriors' });
+    s = clearExcept(s, MARRO(1), FINN);
+    s = place(s, FINN, at(6, 6)); // far corner, never engaged
+    const from = at(pillarCol, 1);
+    const to = at(pillarCol + 1, 1);
+    s = place(s, MARRO(1), from);
+    return { s, from, to };
+  }
+
+  it('moveConsequences reports the right fall band for each drop', () => {
+    const r5 = onPillar(0); // drop 4  → fall (1 die)
+    expect(moveConsequences(r5.s, fig(r5.s, MARRO(1)), r5.to)).toMatchObject({ tier: 'fall', fallDice: 1 });
+    const r15 = onPillar(2); // drop 14 → major (3 dice)
+    expect(moveConsequences(r15.s, fig(r15.s, MARRO(1)), r15.to)).toMatchObject({ tier: 'major', fallDice: 3 });
+    const r25 = onPillar(4); // drop 24 → extreme (d20)
+    expect(moveConsequences(r25.s, fig(r25.s, MARRO(1)), r25.to)).toMatchObject({ tier: 'extreme', fallDice: 0 });
+  });
+
+  it('a Fall (drop ≥ Height) rolls 1 die — a skull wounds, a destroyed Life-1 dies', () => {
+    const { s, to } = onPillar(0); // drop 4 ≥ Height 4
+    // No skull → unharmed.
+    const safe = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, fallRoll: F('b') }));
+    expect(fig(safe, MARRO(1)).at).toBe(to);
+    expect(fig(safe, MARRO(1)).wounds).toBe(0);
+    // One skull → 1 wound → a Life-1 Marro is destroyed by the fall.
+    const dead = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, fallRoll: F('k') }));
+    expect(fig(dead, MARRO(1)).at).toBeNull();
+    expect(dead.log.some(e => e.tag === 'fall' && /destroyed/.test(e.text))).toBe(true);
+  });
+
+  it('rejects a missing fall roll, an unneeded roll, and the wrong die count', () => {
+    const { s, to } = onPillar(0); // a fall IS due (1 die)
+    expect(errOf(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to }))).toMatch(
+      /requires 1 combat die/,
+    );
+    expect(
+      errOf(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, fallRoll: F('kk') })),
+    ).toMatch(/requires 1 combat die/);
+    // A flat move with a phantom fall roll is rejected (no fall is due).
+    let flat = inTurnsOn(CLIFF_MAP_ID, 'p2', { p2: 's1-marro_warriors' });
+    flat = place(flat, MARRO(1), at(5, 2)); // grass
+    expect(
+      errOf(applyAction(flat, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(5, 3), fallRoll: F('k') })),
+    ).toMatch(/Unexpected fall dice/);
+  });
+
+  it('a Major Fall rolls 3 dice; wounds = skulls (capped at Life)', () => {
+    const { s, to } = onPillar(2); // drop 14 → major
+    expect(
+      errOf(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, fallRoll: F('k') })),
+    ).toMatch(/requires 3 combat die/); // must roll 3, not 1
+    const hit = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, fallRoll: F('ksb') }));
+    expect(fig(hit, MARRO(1)).at).toBeNull(); // 1 skull on a Life-1 figure → dead
+  });
+
+  it('an Extreme Fall uses a d20: 19-20 survives, 1-18 destroys (no wound dice)', () => {
+    const { s, to } = onPillar(4); // drop 24 → extreme
+    // Combat dice are rejected; the d20 is required.
+    expect(
+      errOf(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, fallRoll: F('k') })),
+    ).toMatch(/Unexpected fall dice for an extreme fall/);
+    expect(
+      errOf(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, extremeFallD20: 21 })),
+    ).toMatch(/d20 roll/);
+    const survives = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, extremeFallD20: 20 }));
+    expect(fig(survives, MARRO(1)).at).toBe(to);
+    expect(fig(survives, MARRO(1)).wounds).toBe(0);
+    const destroyed = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to, extremeFallD20: 7 }));
+    expect(fig(destroyed, MARRO(1)).at).toBeNull();
+  });
+
+  it('NO fall when landing on water, from any height', () => {
+    // Ford Crossing: a Finn (Height 5) teleported onto a height-2 grass bank
+    // stepping into the adjacent height-1 water — drop 1, but water exempts the
+    // fall regardless. (Even a deep drop onto water is exempt, proven by the
+    // moveConsequences tier being 'none'.)
+    let s = inTurnsOn('ford_crossing', 'p1', { p1: 's0-finn' });
+    // (4,0) is G2 (bank); (4,1) is G2 too — find a water neighbour of a bank.
+    // (3,2) is water W1; its neighbour (4,1) is G2 (height 2). Stand on (4,1),
+    // step into the (3,2) water: drop 1, into water → no fall.
+    s = place(s, FINN, at(4, 1));
+    const cons = moveConsequences(s, fig(s, FINN), at(3, 2));
+    expect(cons.tier).toBe('none');
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 2) }));
+    expect(fig(moved, FINN).at).toBe(at(3, 2));
+    expect(fig(moved, FINN).wounds).toBe(0);
+  });
+});
+
+// --- water forced stop -----------------------------------------------------
+
+describe('slice 3: water forced stop (Ford Crossing)', () => {
+  it('the dry ford lets a figure cross; stepping into the river is a valid stop', () => {
+    // Marro (Move 6) on the north bank at (4,1) [G2]. The ford column (col 4)
+    // is dry grass straight across; the flanking river is water.
+    let s = inTurnsOn('ford_crossing', 'p2', { p2: 's1-marro_warriors' });
+    s = clearExcept(s, MARRO(1), FINN);
+    s = place(s, FINN, at(0, 0));
+    s = place(s, MARRO(1), at(4, 1));
+    const dests = legalDestinations(s, MARRO(1));
+    // Down the dry ford it can cross the whole river to the south bank.
+    expect(dests.has(at(4, 5))).toBe(true); // ford continues onto grass
+    // Stepping sideways off the bank into the river is a valid endpoint
+    // (forced stop): (3,2) is the nearest water hex.
+    expect(dests.has(at(3, 2))).toBe(true);
+  });
+
+  it('open water cannot be crossed in one move — only the ford reaches the far bank', () => {
+    // Marro (Move 6) on the north bank at col 0 (offset (0,1)). Three water
+    // rows separate it from the south bank at (0,5). Each water entry forces a
+    // stop, so the far bank is UNREACHABLE this turn even with Move 6…
+    let s = inTurnsOn('ford_crossing', 'p2', { p2: 's1-marro_warriors' });
+    s = clearExcept(s, MARRO(1), FINN);
+    s = place(s, FINN, at(9, 6)); // far corner
+    s = place(s, MARRO(1), at(0, 1));
+    const dests = legalDestinations(s, MARRO(1));
+    expect(MAPS['ford_crossing'].cells[at(0, 2)].terrain).toBe('water');
+    expect(dests.has(at(0, 2))).toBe(true); // wades one hex into the river, stops
+    expect(dests.has(at(0, 5))).toBe(false); // can't reach the far bank across water
+  });
+});
+
+// --- engagement + leaving-engagement swipes --------------------------------
+
+describe('slice 3: engagement & leaving-engagement swipes', () => {
+  it('an engaged figure may attack only the enemy it is engaged with', () => {
+    // p2's Marro (Range 6) is engaged with one enemy (Finn, adjacent) while a
+    // SECOND enemy (a Tarn Viking) stands in range + clear LOS but not adjacent.
+    // The engagement rule forbids shooting the Tarn past the engagement.
+    let s = inTurnsOn('training_field', 'p2', { p2: 's1-marro_warriors' });
+    s = place(s, MARRO(1), at(3, 3));
+    s = place(s, FINN, at(3, 2)); // adjacent → engages the Marro
+    s = place(s, TARN(1), at(3, 5)); // a second enemy, 2 spaces off, not engaged
+    // Move every other p1 figure off the board so only Finn + this Tarn remain
+    // as candidate targets.
+    for (let n = 2; n <= 4; n++) s = place(s, TARN(n), null);
+    expect(legalTargets(s, MARRO(1))).toEqual([FINN]); // only the engaged enemy
+    expect(
+      errOf(
+        applyAction(s, 'p2', {
+          kind: 'attack',
+          attackerId: MARRO(1),
+          targetId: TARN(1),
+          attackRoll: F('kk'),
+          defenseRoll: F('sss'),
+        }),
+      ),
+    ).toMatch(/only attack a figure you are engaged with/);
+  });
+
+  it('leaving an engagement: each abandoned enemy rolls 1 swipe die', () => {
+    // Flat Training Field: a Tarn squad figure flanked by two Marro, walks free.
+    let s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    s = place(s, TARN(1), at(3, 3)); // axial (2,3)
+    s = place(s, MARRO(1), at(3, 2)); // axial (2,2), adjacent → engaged
+    s = place(s, MARRO(2), at(2, 3)); // axial (1,3), adjacent → engaged
+    // Step east to (4,3) [axial (3,3)] — adjacent to NEITHER Marro (both 2 away).
+    const dest = at(4, 3);
+    const cons = moveConsequences(s, fig(s, TARN(1)), dest);
+    expect(new Set(cons.abandonedEnemyIds)).toEqual(new Set([MARRO(1), MARRO(2)]));
+    // Server must supply exactly those two swipes.
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_figure', figureId: TARN(1), to: dest }))).toMatch(
+      /do not match the abandoned enemies/,
+    );
+    // Both miss → the Tarn lives and reaches the destination.
+    const safe = unwrap(
+      applyAction(s, 'p1', {
+        kind: 'move_figure',
+        figureId: TARN(1),
+        to: dest,
+        leaveRolls: [
+          { enemyFigureId: MARRO(1), roll: 'blank' },
+          { enemyFigureId: MARRO(2), roll: 'blank' },
+        ],
+      }),
+    );
+    expect(fig(safe, TARN(1)).at).toBe(dest);
+    expect(fig(safe, TARN(1)).wounds).toBe(0);
+  });
+
+  it('a swipe skull is an unblockable wound that can destroy the mover mid-move', () => {
+    let s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    s = place(s, TARN(1), at(3, 3));
+    s = place(s, MARRO(1), at(3, 2)); // one engaged enemy
+    const dest = at(3, 4);
+    const dead = unwrap(
+      applyAction(s, 'p1', {
+        kind: 'move_figure',
+        figureId: TARN(1),
+        to: dest,
+        leaveRolls: [{ enemyFigureId: MARRO(1), roll: 'skull' }],
+      }),
+    );
+    expect(fig(dead, TARN(1)).at).toBeNull(); // Life-1 Tarn dies to the swipe
+    expect(dead.log.some(e => e.tag === 'fall' && /leaving-engagement/.test(e.text))).toBe(true);
+  });
+
+  it('moving while staying adjacent to the enemy triggers NO swipe', () => {
+    let s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    s = place(s, TARN(1), at(3, 3));
+    s = place(s, MARRO(1), at(3, 2)); // engaged
+    // (2,3) and (3,3) are both adjacent to (3,2)? (3,3)'s and (2,3)'s adjacency
+    // to (3,2): move to a DIFFERENT hex still adjacent to the Marro.
+    const stillAdj = at(2, 2); // verify it's adjacent to the Marro at (3,2)
+    const cons = moveConsequences(s, fig(s, TARN(1)), stillAdj);
+    expect(cons.abandonedEnemyIds).toEqual([]); // no enemy abandoned
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: TARN(1), to: stillAdj }));
+    expect(fig(moved, TARN(1)).at).toBe(stillAdj);
+  });
+
+  it('a sufficient height gap breaks engagement (Example 14): no swipe leaving a non-engaged enemy', () => {
+    // Test Cliffs: a Tarn Viking (Height 5, enemy) stands on the R5 pillar
+    // (h5); a Marro (Height 4) sits on the adjacent grass (h1). Gap 4 ≥ the
+    // LOWER figure's Height 4 → NOT engaged (Example 14 boundary). The Marro
+    // moving away therefore abandons NO enemy and needs no swipe rolls.
+    let s = inTurnsOn(CLIFF_MAP_ID, 'p2', { p2: 's1-marro_warriors' });
+    s = clearExcept(s, TARN(1), MARRO(1)); // isolate the pair from the start zones
+    s = place(s, TARN(1), at(0, 1)); // p1's Tarn on the R5 pillar
+    s = place(s, MARRO(1), at(1, 1)); // p2's Marro on the grass beside it
+    // Geometry: the pair is NOT engaged (gap 4, lower Height 4).
+    const cons = moveConsequences(s, fig(s, MARRO(1)), at(1, 2));
+    expect(cons.abandonedEnemyIds).toEqual([]);
+    // The move succeeds with no leaveRolls (no swipe was due).
+    const moved = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(1, 2) }));
+    expect(fig(moved, MARRO(1)).at).toBe(at(1, 2));
+    expect(fig(moved, MARRO(1)).wounds).toBe(0);
+  });
+});
+
+// --- height advantage (single source of truth) -----------------------------
+
+describe('slice 3: height advantage', () => {
+  it('a higher attacker rolls +1 attack die in requirements AND in resolution', () => {
+    // Knoll summit (3,3) R4 (h4) vs a defender on grass (3,1) ... pick adjacent
+    // cells at different heights within melee range. Finn on R4 summit, an
+    // enemy Marro on the adjacent R3 (2,3 h3): attacker higher by 1 level.
+    let s = inTurnsOn('the_knoll', 'p1', { p1: 's0-finn' });
+    s = place(s, FINN, at(3, 3)); // R4 (height 4)
+    s = place(s, MARRO(1), at(2, 3)); // R3 (height 3), adjacent
+    const req = attackDiceRequirements(s, FINN, MARRO(1))!;
+    expect(req).toMatchObject({ attack: 4, heightBonusAttacker: 1, heightBonusDefender: 0 }); // Finn Attack 3 + 1
+    expect(heightAdvantage(s, fig(s, FINN), fig(s, MARRO(1)))).toEqual({ attacker: 1, defender: 0 });
+    // Resolution must accept exactly 4 attack dice (and reject 3).
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: MARRO(1), attackRoll: F('kkk'), defenseRoll: F('sss') })),
+    ).toMatch(/Malformed attack roll/);
+    const hit = unwrap(
+      applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: MARRO(1), attackRoll: F('kbbb'), defenseRoll: F('sss') }),
+    );
+    expect(hit.lastAttack).toMatchObject({ heightBonusAttacker: 1, heightBonusDefender: 0 });
+  });
+
+  it('a higher defender rolls +1 defense die', () => {
+    // Reverse: Marro (low, attacking) vs Finn on the summit (higher defender).
+    let s = inTurnsOn('the_knoll', 'p2', { p2: 's1-marro_warriors' });
+    s = place(s, MARRO(1), at(2, 3)); // R3 (height 3)
+    s = place(s, FINN, at(3, 3)); // R4 (height 4) — defender higher
+    const req = attackDiceRequirements(s, MARRO(1), FINN)!;
+    expect(req).toMatchObject({ attack: 2, defense: 5, heightBonusDefender: 1 }); // Finn Defense 4 + 1
+    const r = unwrap(
+      applyAction(s, 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kk'), defenseRoll: F('sssss') }),
+    );
+    expect(r.lastAttack).toMatchObject({ heightBonusDefender: 1 });
+  });
+
+  it('equal base elevation gives no bonus', () => {
+    // Two figures on the flat grass skirt at height 1.
+    let s = inTurnsOn('the_knoll', 'p1', { p1: 's0-finn' });
+    s = place(s, FINN, at(0, 0)); // G1
+    s = place(s, MARRO(1), at(1, 0)); // G1, adjacent
+    expect(heightAdvantage(s, fig(s, FINN), fig(s, MARRO(1)))).toEqual({ attacker: 0, defender: 0 });
+    expect(attackDiceRequirements(s, FINN, MARRO(1))).toMatchObject({ attack: 3, defense: 3 });
+  });
+
+  it('the +2 band fires when the higher base is ≥ 10 above the lower figure Height', () => {
+    // Test Cliffs: Marro (Height 4) on the R15 pillar (h15) vs an enemy on the
+    // adjacent grass (h1). 15 ≥ 10 + lower Height. Use the pure helper (the
+    // band never fires on the slice-3 production maps).
+    let s = inTurnsOn(CLIFF_MAP_ID, 'p2', { p2: 's1-marro_warriors' });
+    s = place(s, MARRO(1), at(2, 1)); // R15
+    s = place(s, FINN, at(3, 1)); // grass (height 1), Finn Height 5
+    // Attacker (Marro) base 15 ≥ 10 + defender Finn Height 5 (=15) → +2.
+    expect(heightAdvantage(s, fig(s, MARRO(1)), fig(s, FINN))).toEqual({ attacker: 2, defender: 0 });
+    expect(attackDiceRequirements(s, MARRO(1), FINN)).toMatchObject({ attack: 4, heightBonusAttacker: 2 }); // 2 + 2
+  });
+});
+
+// --- elevation-aware LOS through the engine --------------------------------
+
+describe('slice 3: elevation LOS (The Knoll)', () => {
+  it('the central rock hill blocks a ground-level shot across it', () => {
+    // A Marro on the west shoulder (1,3) G2 and Finn on the east shoulder
+    // (7,3) G2 — both height 2, with the R3/R4 summit sitting on the line
+    // between them. The tall column out-tops the height-3 eye line and blocks.
+    let s = inTurnsOn('the_knoll', 'p2', { p2: 's1-marro_warriors' });
+    s = place(s, MARRO(1), at(1, 3)); // G2 (height 2)
+    s = place(s, FINN, at(7, 3)); // G2 (height 2)
+    expect(legalTargets(s, MARRO(1))).not.toContain(FINN);
+  });
+
+  it('a figure on the summit sees a figure on the open skirt below', () => {
+    let s = inTurnsOn('the_knoll', 'p2', { p2: 's1-marro_warriors' });
+    s = place(s, MARRO(1), at(4, 3)); // R4 summit (height 4)
+    s = place(s, FINN, at(4, 6)); // G2/G1 skirt to the south, within Range 6
+    // From the summit the sightline slopes down over the lower hill — clear.
+    expect(legalTargets(s, MARRO(1))).toContain(FINN);
   });
 });

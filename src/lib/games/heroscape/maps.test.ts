@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMap, TRAINING_FIELD, MAPS } from './maps';
+import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, MAPS } from './maps';
 import { hexKey, offsetToAxial, neighborKeys } from './board';
 
 const at = (col: number, row: number) => {
@@ -51,6 +51,78 @@ describe('TEST-1 "Training Field"', () => {
     // A corner has fewer.
     const cornerNeighbors = neighborKeys(at(0, 0)).filter(k => TRAINING_FIELD.cells[k]);
     expect(cornerNeighbors).toHaveLength(2);
+  });
+});
+
+describe('TEST-2 "The Knoll" (elevation)', () => {
+  it('is registered under its id', () => {
+    expect(MAPS['the_knoll']).toBe(THE_KNOLL);
+  });
+
+  it('has 9×8 = 72 hexes (no voids), rising 1→2→3→4 to the rock summit', () => {
+    const cells = Object.values(THE_KNOLL.cells);
+    expect(cells).toHaveLength(72);
+    expect(THE_KNOLL.cols).toBe(9);
+    expect(THE_KNOLL.rows).toBe(8);
+    expect(Math.max(...cells.map(c => c.height))).toBe(4);
+    // Heights present: every level 1..4 appears.
+    expect([...new Set(cells.map(c => c.height))].sort()).toEqual([1, 2, 3, 4]);
+    // The four summit hexes (rows 4-5, cols 3-5) are rock at height 4.
+    for (const [col, row] of [[3, 3], [4, 3], [5, 3], [3, 4], [4, 4], [5, 4]]) {
+      expect(THE_KNOLL.cells[at(col, row)]).toMatchObject({ terrain: 'rock', height: 4 });
+    }
+    // Grass skirt is height 1, never rock.
+    expect(THE_KNOLL.cells[at(0, 0)]).toMatchObject({ terrain: 'grass', height: 1 });
+    // The R4 summit center matches the documented (row4, col5) glyph-spot
+    // location for slice 4 — but no `*` was authored in test-maps.md's grid.
+    expect(THE_KNOLL.glyphSpots).toHaveLength(0);
+  });
+
+  it('full-width start zones on rows 1 and 8', () => {
+    expect(THE_KNOLL.startZones[0]).toHaveLength(9);
+    expect(THE_KNOLL.startZones[1]).toHaveLength(9);
+    for (let col = 0; col < 9; col++) {
+      expect(THE_KNOLL.startZones[0][col]).toBe(at(col, 0));
+      expect(THE_KNOLL.startZones[1][col]).toBe(at(col, 7));
+    }
+  });
+});
+
+describe('TEST-3 "Ford Crossing" (water + voids)', () => {
+  it('is registered under its id', () => {
+    expect(MAPS['ford_crossing']).toBe(FORD_CROSSING);
+  });
+
+  it('has 10×7 − 2 voids = 68 hexes: 41 grass, 25 water, 2 sand', () => {
+    const cells = Object.values(FORD_CROSSING.cells);
+    expect(cells).toHaveLength(68);
+    expect(FORD_CROSSING.cols).toBe(10);
+    expect(FORD_CROSSING.rows).toBe(7);
+    const byTerrain: Record<string, number> = {};
+    for (const c of cells) byTerrain[c.terrain] = (byTerrain[c.terrain] ?? 0) + 1;
+    expect(byTerrain).toEqual({ grass: 41, water: 25, sand: 2 });
+    // Heights are only 1 and 2 (G2 banks); water surfaces are all height 1.
+    expect([...new Set(cells.map(c => c.height))].sort()).toEqual([1, 2]);
+    expect(cells.filter(c => c.terrain === 'water').every(c => c.height === 1)).toBe(true);
+  });
+
+  it('the two voids are ABSENT from the record (not height-0 terrain)', () => {
+    expect(FORD_CROSSING.cells[at(7, 1)]).toBeUndefined();
+    expect(FORD_CROSSING.cells[at(7, 5)]).toBeUndefined();
+  });
+
+  it('the ford column (col 4) is dry grass straight across the river', () => {
+    for (let row = 0; row < 7; row++) {
+      expect(FORD_CROSSING.cells[at(4, row)]).toMatchObject({ terrain: 'grass' });
+    }
+    // The sand spit flanks the ford at row 4.
+    expect(FORD_CROSSING.cells[at(3, 3)]).toMatchObject({ terrain: 'sand', height: 1 });
+    expect(FORD_CROSSING.cells[at(5, 3)]).toMatchObject({ terrain: 'sand', height: 1 });
+  });
+
+  it('full-width start zones on rows 1 and 7', () => {
+    expect(FORD_CROSSING.startZones[0]).toHaveLength(10);
+    expect(FORD_CROSSING.startZones[1]).toHaveLength(10);
   });
 });
 

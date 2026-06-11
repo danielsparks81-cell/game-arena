@@ -85,34 +85,107 @@ export function rangeDistance(
 export type Occupancy = 'friendly' | 'enemy' | null;
 
 /**
+ * Step movement COST from a cell at height `hFrom` onto an adjacent cell at
+ * height `hTo` (03-movement §3-4 "Movement cost / forced-stop summary"):
+ *   • level or DOWN  → 1 (just the destination space; descent is free of
+ *     extra cost, no matter how far you drop)
+ *   • UP by L levels → 1 + L (each climbed level side costs 1 extra)
+ * Water adds no extra cost beyond any climbed sides; the forced STOP is handled
+ * separately in the search (water is not a free pass-through node).
+ */
+export function stepCost(hFrom: number, hTo: number): number {
+  return 1 + Math.max(0, hTo - hFrom);
+}
+
+/**
+ * Climb LIMIT (03-movement §3): a figure may never rise, in a SINGLE step, a
+ * number of levels ≥ its Height number ("equal to or higher … all at once").
+ * Max legal single-step rise = Height − 1. Equality is illegal. Descending or
+ * level steps are always allowed by this rule.
+ *
+ * slice 4: Flying bypasses this — a flyer counts spaces, not levels, so the
+ * climb limit is moot while flying.
+ */
+export function canStepUp(hFrom: number, hTo: number, cardHeight: number): boolean {
+  const rise = hTo - hFrom;
+  if (rise <= 0) return true;
+  return rise < cardHeight;
+}
+
+/**
  * Every hex a figure may legally END its move on, spending up to `move`
- * spaces at a flat 1 per hex (slice 1 — no climb costs / water stops yet):
- *   • may pass THROUGH friendly figures, never through enemies
- *   • may not END on any occupied hex, friend or foe
- * `occupancyOf` describes every OTHER figure; the caller excludes the mover
- * itself (its own hex is vacated by the move).
+ * movement points under the full slice-3 terrain cost model (03-movement):
+ *   • Step cost = 1 + climbed levels (up); 1 for level/descent (free descent).
+ *   • Climb limit: cannot step up ≥ `cardHeight` levels at once.
+ *   • Water (terrain==='water') is a FORCED STOP — you may END on it, and you
+ *     may pass THROUGH a single water hex to a non-water hex beyond if budget
+ *     remains, but you can never chain water→water as a transit (crossing a
+ *     lake is 1 space per turn). Encoded: a water node only ever continues to
+ *     NON-water neighbors; reaching a water hex always makes it a valid
+ *     endpoint (forced stop).
+ *   • Voids are absent cells (impassable). May pass THROUGH friendly figures,
+ *     never through enemies; may never END on any occupied hex.
+ *
+ * Costs vary per edge, so this is a uniform-cost (Dijkstra) search keyed on the
+ * cheapest cost to reach each hex. Pure; the engine and the board both call it.
+ *
+ * `heightOf`/`cardHeight` are optional: omitting them (slice-1/flat callers)
+ * reads height from the cell record and applies no climb limit, so on an
+ * all-height-1 map every step costs 1 and the result matches the old BFS.
+ *
+ * slice 4: Flying bypasses the climb cost, climb limit, and water stop.
  */
 export function reachableDestinations(
   cells: Record<HexKey, HexCell>,
   from: HexKey,
   move: number,
   occupancyOf: (key: HexKey) => Occupancy,
+  cardHeight = Infinity,
 ): Set<HexKey> {
   const out = new Set<HexKey>();
   if (!cells[from] || move <= 0) return out;
-  const dist = new Map<HexKey, number>([[from, 0]]);
-  const queue: HexKey[] = [from];
-  for (let i = 0; i < queue.length; i++) {
-    const cur = queue[i];
-    const d = dist.get(cur)!;
-    if (d >= move) continue;
+  const heightAt = (key: HexKey) => cells[key]?.height ?? 0;
+  const isWater = (key: HexKey) => cells[key]?.terrain === 'water';
+
+  // Cheapest known movement cost to reach each hex (uniform-cost search).
+  const best = new Map<HexKey, number>([[from, 0]]);
+  // A tiny binary-heap-free frontier: we re-scan since maps are small (<100
+  // hexes) — pop the lowest-cost unsettled node each iteration.
+  const settled = new Set<HexKey>();
+  for (;;) {
+    let cur: HexKey | null = null;
+    let curCost = Infinity;
+    for (const [k, c] of best) {
+      if (!settled.has(k) && c < curCost) {
+        cur = k;
+        curCost = c;
+      }
+    }
+    if (cur == null) break;
+    settled.add(cur);
+    if (curCost >= move) continue; // no budget left to step further from here
+
+    // Water forces a stop: a figure standing on water may only step OFF it to
+    // a non-water hex (never water→water). From any non-water hex, all six
+    // neighbours are candidates.
+    const curIsWater = cur !== from && isWater(cur);
     for (const n of neighborKeys(cur)) {
-      if (!cells[n] || dist.has(n)) continue;
+      if (!cells[n]) continue; // void / off-map
+      if (curIsWater && isWater(n)) continue; // can't transit two waters in a row
       const occ = occupancyOf(n);
       if (occ === 'enemy') continue; // never through (or onto) enemies
-      dist.set(n, d + 1);
-      queue.push(n); // may continue THROUGH a friendly figure
-      if (occ === null) out.add(n); // …but may only END on an empty hex
+      const hFrom = heightAt(cur);
+      const hTo = heightAt(n);
+      if (!canStepUp(hFrom, hTo, cardHeight)) continue; // climb limit
+      const cost = curCost + stepCost(hFrom, hTo);
+      if (cost > move) continue; // no partial climbs — full step must be payable
+      if (cost < (best.get(n) ?? Infinity)) {
+        best.set(n, cost);
+        settled.delete(n); // found a cheaper route — allow re-expansion
+      }
+      // May only END on an empty hex (friend or foe block the endpoint); and
+      // never "end" back on the start hex (staying put is not a move).
+      if (occ === null && n !== from) out.add(n);
     }
   }
   return out;
@@ -211,4 +284,138 @@ export function hasLineOfSight(
     if (segmentCrossesHex(a, b, hexToPixel(key))) return false;
   }
   return true;
+}
+
+/**
+ * Parametric position (0..1) of the foot of the perpendicular from a point `p`
+ * onto the segment a→b — i.e. how far along the line the point projects.
+ */
+function projectParam(a: Pixel, b: Pixel, p: Pixel): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 < 1e-12) return 0;
+  return ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+}
+
+/**
+ * Slice-3 ELEVATION-AWARE line of sight (04-combat §LOS; ARCHITECTURE §7). A
+ * straight line is drawn between the two figures' EYE points; it is blocked
+ * when either:
+ *   • an intervening hex's terrain COLUMN rises into the line — its tile-stack
+ *     height ≥ the interpolated sightline height at that hex AND ≥ both
+ *     endpoints' eye heights (a tall rock between two low figures blocks; equal
+ *     columns see over a low one), or
+ *   • an intervening hex is occupied by another figure (as in the flat slice-2
+ *     model — bodies still block).
+ *
+ * Eye height of a figure = its cell height + 1 (a small constant so a figure on
+ * a taller column sees over a shorter one — `eyeOf` supplies it). This is a
+ * deterministic APPROXIMATION of the tabletop Target-Point→Hit-Zone 3-D line
+ * (documented slice-3 simplification); grazing a corner / sliding an edge stays
+ * non-blocking, and the two directions are computed independently (a figure on
+ * a hill may see into a pit it could not see out of — asymmetry is fine).
+ */
+export function hasLineOfSight3D(
+  cells: Record<HexKey, HexCell>,
+  from: HexKey,
+  to: HexKey,
+  occupiedKeys: Iterable<HexKey>,
+  eyeOf: (key: HexKey) => number,
+): boolean {
+  const a = hexToPixel(from);
+  const b = hexToPixel(to);
+  const eyeFrom = eyeOf(from);
+  const eyeTo = eyeOf(to);
+
+  // Figures block exactly as in the flat model.
+  for (const key of occupiedKeys) {
+    if (key === from || key === to) continue;
+    if (segmentCrossesHex(a, b, hexToPixel(key))) return false;
+  }
+
+  // Terrain columns block when they rise into the interpolated sightline.
+  for (const key in cells) {
+    if (key === from || key === to) continue;
+    const c = hexToPixel(key);
+    if (!segmentCrossesHex(a, b, c)) continue;
+    const colH = cells[key].height;
+    // The line's height directly above this hex's center.
+    const t = Math.max(0, Math.min(1, projectParam(a, b, c)));
+    const lineH = eyeFrom + (eyeTo - eyeFrom) * t;
+    // Block only if the column rises STRICTLY above the sightline at this hex.
+    // A column merely level with the line just grazes the top edge — that does
+    // NOT block (mirrors the grazing-corner leniency of the flat model, and
+    // makes a hill no taller than either viewer transparent: lineH is always
+    // between the two eye heights, so a column ≤ both eyes can never out-top
+    // it). EPS guards against floating-point error at exact equality.
+    if (colH > lineH + 1e-9) return false;
+  }
+  return true;
+}
+
+// ============================================================================
+// Engagement (03-movement §8) + falling (03-movement §4)
+// ============================================================================
+
+/**
+ * Are two figures ENGAGED? (03-movement §8, Example 14.) Engagement is pure
+ * geometry — no token. Two figures are engaged iff they stand on hex-adjacent
+ * cells AND the elevation exception does not break adjacency:
+ *
+ *   adjacency is BROKEN when one figure's base level is ≥ the OTHER figure's
+ *   Height number (Ex. 14: Deathwalker's ledge is 5 levels, equal to Finn's
+ *   Height 5 → NOT adjacent). Equality breaks it.
+ *
+ * So engaged iff: hexAdjacent AND NOT (hHi ≥ heightLo) where hHi is the higher
+ * base level and heightLo is the Height of the figure standing lower. Concretely
+ * the gap must be strictly LESS than the lower figure's Height.
+ *
+ * (The ruin-between exception (§8 exc. 2) needs ruin pieces — out of scope until
+ * ruins exist on a map; documented omission.)
+ */
+export function areEngaged(
+  aKey: HexKey,
+  aHeightStat: number,
+  bKey: HexKey,
+  bHeightStat: number,
+  heightAt: (key: HexKey) => number,
+): boolean {
+  if (aKey === bKey) return false;
+  if (hexDistance(aKey, bKey) !== 1) return false;
+  const ha = heightAt(aKey);
+  const hb = heightAt(bKey);
+  // Whoever stands LOWER — their Height stat gates the elevation exception.
+  const lowerHeightStat = ha <= hb ? aHeightStat : bHeightStat;
+  const gap = Math.abs(ha - hb);
+  return gap < lowerHeightStat;
+}
+
+export type FallTier = 'none' | 'fall' | 'major' | 'extreme';
+
+/**
+ * Falling check (03-movement §4; banded thresholds resolved in
+ * 99-open-questions §4). When a figure ends a step on a cell `drop` levels
+ * BELOW the cell it left, with card Height `cardHeight`:
+ *   • drop ≥ Height            → Fall    (roll 1 combat die; 1 wound/skull)
+ *   • (drop − Height) ≥ 10     → Major   (roll 3 combat dice total)
+ *   • (drop − Height) ≥ 20     → Extreme (roll d20; 19-20 unharmed, else destroyed)
+ * Bands read on drop − Height. `intoWater` exempts the fall entirely (a figure
+ * may drop onto water from any level safely).
+ *
+ * Returns the tier and the number of COMBAT dice the server must roll (0 for
+ * none/extreme — extreme uses a d20 instead, signalled by tier === 'extreme').
+ *
+ * slice 4: Flying bypasses this — a flyer descends, it does not fall.
+ */
+export function computeFall(
+  drop: number,
+  cardHeight: number,
+  intoWater: boolean,
+): { tier: FallTier; dice: number } {
+  if (intoWater || drop < cardHeight) return { tier: 'none', dice: 0 };
+  const over = drop - cardHeight;
+  if (over >= 20) return { tier: 'extreme', dice: 0 };
+  if (over >= 10) return { tier: 'major', dice: 3 };
+  return { tier: 'fall', dice: 1 };
 }

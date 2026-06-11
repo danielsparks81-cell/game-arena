@@ -8,11 +8,16 @@ import {
   hexDistance,
   rangeDistance,
   reachableDestinations,
+  stepCost,
+  canStepUp,
+  areEngaged,
+  computeFall,
   hasLineOfSight,
+  hasLineOfSight3D,
   type Occupancy,
 } from './board';
-import { parseMap, TRAINING_FIELD } from './maps';
-import type { HexKey } from './types';
+import { parseMap, TRAINING_FIELD, THE_KNOLL } from './maps';
+import type { HexKey, HexCell } from './types';
 
 /** offset (col,row) → axial key, for readable test coordinates. */
 const at = (col: number, row: number): HexKey => {
@@ -209,5 +214,242 @@ describe('line of sight (center-to-center, interior crossings block)', () => {
   it('long shots across the Training Field see past out-of-lane figures', () => {
     // Diagonal shot corner to corner with clutter parked far off the line.
     expect(hasLineOfSight(at(0, 0), at(6, 7), [at(0, 7), at(6, 0)])).toBe(true);
+  });
+});
+
+// ===========================================================================
+// Slice 3 — terrain depth
+// ===========================================================================
+
+describe('stepCost / canStepUp (movement cost model)', () => {
+  it('level and descent steps cost 1; climbs cost 1 + levels risen', () => {
+    expect(stepCost(1, 1)).toBe(1); // flat
+    expect(stepCost(4, 1)).toBe(1); // free descent, any depth
+    expect(stepCost(1, 2)).toBe(2); // up 1 level
+    expect(stepCost(1, 3)).toBe(3); // up 2 levels
+    expect(stepCost(2, 4)).toBe(3); // up 2 levels from a height-2 base
+  });
+
+  it('climb limit: cannot rise ≥ Height in one step; up to Height−1 is legal', () => {
+    // Height 4 → may climb 3 levels, never 4+.
+    expect(canStepUp(1, 4, 4)).toBe(true); // rise 3 < 4
+    expect(canStepUp(1, 5, 4)).toBe(false); // rise 4 == Height
+    expect(canStepUp(1, 6, 4)).toBe(false); // rise 5 > Height
+    // Descending / level steps are never limited.
+    expect(canStepUp(5, 1, 1)).toBe(true);
+    expect(canStepUp(2, 2, 1)).toBe(true);
+  });
+});
+
+describe('reachableDestinations with elevation (The Knoll)', () => {
+  const cells = THE_KNOLL.cells;
+  const empty: (k: HexKey) => Occupancy = () => null;
+
+  it('climbing costs 1 + levels risen — budget gates how far up the hill you go', () => {
+    // Knoll row 4 (r=3) runs G1 G2 R3 R4 … west→east; (col,row) and (col+1,row)
+    // are always east-neighbours, so this is a straight adjacent climb chain.
+    const from = at(0, 3); // grass height 1
+    expect(cells[from]).toMatchObject({ height: 1 });
+    expect(cells[at(1, 3)]).toMatchObject({ height: 2 }); // G2, step cost 2
+    expect(cells[at(2, 3)]).toMatchObject({ height: 3 }); // R3, +2 → total 4
+    expect(cells[at(3, 3)]).toMatchObject({ height: 4 }); // R4, +2 → total 6
+    // Move 2: reaches the G2 (cost 2), not the R3 behind it (cost 4).
+    const m2 = reachableDestinations(cells, from, 2, empty, 5);
+    expect(m2.has(at(1, 3))).toBe(true);
+    expect(m2.has(at(2, 3))).toBe(false);
+    // Move 4: just crests onto the R3 (cost 4); the R4 summit (cost 6) is still
+    // out of reach.
+    const m4 = reachableDestinations(cells, from, 4, empty, 5);
+    expect(m4.has(at(2, 3))).toBe(true);
+    expect(m4.has(at(3, 3))).toBe(false);
+  });
+
+  it('descent is free: dropping off the summit costs only the landing space', () => {
+    // From an R4 summit hex (3,3), the adjacent R3 (2,3 is off-summit) costs 1.
+    const summit = at(3, 3);
+    expect(cells[summit]).toMatchObject({ height: 4 });
+    // A Move-1 figure on the summit can still step down to an adjacent R3.
+    const r3Neighbor = neighborKeys(summit).find(
+      k => cells[k] && cells[k].height === 3,
+    )!;
+    const m1 = reachableDestinations(cells, summit, 1, empty, 5);
+    expect(m1.has(r3Neighbor)).toBe(true);
+  });
+
+  it('a Height-4 figure cannot crest a 4-level wall in one step', () => {
+    // Build a 2-hex map: G1 next to R5 (rise 4). A Height-4 figure may not
+    // climb it even with a huge Move budget; a Height-5 figure can.
+    const wall = parseMap('wall', 'Wall', `row1: G1 R5`);
+    const lo = at(0, 0);
+    expect(reachableDestinations(wall.cells, lo, 9, () => null, 4).has(at(1, 0))).toBe(false);
+    expect(reachableDestinations(wall.cells, lo, 9, () => null, 5).has(at(1, 0))).toBe(true);
+  });
+});
+
+describe('reachableDestinations with water (forced stop)', () => {
+  it('entering water ends the move there, but through-water-to-land is allowed', () => {
+    // Land, water, land in a row. From the left land hex:
+    const m = parseMap('cross', 'Cross', `row1: G1 W1 G1 W1 W1`);
+    const start = at(0, 0);
+    const water1 = at(1, 0);
+    const landBeyond = at(2, 0);
+    const water2 = at(3, 0);
+    const water3 = at(4, 0);
+    const dests = reachableDestinations(m.cells, start, 5, () => null, 5);
+    // Water is a valid ENDPOINT (forced stop).
+    expect(dests.has(water1)).toBe(true);
+    // You may pass THROUGH the single water to the land beyond (cost 2).
+    expect(dests.has(landBeyond)).toBe(true);
+    // But you cannot chain water→water: the far waters are only reachable as
+    // forced-stop endpoints adjacent to land, never transited past.
+    expect(dests.has(water2)).toBe(true); // adjacent to landBeyond — endpoint
+    expect(dests.has(water3)).toBe(false); // would require water2→water3 transit
+  });
+
+  it('a Move-1 figure that steps into water simply stops there', () => {
+    const m = parseMap('lake', 'Lake', `row1: G1 W1 W1`);
+    const dests = reachableDestinations(m.cells, at(0, 0), 1, () => null, 5);
+    expect(dests.has(at(1, 0))).toBe(true); // entered water, stopped
+    expect(dests.has(at(2, 0))).toBe(false); // can't reach the second water
+  });
+
+  it('climbing OUT of water onto a higher bank pays the climb cost', () => {
+    // water(1) → bank(3): rise 2 → cost 3. Move 2 can't, Move 3 can.
+    const m = parseMap('bank', 'Bank', `row1: W1 G3`);
+    expect(reachableDestinations(m.cells, at(0, 0), 2, () => null, 5).has(at(1, 0))).toBe(false);
+    expect(reachableDestinations(m.cells, at(0, 0), 3, () => null, 5).has(at(1, 0))).toBe(true);
+  });
+});
+
+describe('reachableDestinations regression (flat map, no extra args)', () => {
+  it('matches the old 1/hex BFS on the all-height-1 Training Field', () => {
+    const cells = TRAINING_FIELD.cells;
+    const dests = reachableDestinations(cells, at(3, 3), 2, () => null);
+    expect(dests.has(at(1, 3))).toBe(true); // distance 2
+    expect(dests.has(at(0, 3))).toBe(false); // distance 3
+    expect(dests.has(at(3, 3))).toBe(false); // staying put isn't a move
+    for (const k of dests) expect(hexDistance(at(3, 3), k)).toBeLessThanOrEqual(2);
+  });
+});
+
+describe('areEngaged (Example 14 elevation boundary)', () => {
+  // A sits on a ledge at (1,0) whose height varies; B on the ground at (0,0).
+  const ledgeAt = (ledge: number) => (k: HexKey) => (k === at(1, 0) ? ledge : 1);
+
+  it('adjacent figures on level ground are engaged', () => {
+    expect(areEngaged(at(0, 0), 5, at(1, 0), 5, () => 1)).toBe(true);
+  });
+
+  it('Example 14: a height gap == the lower figure Height breaks adjacency', () => {
+    // The lower figure is B on the ground (height 1, Height 5). A's ledge sets
+    // the gap. The exception triggers at gap ≥ lower Height (5).
+    expect(areEngaged(at(0, 0), 5, at(1, 0), 5, ledgeAt(6))).toBe(false); // gap 5 ≥ 5
+    expect(areEngaged(at(0, 0), 5, at(1, 0), 5, ledgeAt(5))).toBe(true); // gap 4 < 5
+  });
+
+  it('the LOWER figure Height gates the exception, regardless of argument order', () => {
+    // A high on a height-4 ledge (Height 3); B low on the ground (Height 7).
+    // B is lower → its Height 7 gates: gap 3 < 7 → engaged. The high figure's
+    // own small Height does NOT shrink the engagement window.
+    expect(areEngaged(at(1, 0), 3, at(0, 0), 7, ledgeAt(4))).toBe(true);
+    // Swap who is short: A high (Height 7) on the ledge, B low (Height 3) on
+    // the ground. B lower → Height 3 gates: gap 3 ≥ 3 → not engaged.
+    expect(areEngaged(at(1, 0), 7, at(0, 0), 3, ledgeAt(4))).toBe(false);
+  });
+
+  it('non-adjacent hexes are never engaged', () => {
+    expect(areEngaged(at(0, 0), 5, at(2, 0), 5, () => 1)).toBe(false);
+    expect(areEngaged(at(0, 0), 5, at(0, 0), 5, () => 1)).toBe(false); // same hex
+  });
+});
+
+describe('computeFall (banded thresholds)', () => {
+  it('no fall when the drop is below Height', () => {
+    expect(computeFall(2, 4, false)).toEqual({ tier: 'none', dice: 0 }); // drop 2 < H4
+  });
+
+  it('Fall at drop ≥ Height → 1 die (equality counts)', () => {
+    expect(computeFall(4, 4, false)).toEqual({ tier: 'fall', dice: 1 }); // equal
+    expect(computeFall(5, 4, false)).toEqual({ tier: 'fall', dice: 1 }); // Ex. 8
+  });
+
+  it('Major Fall when drop − Height ≥ 10 → 3 dice', () => {
+    expect(computeFall(14, 4, false)).toEqual({ tier: 'major', dice: 3 }); // over 10
+    expect(computeFall(13, 4, false)).toEqual({ tier: 'fall', dice: 1 }); // over 9 — still plain
+  });
+
+  it('Extreme Fall when drop − Height ≥ 20 → d20 survival (0 combat dice)', () => {
+    expect(computeFall(24, 4, false)).toEqual({ tier: 'extreme', dice: 0 }); // over 20
+    expect(computeFall(23, 4, false)).toEqual({ tier: 'major', dice: 3 }); // over 19
+  });
+
+  it('water exempts the fall from any height', () => {
+    expect(computeFall(25, 4, true)).toEqual({ tier: 'none', dice: 0 });
+  });
+});
+
+describe('hasLineOfSight3D (elevation)', () => {
+  // Three collinear hexes along axial row r=3: A=(0,3) mid=(1,3) B=(2,3) in
+  // axial. Use offset coords for clarity via `at`.
+  const A = at(1, 3); // axial (0,3)
+  const MID = at(2, 3); // axial (1,3)
+  const B = at(3, 3); // axial (2,3)
+  const eye1: (k: HexKey) => number = () => 2; // all figures at cell height 1 → eye 2
+
+  function cellsWith(midHeight: number): Record<HexKey, HexCell> {
+    const mk = (k: HexKey, h: number): HexCell => {
+      const { q, r } = parseHexKey(k);
+      return { q, r, height: h, terrain: 'grass' };
+    };
+    return { [A]: mk(A, 1), [MID]: mk(MID, midHeight), [B]: mk(B, 1) };
+  }
+
+  it('a tall rock column between two low figures blocks', () => {
+    // Both figures on height-1 cells (eye 2); a height-3 column between blocks.
+    const cells = cellsWith(3);
+    expect(hasLineOfSight3D(cells, A, B, [], eye1)).toBe(false);
+  });
+
+  it('a low hill no taller than the viewers does not block', () => {
+    // Column height 2 == eye height of both → does NOT block (see over/along).
+    const cells = cellsWith(2);
+    expect(hasLineOfSight3D(cells, A, B, [], eye1)).toBe(true);
+  });
+
+  it('equal high columns see each other over a low gap', () => {
+    // Both endpoints on height-3 columns (eye 4); a height-2 dip between is
+    // well below the line → clear.
+    const { q: qa, r: ra } = parseHexKey(A);
+    const { q: qb, r: rb } = parseHexKey(B);
+    const { q: qm, r: rm } = parseHexKey(MID);
+    const cells: Record<HexKey, HexCell> = {
+      [A]: { q: qa, r: ra, height: 3, terrain: 'rock' },
+      [MID]: { q: qm, r: rm, height: 2, terrain: 'grass' },
+      [B]: { q: qb, r: rb, height: 3, terrain: 'rock' },
+    };
+    const eyeOf = (k: HexKey) => cells[k].height + 1;
+    expect(hasLineOfSight3D(cells, A, B, [], eyeOf)).toBe(true);
+  });
+
+  it('pit asymmetry: a hill figure sees a pit figure it could not see in reverse', () => {
+    // A stands high (height 5, eye 6); B sits in a pit (height 1, eye 2). A
+    // rim hex (height 3) sits between. From A's high eye the line slopes down
+    // and the rim is below it → clear. (We only assert the high→low direction;
+    // the reverse may legitimately differ — directions are independent.)
+    const { q: qa, r: ra } = parseHexKey(A);
+    const { q: qb, r: rb } = parseHexKey(B);
+    const { q: qm, r: rm } = parseHexKey(MID);
+    const cells: Record<HexKey, HexCell> = {
+      [A]: { q: qa, r: ra, height: 5, terrain: 'rock' },
+      [MID]: { q: qm, r: rm, height: 3, terrain: 'rock' },
+      [B]: { q: qb, r: rb, height: 1, terrain: 'grass' },
+    };
+    const eyeOf = (k: HexKey) => cells[k].height + 1;
+    expect(hasLineOfSight3D(cells, A, B, [], eyeOf)).toBe(true);
+  });
+
+  it('intervening figures still block regardless of terrain', () => {
+    const cells = cellsWith(1); // flat terrain
+    expect(hasLineOfSight3D(cells, A, B, [MID], eye1)).toBe(false);
   });
 });
