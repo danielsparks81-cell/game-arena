@@ -23,6 +23,7 @@ import * as rps from './rps';
 import * as sd  from './spellduel';
 import * as lg  from './legendary';
 import * as hq  from './heroquest';
+import * as hs  from './heroscape';
 
 /** Discoverability tags on each game. A game can carry multiple — they don't
     have to be mutually exclusive. Lobby renders these as filter chips so
@@ -174,6 +175,17 @@ export const GAME_GUIDES: Record<string, GameGuide> = {
       'Combat is resolved with attack and defense dice.',
       'The automated Zargon moves the monsters and springs traps against you.',
       'The heroes win by completing the quest; you lose if all heroes are defeated.',
+    ],
+  },
+  heroscape: {
+    theme: 'A hex-battlefield miniatures skirmish: Viking champions and Marro raiders clash on the Training Field. 2 players, dice-driven combat.',
+    objective: 'Destroy every figure in the enemy army — the last player with figures on the battlefield wins.',
+    rules: [
+      'Each player commands a fixed army of one Champion and a 4-figure squad. A roll-off (most skulls on 6 combat dice) decides who goes first; turns then alternate.',
+      'On your turn, activate ONE of your army cards: move any of its figures up to their Move, then each of them may attack once.',
+      'Figures may pass through friendly figures but never enemies, and can never end on an occupied hex.',
+      'To attack, the target must be within Range and in line of sight. The attacker rolls attack dice (count skulls), the defender rolls defense dice (count shields).',
+      'More skulls than shields destroys the defender outright; ties favor the defender.',
     ],
   },
   yahtzee: {
@@ -656,6 +668,32 @@ export const GAMES: Record<string, GameDef> = {
     getActivePlayerId: (s) => hq.getActivePlayerId(s as hq.HQState),
     getOrderedPlayerIds: (s) => hq.getOrderedPlayerIds(s as hq.HQState),
     computeHistory: (s) => hq.computeHistory(s as hq.HQState),
+  },
+  heroscape: {
+    id: 'heroscape',
+    name: 'HeroScape',
+    description: 'Hex-battlefield skirmish. Vikings vs Marro on the Training Field — move, roll skulls, destroy the enemy army.',
+    minPlayers: 2,
+    maxPlayers: 2,
+    addedOn: '2026-06-10',
+    beta: true,
+    categories: ['strategy', 'dice'],
+    initialState: hs.initialState,
+    createInitialStateForHost: (h) =>
+      hs.createInitialStateForHost({
+        userId: h.userId,
+        username: h.username,
+        accent_color: h.accentColor,
+      }),
+    addPlayer: ((state, playerId, username, seat, accent_color) =>
+      hs.addPlayer(state as hs.HSState, playerId, username, seat, accent_color)
+    ) as GameDef['addPlayer'],
+    removePlayer: ((s, playerId) => hs.removePlayer(s as hs.HSState, playerId)) as GameDef['removePlayer'],
+    // No projectStateForViewer: slice 1 has no hidden information (order
+    // markers — the projection-critical feature — arrive in slice 2).
+    getActivePlayerId: (s) => hs.getActivePlayerId(s as hs.HSState),
+    getOrderedPlayerIds: (s) => hs.getOrderedPlayerIds(s as hs.HSState),
+    computeHistory: (s) => hs.computeHistory(s as hs.HSState),
   },
   yahtzee: {
     id: 'yahtzee',

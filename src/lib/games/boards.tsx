@@ -38,6 +38,7 @@ const RpsBoard             = dynamic(() => import('@/components/RpsBoard'),     
 const SpellduelBoard       = dynamic(() => import('@/components/SpellduelBoard'),       { loading: BoardLoading, ssr: false });
 const LegendaryBoard       = dynamic(() => import('@/components/LegendaryBoard'),       { loading: BoardLoading, ssr: false });
 const HeroQuestBoard       = dynamic(() => import('@/components/HeroQuestBoard'),       { loading: BoardLoading, ssr: false });
+const HeroScapeBoard       = dynamic(() => import('@/components/HeroScapeBoard'),       { loading: BoardLoading, ssr: false });
 
 import type { TTTState } from './tictactoe';
 import type { C4State } from './connect4';
@@ -51,6 +52,7 @@ import type { RPSState, RPSChoice } from './rps';
 import type { SDState, ResolvedTarget as SDResolvedTarget } from './spellduel';
 import type { LegendaryState } from './legendary';
 import type { HQState, HeroClass as HQHeroClass, Coord as HQCoord } from './heroquest';
+import type { HSState, HexKey as HSHexKey } from './heroscape';
 
 import { gameMove } from '@/app/rooms/[id]/actions';
 
@@ -256,6 +258,19 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onSellPotion={(heroSeat, potionId) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'sell_potion', heroSeat, potionId }); })}
       onGiftGold={(fromSeat, toSeat, amount) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'gift_gold', fromSeat, toSeat, amount }); })}
       onIntermissionReady={(ready) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroquest', kind: 'intermission_ready', ready }); })}
+    />
+  ),
+
+  heroscape: ({ roomId, currentUserId, isHost, state, pending, startTransition }) => (
+    <HeroScapeBoard
+      state={state as HSState}
+      currentUserId={currentUserId}
+      isHost={isHost}
+      disabled={pending}
+      onStart={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game' }); })}
+      onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
+      onAttack={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'attack', attackerId, targetId }); })}
+      onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
     />
   ),
 

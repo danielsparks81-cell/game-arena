@@ -80,6 +80,16 @@ import {
   type HeroClass as HQHeroClass,
   type Coord as HQCoord,
 } from '@/lib/games/heroquest';
+import {
+  applyAction as applyActionHS,
+  attackDiceRequirements as hsAttackDiceRequirements,
+  COMBAT_DIE_FACES as HS_COMBAT_DIE_FACES,
+  ROLL_OFF_DICE as HS_ROLL_OFF_DICE,
+  type HSAction,
+  type HSState,
+  type CombatFace as HSCombatFace,
+  type RollOffRound as HSRollOffRound,
+} from '@/lib/games/heroscape';
 
 /**
  * Push a "room changed" event over Supabase Realtime broadcast so every connected client
@@ -708,7 +718,15 @@ export type GameAction =
   | { game: 'heroquest'; kind: 'sell_item'; heroSeat: number; itemId: string }
   | { game: 'heroquest'; kind: 'sell_potion'; heroSeat: number; potionId: string }
   | { game: 'heroquest'; kind: 'gift_gold'; fromSeat: number; toSeat: number; amount: number }
-  | { game: 'heroquest'; kind: 'intermission_ready'; ready: boolean };
+  | { game: 'heroquest'; kind: 'intermission_ready'; ready: boolean }
+
+  // HeroScape — hex-battlefield skirmish (Basic Game slice). The client sends
+  // intent only; makeMoveHS rolls every die server-side (first-turn roll-off,
+  // attack dice, defense dice) and injects the values into the pure engine.
+  | { game: 'heroscape'; kind: 'start_game' }
+  | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
+  | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
+  | { game: 'heroscape'; kind: 'end_turn' };
 
 /**
  * Single entry point for every in-game action. Boards call this through the
@@ -795,6 +813,10 @@ export async function gameMove(roomId: string, action: GameAction): Promise<unkn
       // every wire action to it after stripping the `game` discriminator.
       const { game: _g, ...rest } = action;
       return makeMoveHQ(roomId, rest as HQAction);
+    }
+    case 'heroscape': {
+      const { game: _g, ...rest } = action;
+      return makeMoveHS(roomId, rest as HSWireAction);
     }
   }
   throw new Error(`gameMove: unhandled action ${JSON.stringify(action)}`);
@@ -1113,6 +1135,95 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
     && prev.phase !== 'intermission';
   if (next.phase === 'finished' || freshHeroWin) {
     await recordHistoryIfFinished(supabase, roomId, 'heroquest', next);
+  }
+  await notifyRoom(roomId);
+}
+
+/** HeroScape wire actions — what the board sends. Dice are deliberately NOT
+ *  part of this type: makeMoveHS rolls them server-side and injects them into
+ *  the engine's HSAction so a client can never choose its own dice. */
+type HSWireAction =
+  | { kind: 'start_game' }
+  | { kind: 'move_figure'; figureId: string; to: string }
+  | { kind: 'attack'; attackerId: string; targetId: string }
+  | { kind: 'end_turn' };
+
+/**
+ * Apply a HeroScape action. Server-authoritative: the pure engine validates
+ * turn ownership, the one-card-per-turn lock, movement legality, range, and
+ * line of sight. ALL randomness happens here —
+ *   • start_game: the first-turn roll-off (6 combat dice each, re-roll ties)
+ *   • attack: the attacker's attack dice + the defender's defense dice
+ * — and the values are passed into the engine (Long Shot's rollDiceLS pattern).
+ */
+export async function makeMoveHS(roomId: string, action: HSWireAction) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not signed in');
+
+  const { data: room, error } = await supabase
+    .from('rooms')
+    .select('id, state, status, game_type, host_id')
+    .eq('id', roomId)
+    .single();
+  if (error || !room) throw new Error('Room not found');
+  if (room.game_type !== 'heroscape') throw new Error('Wrong game type');
+
+  if (action.kind === 'start_game') {
+    if (room.host_id !== user.id) throw new Error('Only the host can start the battle');
+  } else if (room.status !== 'playing') {
+    throw new Error('Battle not in progress');
+  }
+
+  const state = (room.state || {}) as HSState;
+  const rollDie = (): HSCombatFace =>
+    HS_COMBAT_DIE_FACES[Math.floor(Math.random() * HS_COMBAT_DIE_FACES.length)];
+  const rollDice = (n: number): HSCombatFace[] => Array.from({ length: n }, rollDie);
+  const countSkulls = (faces: HSCombatFace[]) => faces.filter(f => f === 'skull').length;
+
+  let engineAction: HSAction;
+  if (action.kind === 'start_game') {
+    // First-player roll-off: 6 combat dice each, most skulls goes first,
+    // re-roll ties until broken. Server-rolled, so the random-start invariant
+    // holds (the host gets no built-in first-turn advantage).
+    const rollOffs: HSRollOffRound[] = [];
+    for (let i = 0; i < 100; i++) {
+      const round = { seat0: rollDice(HS_ROLL_OFF_DICE), seat1: rollDice(HS_ROLL_OFF_DICE) };
+      rollOffs.push(round);
+      if (countSkulls(round.seat0) !== countSkulls(round.seat1)) break;
+    }
+    engineAction = { kind: 'start_game', rollOffs };
+  } else if (action.kind === 'attack') {
+    // Roll exactly the printed Attack/Defense dice counts. Unknown figure ids
+    // get empty rolls — the engine then rejects with its own clearer error.
+    const req = hsAttackDiceRequirements(state, action.attackerId, action.targetId);
+    engineAction = {
+      kind: 'attack',
+      attackerId: action.attackerId,
+      targetId: action.targetId,
+      attackRoll: rollDice(req?.attack ?? 0),
+      defenseRoll: rollDice(req?.defense ?? 0),
+    };
+  } else {
+    engineAction = action;
+  }
+
+  const next = applyActionHS(state, user.id, engineAction);
+  if ('error' in next) throw new Error(next.error);
+
+  const updates: { state: HSState; status?: string; rematch_votes?: string[]; abandon_votes?: string[] } = {
+    state: next,
+    abandon_votes: [],
+  };
+  if (action.kind === 'start_game') updates.status = 'playing';
+  if (next.phase === 'finished') {
+    updates.status = 'finished';
+    updates.rematch_votes = [];
+  }
+  await supabase.from('rooms').update(updates).eq('id', roomId);
+
+  if (next.phase === 'finished') {
+    await recordHistoryIfFinished(supabase, roomId, 'heroscape', next);
   }
   await notifyRoom(roomId);
 }
