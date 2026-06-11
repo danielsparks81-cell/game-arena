@@ -24,6 +24,7 @@ import {
   HS_GLYPHS,
   POINT_BUDGETS,
   legalDestinations,
+  grappleDestinations,
   legalTargets,
   placeableHexes,
   figureLabel,
@@ -73,6 +74,7 @@ type Props = {
   onStart: (mapId?: string, pointBudget?: number, mode?: HSMode) => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
+  onGrappleMove: (figureId: string, to: HexKey) => void;
   onAttack: (attackerId: string, targetId: string) => void;
   onBerserkerCharge: () => void;
   onWaterClone: () => void;
@@ -209,11 +211,14 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onPlaceMarkers, onMoveFigure, onAttack,
+  onStart, onPlaceMarkers, onMoveFigure, onGrappleMove, onAttack,
   onBerserkerCharge, onWaterClone, onResolveChoice, onEndTurn,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
+  // the 1-space climb-anywhere set and a hex click routes to grapple_move.
+  const [grappleMode, setGrappleMode] = useState(false);
   // Lobby: the host's chosen battlefield + draft settings (sent with start_game).
   const [lobbyMapId, setLobbyMapId] = useState<string>('training_field');
   const [lobbyMode, setLobbyMode] = useState<HSMode>('draft');
@@ -231,7 +236,12 @@ export default function HeroScapeBoard({
     setPickedMarker('1');
     setSelectedId(null);
     setPlaceFigureId(null);
+    setGrappleMode(false);
   }, [state.round, state.phase]);
+  // Drop Grapple-Gun mode whenever the selection changes (it is per-figure).
+  useEffect(() => {
+    setGrappleMode(false);
+  }, [selectedId, state.turnNumber, state.turnSeat]);
 
   const map = MAPS[state.mapId];
   const me = state.players.find(p => p.playerId === currentUserId);
@@ -299,9 +309,26 @@ export default function HeroScapeBoard({
 
   // Engine-derived legality for the selected figure (empty when not my figure
   // or it has already moved/attacked — the engine helpers encode all of that).
-  const destinations = useMemo(
-    () => (canAct && selected ? legalDestinations(state, selected.id) : new Set<HexKey>()),
+  // slice 7: the Grapple Gun's 1-space climb-anywhere set (Drake only; empty for
+  // any other figure or once he has moved) — the single-source engine helper, so
+  // the highlight matches what grapple_move will accept.
+  const grappleHexes = useMemo(
+    () => (canAct && selected ? grappleDestinations(state, selected.id) : new Set<HexKey>()),
     [state, selected, canAct],
+  );
+  // Drake's Grapple Gun is offered only when there is at least one legal 1-space
+  // climb target (and he hasn't moved — grappleDestinations encodes both).
+  const canGrapple = grappleHexes.size > 0;
+  // While Grapple-Gun mode is on, the move highlights ARE the grapple set; the
+  // hex click routes to grapple_move instead of move_figure.
+  const destinations = useMemo(
+    () =>
+      canAct && selected
+        ? grappleMode
+          ? grappleHexes
+          : legalDestinations(state, selected.id)
+        : new Set<HexKey>(),
+    [state, selected, canAct, grappleMode, grappleHexes],
   );
   const targets = useMemo(
     () => (canAct && selected ? new Set(legalTargets(state, selected.id)) : new Set<string>()),
@@ -389,7 +416,13 @@ export default function HeroScapeBoard({
       if (!(attackerCardId === 'syvarris' && state.turnAttacks.length === 0)) setSelectedId(null);
       return;
     }
-    if (!fig && selected && destinations.has(key)) { onMoveFigure(selected.id, key); return; }
+    if (!fig && selected && destinations.has(key)) {
+      // slice 7: in Grapple-Gun mode the destination set IS the grapple set, so
+      // route the click to grapple_move; otherwise it's a normal move.
+      if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); }
+      else onMoveFigure(selected.id, key);
+      return;
+    }
   }
 
   // Army roster panel data: cards with surviving figures, wounds, markers.
@@ -833,8 +866,19 @@ export default function HeroScapeBoard({
                 ? `${state.lastAttack.targetLabel} is destroyed!`
                 : state.lastAttack.wounds > 0
                   ? `${state.lastAttack.wounds} wound${state.lastAttack.wounds === 1 ? '' : 's'} inflicted.`
-                  : 'Attack blocked.'}
+                  // slice 7: Stealth Dodge — one shield blocked ALL damage from a
+                  // non-adjacent attacker (skulls beat shields, yet 0 wounds).
+                  : state.lastAttack.skulls > state.lastAttack.shields
+                    ? 'Stealth Dodge — all damage blocked!'
+                    : 'Attack blocked.'}
             </div>
+            {/* slice 7: Counter Strike — the Izumi reflected excess shields back
+                onto the attacker as unblockable wounds. */}
+            {state.lastAttack.counterWounds != null && state.lastAttack.counterWounds > 0 && (
+              <div className="mt-1 font-semibold text-fuchsia-300">
+                ⚔ Counter Strike — {state.lastAttack.targetLabel} reflects {state.lastAttack.counterWounds} wound{state.lastAttack.counterWounds === 1 ? '' : 's'} onto {state.lastAttack.attackerLabel}!
+              </div>
+            )}
           </div>
         )}
 
@@ -859,6 +903,25 @@ export default function HeroScapeBoard({
             className="rounded-lg border-2 border-cyan-600 px-4 py-2 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-900/40 disabled:opacity-40"
           >
             🌊 Water Clone (instead of attacking)
+          </button>
+        )}
+        {/* slice 7: Sgt. Drake GRAPPLE GUN toggle — shown when Drake is selected
+            and has not moved. Flips his highlights to the 1-space climb-anywhere
+            set; a hex click then routes to grapple_move (replacing the normal
+            move). Toggle off to return to his ordinary movement. */}
+        {canAct && canGrapple && (
+          <button
+            onClick={() => setGrappleMode(m => !m)}
+            disabled={disabled}
+            title="Instead of Drake's normal move, fire the Grapple Gun: move exactly ONE space that may be up to 25 levels higher (climb a cliff he couldn't otherwise)."
+            className={
+              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
+              (grappleMode
+                ? 'border-lime-400 bg-lime-900/40 text-lime-200'
+                : 'border-lime-600 text-lime-300 hover:bg-lime-900/30')
+            }
+          >
+            🪝 Grapple Gun {grappleMode ? '— pick a hex (1 space, climb anywhere)' : '(climb anywhere, 1 space)'}
           </button>
         )}
         {/* slice 6: Double Attack hint — Syvarris may take one more attack. No
@@ -1145,7 +1208,14 @@ export default function HeroScapeBoard({
         {myTurn && (
           <div className="text-center text-[11px] text-neutral-500">
             {selected
-              ? `${figureLabel(state, selected)} — click a highlighted hex to move, a marked enemy to attack, or another of your figures.`
+              ? (() => {
+                  // slice 7: a small flyer / ghost-walk hint on the selected figure.
+                  const def = HS_CARDS[state.cards.find(c => c.uid === selected.cardUid)?.cardId ?? ''];
+                  const tag = def?.flying ? '✈ Flying — ' : def?.ghostWalk ? '👻 Ghost Walk — ' : '';
+                  return grappleMode
+                    ? `🪝 Grapple Gun armed — click an adjacent hex (up to 25 levels higher) to grapple there.`
+                    : `${tag}${figureLabel(state, selected)} — click a highlighted hex to move, a marked enemy to attack, or another of your figures.`;
+                })()
               : `Order marker ${state.turnNumber} is revealed — only ${activeCardDef?.name ?? 'that card'}'s figures act this turn.`}
           </div>
         )}

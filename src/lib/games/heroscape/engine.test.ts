@@ -10,6 +10,7 @@ import {
   getActiveCardUid,
   projectStateForViewer,
   legalDestinations,
+  grappleDestinations,
   legalTargets,
   attackDiceRequirements,
   heightAdvantage,
@@ -2563,19 +2564,37 @@ describe('slice 5: full 16-card roster', () => {
     expect(HS_CARDS.agent_carr).toMatchObject({ range: 6, attack: 2, defense: 4, points: 100 });
   });
 
-  it('power flags: slice-4 + slice-6 cards are live; the 6 complex powers stay wip', () => {
-    // slice 4 (Finn/Thorgrim/Tarn/Marro) + slice 6 (Raelin/Deathwalker/Agent
-    // Carr/Grimnak/Zettian/Syvarris) = 10 live; the remaining 6 (Airborne, Drake,
-    // Ne-Gok-Sa, Mimring, Krav Maga, Izumi) stay wip for slice 7.
+  it('power flags: slice-4/6/7 cards are live; only the 3 slice-8 powers stay wip', () => {
+    // slice 4 + slice 6 (10 cards) + slice 7 (Drake/Krav Maga/Izumi go live; Raelin
+    // & Agent Carr were already live) = 13 live. The remaining 3 (Airborne Elite,
+    // Mimring, Ne-Gok-Sa — each needs a slice-8 special attack / placement /
+    // control power) stay wip. Mimring's Flying is live even though its card is
+    // wip for the Fire Line Special Attack.
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
-      'agent_carr', 'deathwalker_9000', 'finn', 'grimnak', 'marro_warriors',
-      'raelin', 'syvarris', 'tarn_vikings', 'thorgrim', 'zettian_guards',
+      'agent_carr', 'deathwalker_9000', 'drake', 'finn', 'grimnak', 'izumi_samurai',
+      'krav_maga', 'marro_warriors', 'raelin', 'syvarris', 'tarn_vikings', 'thorgrim',
+      'zettian_guards',
     ]);
     const wip = Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort();
-    expect(wip).toEqual([
-      'airborne_elite', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'ne_gok_sa',
-    ]);
+    expect(wip).toEqual(['airborne_elite', 'mimring', 'ne_gok_sa']);
+  });
+
+  it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {
+    expect(HS_CARDS.raelin.flying).toBe(true);
+    expect(HS_CARDS.mimring.flying).toBe(true);
+    expect(HS_CARDS.agent_carr.ghostWalk).toBe(true);
+    expect(HS_CARDS.agent_carr.disengage).toBe(true);
+    expect(HS_CARDS.drake.thorianSpeed).toBe(true);
+    expect(HS_CARDS.drake.grappleGun).toBe(25);
+    expect(HS_CARDS.krav_maga.stealthDodge).toBe(true);
+    expect(HS_CARDS.izumi_samurai.counterStrike).toBe(true);
+    // No OTHER card carries a slice-7 flag (so the powers can't fire on a card
+    // they don't belong to).
+    const flagged = Object.values(HS_CARDS).filter(
+      c => c.flying || c.ghostWalk || c.disengage || c.thorianSpeed || c.stealthDodge || c.counterStrike || c.grappleGun,
+    ).map(c => c.id).sort();
+    expect(flagged).toEqual(['agent_carr', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'raelin']);
   });
 
   it('a wip card fights with its printed stats (no power handler)', () => {
@@ -3154,6 +3173,470 @@ describe('slice 6: single-source + projection + history', () => {
     s = place(s, 's1-thorgrim-1', at(0, 7));
     expect(computeHistory(s)).toBeNull();
     s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: 's1-finn-1', attackRoll: F('kbb'), defenseRoll: F('ssss') }));
+    expect(computeHistory(s)).toBeNull(); // mid-game — still null
+  });
+});
+
+// ===========================================================================
+// SLICE 7 — movement & defense special powers (cards.md exact text)
+// ===========================================================================
+
+// A purpose-built FLYING map (7×6): a 3-wide R5 cliff wall (a true "4-tier"
+// cliff over the grass) backed by a TWO-DEEP, FULL-WIDTH water moat — the only
+// way from the north bank (rows 1-2) to the south bank (row 6) is OVER the cliff
+// and water, which only a flyer can do. The moat spans every column AND is two
+// hexes deep, so a non-flyer can step onto the first water row (forced stop) but
+// can NEVER cross to the south (water→water transit is illegal), and it cannot
+// land on the R5 wall (a Height-4 figure's climb limit). No detour exists.
+// Registered for the test process only; production maps are untouched.
+const FLY_MAP_ID = 'test_flying_field';
+// A NECK corridor (7×5) whose middle row is a SINGLE hex (col 3) — the only
+// passage between the north half (rows 1-2) and the south half (rows 4-5). An
+// enemy parked on the neck blocks ALL north↔south movement for a normal figure
+// (no detour exists), so it isolates Ghost Walk's pass-through-enemies clause.
+// The 7-wide outer rows satisfy the quick-battle auto-placement.
+const GHOST_MAP_ID = 'test_ghost_neck';
+beforeAll(() => {
+  MAPS[FLY_MAP_ID] = parseMap(
+    FLY_MAP_ID,
+    'Test Flying Field',
+    `
+    row1@1: G1 G1 G1 G1 G1 G1 G1
+    row2:   G1 G1 R5 R5 R5 G1 G1
+    row3:   W1 W1 W1 W1 W1 W1 W1
+    row4:   W1 W1 W1 W1 W1 W1 W1
+    row5@2: G1 G1 G1 G1 G1 G1 G1
+    row6@2: G1 G1 G1 G1 G1 G1 G1
+    `,
+  );
+  MAPS[GHOST_MAP_ID] = parseMap(
+    GHOST_MAP_ID,
+    'Test Ghost Neck',
+    `
+    row1@1: G1 G1 G1 G1 G1 G1 G1
+    row2:   G1 G1 G1 G1 G1 G1 G1
+    row3:   .  .  .  G1 .  .  .
+    row4@2: G1 G1 G1 G1 G1 G1 G1
+    row5@2: G1 G1 G1 G1 G1 G1 G1
+    `,
+  );
+});
+
+describe('slice 7: Flying (Raelin / Mimring)', () => {
+  const RAELIN = 's0-raelin-1';
+  const MARRO1 = 's1-marro_warriors-1';
+
+  // Raelin (flyer, Move 6) vs a single Marro (non-flyer, Height 4, Move 6),
+  // both on the north bank directly below the R5 cliff wall (col 3). Column-3
+  // chain north→south: (3,1)=R5 wall, (3,2)/(3,3)=W1 moat (2 deep), (3,4)=south.
+  function lane(): HSState {
+    let s = customBattle(['raelin'], ['marro_warriors'], 'p1', FLY_MAP_ID);
+    s = clearExcept(s, RAELIN, MARRO1);
+    s = place(s, RAELIN, at(3, 0)); // north grass, below the R5 wall
+    s = place(s, MARRO1, at(1, 0)); // a far north-grass corner (out of the way)
+    return s;
+  }
+
+  it('a flyer crosses a 4-tier cliff AND the water moat in one move; a non-flyer cannot', () => {
+    const s = lane();
+    const air = legalDestinations(s, RAELIN);
+    // Flying IGNORES elevation: Raelin may LAND ON the R5 cliff wall (a 4-tier
+    // rise no Height-4 figure could climb) and FLY OVER it + the 2-deep water to
+    // the south grass — all flat 1/hex.
+    expect(air.has(at(3, 1))).toBe(true); // the R5 wall top (elevation ignored)
+    expect(air.has(at(3, 4))).toBe(true); // south grass, across cliff + moat
+    // The same Marro, on the same north hex (its seat made active), is blocked at
+    // BOTH: it cannot land on the R5 wall (rise 4 == Height 4 climb limit) and
+    // the 2-deep full-width moat stops it — it can never reach the south bank.
+    let m = customBattle(['raelin'], ['marro_warriors'], 'p2', FLY_MAP_ID);
+    m = clearExcept(m, RAELIN, MARRO1);
+    m = place(m, MARRO1, at(3, 0)); // where Raelin stood
+    m = place(m, RAELIN, at(6, 0)); // Raelin out of the way
+    const ground = legalDestinations(m, MARRO1);
+    expect(ground.has(at(3, 1))).toBe(false); // climb limit blocks the R5 wall
+    expect(ground.has(at(3, 4))).toBe(false); // the 2-deep moat blocks the south bank
+    // The non-flyer CAN end ON the water (a forced-stop endpoint), proving the
+    // moat is what stops it — not a void.
+    expect([...ground].some(k => MAPS[FLY_MAP_ID].cells[k].terrain === 'water')).toBe(true);
+  });
+
+  it('a flyer passes OVER an enemy figure without becoming engaged', () => {
+    // Park an enemy Marro on the R5 wall directly in Raelin's column. A flyer
+    // passes through any figure; she still reaches the south grass beyond.
+    let s = lane();
+    s = place(s, MARRO1, at(3, 1)); // enemy squarely on Raelin's flight column
+    const air = legalDestinations(s, RAELIN);
+    expect(air.has(at(3, 4))).toBe(true); // flew over the enemy + moat to the far grass
+    expect(air.has(at(3, 1))).toBe(false); // …but cannot LAND on the occupied wall
+  });
+
+  it('a flyer takes NO fall stepping down a cliff a non-flyer would fall off', () => {
+    // On Test Cliffs, the R25 pillar (4,1) towers 24 over the grass beside it —
+    // an EXTREME fall for a non-flyer. A flyer descends without falling.
+    let s = customBattle(['raelin'], ['marro_warriors'], 'p1', CLIFF_MAP_ID);
+    s = clearExcept(s, RAELIN, MARRO1);
+    s = place(s, RAELIN, at(4, 1)); // atop the R25 pillar
+    s = place(s, MARRO1, at(6, 6)); // far corner, never engaged
+    const to = at(5, 1); // grass beside the pillar (a 24-level drop)
+    const cons = moveConsequences(s, fig(s, RAELIN), to);
+    expect(cons).toMatchObject({ tier: 'none', fallDice: 0 }); // flyer never falls
+    // The move needs NO fall dice and lands cleanly.
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: RAELIN, to }));
+    expect(fig(moved, RAELIN).at).toBe(to);
+    expect(fig(moved, RAELIN).wounds).toBe(0);
+  });
+
+  it('a takeoff while ENGAGED still draws the leaving-engagement swipe', () => {
+    // Flying does NOT exempt the takeoff swipe (cards.md): if engaged when she
+    // starts to fly, Raelin takes any leaving-engagement attacks. Stage Raelin
+    // adjacent to an enemy on flat grass, then fly away out of adjacency.
+    let s = customBattle(['raelin'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, RAELIN, MARRO1);
+    s = place(s, RAELIN, at(3, 3));
+    s = place(s, MARRO1, at(3, 2)); // adjacent → engaged at takeoff
+    const dest = at(3, 5); // 2 spaces away, no longer adjacent to the Marro
+    const cons = moveConsequences(s, fig(s, RAELIN), dest);
+    expect(cons.abandonedEnemyIds).toEqual([MARRO1]); // the swipe is still due
+    // The engine demands exactly that swipe roll (server-rolled).
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_figure', figureId: RAELIN, to: dest }))).toMatch(
+      /do not match the abandoned enemies/,
+    );
+    const moved = unwrap(
+      applyAction(s, 'p1', {
+        kind: 'move_figure',
+        figureId: RAELIN,
+        to: dest,
+        leaveRolls: [{ enemyFigureId: MARRO1, roll: 'blank' }],
+      }),
+    );
+    expect(fig(moved, RAELIN).at).toBe(dest);
+  });
+});
+
+describe('slice 7: Ghost Walk (Agent Carr)', () => {
+  const CARR = 's0-agent_carr-1';
+  const MARRO1 = 's1-marro_warriors-1';
+
+  it('Agent Carr moves THROUGH an enemy figure; a non-ghost cannot path past it', () => {
+    // The NECK map: an enemy on the single neck hex (3,3) is the only way between
+    // north and south. Carr (Move 5) passes through the enemy to the south hex
+    // beyond — a route no non-ghost has (no detour exists).
+    let s = customBattle(['agent_carr'], ['marro_warriors'], 'p1', GHOST_MAP_ID);
+    s = clearExcept(s, CARR, MARRO1);
+    s = place(s, CARR, at(3, 1)); // north half, above the neck
+    s = place(s, MARRO1, at(3, 2)); // enemy ON the neck (the only crossing)
+    const dests = legalDestinations(s, CARR);
+    expect(dests.has(at(3, 3))).toBe(true); // ghost-walked through the neck enemy
+    expect(dests.has(at(3, 2))).toBe(false); // …but cannot END on the enemy's hex
+    // Contrast: a non-ghost Marro from the same north hex, with the same enemy on
+    // the neck, is walled off — the south half is unreachable.
+    let g = customBattle(['marro_warriors'], ['agent_carr', 'finn'], 'p1', GHOST_MAP_ID);
+    const BLOCKER = 's1-agent_carr-1';
+    g = clearExcept(g, 's0-marro_warriors-1', BLOCKER, 's1-finn-1');
+    g = place(g, 's0-marro_warriors-1', at(3, 1));
+    g = place(g, BLOCKER, at(3, 2)); // enemy on the neck blocks the Marro
+    g = place(g, 's1-finn-1', at(0, 0)); // keep p2 alive elsewhere
+    expect(legalDestinations(g, 's0-marro_warriors-1').has(at(3, 3))).toBe(false); // no ghost walk
+  });
+
+  it('Ghost Walk still pays climb cost and still cannot end on an occupied hex', () => {
+    // On The Knoll, Ghost Walk does NOT ignore elevation: Carr (Move 5) on grass
+    // at (0,3) pays the normal climb chain G1→G2(2)→R3(4) and cannot crest the
+    // R4 summit (cost 6) — exactly like any non-flyer.
+    let s = customBattle(['agent_carr'], ['marro_warriors'], 'p1', 'the_knoll');
+    s = clearExcept(s, CARR, MARRO1);
+    s = place(s, CARR, at(0, 3));
+    s = place(s, MARRO1, at(8, 4)); // far away
+    const dests = legalDestinations(s, CARR);
+    expect(dests.has(at(2, 3))).toBe(true); // R3, cost 4 — reachable
+    expect(dests.has(at(3, 3))).toBe(false); // R4 summit, cost 6 > Move 5 (climb cost still applies)
+  });
+
+  it('Agent Carr leaving an engagement draws ZERO swipes (Disengage)', () => {
+    // DISENGAGE: "never attacked when leaving an engagement." Carr walks out of a
+    // two-enemy engagement and takes no swipe at all — unconditional.
+    let s = customBattle(['agent_carr'], ['marro_warriors'], 'p1', 'training_field');
+    const MARRO2 = 's1-marro_warriors-2';
+    s = clearExcept(s, CARR, MARRO1, MARRO2);
+    s = place(s, CARR, at(3, 3));
+    s = place(s, MARRO1, at(3, 2)); // adjacent → engaged
+    s = place(s, MARRO2, at(2, 3)); // adjacent → engaged
+    const dest = at(4, 3); // adjacent to NEITHER Marro
+    const cons = moveConsequences(s, fig(s, CARR), dest);
+    expect(cons.abandonedEnemyIds).toEqual([]); // Disengage suppresses all swipes
+    // The move needs no leaveRolls and succeeds unharmed.
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: CARR, to: dest }));
+    expect(fig(moved, CARR).at).toBe(dest);
+    expect(fig(moved, CARR).wounds).toBe(0);
+  });
+});
+
+describe('slice 7: Thorian Speed (Sgt. Drake)', () => {
+  const DRAKE = 's1-drake-1';
+  const MARRO1 = 's0-marro_warriors-1';
+
+  it('a NON-adjacent normal attacker cannot target Drake; an ADJACENT one can', () => {
+    // Marro (Range 6) shoots at Drake. Two spaces away (a normal ranged attack)
+    // Thorian Speed blocks it — Drake cannot be shot at range by a normal attack.
+    let s = customBattle(['marro_warriors'], ['drake'], 'p1', 'training_field');
+    s = clearExcept(s, MARRO1, DRAKE);
+    s = place(s, MARRO1, at(3, 3));
+    s = place(s, DRAKE, at(3, 5)); // 2 spaces — in Range 6 but NOT adjacent
+    expect(legalTargets(s, MARRO1)).not.toContain(DRAKE); // no targeting ring
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: MARRO1, targetId: DRAKE, attackRoll: F('kk'), defenseRoll: F('sss') })),
+    ).toMatch(/Thorian Speed/);
+    // Adjacent, the same normal attack is allowed.
+    let adj = customBattle(['marro_warriors'], ['drake'], 'p1', 'training_field');
+    adj = clearExcept(adj, MARRO1, DRAKE);
+    adj = place(adj, MARRO1, at(3, 3));
+    adj = place(adj, DRAKE, at(3, 4)); // adjacent
+    expect(legalTargets(adj, MARRO1)).toContain(DRAKE);
+    const hit = unwrap(applyAction(adj, 'p1', { kind: 'attack', attackerId: MARRO1, targetId: DRAKE, attackRoll: F('kk'), defenseRoll: F('sss') }));
+    expect(hit.lastAttack!.targetId).toBe(DRAKE);
+  });
+
+  it('Thorian Speed does not protect a NON-Drake figure from ranged normal attacks', () => {
+    // Sanity: the clause is data-driven on the target's flag — a plain Finn at
+    // range is still a legal target.
+    let s = customBattle(['marro_warriors'], ['finn'], 'p1', 'training_field');
+    s = clearExcept(s, MARRO1, 's1-finn-1');
+    s = place(s, MARRO1, at(3, 3));
+    s = place(s, 's1-finn-1', at(3, 5)); // 2 spaces, in Range 6
+    expect(legalTargets(s, MARRO1)).toContain('s1-finn-1');
+  });
+});
+
+describe('slice 7: Grapple Gun 25 (Sgt. Drake)', () => {
+  const DRAKE = 's0-drake-1';
+  const MARRO1 = 's1-marro_warriors-1';
+
+  it('Drake grapples up a cliff taller than his Height in one space (climb waived ≤ 25)', () => {
+    // Test Cliffs: the R15 pillar (2,1) rises 14 over the grass beside it (3,1) —
+    // far above Drake's Height 5. A normal move can't scale it; the Grapple Gun
+    // (≤ 25 levels) can, exactly one space.
+    let s = customBattle(['drake'], ['marro_warriors'], 'p1', CLIFF_MAP_ID);
+    s = clearExcept(s, DRAKE, MARRO1);
+    s = place(s, DRAKE, at(3, 1)); // grass beside the R15 pillar
+    s = place(s, MARRO1, at(6, 6)); // far corner
+    const top = at(2, 1); // the R15 pillar top (rise 14)
+    // A NORMAL move can't reach it (climb limit).
+    expect(legalDestinations(s, DRAKE).has(top)).toBe(false);
+    // The Grapple Gun set DOES include it (one space, rise 14 ≤ 25).
+    expect(grappleDestinations(s, DRAKE).has(top)).toBe(true);
+    const up = unwrap(applyAction(s, 'p1', { kind: 'grapple_move', figureId: DRAKE, to: top }));
+    expect(fig(up, DRAKE).at).toBe(top);
+    expect(up.log.some(e => e.tag === 'move' && /grapples to/.test(e.text))).toBe(true);
+  });
+
+  it('the Grapple Gun moves EXACTLY one space (no two-space hops)', () => {
+    let s = customBattle(['drake'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, DRAKE, MARRO1);
+    s = place(s, DRAKE, at(3, 3));
+    s = place(s, MARRO1, at(0, 7));
+    // One space is fine.
+    expect(grappleDestinations(s, DRAKE).has(at(3, 4))).toBe(true);
+    // Two spaces is not in the set, and the engine rejects it.
+    expect(grappleDestinations(s, DRAKE).has(at(3, 5))).toBe(false);
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'grapple_move', figureId: DRAKE, to: at(3, 5) })),
+    ).toMatch(/exactly one space/);
+  });
+
+  it('the Grapple Gun REPLACES the normal move (and vice-versa)', () => {
+    let s = customBattle(['drake'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, DRAKE, MARRO1);
+    s = place(s, DRAKE, at(3, 3));
+    s = place(s, MARRO1, at(0, 7));
+    // Grapple first → a normal move afterwards is rejected (already moved).
+    const g = unwrap(applyAction(s, 'p1', { kind: 'grapple_move', figureId: DRAKE, to: at(3, 4) }));
+    expect(errOf(applyAction(g, 'p1', { kind: 'move_figure', figureId: DRAKE, to: at(3, 5) }))).toMatch(
+      /already moved/,
+    );
+    // Normal move first → a grapple afterwards is rejected too.
+    const m = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: DRAKE, to: at(3, 4) }));
+    expect(errOf(applyAction(m, 'p1', { kind: 'grapple_move', figureId: DRAKE, to: at(3, 5) }))).toMatch(
+      /already moved/,
+    );
+  });
+
+  it('only Drake may Grapple Gun; engagement swipes still apply to his grapple', () => {
+    // A non-Drake figure is refused.
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, 's0-finn-1', MARRO1);
+    s = place(s, 's0-finn-1', at(3, 3));
+    s = place(s, MARRO1, at(0, 7));
+    expect(
+      errOf(applyAction(s, 'p1', { kind: 'grapple_move', figureId: 's0-finn-1', to: at(3, 4) })),
+    ).toMatch(/Only Sgt. Drake/);
+    // Drake grappling OUT of an engagement still draws the swipe (engagement
+    // rules apply): Drake adjacent to an enemy, grapple ONE space to (4,3) which
+    // is no longer adjacent to the Marro at (3,2) (same geometry the slice-3
+    // swipe test uses for the abandoned-enemy check).
+    let e = customBattle(['drake'], ['marro_warriors'], 'p1', 'training_field');
+    e = clearExcept(e, DRAKE, MARRO1);
+    e = place(e, DRAKE, at(3, 3));
+    e = place(e, MARRO1, at(3, 2)); // adjacent → engaged
+    const dest = at(4, 3); // one space east, no longer adjacent to the Marro
+    const cons = moveConsequences(e, fig(e, DRAKE), dest);
+    expect(cons.abandonedEnemyIds).toEqual([MARRO1]); // the swipe is due
+    // The grapple needs exactly that swipe roll (server-rolled).
+    expect(
+      errOf(applyAction(e, 'p1', { kind: 'grapple_move', figureId: DRAKE, to: dest })),
+    ).toMatch(/do not match the abandoned enemies/);
+    const grappled = unwrap(
+      applyAction(e, 'p1', {
+        kind: 'grapple_move',
+        figureId: DRAKE,
+        to: dest,
+        leaveRolls: [{ enemyFigureId: MARRO1, roll: 'blank' }],
+      }),
+    );
+    expect(fig(grappled, DRAKE).at).toBe(dest);
+  });
+});
+
+describe('slice 7: Stealth Dodge (Krav Maga Agents)', () => {
+  const KRAV1 = 's1-krav_maga-1';
+  const SYV = 's0-syvarris-1';
+  const FINN = 's0-finn-1';
+
+  it('a Krav Maga Agent takes 0 damage from a NON-adjacent attacker on ≥1 shield', () => {
+    // Syvarris (Range 9) shoots a Krav Maga Agent from 3 spaces away. With one
+    // shield rolled, Stealth Dodge blocks ALL damage even against 3 skulls.
+    let s = customBattle(['syvarris'], ['krav_maga'], 'p1', 'training_field');
+    s = clearExcept(s, SYV, KRAV1);
+    s = place(s, SYV, at(3, 3));
+    s = place(s, KRAV1, at(3, 6)); // 3 spaces — non-adjacent ranged attack
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: KRAV1, attackRoll: F('kkk'), defenseRoll: F('sbb') }));
+    expect(fig(hit, KRAV1).wounds).toBe(0); // one shield negates all 3 skulls
+    expect(fig(hit, KRAV1).at).toBe(at(3, 6)); // survives (Life 1)
+    expect(hit.lastAttack).toMatchObject({ skulls: 3, shields: 1, wounds: 0, destroyed: false });
+    expect(hit.log.some(e => /Stealth Dodge/.test(e.text))).toBe(true);
+  });
+
+  it('zero shields means Stealth Dodge does NOT fire — the Agent still takes wounds', () => {
+    let s = customBattle(['syvarris'], ['krav_maga'], 'p1', 'training_field');
+    s = clearExcept(s, SYV, KRAV1);
+    s = place(s, SYV, at(3, 3));
+    s = place(s, KRAV1, at(3, 6));
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: KRAV1, attackRoll: F('kbb'), defenseRoll: F('bbb') }));
+    expect(fig(hit, KRAV1).at).toBeNull(); // 1 skull, 0 shields → Life-1 dies (no dodge)
+  });
+
+  it('an ADJACENT attacker is resolved normally (Stealth Dodge only vs non-adjacent)', () => {
+    // Finn (melee) adjacent to a Krav Maga Agent. One shield does NOT block all —
+    // 3 skulls vs 1 shield = 2 wounds, which kills the Life-1 Agent.
+    let s = customBattle(['finn'], ['krav_maga'], 'p1', 'training_field');
+    s = clearExcept(s, FINN, KRAV1);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, KRAV1, at(3, 4)); // adjacent
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: KRAV1, attackRoll: F('kkk'), defenseRoll: F('sbb') }));
+    expect(fig(hit, KRAV1).at).toBeNull(); // resolved normally → destroyed
+    expect(hit.lastAttack).toMatchObject({ skulls: 3, shields: 1, destroyed: true });
+    expect(hit.log.some(e => /Stealth Dodge/.test(e.text))).toBe(false);
+  });
+});
+
+describe('slice 7: Counter Strike (Izumi Samurai)', () => {
+  const IZUMI1 = 's1-izumi_samurai-1';
+  const FINN = 's0-finn-1';
+
+  it('Izumi reflects (shields − skulls) unblockable wounds onto an adjacent normal attacker', () => {
+    // Finn (Life 4, Attack 3) attacks an adjacent Izumi (Defense 5) and rolls 1
+    // skull; Izumi rolls 4 shields (of its 5 dice) → 4 − 1 = 3 excess → 3
+    // unblockable wounds onto Finn (who survives at 3/4). Izumi takes 0.
+    let s = customBattle(['finn'], ['izumi_samurai'], 'p1', 'training_field');
+    s = clearExcept(s, FINN, IZUMI1);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, IZUMI1, at(3, 4)); // adjacent
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: IZUMI1, attackRoll: F('kbb'), defenseRoll: F('ssssb') }));
+    expect(fig(hit, IZUMI1).wounds).toBe(0); // defender unharmed (shields > skulls)
+    expect(fig(hit, FINN).wounds).toBe(3); // 4 shields − 1 skull = 3 reflected
+    expect(fig(hit, FINN).at).toBe(at(3, 3)); // survives (Life 4)
+    expect(hit.lastAttack!.counterWounds).toBe(3);
+    expect(hit.log.some(e => /Counter Strike/.test(e.text))).toBe(true);
+  });
+
+  it('Counter Strike can DESTROY the attacker (and run the finish check)', () => {
+    // A lone Finn (Life 4, pre-wounded to 1) attacks an adjacent Izumi who is the
+    // last enemy; 4 excess shields reflect 4 wounds → Finn (1+4 ≥ 4) is destroyed.
+    // With Finn the only p1 figure, that ends the game — p2 (Izumi) wins.
+    let s = customBattle(['finn'], ['izumi_samurai'], 'p1', 'training_field');
+    s = clearExcept(s, FINN, IZUMI1);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, IZUMI1, at(3, 4));
+    s = wound(s, FINN, 1); // staged earlier damage; Finn at 1/4 wounds
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: FINN, targetId: IZUMI1, attackRoll: F('bbb'), defenseRoll: F('sssss') }));
+    // 0 skulls vs 5 shields → 5 excess → 5 wounds onto Finn → destroyed.
+    expect(fig(hit, FINN).at).toBeNull();
+    expect(hit.lastAttack!.counterWounds).toBe(5);
+    expect(hit.phase).toBe('finished'); // Counter Strike ended the game
+    expect(hit.winnerSeat).toBe(1); // the Izumi's owner wins
+    expect(computeHistory(hit)).not.toBeNull(); // history opens only now
+  });
+
+  it('Counter Strike does NOT fire against another Samurai', () => {
+    // An Izumi attacking an adjacent Izumi: the attacker's own Counter Strike
+    // power means the defender's Counter Strike "does not work against other
+    // Samurai" — no reflect either way.
+    let s = customBattle(['izumi_samurai'], ['izumi_samurai'], 'p1', 'training_field');
+    const ATK = 's0-izumi_samurai-1';
+    s = clearExcept(s, ATK, IZUMI1);
+    s = place(s, ATK, at(3, 3));
+    s = place(s, IZUMI1, at(3, 4)); // adjacent
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: ATK, targetId: IZUMI1, attackRoll: F('bb'), defenseRoll: F('sssss') }));
+    expect(hit.lastAttack!.counterWounds).toBeUndefined(); // no reflect vs a Samurai
+    expect(fig(hit, ATK).wounds).toBe(0); // the attacker is unharmed
+  });
+
+  it('Counter Strike does NOT fire on a RANGED (non-adjacent) normal attack', () => {
+    // Syvarris (Range 9) shoots the Izumi from 3 spaces. Counter Strike requires
+    // an ADJACENT attacker — no reflect, the Izumi simply blocks.
+    let s = customBattle(['syvarris'], ['izumi_samurai'], 'p1', 'training_field');
+    const SYV = 's0-syvarris-1';
+    s = clearExcept(s, SYV, IZUMI1);
+    s = place(s, SYV, at(3, 3));
+    s = place(s, IZUMI1, at(3, 6)); // 3 spaces — not adjacent
+    const hit = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: IZUMI1, attackRoll: F('kbb'), defenseRoll: F('sssss') }));
+    expect(hit.lastAttack!.counterWounds).toBeUndefined(); // no reflect at range
+    expect(fig(hit, SYV).wounds).toBe(0); // attacker unharmed
+  });
+});
+
+describe('slice 7: regression + projection + history', () => {
+  it('slice-6 powers still fire after the slice-7 changes (Agent Carr Sword of Reckoning)', () => {
+    // Agent Carr now also has Ghost Walk + Disengage, but his Sword of Reckoning 4
+    // must still add +4 vs an adjacent figure.
+    let s = customBattle(['agent_carr'], ['finn'], 'p1', 'training_field');
+    const CARR = 's0-agent_carr-1';
+    s = clearExcept(s, CARR, 's1-finn-1');
+    s = place(s, CARR, at(3, 3));
+    s = place(s, 's1-finn-1', at(3, 4)); // adjacent
+    expect(effectiveAttackDice(s, fig(s, CARR), fig(s, 's1-finn-1')).dice).toBe(6); // 2 + 4
+  });
+
+  it('a flyer reaching cliffs/water adds NO hidden info to the projection', () => {
+    let s = customBattle(['raelin'], ['marro_warriors'], 'p1', FLY_MAP_ID);
+    s = clearExcept(s, 's0-raelin-1', 's1-marro_warriors-1');
+    s = place(s, 's0-raelin-1', at(3, 0));
+    s = place(s, 's1-marro_warriors-1', at(1, 4));
+    const before = JSON.stringify(s);
+    const forP2 = projectStateForViewer(s, 'p2');
+    // p1's unrevealed markers never decode in p2's view.
+    const p1Cards = JSON.stringify(forP2.cards.filter(c => c.ownerSeat === 0));
+    expect(p1Cards.split('"marker":"2"').length - 1).toBe(0);
+    expect(p1Cards.split('"marker":"X"').length - 1).toBe(0);
+    expect(JSON.stringify(s)).toBe(before); // never mutates
+  });
+
+  it('history stays gated on finished through a Grapple Gun + Stealth Dodge sequence', () => {
+    let s = customBattle(['drake'], ['krav_maga'], 'p1', CLIFF_MAP_ID);
+    s = clearExcept(s, 's0-drake-1', 's1-krav_maga-1');
+    s = place(s, 's0-drake-1', at(3, 1));
+    s = place(s, 's1-krav_maga-1', at(6, 6));
+    expect(computeHistory(s)).toBeNull();
+    s = unwrap(applyAction(s, 'p1', { kind: 'grapple_move', figureId: 's0-drake-1', to: at(2, 1) }));
     expect(computeHistory(s)).toBeNull(); // mid-game — still null
   });
 });

@@ -77,11 +77,48 @@ export type HSCardDef = {
    *     Syvarris (Double Attack).
    *   • 'wip'  — the card is draftable and fights with its printed stats, but
    *     its special power is NOT yet wired (no handler). The draft UI tags it
-   *     "⚡ powers WIP". The remaining 6 complex active powers land in slice 7.
+   *     "⚡ powers WIP". slice 7 (movement & defense batch) flips Drake/Krav
+   *     Maga/Izumi live; after it the only wip cards are Airborne Elite, Mimring
+   *     (its Fire Line — its Flying is live), and Ne-Gok-Sa (all need a slice-8
+   *     special attack / placement / control power).
    * The engine's power dispatch keys off card id, so a `wip` card simply has no
    * handler — this flag drives the UI label, not engine branching.
    */
   power: 'live' | 'wip';
+  // ---- slice 7: movement & defense power flags (cards.md exact text) --------
+  // Data-driven so the movement search / move-consequence / damage code reads a
+  // FLAG, not a hard-coded card id. Set in content.ts (raelin/mimring.flying,
+  // agent_carr.ghostWalk+disengage, drake.thorianSpeed+grappleGun:25,
+  // krav_maga.stealthDodge, izumi_samurai.counterStrike). Absent → falsey.
+  /** FLYING (Raelin, Mimring): movement ignores elevation entirely (flat cost,
+   *  no climb limit), passes over water without stopping and over ANY figure
+   *  without engaging, and takes NO fall (it descends). Takeoff-while-engaged
+   *  leaving swipes are UNCHANGED (start-vs-end adjacency). */
+  flying?: boolean;
+  /** GHOST WALK (Agent Carr): "can move through all figures" — the movement
+   *  search may pass through ENEMY figures too (not just friendlies). Unlike
+   *  Flying it still pays climb cost, still falls, still water-stops; still
+   *  cannot END on an occupied hex. */
+  ghostWalk?: boolean;
+  /** DISENGAGE (Agent Carr): "never attacked when leaving an engagement" —
+   *  moveConsequences yields zero leaving-engagement swipes, unconditionally. */
+  disengage?: boolean;
+  /** THORIAN SPEED (Sgt. Drake): opponents must be ADJACENT to attack Drake with
+   *  a NORMAL attack — a non-adjacent normal (ranged) attack cannot target him.
+   *  Special attacks are unrestricted. Defensive; gates targetBlockReason. */
+  thorianSpeed?: boolean;
+  /** STEALTH DODGE (Krav Maga Agents): when defending against a NON-adjacent
+   *  attacker, one shield blocks ALL damage. Defensive; gates the damage calc. */
+  stealthDodge?: boolean;
+  /** COUNTER STRIKE (Izumi Samurai): when defending a NORMAL attack from an
+   *  ADJACENT attacker (not another Samurai with this same power), excess shields
+   *  (shields − skulls) become unblockable hits on the ATTACKER. Reflective. */
+  counterStrike?: boolean;
+  /** GRAPPLE GUN N (Sgt. Drake, N=25): as his move, Drake may step exactly ONE
+   *  space whose height is up to N levels higher (climb limit waived ≤ N); it
+   *  REPLACES his normal move. Engagement rules still apply. The number is the
+   *  printed "25" level cap. */
+  grappleGun?: number;
 };
 
 /** A placeable order-marker face: 1/2/3 grant your 1st/2nd/3rd turn this
@@ -171,6 +208,12 @@ export type LastAttack = {
   /** Unblocked skulls = wounds inflicted (skulls − shields, min 0). */
   wounds: number;
   destroyed: boolean;
+  /** COUNTER STRIKE reflected wounds (slice 7): when an Izumi Samurai defends a
+   *  NORMAL attack from an adjacent non-Samurai attacker and rolls more shields
+   *  than skulls, the excess (shields − skulls) is dealt back to the ATTACKER as
+   *  unblockable wounds. Surfaced here for the dice panel ("Izumi counters for
+   *  N!"). Absent / 0 when Counter Strike did not fire. */
+  counterWounds?: number;
   /** Height-advantage bonus dice folded into the rolls (04-combat): extra
    *  ATTACK dice the higher attacker rolled / extra DEFENSE dice the higher
    *  defender rolled. 0 when neither figure was uphill. For the dice-panel
@@ -482,6 +525,26 @@ export type HSAction =
        *  die per enemy this move ABANDONS (engaged at move start, no longer
        *  adjacent at the destination). The engine validates the set matches the
        *  abandoned enemies exactly. */
+      leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+    }
+  | {
+      // Sgt. Drake GRAPPLE GUN 25 (cards.md): "Instead of Sgt. Drake's normal
+      // move, he may move only ONE space. This space may be up to 25 levels
+      // higher. … all engagement rules still apply." A sibling of move_figure
+      // that steps Drake exactly ONE hex with the climb limit WAIVED up to his
+      // grappleGun cap (so he can scale a cliff he normally couldn't); it
+      // REPLACES his normal move. Engagement/leaving-engagement apply normally —
+      // the SERVER rolls the abandoned-enemy swipe dice (same validation path as
+      // move_figure). He is not a flyer, so a downward step can still fall.
+      kind: 'grapple_move';
+      figureId: string;
+      to: HexKey;
+      /** SERVER-rolled falling dice if the one-space step drops Drake far enough
+       *  (03-movement §4) — same shape/validation as move_figure. */
+      fallRoll?: CombatFace[];
+      /** SERVER-rolled d20 for an Extreme fall (drop − Height ≥ 20). */
+      extremeFallD20?: number;
+      /** SERVER-rolled leaving-engagement swipes, one die per abandoned enemy. */
       leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
     }
   | {

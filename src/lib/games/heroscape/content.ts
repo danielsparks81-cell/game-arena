@@ -13,14 +13,20 @@
 // the draft UI.
 //
 // SLICE 6 (docs/heroscape/slice-6-spec.md): the stat-folding power batch lights
-// up 6 more cards (now 10 live, 6 wip). Each card also carries its printed
-// `species` + `unitClass` (cards.md) so the conditional powers — Range
-// Enhancement ("Soulborg Guards"), Orc Warrior Enhancement ("Orc Warriors") —
-// are data-driven. Now live: Raelin (Extended Defensive Aura), Deathwalker 9000
-// (Range Enhancement), Agent Carr (Sword of Reckoning 4), Grimnak (Orc Warrior
-// Enhancement), Zettian Guards (Zettian Targeting), Syvarris (Double Attack).
-// The remaining 6 complex active powers (Airborne/Drake/Ne-Gok-Sa/Mimring/Krav
-// Maga/Izumi) land in slice 7.
+// up 6 more cards. Each card also carries its printed `species` + `unitClass`
+// (cards.md) so the conditional powers — Range Enhancement ("Soulborg Guards"),
+// Orc Warrior Enhancement ("Orc Warriors") — are data-driven. Now live: Raelin
+// (Extended Defensive Aura), Deathwalker 9000 (Range Enhancement), Agent Carr
+// (Sword of Reckoning 4), Grimnak (Orc Warrior Enhancement), Zettian Guards
+// (Zettian Targeting), Syvarris (Double Attack).
+//
+// SLICE 7 (docs/heroscape/slice-7-spec.md): the movement & defense power batch
+// (now 13 live, 3 wip). Data-driven FLAGS on HSCardDef — flying (Raelin,
+// Mimring), ghostWalk + disengage (Agent Carr), thorianSpeed + grappleGun
+// (Sgt. Drake), stealthDodge (Krav Maga Agents), counterStrike (Izumi Samurai).
+// Drake/Krav Maga/Izumi flip to 'live'. The only remaining wip cards are
+// Airborne Elite, Mimring (its Fire Line — its Flying is live), and Ne-Gok-Sa —
+// each needs a slice-8 special attack / placement / control power.
 //
 // Figure counts: Hero cards field 1; squad counts are rulebook-sourced
 // (cards.md §Roster summary): Tarn 4, Marro 4, Airborne Elite 4, Zettian 2,
@@ -100,7 +106,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'A',
     species: 'Human',
     unitClass: 'Soldiers',
-    power: 'wip', // slice 7: Grenade Special Attack + The Drop
+    power: 'wip', // slice 8: Grenade Special Attack + The Drop
   },
   drake: {
     id: 'drake',
@@ -118,7 +124,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'D',
     species: 'Human',
     unitClass: 'Soldier',
-    power: 'wip', // slice 7: Thorian Speed + Grapple Gun 25
+    power: 'live', // slice 7: Thorian Speed + Grapple Gun 25
+    thorianSpeed: true, // slice 7: normal attacks on Drake must be adjacent
+    grappleGun: 25, // slice 7: one-space move, climb waived up to 25 levels
   },
   raelin: {
     id: 'raelin',
@@ -136,7 +144,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'R',
     species: 'Kyrie',
     unitClass: 'Warrior',
-    power: 'live', // slice 6: Extended Defensive Aura (Whirlwind/Flying → slice 7)
+    power: 'live', // slice 6: Extended Defensive Aura; slice 7: Flying (Whirlwind → slice 8)
+    flying: true, // slice 7: FLYING — ignore elevation/water/figures, no fall
   },
   // ---- Utgar ----
   zettian_guards: {
@@ -173,7 +182,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'N',
     species: 'Marro',
     unitClass: 'Warlord',
-    power: 'wip', // slice 7: Mind Shackle 20
+    power: 'wip', // slice 8: Mind Shackle 20
   },
   marro_warriors: {
     id: 'marro_warriors',
@@ -227,7 +236,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'Y',
     species: 'Dragon',
     unitClass: 'Beast',
-    power: 'wip', // slice 7: Fire Line Special Attack + Flying
+    power: 'wip', // slice 8: Fire Line Special Attack (its Flying is live in slice 7)
+    flying: true, // slice 7: FLYING — Mimring flies even though Fire Line is wip
   },
   grimnak: {
     id: 'grimnak',
@@ -283,7 +293,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'C',
     species: 'Human',
     unitClass: 'Agent',
-    power: 'live', // slice 6: Sword of Reckoning 4 (Ghost Walk/Disengage → slice 7)
+    power: 'live', // slice 6: Sword of Reckoning 4; slice 7: Ghost Walk + Disengage
+    ghostWalk: true, // slice 7: GHOST WALK — moves through all figures
+    disengage: true, // slice 7: DISENGAGE — never swiped when leaving engagement
   },
   krav_maga: {
     id: 'krav_maga',
@@ -301,7 +313,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'K',
     species: 'Human',
     unitClass: 'Agents',
-    power: 'wip', // slice 7: Stealth Dodge
+    power: 'live', // slice 7: Stealth Dodge
+    stealthDodge: true, // slice 7: one shield blocks all vs a non-adjacent attacker
   },
   // ---- Einar ----
   izumi_samurai: {
@@ -320,7 +333,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'I',
     species: 'Human',
     unitClass: 'Samurai',
-    power: 'wip', // slice 7: Counter Strike
+    power: 'live', // slice 7: Counter Strike
+    counterStrike: true, // slice 7: reflect excess shields onto an adjacent normal attacker
   },
 };
 

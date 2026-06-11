@@ -733,6 +733,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
+  | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'berserker_charge' }
   | { game: 'heroscape'; kind: 'water_clone' }
@@ -1165,6 +1166,10 @@ type HSWireAction =
   | { kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
+  // Sgt. Drake GRAPPLE GUN (slice 7): a one-space replacement move. Like
+  // move_figure, the leaving-engagement swipe / fall dice are rolled server-side
+  // (the engine recomputes the need and re-validates).
+  | { kind: 'grapple_move'; figureId: string; to: string }
   | { kind: 'attack'; attackerId: string; targetId: string }
   // Special powers (slice 4): the d20(s) are NOT on the wire — makeMoveHS rolls
   // them server-side and injects the values into the engine action.
@@ -1243,6 +1248,33 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
     engineAction = {
       kind: 'move_figure',
+      figureId: action.figureId,
+      to: action.to,
+      ...(cons.tier === 'extreme'
+        ? { extremeFallD20: d20() }
+        : cons.fallDice > 0
+          ? { fallRoll: rollDice(cons.fallDice) }
+          : {}),
+      ...(cons.abandonedEnemyIds.length > 0
+        ? {
+            leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({
+              enemyFigureId,
+              roll: rollDie(),
+            })),
+          }
+        : {}),
+    };
+  } else if (action.kind === 'grapple_move') {
+    // Sgt. Drake GRAPPLE GUN (slice 7): the same server-roll seam as move_figure.
+    // moveConsequences is pure start-vs-end geometry, so it yields the right fall
+    // band + abandoned-enemy set for the one-space grapple destination too; the
+    // engine re-validates the dice shapes (and the one-space/climb-cap legality).
+    const mover: HSFigure | undefined = state.figures?.find(f => f.id === action.figureId);
+    const cons = mover
+      ? hsMoveConsequences(state, mover, action.to)
+      : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+    engineAction = {
+      kind: 'grapple_move',
       figureId: action.figureId,
       to: action.to,
       ...(cons.tier === 'extreme'

@@ -103,8 +103,10 @@ export function stepCost(hFrom: number, hTo: number): number {
  * Max legal single-step rise = Height − 1. Equality is illegal. Descending or
  * level steps are always allowed by this rule.
  *
- * slice 4: Flying bypasses this — a flyer counts spaces, not levels, so the
- * climb limit is moot while flying.
+ * slice 7: a FLYER ignores this entirely (it counts spaces, not levels) — the
+ * caller (reachableDestinations with `flyer`) skips this check rather than
+ * routing through it. Drake's GRAPPLE GUN waives it up to his level cap via
+ * `maxRise` in the engine, also bypassing this helper.
  */
 export function canStepUp(hFrom: number, hTo: number, cardHeight: number): boolean {
   const rise = hTo - hFrom;
@@ -124,6 +126,24 @@ export type ReachOptions = {
    *  wounded figure). Returns false → the hex is not a legal endpoint, but it
    *  may still be transited if it is otherwise passable. Defaults to allow. */
   canEndOn?: (key: HexKey) => boolean;
+  /**
+   * FLYING (slice 7 — Raelin, Mimring; cards.md). A flyer counts spaces, not
+   * levels: every step costs 1 (no climb cost), the climb LIMIT is waived
+   * (elevation is ignored entirely), water is NOT a forced stop (it may pass
+   * through / end on water freely), and it may pass through ANY figure — friend
+   * OR enemy — without becoming engaged. It still cannot END on an occupied hex.
+   * (Flying over ruins is moot until ruins exist on a map.) Subsumes `ghostWalk`.
+   */
+  flyer?: boolean;
+  /**
+   * GHOST WALK (slice 7 — Agent Carr; cards.md "can move through all figures").
+   * The ONLY clause: the figure may pass THROUGH enemy figures too (normally
+   * only friendlies). Unlike Flying it does NOT ignore elevation, the climb
+   * limit, or the water forced-stop — only the pass-through-any-figure rule.
+   * Still cannot END on an occupied hex. Ignored when `flyer` is set (Flying
+   * already passes any figure).
+   */
+  ghostWalk?: boolean;
 };
 
 /**
@@ -149,7 +169,13 @@ export type ReachOptions = {
  * reads height from the cell record and applies no climb limit, so on an
  * all-height-1 map every step costs 1 and the result matches the old BFS.
  *
- * slice 4: Flying bypasses the climb cost, climb limit, and water stop.
+ * slice 7 (cards.md): `options.flyer` makes the search ignore elevation
+ * entirely (flat 1/hex cost, no climb limit, no water forced-stop) and pass
+ * through ANY figure (friend or enemy); `options.ghostWalk` adds ONLY the
+ * pass-through-enemies clause (climb cost/limit and water stop still apply). A
+ * flyer/ghost still cannot END on an occupied hex. This is the SINGLE source of
+ * reachability — the board highlight and the engine validation both call it, so
+ * a flyer lights up cliffs/water in the UI exactly where the engine permits.
  */
 export function reachableDestinations(
   cells: Record<HexKey, HexCell>,
@@ -162,10 +188,18 @@ export function reachableDestinations(
   const out = new Set<HexKey>();
   if (!cells[from] || move <= 0) return out;
   const heightAt = (key: HexKey) => cells[key]?.height ?? 0;
-  const isWater = (key: HexKey) => cells[key]?.terrain === 'water';
+  // slice 7: a flyer counts spaces, not levels — it ignores elevation entirely
+  // (flat cost, no climb limit) and treats water as ordinary terrain (no forced
+  // stop). Ghost Walk gains only the pass-through-enemies clause.
+  const flyer = !!options.flyer;
+  const ghostWalk = flyer || !!options.ghostWalk; // Flying already passes any figure
+  // Water forces a stop only for a non-flyer (a flyer flies over water freely).
+  const isWater = (key: HexKey) => !flyer && cells[key]?.terrain === 'water';
   const glyphHexes = options.glyphHexes;
   const canEndOn = options.canEndOn;
-  // A glyph the MOVER did not start on forces a stop on entry.
+  // A glyph the MOVER did not start on forces a stop on entry. A flyer is NOT
+  // stopped by terrain water, but a glyph forced-stop still applies (the glyph
+  // rule is not an elevation/water clause Flying overrides).
   const isGlyphStop = (key: HexKey) => key !== from && !!glyphHexes?.has(key);
 
   // Cheapest known movement cost to reach each hex (uniform-cost search).
@@ -197,17 +231,23 @@ export function reachableDestinations(
       if (!cells[n]) continue; // void / off-map
       if (curIsWater && isWater(n)) continue; // can't transit two waters in a row
       const occ = occupancyOf(n);
-      if (occ === 'enemy') continue; // never through (or onto) enemies
+      // Enemy-occupied hexes block transit normally, but Ghost Walk / Flying may
+      // pass THROUGH them (cards.md). They still can't be an ENDPOINT — see below.
+      if (occ === 'enemy' && !ghostWalk) continue; // never through (or onto) enemies
       const hFrom = heightAt(cur);
       const hTo = heightAt(n);
-      if (!canStepUp(hFrom, hTo, cardHeight)) continue; // climb limit
-      const cost = curCost + stepCost(hFrom, hTo);
+      // slice 7: a flyer ignores the climb limit (it counts spaces, not levels).
+      if (!flyer && !canStepUp(hFrom, hTo, cardHeight)) continue; // climb limit
+      // slice 7: a flyer pays a flat 1 per hex (no climb cost); everyone else
+      // pays 1 + climbed levels.
+      const cost = curCost + (flyer ? 1 : stepCost(hFrom, hTo));
       if (cost > move) continue; // no partial climbs — full step must be payable
       if (cost < (best.get(n) ?? Infinity)) {
         best.set(n, cost);
         settled.delete(n); // found a cheaper route — allow re-expansion
       }
-      // May only END on an empty hex (friend or foe block the endpoint); never
+      // May only END on an empty hex (friend OR foe block the endpoint — even a
+      // flyer/ghost that PASSED THROUGH cannot land on an occupied hex); never
       // "end" back on the start hex (staying put is not a move); and a
       // per-figure end-restriction (Kelda) can still veto an otherwise-legal
       // endpoint.
@@ -432,7 +472,9 @@ export type FallTier = 'none' | 'fall' | 'major' | 'extreme';
  * Returns the tier and the number of COMBAT dice the server must roll (0 for
  * none/extreme — extreme uses a d20 instead, signalled by tier === 'extreme').
  *
- * slice 4: Flying bypasses this — a flyer descends, it does not fall.
+ * slice 7: a FLYER takes NO fall — it descends, it does not fall (cards.md). The
+ * caller (moveConsequences) returns tier 'none' for a flyer without calling
+ * this; for non-flyers it computes the band exactly as before.
  */
 export function computeFall(
   drop: number,

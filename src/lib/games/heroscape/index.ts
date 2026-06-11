@@ -12,6 +12,7 @@ export {
   projectStateForViewer,
   getActiveCardUid,
   legalDestinations,
+  grappleDestinations,
   legalTargets,
   placeableHexes,
   POINT_BUDGETS,

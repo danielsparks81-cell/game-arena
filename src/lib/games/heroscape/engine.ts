@@ -61,7 +61,7 @@ import {
   type Occupancy,
 } from './board';
 
-export const STATE_VERSION = 6;
+export const STATE_VERSION = 7;
 export const LOG_MAX = 60;
 const SEATS = 2;
 const DEFAULT_MAP_ID = 'training_field';
@@ -105,6 +105,14 @@ const SPECIES_SOULBORG = 'Soulborg';
 const CLASS_GUARDS = 'Guards';
 const SPECIES_ORC = 'Orc';
 const CLASS_WARRIORS = 'Warriors';
+
+// ---- slice 7: movement & defense special powers (cards.md exact text) ----
+// Every slice-7 power keys off a DATA-DRIVEN flag on HSCardDef
+// (flying/ghostWalk/disengage/thorianSpeed/stealthDodge/counterStrike/grappleGun)
+// — never a hard-coded card id — so any future card with the same flag behaves
+// identically. The flags are set in content.ts (raelin/mimring flying,
+// agent_carr ghostWalk+disengage, drake thorianSpeed+grappleGun, krav_maga
+// stealthDodge, izumi_samurai counterStrike).
 
 // ============================================================================
 // State construction / lobby
@@ -238,6 +246,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       return doRollInitiative(state, action.attempts);
     // Turn actions — only the revealed-marker player acts.
     case 'move_figure':
+    case 'grapple_move':
     case 'attack':
     case 'berserker_charge':
     case 'water_clone':
@@ -246,6 +255,15 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
       if (action.kind === 'move_figure')
         return doMove(
+          state,
+          action.figureId,
+          action.to,
+          action.fallRoll,
+          action.extremeFallD20,
+          action.leaveRolls,
+        );
+      if (action.kind === 'grapple_move')
+        return doGrappleMove(
           state,
           action.figureId,
           action.to,
@@ -1143,11 +1161,15 @@ function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
     if (g && g.id === 'kelda' && g.faceUp && fig.wounds < 1) return false;
     return true;
   };
-  // slice 4 (future): Flying bypasses the climb cost / climb limit / water stop
-  // / glyph stop baked into reachableDestinations.
+  // slice 7: thread the moving figure's FLYING / GHOST WALK flags into the
+  // single-source reachability helper so the board highlight and the engine
+  // validation read the same legal set. A flyer ignores elevation/water and
+  // passes any figure; Ghost Walk only adds pass-through-enemies (cards.md).
   return reachableDestinations(map.cells, fig.at, move, occupancyLookup(state, fig), def.height, {
     glyphHexes,
     canEndOn,
+    flyer: !!def.flying,
+    ghostWalk: !!def.ghostWalk,
   });
 }
 
@@ -1170,9 +1192,15 @@ function occupancyLookup(state: HSState, mover: Figure): (key: HexKey) => Occupa
  * need, then rolls, engine re-validates" seam). Falls (03-movement §4) and
  * leaving-engagement swipes (§9) are judged by START vs END geometry.
  *
- * slice 4: Flying bypasses both — a flyer does not fall, and only enemies it
- * was engaged with WHEN IT STARTED its move swipe (takeoff), so the abandoned
- * set would be computed differently.
+ * slice 7 (cards.md):
+ *   • FLYING — a flyer takes NO fall (it descends, it does not fall). Its
+ *     takeoff leaving-engagement is UNCHANGED: the start-vs-end abandoned-enemy
+ *     computation already models "if engaged when it starts, it takes the
+ *     swipes", so a flyer that takes off while engaged still draws them.
+ *   • DISENGAGE — the mover is NEVER swiped when leaving an engagement
+ *     (`abandonedEnemyIds = []`), unconditionally.
+ * Both are data-driven flags on the mover's card; everything else (a Grapple Gun
+ * step, a normal move) flows through the same start-vs-end geometry.
  */
 export function moveConsequences(
   state: HSState,
@@ -1181,21 +1209,33 @@ export function moveConsequences(
 ): { tier: FallTier; fallDice: number; abandonedEnemyIds: string[] } {
   const from = fig.at;
   const map = MAPS[state.mapId];
-  const cardHeight = cardDefFor(state, fig).height;
+  const def = cardDefFor(state, fig);
+  const cardHeight = def.height;
 
-  // Fall: drop = height(from) − height(to); none if landing on water.
-  const drop = from != null ? heightOfKey(state, from) - heightOfKey(state, to) : 0;
-  const intoWater = map?.cells[to]?.terrain === 'water';
-  const { tier, dice: fallDice } = computeFall(Math.max(0, drop), cardHeight, intoWater);
+  // Fall: drop = height(from) − height(to); none if landing on water. A FLYER
+  // descends rather than falling, so it never takes fall damage (cards.md).
+  let tier: FallTier = 'none';
+  let fallDice = 0;
+  if (!def.flying) {
+    const drop = from != null ? heightOfKey(state, from) - heightOfKey(state, to) : 0;
+    const intoWater = map?.cells[to]?.terrain === 'water';
+    const fall = computeFall(Math.max(0, drop), cardHeight, intoWater);
+    tier = fall.tier;
+    fallDice = fall.dice;
+  }
 
   // Leaving engagement: enemies engaged at move START that the DESTINATION is
   // no longer adjacent-engaged to. Build a hypothetical "fig stands on `to`"
-  // figure for the end-adjacency test.
-  const startEngaged = enemiesEngagedWith(state, fig);
-  const figAtDest: Figure = { ...fig, at: to };
-  const abandonedEnemyIds = startEngaged
-    .filter(enemy => !engagedPair(state, figAtDest, enemy))
-    .map(enemy => enemy.id);
+  // figure for the end-adjacency test. DISENGAGE (Agent Carr) suppresses this
+  // entirely — he is never swiped when leaving an engagement (cards.md).
+  let abandonedEnemyIds: string[] = [];
+  if (!def.disengage) {
+    const startEngaged = enemiesEngagedWith(state, fig);
+    const figAtDest: Figure = { ...fig, at: to };
+    abandonedEnemyIds = startEngaged
+      .filter(enemy => !engagedPair(state, figAtDest, enemy))
+      .map(enemy => enemy.id);
+  }
 
   return { tier, fallDice, abandonedEnemyIds };
 }
@@ -1215,10 +1255,38 @@ function doMove(
   if (!movementDestinations(state, r.fig).has(to)) {
     return { error: 'That hex is out of reach for this figure' };
   }
+  // Reachability passed → resolve the move (dice validation + execution) through
+  // the shared path Grapple Gun also uses. "moves to" is the normal-move log.
+  return applyValidatedMove(state, figureId, to, { fallRoll, extremeFallD20, leaveRolls }, 'moves to');
+}
 
-  // Recompute the exact dice this move needs (server-roll seam): the engine is
-  // the source of truth, so a missing-but-required or unneeded roll is rejected.
-  const { tier, fallDice, abandonedEnemyIds } = moveConsequences(state, r.fig, to);
+/**
+ * Shared move EXECUTION (slice 7 refactor): given a destination already proven
+ * legal by the caller (doMove via reachableDestinations; doGrappleMove via its
+ * own one-space/climb-waiver check), recompute the move's required dice from
+ * `moveConsequences`, validate the supplied server rolls against that need, then
+ * apply the move — leaving-engagement swipes, then fall, then glyph-on-stop,
+ * then the elimination/Spirit checks. This is the single seam where falls and
+ * swipes resolve, so a normal move and a Grapple Gun step are identical once the
+ * destination is authorized (cards.md: "all engagement rules still apply"). The
+ * engine is the source of truth for the dice need — a missing-but-required or
+ * unneeded roll is rejected. `verb` colours the move log ("moves to" /
+ * "grapples to").
+ */
+function applyValidatedMove(
+  state: HSState,
+  figureId: string,
+  to: HexKey,
+  rolls: {
+    fallRoll?: CombatFace[];
+    extremeFallD20?: number;
+    leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+  },
+  verb: string,
+): HSResult {
+  const mover = state.figures.find(f => f.id === figureId)!;
+  const { fallRoll, extremeFallD20, leaveRolls } = rolls;
+  const { tier, fallDice, abandonedEnemyIds } = moveConsequences(state, mover, to);
 
   // --- validate falling dice ---
   if (tier === 'extreme') {
@@ -1257,7 +1325,7 @@ function doMove(
   const fromKey = fig.at;
   fig.at = to;
   s.movedFigureIds.push(figureId);
-  pushLog(s, 'move', `${moverLabel} moves to ${hexLabel(to)}.`);
+  pushLog(s, 'move', `${moverLabel} ${verb} ${hexLabel(to)}.`);
 
   // --- leaving-engagement swipes resolve first (mid-move, as the figure
   // leaves): each abandoned enemy lands 1 unblockable wound per skull. A swipe
@@ -1302,6 +1370,72 @@ function doMove(
     maybeQueueSpiritOnDestroy(s, fig);
   }
   return s;
+}
+
+/**
+ * The hexes Drake's GRAPPLE GUN can reach (slice 7, cards.md): exactly ONE
+ * adjacent space, EMPTY (friend or enemy blocks the endpoint), whose height is
+ * up to `grappleGun` levels HIGHER than Drake's current cell — the climb limit
+ * is WAIVED up to that cap, so he can scale a cliff he normally couldn't.
+ * Descending or level steps are always allowed (the cap only bounds the RISE).
+ * Pure; the board's Grapple-Gun toggle and the engine validation read the same
+ * set (single source). Empty when the figure has no grappleGun, can't move, or
+ * has already moved this turn.
+ */
+export function grappleDestinations(state: HSState, figureId: string): Set<HexKey> {
+  const out = new Set<HexKey>();
+  const r = movableFigure(state, figureId);
+  if ('error' in r) return out;
+  const fig = r.fig;
+  const def = cardDefFor(state, fig);
+  if (!def.grappleGun || fig.at == null) return out;
+  const map = MAPS[state.mapId];
+  if (!map) return out;
+  const cap = def.grappleGun;
+  const fromH = heightOfKey(state, fig.at);
+  const occ = occupancyLookup(state, fig);
+  for (const n of neighborKeys(fig.at)) {
+    if (!map.cells[n]) continue; // void / off-map
+    if (occ(n) !== null) continue; // can't END on an occupied hex (friend or foe)
+    const rise = heightOfKey(state, n) - fromH;
+    if (rise > cap) continue; // climb waiver only up to the Grapple Gun cap
+    out.add(n);
+  }
+  return out;
+}
+
+/**
+ * Sgt. Drake GRAPPLE GUN 25 (slice 7, cards.md): "Instead of Sgt. Drake's
+ * normal move, he may move only ONE space. This space may be up to 25 levels
+ * higher. … all engagement rules still apply." Data-driven on `def.grappleGun`
+ * (the level cap). It REPLACES his normal move: `movableFigure` rejects a figure
+ * that has already moved, and this push to `movedFigureIds` blocks a subsequent
+ * normal move — mutual exclusion. Engagement/leaving-engagement/fall all flow
+ * through the SAME `applyValidatedMove` path as a normal move (Drake is not a
+ * flyer, so a downward step can still fall). The SERVER rolls the swipe dice.
+ */
+function doGrappleMove(
+  state: HSState,
+  figureId: string,
+  to: HexKey,
+  fallRoll?: CombatFace[],
+  extremeFallD20?: number,
+  leaveRolls?: { enemyFigureId: string; roll: CombatFace }[],
+): HSResult {
+  const r = movableFigure(state, figureId);
+  if ('error' in r) return r;
+  if (!cardDefFor(state, r.fig).grappleGun) {
+    return { error: 'Only Sgt. Drake Alexander may use the Grapple Gun' };
+  }
+  const map = MAPS[state.mapId];
+  if (!map.cells[to]) return { error: 'There is no hex there' };
+  // One space, empty, rise within the Grapple Gun cap — the single-source set.
+  if (!grappleDestinations(state, figureId).has(to)) {
+    return { error: 'Grapple Gun: step exactly one space, up to its climb cap, onto an empty hex' };
+  }
+  // Resolve via the shared move path (engagement rules still apply). "grapples
+  // to" colours the log so the Grapple Gun is visible.
+  return applyValidatedMove(state, figureId, to, { fallRoll, extremeFallD20, leaveRolls }, 'grapples to');
 }
 
 /**
@@ -1423,11 +1557,19 @@ function attackReadyFigure(state: HSState, attackerId: string): { fig: Figure } 
 }
 
 /** Why `target` can't be attacked by `attacker` (null = legal target).
- *  Three separate gates per the rules: an ENGAGED figure may attack only the
- *  enemies it is engaged with (04-combat §Who may attack, p. 13); the target
- *  must be within Range (spaces, elevation-free); and there must be a clear,
- *  elevation-aware Line of Sight. */
-function targetBlockReason(state: HSState, attacker: Figure, target: Figure): string | null {
+ *  Gates per the rules: an ENGAGED figure may attack only the enemies it is
+ *  engaged with (04-combat §Who may attack, p. 13); THORIAN SPEED restricts
+ *  normal attacks on Drake to adjacent attackers (slice 7); the target must be
+ *  within Range (spaces, elevation-free); and there must be a clear,
+ *  elevation-aware Line of Sight. `isNormalAttack` is true for every slice-7
+ *  attack (no special attacks yet) — threaded for the slice-8 Thorian Speed
+ *  carve-out ("special attacks are not restricted"). */
+function targetBlockReason(
+  state: HSState,
+  attacker: Figure,
+  target: Figure,
+  isNormalAttack = true,
+): string | null {
   if (target.at == null) return 'No such target on the battlefield';
   if (target.ownerSeat === attacker.ownerSeat) return 'You cannot attack your own figures';
   const map = MAPS[state.mapId];
@@ -1437,6 +1579,19 @@ function targetBlockReason(state: HSState, attacker: Figure, target: Figure): st
   const engaged = enemiesEngagedWith(state, attacker);
   if (engaged.length > 0 && !engaged.some(e => e.id === target.id)) {
     return 'Engaged — you may only attack a figure you are engaged with';
+  }
+
+  // THORIAN SPEED (Sgt. Drake, slice 7, cards.md): "Opponents' figures must be
+  // adjacent to Sgt. Drake to attack him with a normal attack." So a NORMAL
+  // attack on Drake from a NON-adjacent attacker is blocked (he can't be shot at
+  // range). Special attacks are unrestricted (isNormalAttack === false skips
+  // this). Data-driven on the target's `thorianSpeed` flag.
+  if (
+    isNormalAttack &&
+    cardDefFor(state, target).thorianSpeed &&
+    !figuresAdjacent(state, attacker, target)
+  ) {
+    return 'Thorian Speed — must be adjacent to attack Sgt. Drake';
   }
 
   const range = effectiveRange(state, attacker).dice;
@@ -1812,7 +1967,28 @@ function doAttack(
   // nothing (ties favor the defender); each UNBLOCKED skull places one wound;
   // the figure is destroyed when wounds reach its Life. Life-1 squad figures
   // therefore still die to a single unblocked skull.
-  const wounds = Math.max(0, skulls - shields);
+  //
+  // slice 7 (cards.md), DAMAGE-step defensive powers — both hinge on whether the
+  // ATTACKER is adjacent, so they are mutually exclusive:
+  const adjacent = figuresAdjacent(state, attacker, target);
+  const attackerDef = cardDefFor(state, attacker);
+  // STEALTH DODGE (Krav Maga Agents): "When a Krav Maga Agent rolls defense dice
+  // against an attacking figure who is NOT adjacent, one shield will block all
+  // damage." Only vs a NON-adjacent attacker, and only with ≥1 shield rolled →
+  // ALL damage is negated. An adjacent attacker resolves normally.
+  const stealthDodge = !!tDef.stealthDodge && !adjacent && shields >= 1;
+  const wounds = stealthDodge ? 0 : Math.max(0, skulls - shields);
+  // COUNTER STRIKE (Izumi Samurai): "When rolling defense dice against a NORMAL
+  // attack from an ADJACENT attacking figure, all excess shields count as
+  // unblockable hits on the attacking figure. Does not work against other
+  // Samurai." Excess = shields − skulls (only when shields > skulls). Never vs
+  // another counter-striking Samurai. The defender still takes its normal
+  // wounds (which is 0 here, since shields > skulls). isNormalAttack is true for
+  // every slice-7 attack.
+  const counterWounds =
+    tDef.counterStrike && adjacent && !attackerDef.counterStrike && shields > skulls
+      ? shields - skulls
+      : 0;
 
   const s = clone(state);
   // Record the attack in the per-turn log (slice-6 single source). Pushed AFTER
@@ -1825,6 +2001,18 @@ function doAttack(
   targetMut.wounds += wounds;
   const destroyed = targetMut.wounds >= tDef.life;
   if (destroyed) targetMut.at = null;
+
+  // COUNTER STRIKE reflect (slice 7): the excess shields land on the ATTACKER as
+  // unblockable wounds. Apply BEFORE the dice panel / elimination so a reflected
+  // kill is reflected in lastAttack and can end the game. (Mutually exclusive
+  // with Stealth Dodge — both gate on attacker adjacency.)
+  const attackerMut = s.figures.find(f => f.id === attacker.id)!;
+  let counterDestroyed = false;
+  if (counterWounds > 0 && attackerMut.at != null) {
+    attackerMut.wounds += counterWounds;
+    counterDestroyed = attackerMut.wounds >= attackerDef.life;
+    if (counterDestroyed) attackerMut.at = null;
+  }
 
   const attackerLabel = figureLabel(s, attacker);
   const targetLabel = figureLabel(s, targetMut);
@@ -1842,16 +2030,19 @@ function doAttack(
     shields,
     wounds,
     destroyed,
+    counterWounds: counterWounds > 0 ? counterWounds : undefined,
     heightBonusAttacker: req.heightBonusAttacker,
     heightBonusDefender: req.heightBonusDefender,
     breakdown,
     seq: s.logSeq + 1,
   };
-  const outcome = destroyed
-    ? `${targetLabel} is destroyed!`
-    : wounds > 0
-      ? `${wounds} wound${wounds === 1 ? '' : 's'}.`
-      : 'blocked.';
+  const outcome = stealthDodge
+    ? 'all damage blocked (Stealth Dodge).'
+    : destroyed
+      ? `${targetLabel} is destroyed!`
+      : wounds > 0
+        ? `${wounds} wound${wounds === 1 ? '' : 's'}.`
+        : 'blocked.';
   const height =
     req.heightBonusAttacker > 0
       ? ` (+${req.heightBonusAttacker} height advantage)`
@@ -1863,12 +2054,25 @@ function doAttack(
     'attack',
     `${attackerLabel} attacks ${targetLabel}${height}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${outcome}`,
   );
+  // Counter Strike log (slice 7): the reflected hits onto the attacker.
+  if (counterWounds > 0) {
+    pushLog(
+      s,
+      'power',
+      `Counter Strike — ${targetLabel} reflects ${counterWounds} unblockable wound${counterWounds === 1 ? '' : 's'} onto ${attackerLabel}${counterDestroyed ? `, ${attackerLabel} is destroyed!` : '.'}`,
+    );
+  }
 
   // Elimination win: the last player with figures remaining wins. Resolve this
-  // FIRST — if the destruction ends the game, the on-destroy Spirit is skipped
-  // entirely ("finish takes precedence", slice-4 spec §Server).
+  // FIRST — if the destruction (target OR a Counter Strike kill of the attacker)
+  // ends the game, the on-destroy Spirit is skipped entirely ("finish takes
+  // precedence", slice-4 spec §Server).
   checkEliminationWin(s);
+  // On-destroy Spirits: the TARGET (Finn/Thorgrim) if it died, and the ATTACKER
+  // if Counter Strike just destroyed it (a reflected kill can also be a champion,
+  // and could even end the game — handled by the finish-gate inside the helper).
   if (destroyed) maybeQueueSpiritOnDestroy(s, targetMut);
+  if (counterDestroyed) maybeQueueSpiritOnDestroy(s, attackerMut);
   return s;
 }
 
