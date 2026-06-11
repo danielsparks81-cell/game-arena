@@ -174,7 +174,7 @@ function DraftCard({
             : `Draft ${def.name} (${def.points} pts)`
       }
       className={
-        'flex w-40 flex-col items-stretch rounded-md border-2 px-2 py-1.5 text-left transition ' +
+        'flex h-full w-full flex-col items-stretch rounded-lg border-2 px-3 py-2 text-left transition ' +
         (taken
           ? 'border-neutral-800 bg-neutral-900/40 opacity-50'
           : clickable
@@ -182,18 +182,18 @@ function DraftCard({
             : 'border-neutral-800 bg-neutral-900/40 ' + (dim ? 'opacity-50' : ''))
       }
     >
-      <div className="flex items-center justify-between gap-1">
-        <span className={'text-xs font-bold ' + (taken ? 'text-neutral-500 line-through' : 'text-neutral-100')}>
+      <div className="flex items-baseline justify-between gap-1">
+        <span className={'text-sm font-bold leading-tight ' + (taken ? 'text-neutral-500 line-through' : 'text-neutral-100')}>
           {def.name}
         </span>
-        <span className="shrink-0 text-xs font-extrabold tabular-nums text-amber-300">{def.points}</span>
+        <span className="shrink-0 text-base font-extrabold tabular-nums text-amber-300">{def.points}</span>
       </div>
-      <div className="mt-0.5 text-[10px] text-neutral-400 tabular-nums">
-        {def.type === 'hero' ? '1 hero' : `${def.figures} figs`} · Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
+      <div className="mt-1 text-[11px] text-neutral-400 tabular-nums">
+        {def.type === 'hero' ? '1 hero' : `${def.figures} figures`} · Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
       </div>
-      <div className="mt-0.5 flex items-center gap-1">
-        {taken && takenByLabel && <span className="text-[9px] font-semibold text-neutral-500">✓ {takenByLabel}</span>}
-        {wip && !taken && <span className="text-[9px] font-semibold text-purple-300/90" title="Special power not yet implemented — fights with printed stats">⚡ powers WIP</span>}
+      <div className="mt-1 flex items-center gap-1">
+        {taken && takenByLabel && <span className="text-[10px] font-semibold text-neutral-500">✓ {takenByLabel}</span>}
+        {wip && !taken && <span className="text-[10px] font-semibold text-purple-300/90" title="Special power not yet implemented — fights with printed stats">⚡ powers WIP</span>}
       </div>
     </button>
   );
@@ -587,59 +587,77 @@ export default function HeroScapeBoard({
     const anyAffordable = d.pool.some(id => HS_CARDS[id].points <= myRemaining);
     const canPass = myTurnToPick && !disabled && !(myArmyEmpty && anyAffordable);
 
-    const armyPanel = (seat: number) => {
+    // Pool sorted CHEAPEST → most expensive (user request).
+    const sortedPool = [...HS_DRAFT_POOL].sort((a, b) => HS_CARDS[a].points - HS_CARDS[b].points);
+
+    // A drafter's panel for the top bar: name, REMAINING budget (prominent), and
+    // their drafted cards as chips. Highlighted while it's their pick.
+    const drafterPanel = (seat: number) => {
       const pl = state.players.find(p => p.seat === seat);
       const ids = d.armies[seat] ?? [];
       const isMe = !!me && seat === me.seat;
+      const isTurn = d.turnSeat === seat;
+      const remaining = budget - (d.spent[seat] ?? 0);
       return (
-        <div key={seat} className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2">
-          <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs font-bold" style={{ color: seatColor(seat) }}>
+        <div
+          key={seat}
+          className={
+            'rounded-lg border-2 px-3 py-2 ' +
+            (isTurn ? 'border-amber-400 bg-amber-900/10' : 'border-neutral-800 bg-neutral-900/40')
+          }
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-bold" style={{ color: seatColor(seat) }}>
               {pl?.username ?? '—'}{isMe ? ' (you)' : ''}
-              {d.passed.includes(seat) && <span className="ml-1 text-[10px] font-semibold text-emerald-400">done ✓</span>}
+              {isTurn && <span className="ml-2 text-[10px] font-semibold text-amber-300">drafting…</span>}
+              {d.passed.includes(seat) && <span className="ml-2 text-[10px] font-semibold text-emerald-400">done ✓</span>}
             </span>
-            <span className="text-[11px] font-bold tabular-nums text-amber-300">
-              {d.spent[seat] ?? 0}/{budget}
+            <span className="shrink-0 text-right leading-none">
+              <span className="text-xl font-extrabold tabular-nums text-amber-300">{remaining}</span>
+              <span className="text-[11px] text-neutral-400"> left</span>
+              <span className="block text-[10px] text-neutral-500">of {budget} pts</span>
             </span>
           </div>
-          {ids.length === 0 ? (
-            <div className="text-[11px] text-neutral-500">No cards yet…</div>
-          ) : (
-            <div className="flex flex-col gap-0.5">
-              {ids.map(id => (
-                <div key={id} className="flex items-center justify-between text-[11px]">
-                  <span className="text-neutral-200">{HS_CARDS[id].name}</span>
-                  <span className="tabular-nums text-neutral-400">{HS_CARDS[id].points}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            {ids.length === 0 ? (
+              <span className="text-[11px] text-neutral-500">No cards yet…</span>
+            ) : (
+              ids.map(id => (
+                <span key={id} className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-200">
+                  {HS_CARDS[id].name} <span className="tabular-nums text-amber-300/80">{HS_CARDS[id].points}</span>
+                </span>
+              ))
+            )}
+          </div>
         </div>
       );
     };
 
     return (
-      <div className="flex flex-col gap-3 p-3 lg:flex-row">
-        {/* Left: whose pick, your army/budget, opponent army, roll-off, log */}
-        <div className="flex w-full shrink-0 flex-col gap-3 lg:w-[300px]">
-          <div
-            className="rounded-lg border-2 px-3 py-2 text-center"
-            style={{ borderColor: seatColor(d.turnSeat ?? 0) }}
-          >
-            <div className="text-sm font-bold" style={{ color: seatColor(d.turnSeat ?? 0) }}>
-              {myTurnToPick ? '⚔ Your pick' : `${drafterName ?? '…'} is drafting`}
-            </div>
-            <div className="mt-0.5 text-[11px] text-neutral-400">
-              Budget {budget} pts · {d.remainingPicks > 1 ? `${d.remainingPicks} picks this turn` : 'pick one card or pass'}
-            </div>
+      <div className="flex flex-col gap-3 p-3">
+        {/* Whose pick */}
+        <div
+          className="rounded-lg border-2 px-3 py-2 text-center"
+          style={{ borderColor: seatColor(d.turnSeat ?? 0) }}
+        >
+          <div className="text-sm font-bold" style={{ color: seatColor(d.turnSeat ?? 0) }}>
+            {myTurnToPick ? '⚔ Your pick' : `${drafterName ?? '…'} is drafting`}
           </div>
+          <div className="mt-0.5 text-[11px] text-neutral-400">
+            {d.remainingPicks > 1 ? `${d.remainingPicks} picks this turn` : 'pick one card or pass'} · pool sorted cheapest first
+          </div>
+        </div>
 
-          {/* Your army + spent/budget, then the opponent's */}
-          {me && armyPanel(me.seat)}
-          {state.players.filter(p => !me || p.seat !== me.seat).map(p => armyPanel(p.seat))}
+        {/* Drafters across the top, with remaining budget */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {me && drafterPanel(me.seat)}
+          {state.players.filter(p => !me || p.seat !== me.seat).map(p => drafterPanel(p.seat))}
+        </div>
 
-          {/* Pick/pass controls (only on your turn) */}
-          {myTurnToPick && (
+        {/* Pick / pass controls (only on your turn) */}
+        {myTurnToPick && (
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <span className="text-[11px] text-neutral-400">Click an affordable card below to draft it</span>
             <button
               onClick={() => onDraftPass()}
               disabled={!canPass}
@@ -650,13 +668,41 @@ export default function HeroScapeBoard({
                     ? 'Draft at least one card before passing'
                     : 'Finish your army under budget'
               }
-              className="rounded-lg border-2 border-amber-600 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-lg border-2 border-amber-600 px-4 py-1.5 text-sm font-semibold text-amber-300 transition hover:bg-amber-900/40 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {!anyAffordable ? 'Pass (no affordable card)' : 'Pass — finish my army'}
             </button>
-          )}
+          </div>
+        )}
 
-          {/* The draft-order roll-off */}
+        {/* The 16-card pool — bigger cards, multi-row grid, cheapest first */}
+        <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          Army roster — {d.pool.length} of 16 left · cheapest first
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          {sortedPool.map(id => {
+            const taken = !d.pool.includes(id);
+            const affordable = HS_CARDS[id].points <= myRemaining;
+            const clickable = myTurnToPick && !taken && affordable && !disabled;
+            return (
+              <DraftCard
+                key={id}
+                cardId={id}
+                taken={taken}
+                takenByLabel={taken ? state.players.find(p => p.seat === takenBy[id])?.username : undefined}
+                affordable={affordable}
+                clickable={clickable}
+                onPick={() => onDraftCard(id)}
+              />
+            );
+          })}
+        </div>
+        <div className="text-center text-[10px] text-neutral-500">
+          ⚡ powers WIP = drafts and fights with printed stats; its special power lands in a later update.
+        </div>
+
+        {/* Draft-order roll-off + log, side by side */}
+        <div className="grid gap-2 sm:grid-cols-2">
           {d.rollOff.length > 0 && (
             <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-[11px] text-neutral-300">
               <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">Draft order roll</div>
@@ -678,40 +724,10 @@ export default function HeroScapeBoard({
               })}
             </div>
           )}
-
-          {/* Log */}
           <div className="max-h-44 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400">
             {state.log.slice(-12).map(e => (
               <div key={e.seq} className={e.tag === 'roll' ? 'text-sky-300/80' : ''}>{e.text}</div>
             ))}
-          </div>
-        </div>
-
-        {/* Right: the 16-card pool */}
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
-          <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
-            Army roster — {d.pool.length} of 16 left
-          </div>
-          <div className="flex flex-wrap justify-center gap-2">
-            {HS_DRAFT_POOL.map(id => {
-              const taken = !d.pool.includes(id);
-              const affordable = HS_CARDS[id].points <= myRemaining;
-              const clickable = myTurnToPick && !taken && affordable && !disabled;
-              return (
-                <DraftCard
-                  key={id}
-                  cardId={id}
-                  taken={taken}
-                  takenByLabel={taken ? state.players.find(p => p.seat === takenBy[id])?.username : undefined}
-                  affordable={affordable}
-                  clickable={clickable}
-                  onPick={() => onDraftCard(id)}
-                />
-              );
-            })}
-          </div>
-          <div className="text-center text-[10px] text-neutral-500">
-            ⚡ powers WIP = drafts and fights with printed stats; its special power lands in a later update.
           </div>
         </div>
       </div>
