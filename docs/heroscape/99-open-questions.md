@@ -3,35 +3,31 @@
 > Everything the rulebook scan could NOT settle, with what we know and what
 > would settle it. Check items off here before coding the affected mechanic.
 
-## 1. Combat die face distribution — ⚠ blocking for `rollCombatDice`
+## 1. Combat die face distribution — ✅ RESOLVED 2026-06-10
 
-The rulebook **never states** how many skull / shield / blank faces the combat
-d6 carries. Verified exhaustively at high zoom across pages 3, 4, 6, 9, 13, 14:
-component lists give quantity only ("12 Combat Dice"), and every die
-illustration depicts *rolled results*, not the die layout. What IS proven by
-the Example 9 illustrations: the same white d6 carries red-skull faces,
-blue-shield faces, and at least one blank face; shields rolled on attack and
-skulls rolled on defense are ignored; blanks count nothing.
+**3 skulls / 2 shields / 1 blank**, confirmed by the set's owner against the
+physical dice (the rulebook itself never states it — verified exhaustively at
+high zoom across pages 3, 4, 6, 9, 13, 14). Per-die hit probability: skull
+1/2, shield 1/3, blank 1/6. `rollCombatDice` is unblocked.
 
-**Community-standard distribution: 3 skulls / 2 shields / 1 blank.** Verify
-against the physical dice (a photo of all six faces settles it) before coding.
+## 2. Army Card roster — ✅ RESOLVED 2026-06-10
 
-## 2. Army Card roster — blocking for `content.ts`
+All 16 cards extracted from the user's card scan PDF
+(`C:\Users\Dan\Desktop\Heroscape Base Game Cards.pdf`) with every flagged digit
+verified against high-res per-card crops. Canonical roster: **cards.md**.
+Raw per-page notes: `extraction/cards-page-{1..4}.md`. Page images:
+`C:\Users\Dan\Desktop\heroscape-extract\img-cards*\`.
 
-The Master Set has **16 Army Cards / 30 figures** (p. 3) but the rulebook shows
-only **Agent Carr** in full (Life 4 / Move 5 / Range 6 / Attack 2 / Defense 4 /
-100 pts, p. 7). Data leaked by examples (cross-check anchors, see
-01-components-setup-army-building.md): Zettian Guards (2 figures, Basic stats
-Mv 4 / Rng 7 / Atk 2 / Def 7), Marro Warriors (4 figures, Atk 2), Syvarris
-(Life 4, Def 2).
-
-Card names appearing anywhere in the rulebook (partial roster evidence, NOT
-confirmed complete): Mimring, Marro Warriors, Zettian Guards, Airborne Elite,
-Agent Carr, Syvarris, Thorgrim the Viking Champion, Sgt. Drake Alexander,
-Ne-Gok-Sa, Deathwalker 9000, Raelin, Finn, Izumi Samurai, Tarn Viking Warriors.
-
-**Needed: photos/scans of all 16 Army Cards (both Basic and Master sides),
-including special-power text and point values.**
+Two residual notes:
+- **This is a rebalanced modern printing**, not classic 2004 RotV (e.g. Marro
+  Warriors 105 pts / Range 6; Raelin Range 1 / 120 pts as printed). Policy:
+  cards win for card content, rulebook wins for core rules (see cards.md
+  "Edition note").
+- **Cards are single-sided** — no separate Basic side in this printing. The
+  Basic Game slice uses these stats and ignores special powers.
+- Squad figure counts are not printed on the cards; they come from the
+  rulebook (Tarn 4, Marro 4, Zettian 2, Izumi 3, Airborne Elite 4) — Krav Maga
+  Agents inferred 3 from the card's banner silhouettes, ⚠ verify in play.
 
 ## 3. Battlefield map data — blocking for `maps.ts`
 
@@ -56,13 +52,13 @@ P. 10 prints "if the drop is **10 levels more** than the figure's height"
 Engine implements the banded reading. (Basic Fall threshold is verbatim
 "equal to or more than the figure's height" — that one is explicit.)
 
-## 5. Flying — base definition lives on cards we don't have
+## 5. Flying — ✅ RESOLVED 2026-06-10
 
-P. 16 settles flying vs overhangs/engagement (ignores elevation costs, no
-swipe from figures flown over, swipe still taken from figures engaged at
-takeoff, passes over ruins). But "Flying" is a card power — its full base text
-presumably lives on Raelin's / the Airborne Elite's cards. **Resolve with the
-card scans (see #2).**
+The base Flying text is on Mimring's and Raelin's cards (see cards.md): ignore
+elevation when counting move spaces, fly over water without stopping, pass
+over figures without becoming engaged, fly over obstacles such as ruins; if
+engaged when starting to fly, leaving-engagement attacks apply. Consistent
+with the p. 16 rulebook clarifications.
 
 ## 6. Minor unresolved scan items
 
