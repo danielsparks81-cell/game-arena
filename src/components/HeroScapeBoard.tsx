@@ -24,6 +24,7 @@ import {
   getActiveCardUid,
   hexToPixel,
   hexCorners,
+  axialToOffset,
 } from '@/lib/games/heroscape';
 
 const HEX = 34; // px size of a unit hex
@@ -178,9 +179,22 @@ export default function HeroScapeBoard({
   const maxY = Math.max(...centers.map(e => e.p.y)) * HEX;
   const W = maxX - minX + 2 * (HEX + PAD);
   const H = maxY - minY + 2 * (HEX + PAD);
+  // Orient the board so the VIEWER's own start zone is always at the bottom.
+  // Decision is based on the static start zones (not live figure positions), so
+  // it stays fixed for the whole game. We implement it as a 180° point
+  // reflection (x,y)->(W-x,H-y): a pointy-top hex maps onto itself and figure
+  // letters stay upright (we reflect hex CENTERS, not the SVG canvas). Seat 0
+  // starts at the top row, so it flips; seat 1 already sits at the bottom.
+  const myZone = me ? (map?.startZones[me.seat] ?? []) : [];
+  const myAvgRow = myZone.length
+    ? myZone.reduce((s, k) => s + axialToOffset(k).row, 0) / myZone.length
+    : 0;
+  const flip = myZone.length > 0 && map != null && myAvgRow < (map.rows - 1) / 2;
   const toScreen = (key: HexKey) => {
     const p = hexToPixel(key);
-    return { x: p.x * HEX - minX + HEX + PAD, y: p.y * HEX - minY + HEX + PAD };
+    const x = p.x * HEX - minX + HEX + PAD;
+    const y = p.y * HEX - minY + HEX + PAD;
+    return flip ? { x: W - x, y: H - y } : { x, y };
   };
 
   const figureAt = (key: HexKey) => state.figures.find(f => f.at === key) ?? null;
@@ -203,9 +217,6 @@ export default function HeroScapeBoard({
       return { uid: c.uid, def, alive, heroWounds: figs[0]?.wounds ?? 0, markers: c.orderMarkers };
     }),
   }));
-  const myLivingCards =
-    me == null ? [] : roster.find(r => r.pl.seat === me.seat)?.cards.filter(c => c.alive > 0) ?? [];
-
   function assignPicked(cardUid: string) {
     const next = { ...assign, [pickedMarker]: cardUid };
     setAssign(next);
@@ -297,73 +308,20 @@ export default function HeroScapeBoard({
     <div className="flex flex-col gap-3 p-3 lg:flex-row">
       {/* Left column: status, markers, dice, roster, log */}
       <div className="flex w-full shrink-0 flex-col gap-3 lg:w-[300px]">
-        {/* Marker placement panel (replaces the turn banner while placing) */}
+        {/* Placement status — the interactive assignment lives below the board,
+            directly above your army cards. */}
         {placing ? (
-          <div className="rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2">
-            <div className="text-center text-sm font-bold text-amber-300">
+          <div className="rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2 text-center">
+            <div className="text-sm font-bold text-amber-300">
               Round {state.round} — place order markers
             </div>
-            {me && !iAmReady ? (
-              <>
-                <div className="mt-2 flex items-center justify-center gap-2">
-                  {MARKERS.map(v => {
-                    const onCard = assign[v] ? HS_CARDS[state.cards.find(c => c.uid === assign[v])?.cardId ?? ''] : null;
-                    return (
-                      <button
-                        key={v}
-                        onClick={() => setPickedMarker(v)}
-                        disabled={disabled}
-                        className={
-                          'flex w-12 flex-col items-center rounded-md border px-1 py-1 transition ' +
-                          (pickedMarker === v
-                            ? 'border-amber-400 bg-amber-900/40'
-                            : 'border-neutral-700 hover:border-neutral-500')
-                        }
-                        title={v === 'X' ? 'Decoy — grants no turn' : `Your turn ${v} this round`}
-                      >
-                        <span className={'text-base font-extrabold ' + (assign[v] ? 'text-amber-300' : 'text-neutral-300')}>
-                          {v}
-                        </span>
-                        <span className="h-3 truncate text-[9px] leading-3 text-neutral-400">
-                          {onCard?.shortName ?? '—'}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="mt-2 flex flex-col gap-1">
-                  {myLivingCards.map(({ uid, def }) => (
-                    <button
-                      key={uid}
-                      onClick={() => assignPicked(uid)}
-                      disabled={disabled}
-                      className="flex items-center justify-between rounded-md border border-neutral-700 px-2 py-1 text-left text-[11px] text-neutral-200 transition hover:border-amber-600 hover:bg-amber-900/20"
-                    >
-                      <span className="truncate">{def.name}</span>
-                      <span className="ml-2 flex shrink-0 gap-1">
-                        {MARKERS.filter(v => assign[v] === uid).map(v => (
-                          <MarkerChip key={v} m={{ marker: v, revealed: false }} />
-                        ))}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={lockIn}
-                  disabled={disabled || !allAssigned}
-                  className="mt-2 w-full rounded-lg border-2 border-emerald-600 px-4 py-1.5 text-sm font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  🔒 Lock in markers
-                </button>
-                <div className="mt-1 text-center text-[10px] text-neutral-500">
-                  Tap a chip, then a card. X is a decoy — it never takes a turn.
-                </div>
-              </>
-            ) : (
-              <div className="mt-1 text-center text-xs text-neutral-400">
-                {me ? 'Markers locked in — waiting for the enemy…' : 'Players are placing markers…'}
-              </div>
-            )}
+            <div className="mt-1 text-xs text-neutral-400">
+              {me
+                ? iAmReady
+                  ? 'Locked in — waiting for the enemy…'
+                  : 'Assign 1/2/3/X on your cards below the board, then lock in.'
+                : 'Players are placing markers…'}
+            </div>
             <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-800 pt-1.5 text-[11px]">
               {state.players.filter(p => p.playerId !== currentUserId).map(p => (
                 <div key={p.seat} className="flex items-center justify-between">
@@ -465,38 +423,7 @@ export default function HeroScapeBoard({
           </div>
         )}
 
-        {/* Armies: figures, hero ♥, marker chips (enemy chips are face-down) */}
-        {roster.map(({ pl, cards }) => (
-          <div key={pl.seat} className="rounded-lg border border-neutral-800 bg-neutral-900/50 px-3 py-2">
-            <div className="mb-1 text-xs font-bold" style={{ color: seatColor(pl.seat) }}>
-              {pl.username}{pl.playerId === currentUserId ? ' (you)' : ''}
-            </div>
-            {cards.map(({ uid, def, alive, heroWounds, markers }) => (
-              <div
-                key={uid}
-                className={
-                  'flex items-center justify-between rounded px-1 text-[11px] text-neutral-300 ' +
-                  (uid === activeCardUid ? 'bg-amber-900/30 outline outline-1 outline-amber-700/60' : '')
-                }
-              >
-                <span className={'flex min-w-0 items-center gap-1 ' + (alive === 0 ? 'line-through opacity-50' : '')}>
-                  <span className="truncate">{def.shortName}</span>
-                  {markers.length > 0 && (
-                    <span className="flex shrink-0 gap-0.5">
-                      {markers.map((m, i) => <MarkerChip key={i} m={m} size={14} />)}
-                    </span>
-                  )}
-                </span>
-                <span className="ml-2 shrink-0 tabular-nums">
-                  {def.type === 'hero'
-                    ? <WoundPips life={def.life} wounds={alive === 0 ? def.life : heroWounds} />
-                    : `${alive}/${def.figures}`}
-                  {' '}· Mv {def.move} Rg {def.range} ⚔{def.attack} 🛡{def.defense}
-                </span>
-              </div>
-            ))}
-          </div>
-        ))}
+        {/* (Army cards render below the board — see the main column.) */}
 
         {/* End turn */}
         {myTurn && (
@@ -530,8 +457,9 @@ export default function HeroScapeBoard({
         </div>
       </div>
 
-      {/* Board */}
-      <div className="min-w-0 flex-1 overflow-auto">
+      {/* Board + army cards (cards below the board; markers sit above them) */}
+      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2">
+        <div className="w-full overflow-x-auto">
         <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block max-w-[860px]" style={{ minWidth: 420 }}>
           {/* Hexes — terrain + elevation shading (height lightens the fill) */}
           {cells.map(c => {
@@ -616,18 +544,118 @@ export default function HeroScapeBoard({
             );
           })}
         </svg>
+        </div>
         {myTurn && (
-          <div className="mt-1 text-center text-[11px] text-neutral-500">
+          <div className="text-center text-[11px] text-neutral-500">
             {selected
               ? `${figureLabel(state, selected)} — click a highlighted hex to move, a marked enemy to attack, or another of your figures.`
               : `Order marker ${state.turnNumber} is revealed — only ${activeCardDef?.name ?? 'that card'}'s figures act this turn.`}
           </div>
         )}
         {placing && me && !iAmReady && (
-          <div className="mt-1 text-center text-[11px] text-neutral-500">
-            Assign your order markers in the panel, then lock in.
+          <div className="text-center text-[11px] text-neutral-500">
+            Pick a chip on your army strip, then click a card to schedule that turn.
           </div>
         )}
+
+        {/* Army cards — below the board. Opponent on top, you nearest the
+            bottom (where the flip puts your figures). Order markers render
+            directly ABOVE each card; during placement your strip is interactive. */}
+        {(() => {
+          const ordered = me
+            ? [...roster].sort(
+                (a, b) => (a.pl.seat === me.seat ? 1 : 0) - (b.pl.seat === me.seat ? 1 : 0),
+              )
+            : roster;
+          return ordered.map(({ pl, cards }) => {
+            const isMe = !!me && pl.seat === me.seat;
+            const placingMine = placing && isMe && !iAmReady;
+            return (
+              <div
+                key={pl.seat}
+                className="w-full rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1.5"
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold" style={{ color: seatColor(pl.seat) }}>
+                    {pl.username}{isMe ? ' (you)' : ''}
+                  </span>
+                  {placingMine && (
+                    <span className="flex items-center gap-1">
+                      {MARKERS.map(v => (
+                        <button
+                          key={v}
+                          onClick={() => setPickedMarker(v)}
+                          disabled={disabled}
+                          title={v === 'X' ? 'Decoy — never takes a turn' : `Your turn ${v} this round`}
+                          className={
+                            'flex h-6 w-6 items-center justify-center rounded-full border text-xs font-extrabold transition ' +
+                            (pickedMarker === v
+                              ? 'border-amber-400 bg-amber-500 text-neutral-950'
+                              : assign[v]
+                                ? 'border-amber-700 bg-neutral-800 text-amber-300'
+                                : 'border-neutral-600 bg-neutral-900 text-neutral-300 hover:border-neutral-400')
+                          }
+                        >
+                          {v}
+                        </button>
+                      ))}
+                      <button
+                        onClick={lockIn}
+                        disabled={disabled || !allAssigned}
+                        className="ml-1 rounded-md border-2 border-emerald-600 px-2 py-0.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        🔒 Lock in
+                      </button>
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {cards.map(({ uid, def, alive, heroWounds, markers }) => {
+                    const canAssign = placingMine && alive > 0;
+                    const markersToShow = placingMine
+                      ? MARKERS.filter(v => assign[v] === uid).map(v => ({ marker: v, revealed: false }))
+                      : markers;
+                    const active = uid === activeCardUid && state.subPhase === 'turns';
+                    const body = (
+                      <>
+                        <div className={'text-xs font-semibold ' + (alive === 0 ? 'text-neutral-600 line-through' : 'text-neutral-100')}>
+                          {def.name}
+                        </div>
+                        <div className="mt-0.5 text-[10px] text-neutral-400 tabular-nums">
+                          {def.type === 'hero'
+                            ? <WoundPips life={def.life} wounds={alive === 0 ? def.life : heroWounds} />
+                            : `${alive}/${def.figures} figs`}
+                          {' · '}Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
+                        </div>
+                      </>
+                    );
+                    return (
+                      <div key={uid} className="flex w-44 flex-col items-stretch gap-1">
+                        {/* order markers — directly ABOVE the card */}
+                        <div className="flex h-6 items-center justify-center gap-1">
+                          {markersToShow.map((m, i) => <MarkerChip key={i} m={m} size={20} />)}
+                        </div>
+                        {canAssign ? (
+                          <button
+                            onClick={() => assignPicked(uid)}
+                            disabled={disabled}
+                            className="rounded-md border border-neutral-700 px-2 py-1 text-left transition hover:border-amber-500 hover:bg-amber-900/20"
+                          >
+                            {body}
+                          </button>
+                        ) : (
+                          <div className={'rounded-md border px-2 py-1 ' + (active ? 'border-amber-500 bg-amber-900/20' : 'border-neutral-800')}>
+                            {body}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          });
+        })()}
       </div>
     </div>
   );
