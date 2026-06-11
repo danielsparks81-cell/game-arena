@@ -17,11 +17,15 @@ import {
   type OrderMarker,
   type OrderMarkerValue,
   type HSChoiceResolution,
+  type HSMode,
   MAPS,
   HS_CARDS,
+  HS_DRAFT_POOL,
   HS_GLYPHS,
+  POINT_BUDGETS,
   legalDestinations,
   legalTargets,
+  placeableHexes,
   figureLabel,
   getActiveCardUid,
   hexToPixel,
@@ -66,7 +70,7 @@ type Props = {
   currentUserId: string;
   isHost: boolean;
   disabled?: boolean;
-  onStart: (mapId?: string) => void;
+  onStart: (mapId?: string, pointBudget?: number, mode?: HSMode) => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onAttack: (attackerId: string, targetId: string) => void;
@@ -74,6 +78,11 @@ type Props = {
   onWaterClone: () => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
   onEndTurn: () => void;
+  onDraftCard: (cardId: string) => void;
+  onDraftPass: () => void;
+  onPlaceFigure: (figureId: string, to: HexKey) => void;
+  onUnplaceFigure: (figureId: string) => void;
+  onPlacementReady: () => void;
 };
 
 /** Is it my live turn (in 'turns', I am the turn seat)? */
@@ -135,6 +144,59 @@ function MarkerChip({ m, size = 16 }: { m: OrderMarker; size?: number }) {
   );
 }
 
+/** A draft-pool stat card: name, points, figures, the Mv/Rg/⚔/🛡/H line, a
+ *  "⚡ powers WIP" tag for stat-only cards, greyed + struck when taken. Clicking
+ *  an affordable, available card drafts it (when it's your pick). */
+function DraftCard({
+  cardId, taken, takenByLabel, affordable, clickable, onPick,
+}: {
+  cardId: string;
+  taken: boolean;
+  takenByLabel?: string;
+  affordable: boolean;
+  clickable: boolean;
+  onPick: () => void;
+}) {
+  const def = HS_CARDS[cardId];
+  const wip = def.power === 'wip';
+  const dim = taken || !affordable;
+  return (
+    <button
+      onClick={() => clickable && onPick()}
+      disabled={!clickable}
+      title={
+        taken
+          ? `Drafted by ${takenByLabel ?? 'a player'}`
+          : !affordable
+            ? 'Over your remaining budget'
+            : `Draft ${def.name} (${def.points} pts)`
+      }
+      className={
+        'flex w-40 flex-col items-stretch rounded-md border-2 px-2 py-1.5 text-left transition ' +
+        (taken
+          ? 'border-neutral-800 bg-neutral-900/40 opacity-50'
+          : clickable
+            ? 'border-amber-700 bg-neutral-900/60 hover:border-amber-400 hover:bg-amber-900/20'
+            : 'border-neutral-800 bg-neutral-900/40 ' + (dim ? 'opacity-50' : ''))
+      }
+    >
+      <div className="flex items-center justify-between gap-1">
+        <span className={'text-xs font-bold ' + (taken ? 'text-neutral-500 line-through' : 'text-neutral-100')}>
+          {def.name}
+        </span>
+        <span className="shrink-0 text-xs font-extrabold tabular-nums text-amber-300">{def.points}</span>
+      </div>
+      <div className="mt-0.5 text-[10px] text-neutral-400 tabular-nums">
+        {def.type === 'hero' ? '1 hero' : `${def.figures} figs`} · Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
+      </div>
+      <div className="mt-0.5 flex items-center gap-1">
+        {taken && takenByLabel && <span className="text-[9px] font-semibold text-neutral-500">✓ {takenByLabel}</span>}
+        {wip && !taken && <span className="text-[9px] font-semibold text-purple-300/90" title="Special power not yet implemented — fights with printed stats">⚡ powers WIP</span>}
+      </div>
+    </button>
+  );
+}
+
 /** ♥ pips for a hero: Life − wounds remaining. */
 function WoundPips({ life, wounds }: { life: number; wounds: number }) {
   return (
@@ -149,10 +211,15 @@ export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onPlaceMarkers, onMoveFigure, onAttack,
   onBerserkerCharge, onWaterClone, onResolveChoice, onEndTurn,
+  onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Lobby: the host's chosen battlefield (sent with start_game).
+  // Lobby: the host's chosen battlefield + draft settings (sent with start_game).
   const [lobbyMapId, setLobbyMapId] = useState<string>('training_field');
+  const [lobbyMode, setLobbyMode] = useState<HSMode>('draft');
+  const [lobbyBudget, setLobbyBudget] = useState<number>(400);
+  // Placement: the figure the player has picked up to drop next (click-to-place).
+  const [placeFigureId, setPlaceFigureId] = useState<string | null>(null);
   // Marker-placement scratchpad: which card each chip sits on, and which chip
   // the next card tap will drop. Reset every round.
   const [assign, setAssign] = useState<Record<OrderMarkerValue, string | null>>({
@@ -163,6 +230,7 @@ export default function HeroScapeBoard({
     setAssign({ '1': null, '2': null, '3': null, X: null });
     setPickedMarker('1');
     setSelectedId(null);
+    setPlaceFigureId(null);
   }, [state.round, state.phase]);
 
   const map = MAPS[state.mapId];
@@ -173,6 +241,17 @@ export default function HeroScapeBoard({
     state.phase === 'playing' && state.subPhase === 'turns' && !!me && state.turnSeat === me.seat;
   const canAct = myTurn && !disabled;
   const iAmReady = !!me && state.markersReady.includes(me.seat);
+
+  // --- slice 5: placement phase (arrange your figures in your start zone) -----
+  const placement = state.phase === 'placement';
+  const iPlacementReady = !!me && (state.placementReady ?? []).includes(me.seat);
+  const canPlace = placement && !!me && !iPlacementReady && !disabled;
+  const myHand = placement && me ? (state.hand?.[me.seat] ?? []) : [];
+  // Empty own start-zone hexes I may drop a figure on (engine single-source).
+  const placeHexes = useMemo(
+    () => (canPlace && me ? placeableHexes(state, me.seat) : new Set<HexKey>()),
+    [state, me, canPlace],
+  );
   const activeCardUid = getActiveCardUid(state);
   const activeCard = state.cards.find(c => c.uid === activeCardUid);
   const activeCardDef = HS_CARDS[activeCard?.cardId ?? ''];
@@ -263,6 +342,26 @@ export default function HeroScapeBoard({
   const figureAt = (key: HexKey) => state.figures.find(f => f.at === key) ?? null;
 
   function clickHex(key: HexKey) {
+    // slice 5: placement — click your own placed figure to pick it up (unplace);
+    // click a highlighted empty start-zone hex to drop the picked figure there.
+    if (canPlace) {
+      const onHex = figureAt(key);
+      if (onHex && onHex.ownerSeat === me!.seat) {
+        // Picking up a placed figure returns it to hand; clicking a hand figure
+        // already-picked toggles selection.
+        onUnplaceFigure(onHex.id);
+        setPlaceFigureId(null);
+        return;
+      }
+      if (!onHex && placeHexes.has(key)) {
+        const toPlace = placeFigureId ?? myHand[0];
+        if (toPlace) {
+          onPlaceFigure(toPlace, key);
+          setPlaceFigureId(null);
+        }
+      }
+      return;
+    }
     // Water Clone placement takes priority: click a highlighted same-level
     // adjacent hex to land the returning Marro Warrior.
     if (cloneOptions.has(key) && !disabled) {
@@ -311,15 +410,64 @@ export default function HeroScapeBoard({
       <div className="flex flex-col items-center gap-4 p-6">
         <h2 className="text-xl font-bold text-amber-100">HeroScape</h2>
         <p className="max-w-md text-center text-sm text-neutral-400">
-          Master Game (beta): {HS_CARDS.finn.name} + {HS_CARDS.tarn_vikings.name} vs{' '}
-          {HS_CARDS.thorgrim.name} + {HS_CARDS.marro_warriors.name}. Each round, secretly
-          schedule your three turns with order markers, roll for initiative, and fight on
-          3-D terrain — climb for height advantage, mind the falls and water — first to wipe
-          out the enemy army wins.
+          Master Game (beta): draft an army from the 16-card roster against a point budget
+          (or quick-battle the preset Vikings vs Marro), arrange your figures, then schedule
+          your turns with order markers, roll for initiative, and fight on 3-D terrain — first
+          to wipe out the enemy army wins.
         </p>
         <div className="text-sm text-neutral-300">
           {state.players.length}/2 players seated{state.players.length < 2 ? ' — waiting…' : ''}
         </div>
+
+        {/* Mode toggle: Draft armies vs Quick battle (host chooses) */}
+        <div className="flex flex-col items-center gap-1">
+          <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Mode</div>
+          <div className="flex gap-2">
+            {([['draft', 'Draft armies'], ['quick', 'Quick battle']] as const).map(([m, label]) => {
+              const active = lobbyMode === m;
+              return (
+                <button
+                  key={m}
+                  onClick={() => isHost && setLobbyMode(m)}
+                  disabled={!isHost || disabled}
+                  className={
+                    'rounded-lg border-2 px-4 py-1.5 text-sm font-semibold transition ' +
+                    (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
+                    (isHost ? '' : ' cursor-default opacity-90')
+                  }
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Point-budget presets (draft mode only) */}
+        {lobbyMode === 'draft' && (
+          <div className="flex flex-col items-center gap-1">
+            <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Point budget</div>
+            <div className="flex gap-2">
+              {POINT_BUDGETS.map(b => {
+                const active = lobbyBudget === b;
+                return (
+                  <button
+                    key={b}
+                    onClick={() => isHost && setLobbyBudget(b)}
+                    disabled={!isHost || disabled}
+                    className={
+                      'rounded-lg border-2 px-3 py-1 text-sm font-bold tabular-nums transition ' +
+                      (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
+                      (isHost ? '' : ' cursor-default opacity-90')
+                    }
+                  >
+                    {b}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Battlefield picker (host chooses; others see the selection) */}
         <div className="flex flex-col items-center gap-1">
@@ -360,11 +508,11 @@ export default function HeroScapeBoard({
 
         {isHost && (
           <button
-            onClick={() => onStart(lobbyMapId)}
+            onClick={() => onStart(lobbyMapId, lobbyMode === 'draft' ? lobbyBudget : undefined, lobbyMode)}
             disabled={disabled || state.players.length < 2}
             className="rounded-lg border-2 border-emerald-600 px-6 py-2 font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            ⚔ Start the battle
+            {lobbyMode === 'draft' ? '⚔ Start the draft' : '⚔ Start the battle'}
           </button>
         )}
         {!isHost && <div className="text-xs text-neutral-500">Waiting for the host to start.</div>}
@@ -372,14 +520,198 @@ export default function HeroScapeBoard({
     );
   }
 
-  // ---------- playing / finished ----------
+  // ---------- draft (slice 5) ----------
+  if (state.phase === 'draft' && state.draft) {
+    const d = state.draft;
+    const myDraftSeat = me?.seat ?? null;
+    const myTurnToPick = myDraftSeat != null && d.turnSeat === myDraftSeat;
+    const takenBy: Record<string, number> = {};
+    for (const seat of [0, 1]) for (const id of d.armies[seat] ?? []) takenBy[id] = seat;
+    const drafterName = state.players.find(p => p.seat === d.turnSeat)?.username;
+    const budget = state.pointBudget;
+    const mySpent = myDraftSeat != null ? (d.spent[myDraftSeat] ?? 0) : 0;
+    const myRemaining = budget - mySpent;
+    // Forced-pass detection (mirrors the engine): no remaining pool card fits my
+    // remaining budget. An EMPTY army can't pass while something is affordable.
+    const myArmyEmpty = myDraftSeat != null && (d.armies[myDraftSeat] ?? []).length === 0;
+    const anyAffordable = d.pool.some(id => HS_CARDS[id].points <= myRemaining);
+    const canPass = myTurnToPick && !disabled && !(myArmyEmpty && anyAffordable);
+
+    const armyPanel = (seat: number) => {
+      const pl = state.players.find(p => p.seat === seat);
+      const ids = d.armies[seat] ?? [];
+      const isMe = !!me && seat === me.seat;
+      return (
+        <div key={seat} className="rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="text-xs font-bold" style={{ color: seatColor(seat) }}>
+              {pl?.username ?? '—'}{isMe ? ' (you)' : ''}
+              {d.passed.includes(seat) && <span className="ml-1 text-[10px] font-semibold text-emerald-400">done ✓</span>}
+            </span>
+            <span className="text-[11px] font-bold tabular-nums text-amber-300">
+              {d.spent[seat] ?? 0}/{budget}
+            </span>
+          </div>
+          {ids.length === 0 ? (
+            <div className="text-[11px] text-neutral-500">No cards yet…</div>
+          ) : (
+            <div className="flex flex-col gap-0.5">
+              {ids.map(id => (
+                <div key={id} className="flex items-center justify-between text-[11px]">
+                  <span className="text-neutral-200">{HS_CARDS[id].name}</span>
+                  <span className="tabular-nums text-neutral-400">{HS_CARDS[id].points}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    return (
+      <div className="flex flex-col gap-3 p-3 lg:flex-row">
+        {/* Left: whose pick, your army/budget, opponent army, roll-off, log */}
+        <div className="flex w-full shrink-0 flex-col gap-3 lg:w-[300px]">
+          <div
+            className="rounded-lg border-2 px-3 py-2 text-center"
+            style={{ borderColor: seatColor(d.turnSeat ?? 0) }}
+          >
+            <div className="text-sm font-bold" style={{ color: seatColor(d.turnSeat ?? 0) }}>
+              {myTurnToPick ? '⚔ Your pick' : `${drafterName ?? '…'} is drafting`}
+            </div>
+            <div className="mt-0.5 text-[11px] text-neutral-400">
+              Budget {budget} pts · {d.remainingPicks > 1 ? `${d.remainingPicks} picks this turn` : 'pick one card or pass'}
+            </div>
+          </div>
+
+          {/* Your army + spent/budget, then the opponent's */}
+          {me && armyPanel(me.seat)}
+          {state.players.filter(p => !me || p.seat !== me.seat).map(p => armyPanel(p.seat))}
+
+          {/* Pick/pass controls (only on your turn) */}
+          {myTurnToPick && (
+            <button
+              onClick={() => onDraftPass()}
+              disabled={!canPass}
+              title={
+                !anyAffordable
+                  ? 'No affordable card remains — you must pass'
+                  : myArmyEmpty
+                    ? 'Draft at least one card before passing'
+                    : 'Finish your army under budget'
+              }
+              className="rounded-lg border-2 border-amber-600 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {!anyAffordable ? 'Pass (no affordable card)' : 'Pass — finish my army'}
+            </button>
+          )}
+
+          {/* The draft-order roll-off */}
+          {d.rollOff.length > 0 && (
+            <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-[11px] text-neutral-300">
+              <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">Draft order roll</div>
+              {d.rollOff.map((attempt, i) => {
+                const isLast = i === d.rollOff.length - 1;
+                return (
+                  <div key={i} className="flex items-center gap-1.5">
+                    {attempt.map(a => (
+                      <span key={a.seat}>
+                        <span style={{ color: seatColor(a.seat) }}>{state.players.find(p => p.seat === a.seat)?.username}</span>{' '}
+                        <span className="font-bold tabular-nums">{a.roll}</span>
+                      </span>
+                    ))}
+                    <span className={isLast ? 'text-amber-300' : 'text-neutral-500'}>
+                      {isLast ? `→ ${state.players.find(p => p.seat === d.order[0])?.username} first` : '— tie, re-roll'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Log */}
+          <div className="max-h-44 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400">
+            {state.log.slice(-12).map(e => (
+              <div key={e.seq} className={e.tag === 'roll' ? 'text-sky-300/80' : ''}>{e.text}</div>
+            ))}
+          </div>
+        </div>
+
+        {/* Right: the 16-card pool */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            Army roster — {d.pool.length} of 16 left
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            {HS_DRAFT_POOL.map(id => {
+              const taken = !d.pool.includes(id);
+              const affordable = HS_CARDS[id].points <= myRemaining;
+              const clickable = myTurnToPick && !taken && affordable && !disabled;
+              return (
+                <DraftCard
+                  key={id}
+                  cardId={id}
+                  taken={taken}
+                  takenByLabel={taken ? state.players.find(p => p.seat === takenBy[id])?.username : undefined}
+                  affordable={affordable}
+                  clickable={clickable}
+                  onPick={() => onDraftCard(id)}
+                />
+              );
+            })}
+          </div>
+          <div className="text-center text-[10px] text-neutral-500">
+            ⚡ powers WIP = drafts and fights with printed stats; its special power lands in a later update.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- playing / placement / finished ----------
   return (
     <div className="flex flex-col gap-3 p-3 lg:flex-row">
       {/* Left column: status, markers, dice, roster, log */}
       <div className="flex w-full shrink-0 flex-col gap-3 lg:w-[300px]">
         {/* Placement status — the interactive assignment lives below the board,
             directly above your army cards. */}
-        {placing ? (
+        {placement ? (
+          <div className="rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2 text-center">
+            <div className="text-sm font-bold text-amber-300">Deploy your army</div>
+            <div className="mt-1 text-xs text-neutral-400">
+              {me
+                ? iPlacementReady
+                  ? 'Locked in — waiting for the enemy…'
+                  : 'Click a figure in your tray, then a highlighted hex in your start zone. Click a placed figure to pick it up.'
+                : 'Players are deploying their armies…'}
+            </div>
+            {me && !iPlacementReady && (
+              <div className="mt-1 text-[11px] tabular-nums text-neutral-300">
+                {myHand.length} in hand · {state.figures.filter(f => f.ownerSeat === me.seat && f.at != null).length} placed
+              </div>
+            )}
+            <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-800 pt-1.5 text-[11px]">
+              {state.players.filter(p => p.playerId !== currentUserId).map(p => (
+                <div key={p.seat} className="flex items-center justify-between">
+                  <span style={{ color: seatColor(p.seat) }}>{p.username}</span>
+                  <span className={(state.placementReady ?? []).includes(p.seat) ? 'text-emerald-400' : 'text-neutral-500'}>
+                    {(state.placementReady ?? []).includes(p.seat) ? 'ready ✓' : 'deploying…'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {me && !iPlacementReady && (
+              <button
+                onClick={() => { onPlacementReady(); setPlaceFigureId(null); }}
+                disabled={disabled || state.figures.filter(f => f.ownerSeat === me.seat && f.at != null).length < 1}
+                className="mt-2 w-full rounded-md border-2 border-emerald-600 px-2 py-1 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+                title={myHand.length > 0 ? `${myHand.length} unplaced figure(s) will be left unused` : undefined}
+              >
+                🔒 Ready{myHand.length > 0 ? ` (${myHand.length} unused)` : ''}
+              </button>
+            )}
+          </div>
+        ) : placing ? (
           <div className="rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2 text-center">
             <div className="text-sm font-bold text-amber-300">
               Round {state.round} — place order markers
@@ -621,12 +953,13 @@ export default function HeroScapeBoard({
             const key: HexKey = `${c.q},${c.r}`;
             const ctr = toScreen(key);
             const pts = hexCorners(ctr, HEX * 0.985).map(p => `${p.x},${p.y}`).join(' ');
-            const isDest = destinations.has(key);
+            const isPlaceHex = placeHexes.has(key); // slice 5 placement target
+            const isDest = destinations.has(key) || isPlaceHex;
             const isCloneOpt = cloneOptions.has(key);
             const { fill, stroke } = hexFill(c.terrain, c.height, isDest);
             const startZoneSeat = Object.entries(map.startZones).find(([, keys]) => keys.includes(key))?.[0];
             const occupied = !!figureAt(key);
-            const clickable = canAct || isCloneOpt;
+            const clickable = canAct || isCloneOpt || (canPlace && (isPlaceHex || occupied));
             return (
               <g key={key} onClick={() => clickHex(key)} className={clickable ? 'cursor-pointer' : ''}>
                 <polygon
@@ -648,8 +981,8 @@ export default function HeroScapeBoard({
                     {c.terrain === 'water' ? '≈' : c.height}
                   </text>
                 )}
-                {state.phase === 'playing' && startZoneSeat != null && !figureAt(key) && (
-                  <circle cx={ctr.x} cy={ctr.y} r={3} fill={seatColor(Number(startZoneSeat))} opacity={0.25} />
+                {(state.phase === 'playing' || placement) && startZoneSeat != null && !occupied && (
+                  <circle cx={ctr.x} cy={ctr.y} r={3} fill={seatColor(Number(startZoneSeat))} opacity={placement && Number(startZoneSeat) === me?.seat ? 0.45 : 0.25} />
                 )}
               </g>
             );
@@ -698,8 +1031,9 @@ export default function HeroScapeBoard({
             const isSel = f.id === selectedId;
             const isTarget = targets.has(f.id);
             const mine = me && f.ownerSeat === me.seat;
+            const placeClickable = canPlace && !!mine; // click to pick up (unplace)
             return (
-              <g key={f.id} onClick={() => clickHex(f.at!)} className={canAct && (mine || isTarget) ? 'cursor-pointer' : ''}>
+              <g key={f.id} onClick={() => clickHex(f.at!)} className={(canAct && (mine || isTarget)) || placeClickable ? 'cursor-pointer' : ''}>
                 {isTarget && (
                   <circle cx={ctr.x} cy={ctr.y} r={HEX * 0.62} fill="none" stroke="#ef4444" strokeWidth={3} strokeDasharray="6 3" />
                 )}
@@ -738,6 +1072,48 @@ export default function HeroScapeBoard({
           })}
         </svg>
         </div>
+
+        {/* slice 5: placement in-hand tray — your unplaced figures. Click one to
+            pick it up, then click a highlighted start-zone hex to deploy it. */}
+        {placement && me && !iPlacementReady && (
+          <div className="rounded-lg border border-amber-800 bg-neutral-900/50 px-2 py-1.5">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
+              In hand — click a figure, then a glowing hex
+            </div>
+            {myHand.length === 0 ? (
+              <div className="text-[11px] text-neutral-500">All figures deployed. Hit Ready when satisfied.</div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {myHand.map(id => {
+                  const f = state.figures.find(x => x.id === id);
+                  const def = HS_CARDS[state.cards.find(c => c.uid === f?.cardUid)?.cardId ?? ''];
+                  const picked = (placeFigureId ?? myHand[0]) === id;
+                  return (
+                    <button
+                      key={id}
+                      onClick={() => setPlaceFigureId(id)}
+                      disabled={disabled}
+                      title={f ? figureLabel(state, f) : id}
+                      className={
+                        'flex items-center gap-1 rounded-md border-2 px-2 py-1 text-xs font-semibold transition ' +
+                        (picked ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-200 hover:border-neutral-500')
+                      }
+                    >
+                      <span
+                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-neutral-950"
+                        style={{ background: seatColor(me.seat) }}
+                      >
+                        {def?.letter}{def?.type === 'squad' ? f?.index : ''}
+                      </span>
+                      <span>{f ? figureLabel(state, f) : id}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {myTurn && (
           <div className="text-center text-[11px] text-neutral-500">
             {selected

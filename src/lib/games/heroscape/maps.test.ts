@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, MAPS } from './maps';
-import { hexKey, offsetToAxial, neighborKeys } from './board';
+import { hexKey, offsetToAxial, axialToOffset, neighborKeys } from './board';
 
 const at = (col: number, row: number) => {
   const { q, r } = offsetToAxial(col, row);
@@ -23,15 +23,22 @@ describe('TEST-1 "Training Field"', () => {
     }
   });
 
-  it('start zones: full-width row 1 for player 1 and row 8 for player 2', () => {
+  it('start zones: TWO full-width rows each (rows 1-2 for P1, rows 7-8 for P2)', () => {
     const zone0 = TRAINING_FIELD.startZones[0];
     const zone1 = TRAINING_FIELD.startZones[1];
-    expect(zone0).toHaveLength(7);
-    expect(zone1).toHaveLength(7);
+    expect(zone0).toHaveLength(14); // rows 1-2 × 7 cols
+    expect(zone1).toHaveLength(14); // rows 7-8 × 7 cols
+    // Parser pushes row-by-row: first 7 are row 1, next 7 are row 2.
     for (let col = 0; col < 7; col++) {
       expect(zone0[col]).toBe(at(col, 0));
-      expect(zone1[col]).toBe(at(col, 7));
+      expect(zone0[col + 7]).toBe(at(col, 1));
+      expect(zone1[col]).toBe(at(col, 6));
+      expect(zone1[col + 7]).toBe(at(col, 7));
     }
+    // The zones cover rows {0,1} and {6,7}; rows 2-5 are neutral.
+    const rowsOf = (z: string[]) => new Set(z.map(k => axialToOffset(k).row));
+    expect([...rowsOf(zone0)].sort()).toEqual([0, 1]);
+    expect([...rowsOf(zone1)].sort()).toEqual([6, 7]);
   });
 
   it('has no glyph spots and no voids', () => {
@@ -78,12 +85,14 @@ describe('TEST-2 "The Knoll" (elevation)', () => {
     expect(THE_KNOLL.glyphSpots).toHaveLength(0);
   });
 
-  it('full-width start zones on rows 1 and 8', () => {
-    expect(THE_KNOLL.startZones[0]).toHaveLength(9);
-    expect(THE_KNOLL.startZones[1]).toHaveLength(9);
+  it('two-row start zones (rows 1-2 for P1, rows 7-8 for P2)', () => {
+    expect(THE_KNOLL.startZones[0]).toHaveLength(18); // rows 1-2 × 9 cols
+    expect(THE_KNOLL.startZones[1]).toHaveLength(18); // rows 7-8 × 9 cols
     for (let col = 0; col < 9; col++) {
       expect(THE_KNOLL.startZones[0][col]).toBe(at(col, 0));
-      expect(THE_KNOLL.startZones[1][col]).toBe(at(col, 7));
+      expect(THE_KNOLL.startZones[0][col + 9]).toBe(at(col, 1));
+      expect(THE_KNOLL.startZones[1][col]).toBe(at(col, 6));
+      expect(THE_KNOLL.startZones[1][col + 9]).toBe(at(col, 7));
     }
   });
 });
@@ -120,9 +129,16 @@ describe('TEST-3 "Ford Crossing" (water + voids)', () => {
     expect(FORD_CROSSING.cells[at(5, 3)]).toMatchObject({ terrain: 'sand', height: 1 });
   });
 
-  it('full-width start zones on rows 1 and 7', () => {
-    expect(FORD_CROSSING.startZones[0]).toHaveLength(10);
-    expect(FORD_CROSSING.startZones[1]).toHaveLength(10);
+  it('two-row start zones (rows 1-2 for P1, rows 6-7 for P2; voids excluded)', () => {
+    // Row 2 (index 1) and row 6 (index 5) each have a void at col 7, so each
+    // two-row zone is 10 + 9 = 19 hexes (the void is not a start-zone hex).
+    expect(FORD_CROSSING.startZones[0]).toHaveLength(19);
+    expect(FORD_CROSSING.startZones[1]).toHaveLength(19);
+    const rowsOf = (z: string[]) => [...new Set(z.map(k => axialToOffset(k).row))].sort();
+    expect(rowsOf(FORD_CROSSING.startZones[0])).toEqual([0, 1]);
+    expect(rowsOf(FORD_CROSSING.startZones[1])).toEqual([5, 6]);
+    // The void at (8,2)/offset(7,1) is NOT in the zone.
+    expect(FORD_CROSSING.startZones[0]).not.toContain(at(7, 1));
   });
 });
 

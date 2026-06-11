@@ -94,6 +94,7 @@ import {
   type InitiativeAttempt as HSInitiativeAttempt,
   type OrderMarkerValue as HSOrderMarkerValue,
   type HSChoiceResolution,
+  type HSMode,
 } from '@/lib/games/heroscape';
 
 /**
@@ -729,14 +730,20 @@ export type GameAction =
   // sends intent only; makeMoveHS rolls every die server-side (d20 initiative,
   // attack/defense dice, falling dice, leaving-engagement swipes) and injects
   // the values into the pure engine. The host picks the battlefield at start.
-  | { game: 'heroscape'; kind: 'start_game'; mapId?: string }
+  | { game: 'heroscape'; kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'berserker_charge' }
   | { game: 'heroscape'; kind: 'water_clone' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
-  | { game: 'heroscape'; kind: 'end_turn' };
+  | { game: 'heroscape'; kind: 'end_turn' }
+  // Draft + placement (slice 5).
+  | { game: 'heroscape'; kind: 'draft_card'; cardId: string }
+  | { game: 'heroscape'; kind: 'draft_pass' }
+  | { game: 'heroscape'; kind: 'place_figure'; figureId: string; to: string }
+  | { game: 'heroscape'; kind: 'unplace_figure'; figureId: string }
+  | { game: 'heroscape'; kind: 'placement_ready' };
 
 /**
  * Single entry point for every in-game action. Boards call this through the
@@ -1155,7 +1162,7 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
  *  no roll_initiative on the wire at all — the server triggers it itself when
  *  the final player locks in their order markers. */
 type HSWireAction =
-  | { kind: 'start_game'; mapId?: string }
+  | { kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   | { kind: 'attack'; attackerId: string; targetId: string }
@@ -1164,7 +1171,14 @@ type HSWireAction =
   | { kind: 'berserker_charge' }
   | { kind: 'water_clone' }
   | { kind: 'resolve_choice'; choice: HSChoiceResolution }
-  | { kind: 'end_turn' };
+  | { kind: 'end_turn' }
+  // Draft + placement (slice 5). No draft_roll on the wire — the server rolls the
+  // draft order itself when entering the draft (mirrors initiative).
+  | { kind: 'draft_card'; cardId: string }
+  | { kind: 'draft_pass' }
+  | { kind: 'place_figure'; figureId: string; to: string }
+  | { kind: 'unplace_figure'; figureId: string }
+  | { kind: 'placement_ready' };
 
 /** d20 attempts until tie-free: ALL seats re-roll on any tie for highest
  *  (for 2 players that matches "the tying players re-roll", p. 9). Capped —
@@ -1264,8 +1278,10 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   } else if (action.kind === 'resolve_choice') {
     engineAction = { kind: 'resolve_choice', choice: action.choice };
   } else if (action.kind === 'start_game') {
-    engineAction = { kind: 'start_game', mapId: action.mapId };
+    engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode };
   } else {
+    // place_markers / draft_card / draft_pass / place_figure / unplace_figure /
+    // placement_ready — no server-rolled dice; pass through verbatim.
     engineAction = action;
   }
 
@@ -1316,6 +1332,27 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       throw new Error('Initiative would not resolve after 20 attempts — try again');
     }
     const rolled = applyActionHS(next, user.id, { kind: 'roll_initiative', attempts });
+    if ('error' in rolled) throw new Error(rolled.error);
+    next = rolled;
+  }
+
+  // Entering the DRAFT (slice 5): roll the draft order in the same request —
+  // both seats roll a plain d20, re-roll everyone on any tie for highest (capped
+  // at 20). The engine re-validates the tie discipline and sets the pick order.
+  if (action.kind === 'start_game' && next.phase === 'draft' && (next.draft?.order.length ?? 0) === 0) {
+    const attempts: HSInitiativeAttempt[] = [];
+    for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
+      const attempt = next.players.map(p => ({ seat: p.seat, roll: d20() }));
+      attempts.push(attempt);
+      const max = Math.max(...attempt.map(a => a.roll));
+      if (attempt.filter(a => a.roll === max).length === 1) break;
+    }
+    const last = attempts[attempts.length - 1];
+    const lastMax = Math.max(...last.map(a => a.roll));
+    if (last.filter(a => a.roll === lastMax).length !== 1) {
+      throw new Error('Draft order would not resolve after 20 attempts — try again');
+    }
+    const rolled = applyActionHS(next, user.id, { kind: 'draft_roll', attempts });
     if ('error' in rolled) throw new Error(rolled.error);
     next = rolled;
   }

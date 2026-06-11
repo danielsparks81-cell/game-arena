@@ -41,13 +41,14 @@ import type {
   HSGlyph,
   HSGlyphId,
   HSLogEntry,
+  HSMode,
   HSResult,
   HSState,
   InitiativeAttempt,
   OrderMarkerValue,
 } from './types';
 import { MAPS } from './maps';
-import { HS_CARDS, SLICE1_ARMIES, HS_GLYPHS } from './content';
+import { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, HS_GLYPHS } from './content';
 import {
   areEngaged,
   axialToOffset,
@@ -60,11 +61,19 @@ import {
   type Occupancy,
 } from './board';
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 export const LOG_MAX = 60;
 const SEATS = 2;
 const DEFAULT_MAP_ID = 'training_field';
 const MARKER_VALUES: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
+
+/** Point-budget presets the lobby offers (slice 5). */
+export const POINT_BUDGETS: readonly number[] = [200, 300, 400, 500];
+export const DEFAULT_POINT_BUDGET = 400;
+const DEFAULT_MODE: HSMode = 'draft';
+/** The second player's opening turn is a DOUBLE pick (1,2,…); every later turn
+ *  is a single pick (resolutions.md). */
+const DRAFT_OPENER_PICKS = 2;
 
 /** Card ids whose figures have a special power the engine acts on (slice 4). */
 const TARN_CARD_ID = 'tarn_vikings';
@@ -86,6 +95,8 @@ export function initialState(): HSState {
     phase: 'lobby',
     players: [],
     mapId: DEFAULT_MAP_ID,
+    mode: DEFAULT_MODE,
+    pointBudget: DEFAULT_POINT_BUDGET,
     cards: [],
     figures: [],
     subPhase: 'place_markers',
@@ -146,11 +157,39 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   if (action.kind === 'start_game') {
     // Host gating happens in the server action (room.host_id); the engine
     // validates the game shape (and the chosen battlefield).
-    return doStartGame(state, action.mapId);
+    return doStartGame(state, action.mapId, action.pointBudget, action.mode);
   }
   if (state.phase === 'lobby') return { error: 'The battle has not started yet' };
   if (state.phase === 'finished') return { error: 'The battle is over' };
   const me = state.players.find(p => p.playerId === playerId)!;
+
+  // ---- Draft phase (slice 5) ----
+  if (state.phase === 'draft') {
+    switch (action.kind) {
+      case 'draft_roll':
+        return doDraftRoll(state, action.attempts);
+      case 'draft_card':
+        return doDraftCard(state, me.seat, action.cardId);
+      case 'draft_pass':
+        return doDraftPass(state, me.seat);
+      default:
+        return { error: 'The army draft is in progress' };
+    }
+  }
+
+  // ---- Placement phase (slice 5) ----
+  if (state.phase === 'placement') {
+    switch (action.kind) {
+      case 'place_figure':
+        return doPlaceFigure(state, me.seat, action.figureId, action.to);
+      case 'unplace_figure':
+        return doUnplaceFigure(state, me.seat, action.figureId);
+      case 'placement_ready':
+        return doPlacementReady(state, me.seat);
+      default:
+        return { error: 'Place your figures in your start zone first' };
+    }
+  }
 
   // PendingChoice gate (slice 4): while a decision is open, the engine blocks
   // every normal action for everyone except the owning seat, and the owner may
@@ -198,67 +237,84 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
       return doEndTurn(state, me.seat);
     }
+    // Draft/placement actions arriving during 'playing' — out of phase.
+    case 'draft_roll':
+    case 'draft_card':
+    case 'draft_pass':
+    case 'place_figure':
+    case 'unplace_figure':
+    case 'placement_ready':
+      return { error: 'That action is not available right now' };
   }
 }
 
 // ============================================================================
-// Start: fixed armies + auto-placement (no roll-off — initiative is per-round)
+// Start: route to draft (roll-off) or quick (fixed armies + auto-placement)
 // ============================================================================
 
-function doStartGame(state: HSState, mapId?: string): HSResult {
-  if (state.phase !== 'lobby') return { error: 'The battle has already started' };
-  if (state.players.length !== SEATS) return { error: 'HeroScape needs exactly 2 players' };
-  // The host picks the battlefield at game start (default: Training Field).
-  const chosenMapId = mapId ?? state.mapId ?? DEFAULT_MAP_ID;
-  const map = MAPS[chosenMapId];
-  if (!map) return { error: `Unknown battlefield "${chosenMapId}"` };
-
-  const s = clone(state);
-  s.mapId = chosenMapId;
-  s.cards = [];
-  s.figures = [];
-
-  // Fixed slice-1 armies, auto-placed in each player's start zone.
-  // TODO(slice 5): manual placement — the rules let each player arrange their
-  // own figures inside their starting zone (01-components §5). For now we
-  // auto-place a fixed, sensible arrangement (hero centered, squad figures
-  // flanking) to keep scope down.
-  for (let idx = 0; idx < SEATS; idx++) {
-    const player = s.players[idx];
-    const zone = map.startZones[idx] ?? [];
-    if (zone.length < 5) return { error: 'Start zone is too small for the army' };
-    const center = Math.floor(zone.length / 2);
-    const heroSpot = zone[center];
-    const squadSpots = [zone[center - 2], zone[center - 1], zone[center + 1], zone[center + 2]];
-
-    for (const cardId of SLICE1_ARMIES[idx]) {
-      const def = HS_CARDS[cardId];
-      const card: ArmyCardInstance = {
-        uid: `s${player.seat}-${cardId}`,
-        cardId,
-        ownerSeat: player.seat,
-        orderMarkers: [],
-        attackMod: 0,
-        defenseMod: 0,
-      };
-      s.cards.push(card);
-      for (let n = 1; n <= def.figures; n++) {
-        s.figures.push({
-          id: `${card.uid}-${n}`,
-          cardUid: card.uid,
-          ownerSeat: player.seat,
-          at: def.type === 'hero' ? heroSpot : squadSpots[n - 1],
-          index: n,
-          wounds: 0,
-        });
-      }
+/** Build a seat's army-card instances + figures from a list of card ids. Each
+ *  figure starts at `null` (unplaced); `placeFigures` (quick path) moves them
+ *  onto the board afterwards. Card uid = `s{seat}-{cardId}` (cards are unique
+ *  per seat). Returns the new cards and figures (caller appends). */
+function buildArmy(seat: number, cardIds: readonly string[]): { cards: ArmyCardInstance[]; figures: Figure[] } {
+  const cards: ArmyCardInstance[] = [];
+  const figures: Figure[] = [];
+  for (const cardId of cardIds) {
+    const def = HS_CARDS[cardId];
+    if (!def) continue;
+    const card: ArmyCardInstance = {
+      uid: `s${seat}-${cardId}`,
+      cardId,
+      ownerSeat: seat,
+      orderMarkers: [],
+      attackMod: 0,
+      defenseMod: 0,
+    };
+    cards.push(card);
+    for (let n = 1; n <= def.figures; n++) {
+      figures.push({ id: `${card.uid}-${n}`, cardUid: card.uid, ownerSeat: seat, at: null, index: n, wounds: 0 });
     }
   }
+  return { cards, figures };
+}
 
-  // Materialize the map's glyph layout, placed POWER-side up (faceUp:true) so
-  // effects are known (slice 4; the symbol-side-up flip mechanic is deferred).
+/** The seat's OUTER start-zone row (its own back edge, nearest its board edge):
+ *  seat 0 = the minimum row of its zone, seat 1 = the maximum. The quick-battle
+ *  auto-placement uses this single row so it reproduces the slice-4 positions
+ *  exactly even now that the zone spans two rows. */
+function outerZoneRow(map: { startZones: Record<number, HexKey[]> }, seat: number): HexKey[] {
+  const zone = map.startZones[seat] ?? [];
+  if (zone.length === 0) return [];
+  const rowOf = (k: HexKey) => axialToOffset(k).row;
+  const target = seat === 0 ? Math.min(...zone.map(rowOf)) : Math.max(...zone.map(rowOf));
+  return zone.filter(k => rowOf(k) === target).sort((a, b) => axialToOffset(a).col - axialToOffset(b).col);
+}
+
+/** Auto-place a quick-battle army on the seat's outer zone row: hero centered,
+ *  squad figures flanking — the slice-4 fixed arrangement, preserved so the
+ *  quick path reproduces the slice-4 game exactly. Mutates `figures` in place. */
+function autoPlaceQuickArmy(map: { startZones: Record<number, HexKey[]> }, seat: number, cards: ArmyCardInstance[], figures: Figure[]): string | null {
+  const row = outerZoneRow(map, seat);
+  if (row.length < 5) return 'Start zone is too small for the army';
+  const center = Math.floor(row.length / 2);
+  const heroSpot = row[center];
+  const squadSpots = [row[center - 2], row[center - 1], row[center + 1], row[center + 2]];
+  for (const card of cards.filter(c => c.ownerSeat === seat)) {
+    const def = HS_CARDS[card.cardId];
+    const figs = figures.filter(f => f.cardUid === card.uid);
+    figs.forEach((f, i) => {
+      f.at = def.type === 'hero' ? heroSpot : squadSpots[i];
+    });
+  }
+  return null;
+}
+
+/** Shared tail: materialize the map's glyphs (power-side up) and open round 1 in
+ *  place_markers (the slice-2 round flow). Used by the quick path and the
+ *  placement → playing transition. Assumes s.cards/s.figures are already built
+ *  and (for the quick/placement entry) figures are placed. */
+function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId; at: HexKey }[] }): void {
   s.glyphs = (map.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: true }));
-
   s.phase = 'playing';
   s.subPhase = 'place_markers';
   s.round = 1;
@@ -273,11 +329,324 @@ function doStartGame(state: HSState, mapId?: string): HSResult {
   s.winnerSeat = null;
   delete s.pendingChoice;
   delete s.waterClonedThisTurn;
-
+  delete s.berserkerSpent;
+  delete s.draft;
+  delete s.hand;
+  delete s.placementReady;
   const glyphNote = s.glyphs.length
     ? ` ${s.glyphs.length} glyph${s.glyphs.length === 1 ? '' : 's'} await on the field.`
     : '';
   pushLog(s, 'info', `Battle on the ${map.name}! Round 1 — all players secretly place their order markers.${glyphNote}`);
+}
+
+function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode): HSResult {
+  if (state.phase !== 'lobby') return { error: 'The battle has already started' };
+  if (state.players.length !== SEATS) return { error: 'HeroScape needs exactly 2 players' };
+  // The host picks the battlefield at game start (default: Training Field).
+  const chosenMapId = mapId ?? state.mapId ?? DEFAULT_MAP_ID;
+  const map = MAPS[chosenMapId];
+  if (!map) return { error: `Unknown battlefield "${chosenMapId}"` };
+  const chosenMode: HSMode = mode ?? state.mode ?? DEFAULT_MODE;
+  const chosenBudget = pointBudget ?? state.pointBudget ?? DEFAULT_POINT_BUDGET;
+  if (chosenMode === 'draft' && !POINT_BUDGETS.includes(chosenBudget)) {
+    return { error: 'Pick a valid point budget' };
+  }
+
+  const s = clone(state);
+  s.mapId = chosenMapId;
+  s.mode = chosenMode;
+  s.pointBudget = chosenBudget;
+  s.cards = [];
+  s.figures = [];
+
+  if (chosenMode === 'quick') {
+    // Quick battle: auto-draft the fixed slice-1 armies and auto-place them,
+    // then go straight to playing (preserves the slice-4 fast path exactly).
+    for (let idx = 0; idx < SEATS; idx++) {
+      const { cards, figures } = buildArmy(s.players[idx].seat, SLICE1_ARMIES[idx]);
+      s.cards.push(...cards);
+      s.figures.push(...figures);
+      const err = autoPlaceQuickArmy(map, s.players[idx].seat, s.cards, s.figures);
+      if (err) return { error: err };
+    }
+    enterPlaying(s, map);
+    return s;
+  }
+
+  // Draft mode: enter the draft phase. The roll-off d20s are SERVER-rolled —
+  // makeMoveHS issues a `draft_roll` in the same request (mirrors initiative),
+  // so the draft is set up but awaits the order roll.
+  s.phase = 'draft';
+  s.subPhase = 'place_markers'; // unused while drafting; kept canonical
+  s.glyphs = [];
+  s.draft = {
+    pool: [...HS_DRAFT_POOL],
+    order: [],
+    rollOff: [],
+    turnSeat: null,
+    remainingPicks: 0,
+    passed: [],
+    armies: { 0: [], 1: [] },
+    spent: { 0: 0, 1: 0 },
+  };
+  delete s.hand;
+  delete s.placementReady;
+  pushLog(s, 'info', `Army draft on the ${map.name} — budget ${chosenBudget} points. Rolling for draft order…`);
+  return s;
+}
+
+// ============================================================================
+// Draft phase (slice 5) — the verified 2-player procedure
+// (docs/heroscape/extraction/resolutions.md). Pure; the server rolls the d20s.
+// ============================================================================
+
+/** Cost of a card id (its printed Points). 0 for an unknown id (defensive). */
+function cardPoints(cardId: string): number {
+  return HS_CARDS[cardId]?.points ?? 0;
+}
+
+/** True iff the pool still holds a card the seat can AFFORD (its Points fit the
+ *  seat's remaining budget). When false, the seat MUST pass (no legal pick). */
+function hasAffordableCard(state: HSState, seat: number): boolean {
+  const d = state.draft!;
+  const remaining = state.pointBudget - (d.spent[seat] ?? 0);
+  return d.pool.some(id => cardPoints(id) <= remaining);
+}
+
+/** Set the draft's turn to the next active (un-passed) seat. The 1/2/alternate-1
+ *  sequence (resolutions.md): the high roller opens with 1 pick, the OTHER seat
+ *  then takes 2 (its first turn only), and every turn thereafter is a single
+ *  pick — back-and-forth — until a seat passes. Both passed → draft over (build
+ *  figures + placement hand). */
+function advanceDraftTurn(s: HSState): void {
+  const d = s.draft!;
+  // Whoever is NOT the current turn seat, in the fixed [high, other] order.
+  const next = d.order.find(seat => seat !== d.turnSeat && !d.passed.includes(seat));
+  if (next == null) {
+    // The other seat has already passed — the SAME seat keeps single picks until
+    // it too passes (or is forced to). Only end when BOTH have passed.
+    if (d.turnSeat != null && !d.passed.includes(d.turnSeat)) {
+      d.remainingPicks = 1;
+      return;
+    }
+    finishDraft(s);
+    return;
+  }
+  // The DOUBLE pick is the SECOND drafter's (order[1]) very first turn — i.e.
+  // when it has drafted nothing yet AND no one has passed (so we're still in the
+  // opening 1,2 exchange, not the late single-pick phase after a pass).
+  const isSecondDrafterOpener =
+    next === d.order[1] && (d.armies[next] ?? []).length === 0 && d.passed.length === 0;
+  d.turnSeat = next;
+  d.remainingPicks = isSecondDrafterOpener ? DRAFT_OPENER_PICKS : 1;
+}
+
+/** When BOTH seats have passed: build each seat's army cards + figures and the
+ *  placement `hand`, then enter the placement phase. */
+function finishDraft(s: HSState): void {
+  const d = s.draft!;
+  d.turnSeat = null;
+  s.cards = [];
+  s.figures = [];
+  s.hand = { 0: [], 1: [] };
+  for (const seat of [0, 1]) {
+    const { cards, figures } = buildArmy(seat, d.armies[seat] ?? []);
+    s.cards.push(...cards);
+    s.figures.push(...figures);
+    s.hand[seat] = figures.map(f => f.id); // all start in hand (unplaced)
+  }
+  s.placementReady = [];
+  s.phase = 'placement';
+  pushLog(
+    s,
+    'info',
+    `Draft complete — place your figures in your start zone. ${playerName(s, 0)}: ${d.spent[0]} pts, ${playerName(s, 1)}: ${d.spent[1]} pts.`,
+  );
+}
+
+function doDraftRoll(state: HSState, attempts: InitiativeAttempt[]): HSResult {
+  const d = state.draft;
+  if (!d) return { error: 'No draft is in progress' };
+  if (d.order.length > 0) return { error: 'The draft order is already set' };
+  if (!Array.isArray(attempts) || attempts.length === 0) return { error: 'Missing draft rolls' };
+  const seats = state.players.map(p => p.seat);
+  // Plain 1-20 d20s (no Dagmar in the draft); every attempt before the last must
+  // be a tie for highest (that is why it was re-rolled), the final tie-free.
+  for (const attempt of attempts) {
+    if (
+      !Array.isArray(attempt) ||
+      attempt.length !== seats.length ||
+      !seats.every(seat => attempt.some(a => a?.seat === seat))
+    ) {
+      return { error: 'Malformed draft rolls' };
+    }
+    for (const a of attempt) {
+      if (!Number.isInteger(a.roll) || a.roll < 1 || a.roll > 20) return { error: 'Malformed draft rolls' };
+    }
+  }
+  for (let i = 0; i < attempts.length - 1; i++) {
+    if (!tiedForHighest(attempts[i])) return { error: 'Draft re-rolled an attempt that was not tied' };
+  }
+  const last = attempts[attempts.length - 1];
+  if (tiedForHighest(last)) return { error: 'Draft order ended in a tie — roll again' };
+  const highSeat = last.reduce((best, a) => (a.roll > best.roll ? a : best)).seat;
+  const otherSeat = seats.find(x => x !== highSeat)!;
+
+  const s = clone(state);
+  const dd = s.draft!;
+  dd.rollOff = attempts;
+  dd.order = [highSeat, otherSeat];
+  // High roller drafts FIRST, picking ONE card; the other then picks TWO; then
+  // alternate single picks (resolutions.md). So the opener belongs to the high
+  // roller with 1 pick — the DOUBLE pick is the second player's first turn.
+  dd.turnSeat = highSeat;
+  dd.remainingPicks = 1;
+  attempts.forEach((attempt, i) => {
+    const parts = attempt.map(a => `${playerName(s, a.seat)} ${a.roll}`).join(' — ');
+    const tie = i < attempts.length - 1 ? ' Tie — re-roll!' : '';
+    pushLog(s, 'roll', `Draft d20: ${parts}.${tie}`);
+  });
+  pushLog(s, 'info', `${playerName(s, highSeat)} drafts first.`);
+  return s;
+}
+
+function doDraftCard(state: HSState, seat: number, cardId: string): HSResult {
+  const d = state.draft;
+  if (!d || d.turnSeat == null) return { error: 'The draft is not awaiting a pick' };
+  if (d.turnSeat !== seat) return { error: 'It is not your pick' };
+  if (!d.pool.includes(cardId)) return { error: 'That card is no longer in the pool' };
+  const cost = cardPoints(cardId);
+  const remaining = state.pointBudget - (d.spent[seat] ?? 0);
+  if (cost > remaining) {
+    return { error: `${HS_CARDS[cardId].name} costs ${cost} — only ${remaining} points left` };
+  }
+
+  const s = clone(state);
+  const dd = s.draft!;
+  dd.pool = dd.pool.filter(id => id !== cardId);
+  dd.armies[seat] = [...(dd.armies[seat] ?? []), cardId];
+  dd.spent[seat] = (dd.spent[seat] ?? 0) + cost;
+  pushLog(
+    s,
+    'info',
+    `${playerName(s, seat)} drafts ${HS_CARDS[cardId].name} (${cost} pts) — ${dd.spent[seat]}/${s.pointBudget}.`,
+  );
+  dd.remainingPicks -= 1;
+  if (dd.remainingPicks <= 0) {
+    advanceDraftTurn(s);
+  }
+  return s;
+}
+
+function doDraftPass(state: HSState, seat: number): HSResult {
+  const d = state.draft;
+  if (!d || d.turnSeat == null) return { error: 'The draft is not awaiting a pick' };
+  if (d.turnSeat !== seat) return { error: 'It is not your pick' };
+  // A player must end with ≥1 card: cannot pass an EMPTY army while an
+  // affordable card still exists (the very first pick can't be a pass).
+  const armyEmpty = (d.armies[seat] ?? []).length === 0;
+  if (armyEmpty && hasAffordableCard(state, seat)) {
+    return { error: 'You must draft at least one card before passing' };
+  }
+
+  const s = clone(state);
+  const dd = s.draft!;
+  if (!dd.passed.includes(seat)) dd.passed.push(seat);
+  const forced = !hasAffordableCard(state, seat);
+  pushLog(
+    s,
+    'info',
+    `${playerName(s, seat)} ${forced ? 'must pass — no affordable card remains' : 'passes'}; their army is complete (${dd.spent[seat]} pts).`,
+  );
+  // Passing permanently completes the army — leave the rotation. Hand the turn
+  // to the other seat (single picks) or finish if both have passed.
+  if (dd.passed.length >= SEATS) {
+    finishDraft(s);
+  } else {
+    advanceDraftTurn(s);
+  }
+  return s;
+}
+
+// ============================================================================
+// Placement phase (slice 5) — arrange your drafted figures in your start zone,
+// simultaneous + ready-gated. Both ready → playing, round 1 place_markers.
+// ============================================================================
+
+/** Empty start-zone hexes of `seat` a figure may be placed on right now. The
+ *  board calls this to highlight legal placement squares (single source of
+ *  truth with the engine's validation). */
+export function placeableHexes(state: HSState, seat: number): Set<HexKey> {
+  const map = MAPS[state.mapId];
+  const zone = map?.startZones[seat] ?? [];
+  const occupied = new Set(state.figures.filter(f => f.at != null).map(f => f.at!));
+  return new Set(zone.filter(k => !occupied.has(k)));
+}
+
+function doPlaceFigure(state: HSState, seat: number, figureId: string, to: HexKey): HSResult {
+  if ((state.placementReady ?? []).includes(seat)) {
+    return { error: 'You have already locked in your placement' };
+  }
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!fig || fig.ownerSeat !== seat) return { error: 'That is not your figure' };
+  if (fig.at != null) return { error: 'That figure is already on the battlefield' };
+  if (!(state.hand?.[seat] ?? []).includes(figureId)) return { error: 'That figure is not in your hand' };
+  if (!placeableHexes(state, seat).has(to)) {
+    return { error: 'Place onto an empty hex of your own start zone' };
+  }
+  const s = clone(state);
+  s.figures.find(f => f.id === figureId)!.at = to;
+  s.hand![seat] = (s.hand![seat] ?? []).filter(id => id !== figureId);
+  pushLog(s, 'move', `${playerName(s, seat)} places ${figureLabel(s, fig)} at ${hexLabel(to)}.`);
+  return s;
+}
+
+function doUnplaceFigure(state: HSState, seat: number, figureId: string): HSResult {
+  if ((state.placementReady ?? []).includes(seat)) {
+    return { error: 'You have already locked in your placement' };
+  }
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!fig || fig.ownerSeat !== seat) return { error: 'That is not your figure' };
+  if (fig.at == null) return { error: 'That figure is already in your hand' };
+  const s = clone(state);
+  s.figures.find(f => f.id === figureId)!.at = null;
+  s.hand![seat] = [...(s.hand![seat] ?? []), figureId];
+  pushLog(s, 'move', `${playerName(s, seat)} returns ${figureLabel(s, fig)} to hand.`);
+  return s;
+}
+
+function doPlacementReady(state: HSState, seat: number): HSResult {
+  if ((state.placementReady ?? []).includes(seat)) {
+    return { error: 'You have already locked in your placement' };
+  }
+  // Must place at least one figure (an army can't deploy nothing).
+  const placed = state.figures.filter(f => f.ownerSeat === seat && f.at != null).length;
+  if (placed < 1) return { error: 'Place at least one figure before locking in' };
+
+  const s = clone(state);
+  // Figures left in hand are DROPPED (unused) — faithful to "excess figures are
+  // unused" (01-components §5). Remove them from the army entirely.
+  const leftover = (s.hand?.[seat] ?? []);
+  if (leftover.length > 0) {
+    const drop = new Set(leftover);
+    s.figures = s.figures.filter(f => !drop.has(f.id));
+    s.hand![seat] = [];
+    pushLog(
+      s,
+      'info',
+      `${playerName(s, seat)} locks in — ${leftover.length} unplaced figure${leftover.length === 1 ? '' : 's'} left unused.`,
+    );
+  } else {
+    pushLog(s, 'info', `${playerName(s, seat)} locks in their placement.`);
+  }
+  s.placementReady = [...(s.placementReady ?? []), seat];
+
+  // Both ready → into playing. Drop any card that has no living figures left
+  // (its whole squad was left unplaced) so it cannot hold an order marker.
+  if ((s.placementReady ?? []).length >= SEATS) {
+    s.cards = s.cards.filter(c => s.figures.some(f => f.cardUid === c.uid));
+    enterPlaying(s, MAPS[s.mapId]);
+  }
   return s;
 }
 
@@ -1656,6 +2025,15 @@ function doEndTurn(state: HSState, seat: number): HSResult {
 // ============================================================================
 
 export function getActivePlayerId(state: HSState): string | null {
+  // Draft (slice 5): the hourglass follows the current drafter; null once both
+  // seats have passed (the draft is finishing) — there is no single drafter.
+  if (state.phase === 'draft') {
+    const turnSeat = state.draft?.turnSeat;
+    if (turnSeat == null) return null;
+    return state.players.find(p => p.seat === turnSeat)?.playerId ?? null;
+  }
+  // Placement (slice 5): simultaneous + ready-gated — no single active player.
+  if (state.phase === 'placement') return null;
   if (state.phase !== 'playing') return null;
   // A pending choice points the hourglass at the DECIDER (slice 4) — which may
   // be the opponent (a Spirit placement triggers on whoever's turn caused the

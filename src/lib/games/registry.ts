@@ -178,10 +178,11 @@ export const GAME_GUIDES: Record<string, GameGuide> = {
     ],
   },
   heroscape: {
-    theme: 'A hex-battlefield miniatures skirmish: Viking champions and Marro raiders clash across grass, rock, and water. 2 players, dice-driven combat on 3-D terrain.',
+    theme: 'A hex-battlefield miniatures skirmish: champions, squads, and beasts clash across grass, rock, and water. 2 players, dice-driven combat on 3-D terrain.',
     objective: 'Destroy every figure in the enemy army — the last player with figures on the battlefield wins.',
     rules: [
-      'Each player commands a fixed army of one Champion and a 4-figure squad. The host picks the battlefield (Training Field, The Knoll, or Ford Crossing). The game is played in rounds of three turns per player.',
+      'The host picks the battlefield (Training Field, The Knoll, or Ford Crossing) plus a point budget and a mode: DRAFT armies from the 16-card roster, or QUICK BATTLE with the preset Vikings-vs-Marro armies. The game is played in rounds of three turns per player.',
+      'Drafting (2 players): both roll a d20 for order (re-roll ties). The high roller picks 1 Army Card, the other picks 2, then you alternate single picks. Each card is unique (taken once total) and you cannot exceed the point budget; pass when you are done (or when nothing is affordable) — passing finishes your army. Then each player arranges their drafted figures in their own start zone before the battle begins.',
       'Each round, both players SECRETLY place order markers 1, 2, 3, and X on their army cards — the numbers schedule which card acts on each of your turns; the X is a pure decoy. Stacking markers on one card is allowed.',
       'Once both players lock in, everyone rolls a d20 for initiative (ties re-roll). On each of your turns the matching marker is revealed and ONLY that card acts: move any of its figures up to their Move, then each may attack once.',
       'Terrain has depth: climbing UP costs 1 extra movement per level (descent is free), a figure can never climb a number of levels equal to or above its Height in one step, and stepping into water ends that figure’s move. Dropping a long way down triggers a falling roll; landing in water is always safe.',
@@ -676,7 +677,7 @@ export const GAMES: Record<string, GameDef> = {
   heroscape: {
     id: 'heroscape',
     name: 'HeroScape',
-    description: 'Hex-battlefield skirmish on 3-D terrain. Vikings vs Marro across grass, rock, and water — climb for height advantage, roll skulls, destroy the enemy army.',
+    description: 'Hex-battlefield skirmish on 3-D terrain. Draft an army from the 16-card roster (or quick-battle), arrange your figures, then climb for height advantage, roll skulls, and destroy the enemy army.',
     minPlayers: 2,
     maxPlayers: 2,
     addedOn: '2026-06-10',

@@ -18,9 +18,12 @@ import {
   effectiveMove,
   effectiveRange,
   moveConsequences,
+  placeableHexes,
+  POINT_BUDGETS,
 } from './engine';
 import { hexKey, offsetToAxial } from './board';
 import { MAPS, parseMap } from './maps';
+import { HS_CARDS, HS_DRAFT_POOL } from './content';
 import type {
   CombatFace,
   HSGlyph,
@@ -67,9 +70,11 @@ function lobby(): HSState {
   return s;
 }
 
-/** start_game applied → round 1, place_markers. */
+/** start_game in QUICK mode → fixed armies auto-placed → round 1, place_markers.
+ *  (Default mode is now 'draft' — slice 5 — so the slice-2/3/4 fixed-army tests
+ *  explicitly request quick, which reproduces the slice-4 experience exactly.) */
 function started(): HSState {
-  return unwrap(applyAction(lobby(), 'p1', { kind: 'start_game' }));
+  return unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'quick' }));
 }
 
 function placed(s: HSState, pid: 'p1' | 'p2', assignments: Assignment[]): HSState {
@@ -100,9 +105,9 @@ function inTurns(
   );
 }
 
-/** start_game on a chosen battlefield (map picked by the host). */
+/** start_game (QUICK mode) on a chosen battlefield (map picked by the host). */
 function startedOn(mapId: string): HSState {
-  return unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mapId }));
+  return unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mapId, mode: 'quick' }));
 }
 
 /** Battle staged into 'turns' on a chosen map, both stacking on one card. */
@@ -2186,5 +2191,447 @@ describe('slice 4: projection still leak-free with glyphs + pendingChoice', () =
     expect(bytes('X')).toBe(0);
     // Spectators (null viewer) never decode even the revealed Marro marker’s X.
     expect(JSON.stringify(projectStateForViewer(s, null).cards.filter(c => c.ownerSeat === 1)).split('"marker":"X"').length - 1).toBe(0);
+  });
+});
+
+// ===========================================================================
+// SLICE 5 — army draft + placement + full roster
+// (docs/heroscape/slice-5-spec.md; extraction/resolutions.md; cards.md)
+// ===========================================================================
+
+// ---- draft helpers --------------------------------------------------------
+
+/** start_game in DRAFT mode, then the server roll-off so `first` drafts first
+ *  (high roller). Returns the draft state awaiting `first`'s opening pick. */
+function inDraft(first: 'p1' | 'p2' = 'p1', pointBudget = 500): HSState {
+  let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget }));
+  s = unwrap(
+    applyAction(s, 'p1', {
+      kind: 'draft_roll',
+      attempts: [first === 'p1' ? ATT(18, 4) : ATT(4, 18)],
+    }),
+  );
+  return s;
+}
+
+const pidOf = (seat: number) => (seat === 0 ? 'p1' : 'p2');
+
+/** Apply a draft_card by the seat whose pick it currently is. */
+function draftCard(s: HSState, cardId: string): HSState {
+  const seat = s.draft!.turnSeat!;
+  return unwrap(applyAction(s, pidOf(seat), { kind: 'draft_card', cardId }));
+}
+function draftPass(s: HSState): HSState {
+  const seat = s.draft!.turnSeat!;
+  return unwrap(applyAction(s, pidOf(seat), { kind: 'draft_pass' }));
+}
+
+// ---- start_game routing ---------------------------------------------------
+
+describe('slice 5: start_game routing (draft vs quick)', () => {
+  it('quick mode auto-fills the preset armies and goes straight to playing', () => {
+    const s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'quick' }));
+    expect(s.phase).toBe('playing');
+    expect(s.subPhase).toBe('place_markers');
+    expect(s.mode).toBe('quick');
+    expect(s.figures).toHaveLength(10);
+    // Reproduces the slice-4 fixed armies + auto-placement exactly.
+    expect(fig(s, FINN).at).toBe(at(3, 0));
+    expect(fig(s, THORGRIM).at).toBe(at(3, 7));
+    expect(s.cards.map(c => c.cardId).sort()).toEqual(['finn', 'marro_warriors', 'tarn_vikings', 'thorgrim']);
+    expect(s.draft).toBeUndefined();
+    expect(s.hand).toBeUndefined();
+  });
+
+  it('draft mode enters the draft phase with a roll-off and an empty pool of 16', () => {
+    let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 400 }));
+    expect(s.phase).toBe('draft');
+    expect(s.mode).toBe('draft');
+    expect(s.pointBudget).toBe(400);
+    expect(s.draft).toBeDefined();
+    expect(s.draft!.pool).toHaveLength(16);
+    expect(s.draft!.turnSeat).toBeNull(); // awaiting the server roll-off
+    expect(getActivePlayerId(s)).toBeNull();
+    // Server rolls the order; p1 wins → drafts first.
+    s = unwrap(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(15, 4)] }));
+    expect(s.draft!.order).toEqual([0, 1]);
+    expect(s.draft!.turnSeat).toBe(0);
+    expect(s.draft!.remainingPicks).toBe(1);
+    expect(getActivePlayerId(s)).toBe('p1');
+  });
+
+  it('the default mode is draft (no mode arg)', () => {
+    const s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game' }));
+    expect(s.phase).toBe('draft');
+    expect(s.mode).toBe('draft');
+  });
+
+  it('rejects an invalid point budget in draft mode', () => {
+    expect(errOf(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 250 }))).toMatch(/point budget/i);
+    // …but quick mode ignores the budget.
+    expect(unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'quick', pointBudget: 250 })).phase).toBe('playing');
+  });
+});
+
+// ---- draft roll-off -------------------------------------------------------
+
+describe('slice 5: draft order roll-off', () => {
+  it('re-rolls ties and the high roller drafts first (both directions)', () => {
+    const a = inDraft('p1');
+    expect(a.draft!.order).toEqual([0, 1]);
+    expect(a.draft!.turnSeat).toBe(0);
+    const b = inDraft('p2');
+    expect(b.draft!.order).toEqual([1, 0]);
+    expect(b.draft!.turnSeat).toBe(1);
+    // Ties before the final attempt are kept for display and re-rolled.
+    let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft' }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(9, 9), ATT(2, 17)] }));
+    expect(s.draft!.rollOff).toHaveLength(2);
+    expect(s.draft!.order).toEqual([1, 0]);
+    expect(s.log.some(e => /Tie — re-roll/.test(e.text))).toBe(true);
+  });
+
+  it('rejects a tied final attempt, a non-tie re-roll, and a double roll-off', () => {
+    let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft' }));
+    expect(errOf(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(7, 7)] }))).toMatch(/tie/i);
+    expect(errOf(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(9, 3), ATT(8, 2)] }))).toMatch(/not tied/);
+    s = unwrap(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(15, 4)] }));
+    expect(errOf(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(15, 4)] }))).toMatch(/already set/);
+  });
+});
+
+// ---- the pick sequence (1, 2, then alternate 1) ---------------------------
+
+describe('slice 5: draft pick sequence (A, B, B, A, B, A…)', () => {
+  // THE draft-sequence test: the high roller opens with ONE pick, the other
+  // takes TWO, then the draft alternates single picks starting back with the
+  // high roller (resolutions.md, verified).
+  it('enforces 1 (high), 2 (other), then alternating single picks', () => {
+    let s = inDraft('p1'); // p1 (seat 0) is the high roller
+    const order: number[] = [];
+    // Draft 8 cards total, recording whose turn each pick was.
+    const seq = ['finn', 'thorgrim', 'tarn_vikings', 'drake', 'raelin', 'syvarris', 'agent_carr', 'izumi_samurai'];
+    for (const id of seq) {
+      order.push(s.draft!.turnSeat!);
+      s = draftCard(s, id);
+    }
+    // A, B, B, A, B, A, B, A — the 1/2/alternate sequence.
+    expect(order).toEqual([0, 1, 1, 0, 1, 0, 1, 0]);
+  });
+
+  it('rejects a pick from the seat whose turn it is NOT', () => {
+    const s = inDraft('p1'); // p1's pick
+    expect(errOf(applyAction(s, 'p2', { kind: 'draft_card', cardId: 'finn' }))).toMatch(/not your pick/i);
+    expect(errOf(applyAction(s, 'p2', { kind: 'draft_pass' }))).toMatch(/not your pick/i);
+  });
+
+  it('getActivePlayerId follows the current drafter', () => {
+    let s = inDraft('p2'); // p2 high roller, drafts first
+    expect(getActivePlayerId(s)).toBe('p2');
+    s = draftCard(s, 'finn'); // p2 opener (1) → p1's double turn
+    expect(getActivePlayerId(s)).toBe('p1');
+  });
+});
+
+// ---- unique pool ----------------------------------------------------------
+
+describe('slice 5: unique pool', () => {
+  it('a drafted card leaves the pool and cannot be re-drafted', () => {
+    let s = inDraft('p1');
+    expect(s.draft!.pool).toContain('finn');
+    s = draftCard(s, 'finn'); // p1 takes Finn
+    expect(s.draft!.pool).not.toContain('finn');
+    expect(s.draft!.armies[0]).toEqual(['finn']);
+    // It is now p2's (double) turn — p2 cannot draft the same Finn.
+    expect(errOf(applyAction(s, 'p2', { kind: 'draft_card', cardId: 'finn' }))).toMatch(/no longer in the pool/);
+  });
+});
+
+// ---- budget + pass kinds + no-empty-army ----------------------------------
+
+describe('slice 5: budget enforcement and passing', () => {
+  it('rejects a card that would exceed the remaining budget', () => {
+    // Budget 200: p1 takes Grimnak (160). Remaining 40 — nothing ≥40 except the
+    // 50-pt Tarn would overflow on p1's NEXT pick. First test the over-budget
+    // rejection directly: with 200 and Grimnak (160) taken, drafting Mimring
+    // (150) would push to 310 > 200.
+    let s = inDraft('p1', 200);
+    s = draftCard(s, 'grimnak'); // p1: 160/200, then p2's double turn
+    // Hand the turn back to p1 by having p2 take two cheap cards.
+    s = draftCard(s, 'izumi_samurai'); // p2: 60
+    s = draftCard(s, 'tarn_vikings'); // p2: 110 → back to p1
+    expect(s.draft!.turnSeat).toBe(0);
+    expect(errOf(applyAction(s, 'p1', { kind: 'draft_card', cardId: 'mimring' }))).toMatch(/points left/);
+  });
+
+  it('forces a pass when nothing affordable remains, and the pass completes the army', () => {
+    // Budget 200. p1 drafts Grimnak (160) leaving 40 — the cheapest pool card is
+    // 50 (Tarn) so nothing is affordable: p1 must pass on its next turn.
+    let s = inDraft('p1', 200);
+    s = draftCard(s, 'grimnak'); // p1: 160/200 → p2 double
+    s = draftCard(s, 'finn'); // p2: 80
+    s = draftCard(s, 'thorgrim'); // p2: 160 → back to p1
+    // p1 has 40 left; cheapest remaining is 50 (Tarn). The forced pass is legal.
+    expect(s.draft!.turnSeat).toBe(0);
+    s = draftPass(s);
+    expect(s.draft!.passed).toContain(0);
+    expect(s.log.some(e => /must pass — no affordable card/.test(e.text))).toBe(true);
+  });
+
+  it('allows a VOLUNTARY pass under budget (army already non-empty)', () => {
+    let s = inDraft('p1', 500);
+    s = draftCard(s, 'finn'); // p1: 80 (army non-empty)
+    s = draftCard(s, 'thorgrim'); // p2 double pick 1
+    s = draftCard(s, 'marro_warriors'); // p2 double pick 2 → back to p1
+    expect(s.draft!.turnSeat).toBe(0);
+    // p1 has 420 left and affordable cards, but chooses to pass voluntarily.
+    s = draftPass(s);
+    expect(s.draft!.passed).toContain(0);
+    expect(s.log.some(e => /passes; their army is complete/.test(e.text))).toBe(true);
+  });
+
+  it('cannot pass an EMPTY army while affordable cards remain (first pick can not be a pass)', () => {
+    const s = inDraft('p1', 500); // p1's very first pick
+    expect(errOf(applyAction(s, 'p1', { kind: 'draft_pass' }))).toMatch(/at least one card/);
+  });
+
+  it('after one seat passes, the other keeps single picks until it too passes', () => {
+    let s = inDraft('p1', 300);
+    s = draftCard(s, 'finn'); // p1: 80
+    s = draftCard(s, 'thorgrim'); // p2 pick 1: 80
+    s = draftCard(s, 'marro_warriors'); // p2 pick 2: 185 → back to p1
+    s = draftPass(s); // p1 passes voluntarily (army non-empty)
+    expect(s.draft!.turnSeat).toBe(1); // p2 keeps drafting alone
+    s = draftCard(s, 'tarn_vikings'); // p2: 235
+    expect(s.draft!.turnSeat).toBe(1); // still p2 (single picks)
+    expect(s.phase).toBe('draft');
+  });
+});
+
+// ---- draft end → placement hand -------------------------------------------
+
+describe('slice 5: draft end → placement', () => {
+  it('both passed → placement with each seat hand = its army figures and spent ≤ budget', () => {
+    let s = inDraft('p1', 500);
+    s = draftCard(s, 'finn'); // p1: 80
+    s = draftCard(s, 'thorgrim'); // p2: 80
+    s = draftCard(s, 'marro_warriors'); // p2: 185 → p1
+    s = draftPass(s); // p1 done (1 card)
+    s = draftPass(s); // p2 done (2 cards) → both passed
+    expect(s.phase).toBe('placement');
+    expect(s.draft!.turnSeat).toBeNull();
+    expect(getActivePlayerId(s)).toBeNull();
+    // Hands hold each army's figures (Finn 1; Thorgrim 1 + Marro 4 = 5).
+    expect(s.hand![0]).toHaveLength(1);
+    expect(s.hand![1]).toHaveLength(5);
+    expect(s.figures.filter(f => f.ownerSeat === 0)).toHaveLength(1);
+    expect(s.figures.filter(f => f.ownerSeat === 1)).toHaveLength(5);
+    // All figures start in hand (unplaced).
+    expect(s.figures.every(f => f.at == null)).toBe(true);
+    // spent ≤ budget.
+    expect(s.draft!.spent[0]).toBeLessThanOrEqual(500);
+    expect(s.draft!.spent[1]).toBeLessThanOrEqual(500);
+    expect(s.cards.map(c => c.cardId).sort()).toEqual(['finn', 'marro_warriors', 'thorgrim']);
+  });
+});
+
+// ---- placement legality + ready gate --------------------------------------
+
+describe('slice 5: placement', () => {
+  /** Clean placement setup: p1 drafts Finn; p2 drafts Thorgrim + Marro; both
+   *  pass → placement. p1 hand = [Finn]; p2 hand = [Thorgrim, Marro×4]. */
+  function placementState(): HSState {
+    let s = inDraft('p1', 500);
+    s = draftCard(s, 'finn');
+    s = draftCard(s, 'thorgrim');
+    s = draftCard(s, 'marro_warriors');
+    s = draftPass(s); // p1 (1 card) done
+    s = draftPass(s); // p2 (2 cards) done → placement
+    expect(s.phase).toBe('placement');
+    return s;
+  }
+
+  it('places only onto your own empty start-zone hexes; unplace returns to hand', () => {
+    const s0 = placementState();
+    const finnFig = s0.hand![0][0];
+    const zone0 = MAPS[s0.mapId].startZones[0];
+    // A hex in p2's zone is illegal for p1.
+    const zone1 = MAPS[s0.mapId].startZones[1];
+    expect(errOf(applyAction(s0, 'p1', { kind: 'place_figure', figureId: finnFig, to: zone1[0] }))).toMatch(/your own start zone/);
+    // p1 cannot place p2's figure.
+    expect(errOf(applyAction(s0, 'p1', { kind: 'place_figure', figureId: s0.hand![1][0], to: zone0[0] }))).toMatch(/not your figure/);
+    // placeableHexes lists exactly the empty own-zone hexes.
+    expect(placeableHexes(s0, 0)).toEqual(new Set(zone0));
+    // Place Finn.
+    let s = unwrap(applyAction(s0, 'p1', { kind: 'place_figure', figureId: finnFig, to: zone0[0] }));
+    expect(fig(s, finnFig).at).toBe(zone0[0]);
+    expect(s.hand![0]).toHaveLength(0);
+    expect(placeableHexes(s, 0).has(zone0[0])).toBe(false); // now occupied
+    // Cannot stack a second figure on the same hex (p2 places into p1's? no — own
+    // zone only). Re-placing the same figure is rejected (already on board).
+    expect(errOf(applyAction(s, 'p1', { kind: 'place_figure', figureId: finnFig, to: zone0[1] }))).toMatch(/already on the battlefield/);
+    // Unplace returns it to hand.
+    s = unwrap(applyAction(s, 'p1', { kind: 'unplace_figure', figureId: finnFig }));
+    expect(fig(s, finnFig).at).toBeNull();
+    expect(s.hand![0]).toEqual([finnFig]);
+  });
+
+  it('ready needs ≥1 placed; unplaced figures are dropped (unused) on ready', () => {
+    let s = placementState();
+    // p1 readies with nothing placed → rejected.
+    expect(errOf(applyAction(s, 'p1', { kind: 'placement_ready' }))).toMatch(/at least one figure/);
+    // p1 places Finn and readies.
+    const z0 = MAPS[s.mapId].startZones[0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: s.hand![0][0], to: z0[0] }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'placement_ready' }));
+    expect(s.placementReady).toEqual([0]);
+    expect(s.phase).toBe('placement'); // waiting on p2
+    // p2 places only ONE Marro (leaves Thorgrim + 3 Marro in hand) and readies.
+    const z1 = MAPS[s.mapId].startZones[1];
+    const oneMarro = s.hand![1].find(id => id.includes('marro'))!;
+    s = unwrap(applyAction(s, 'p2', { kind: 'place_figure', figureId: oneMarro, to: z1[0] }));
+    expect(s.hand![1]).toHaveLength(4);
+    s = unwrap(applyAction(s, 'p2', { kind: 'placement_ready' }));
+    // Both ready → playing, round 1, place_markers.
+    expect(s.phase).toBe('playing');
+    expect(s.subPhase).toBe('place_markers');
+    expect(s.round).toBe(1);
+    // The 4 unplaced p2 figures were DROPPED (unused).
+    expect(s.figures.filter(f => f.ownerSeat === 1)).toHaveLength(1);
+    expect(s.figures.find(f => f.id === oneMarro)).toBeDefined();
+    // The Thorgrim card (no figures placed) is removed so it can't hold a marker.
+    expect(s.cards.some(c => c.cardId === 'thorgrim')).toBe(false);
+    expect(s.cards.some(c => c.cardId === 'marro_warriors')).toBe(true);
+    expect(s.log.some(e => /left unused/.test(e.text))).toBe(true);
+    // Cleanup: draft/hand state is gone in playing.
+    expect(s.draft).toBeUndefined();
+    expect(s.hand).toBeUndefined();
+  });
+
+  it('cannot place/unplace after locking in placement', () => {
+    let s = placementState();
+    const z0 = MAPS[s.mapId].startZones[0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: s.hand![0][0], to: z0[0] }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'placement_ready' }));
+    const finnFig = `s0-finn-1`;
+    expect(errOf(applyAction(s, 'p1', { kind: 'unplace_figure', figureId: finnFig }))).toMatch(/already locked in/);
+    expect(errOf(applyAction(s, 'p1', { kind: 'place_figure', figureId: finnFig, to: z0[1] }))).toMatch(/already locked in/);
+  });
+
+  it('a full placed army flows into a normal round-1 turn', () => {
+    let s = placementState();
+    const z0 = MAPS[s.mapId].startZones[0];
+    const z1 = MAPS[s.mapId].startZones[1];
+    s = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: s.hand![0][0], to: z0[0] }));
+    // p2 places all 5 figures.
+    [...s.hand![1]].forEach((id, i) => {
+      s = unwrap(applyAction(s, 'p2', { kind: 'place_figure', figureId: id, to: z1[i] }));
+    });
+    s = unwrap(applyAction(s, 'p1', { kind: 'placement_ready' }));
+    s = unwrap(applyAction(s, 'p2', { kind: 'placement_ready' }));
+    expect(s.phase).toBe('playing');
+    expect(s.figures.filter(f => f.at != null)).toHaveLength(6); // 1 + 5
+    // Markers can now be placed normally.
+    s = placed(s, 'p1', allOn('s0-finn'));
+    expect(s.markersReady).toEqual([0]);
+  });
+});
+
+// ---- full roster stats + power flags --------------------------------------
+
+describe('slice 5: full 16-card roster', () => {
+  it('HS_CARDS has all 16 cards with the cards.md stats', () => {
+    expect(Object.keys(HS_CARDS)).toHaveLength(16);
+    expect(HS_DRAFT_POOL).toHaveLength(16);
+    // Every pool id resolves to a card.
+    for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
+    // Spot-check stats AS PRINTED (cards.md roster table).
+    expect(HS_CARDS.marro_warriors).toMatchObject({ figures: 4, life: 1, move: 6, range: 6, attack: 2, defense: 3, height: 4, points: 105 });
+    expect(HS_CARDS.airborne_elite).toMatchObject({ figures: 4, range: 8, attack: 3, defense: 2, points: 110 });
+    expect(HS_CARDS.zettian_guards).toMatchObject({ figures: 2, range: 7, attack: 2, defense: 7, points: 70 });
+    expect(HS_CARDS.deathwalker_9000).toMatchObject({ figures: 1, life: 1, range: 7, attack: 4, defense: 7, height: 7, points: 140 });
+    expect(HS_CARDS.mimring).toMatchObject({ life: 5, attack: 4, defense: 3, height: 9, points: 150 });
+    expect(HS_CARDS.grimnak).toMatchObject({ attack: 2, defense: 4, height: 11, points: 160 });
+    expect(HS_CARDS.syvarris).toMatchObject({ range: 9, attack: 3, defense: 2, points: 100 });
+    expect(HS_CARDS.raelin).toMatchObject({ life: 5, move: 6, range: 1, defense: 3, points: 120 });
+    expect(HS_CARDS.izumi_samurai).toMatchObject({ figures: 3, attack: 2, defense: 5, points: 60 });
+    expect(HS_CARDS.krav_maga).toMatchObject({ figures: 3, move: 6, range: 7, points: 100 });
+    expect(HS_CARDS.ne_gok_sa).toMatchObject({ life: 5, defense: 6, points: 90 });
+    expect(HS_CARDS.drake).toMatchObject({ life: 5, attack: 6, defense: 3, points: 110 });
+    expect(HS_CARDS.agent_carr).toMatchObject({ range: 6, attack: 2, defense: 4, points: 100 });
+  });
+
+  it('power flags: only Finn/Thorgrim/Tarn/Marro are live; the rest are wip', () => {
+    const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
+    expect(live).toEqual(['finn', 'marro_warriors', 'tarn_vikings', 'thorgrim']);
+    const wipCount = Object.values(HS_CARDS).filter(c => c.power === 'wip').length;
+    expect(wipCount).toBe(12);
+  });
+
+  it('a wip card fights with its printed stats (no power handler)', () => {
+    // Draft Syvarris (wip, Range 9, Attack 3) for p1; it attacks as printed.
+    let s = inDraft('p1', 500);
+    s = draftCard(s, 'syvarris'); // p1 opener (1) → p2's double turn
+    s = draftCard(s, 'marro_warriors'); // p2 pick 1 of 2 (still p2's turn)
+    s = draftPass(s); // p2 passes its 2nd pick voluntarily (1 card) → back to p1
+    s = draftPass(s); // p1 passes (Syvarris) → both passed → placement
+    expect(s.phase).toBe('placement');
+    // Place Syvarris adjacent-ish to a Marro and verify attack dice = printed 3
+    // (no aura/glyph/height on flat ground).
+    const z0 = MAPS[s.mapId].startZones[0];
+    const z1 = MAPS[s.mapId].startZones[1];
+    s = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: s.hand![0][0], to: z0[0] }));
+    s = unwrap(applyAction(s, 'p2', { kind: 'place_figure', figureId: s.hand![1][0], to: z1[0] }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'placement_ready' }));
+    s = unwrap(applyAction(s, 'p2', { kind: 'placement_ready' }));
+    const syv = s.figures.find(f => f.ownerSeat === 0)!;
+    const marro = s.figures.find(f => f.ownerSeat === 1)!;
+    expect(attackDiceRequirements(s, syv.id, marro.id)!.attack).toBe(3); // Syvarris printed Attack 3
+  });
+});
+
+// ---- regression + projection ----------------------------------------------
+
+describe('slice 5: quick-battle regression + projection', () => {
+  it('quick battle reproduces the slice-4 fixed-army game', () => {
+    const s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'quick' }));
+    expect(s.figures).toHaveLength(10);
+    expect(s.cards).toHaveLength(4);
+    expect(fig(s, FINN).at).toBe(at(3, 0));
+    expect([fig(s, TARN(1)).at, fig(s, TARN(2)).at, fig(s, TARN(3)).at, fig(s, TARN(4)).at]).toEqual([at(1, 0), at(2, 0), at(4, 0), at(5, 0)]);
+    expect(fig(s, THORGRIM).at).toBe(at(3, 7));
+    expect([fig(s, MARRO(1)).at, fig(s, MARRO(2)).at, fig(s, MARRO(3)).at, fig(s, MARRO(4)).at]).toEqual([at(1, 7), at(2, 7), at(4, 7), at(5, 7)]);
+  });
+
+  it('projection is leak-free through draft and placement (only order markers are hidden)', () => {
+    // Draft phase: everything is public.
+    let s = inDraft('p1', 500);
+    s = draftCard(s, 'finn');
+    const before = JSON.stringify(s);
+    expect(projectStateForViewer(s, 'p2')).toEqual(s); // no hidden info in draft
+    expect(projectStateForViewer(s, null)).toEqual(s);
+    expect(JSON.stringify(s)).toBe(before); // never mutates
+
+    // Placement phase: figures + hands are public too.
+    s = draftCard(s, 'thorgrim');
+    s = draftCard(s, 'marro_warriors');
+    s = draftPass(s);
+    s = draftPass(s);
+    expect(s.phase).toBe('placement');
+    expect(projectStateForViewer(s, 'p2')).toEqual(s);
+    expect(projectStateForViewer(s, null)).toEqual(s);
+  });
+
+  it('computeHistory stays null through draft and placement', () => {
+    let s = inDraft('p1', 500);
+    expect(computeHistory(s)).toBeNull();
+    s = draftCard(s, 'finn');
+    expect(computeHistory(s)).toBeNull();
+    s = draftCard(s, 'thorgrim');
+    s = draftCard(s, 'marro_warriors');
+    s = draftPass(s);
+    s = draftPass(s);
+    expect(s.phase).toBe('placement');
+    expect(computeHistory(s)).toBeNull();
   });
 });

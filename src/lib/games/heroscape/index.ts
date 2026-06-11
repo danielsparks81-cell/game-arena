@@ -13,6 +13,9 @@ export {
   getActiveCardUid,
   legalDestinations,
   legalTargets,
+  placeableHexes,
+  POINT_BUDGETS,
+  DEFAULT_POINT_BUDGET,
   attackDiceRequirements,
   heightAdvantage,
   effectiveAttackDice,
@@ -27,7 +30,7 @@ export {
 } from './engine';
 export type { EffectiveStat } from './engine';
 
-export { HS_CARDS, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS } from './content';
+export { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS } from './content';
 export type { HSGlyphDef, HSGlyphKind } from './content';
 
 export { MAPS, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, parseMap } from './maps';
@@ -79,4 +82,6 @@ export type {
   HSGlyphId,
   HSPendingChoice,
   HSChoiceResolution,
+  HSMode,
+  HSDraftState,
 } from './types';

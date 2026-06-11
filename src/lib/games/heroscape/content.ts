@@ -1,14 +1,41 @@
-// HeroScape — card content (slice-1 roster) + dice.
+// HeroScape — card content (the full 16-card roster) + dice.
 //
 // Stats are AS PRINTED in docs/heroscape/cards.md (the rebalanced modern
 // printing — e.g. Marro Warriors are Range 6 / 105 points there, NOT the
-// classic 2004 values). Slice 2 uses Move / Range / Attack / Defense / Life
-// (Master combat wounds) and IGNORES special powers entirely; Height rides
-// along as card data for later slices.
+// classic 2004 values). The Master Game uses Move / Range / Attack / Defense /
+// Life (Master combat wounds); Height drives climbing/engagement/falls.
+//
+// SLICE 5 (docs/heroscape/slice-5-spec.md): all 16 cards become DRAFTABLE. Each
+// carries a `power: 'live' | 'wip'` flag — `live` cards (Finn, Thorgrim, Tarn,
+// Marro) keep their slice-4 special powers; the other 12 play STAT-ONLY (no
+// power handler — the engine's power dispatch keys off card id, so a `wip` card
+// simply has no handler and fights with its printed stats) and are tagged
+// "⚡ powers WIP" in the draft UI. The remaining powers land in slice 6+.
+//
+// Figure counts: Hero cards field 1; squad counts are rulebook-sourced
+// (cards.md §Roster summary): Tarn 4, Marro 4, Airborne Elite 4, Zettian 2,
+// Krav Maga 3, Izumi 3.
 
 import type { CombatFace, HSCardDef, HSGlyphId } from './types';
 
 export const HS_CARDS: Record<string, HSCardDef> = {
+  // ---- Jandar ----
+  tarn_vikings: {
+    id: 'tarn_vikings',
+    name: 'Tarn Viking Warriors',
+    shortName: 'Tarn Viking',
+    type: 'squad',
+    figures: 4,
+    life: 1,
+    move: 4,
+    range: 1,
+    attack: 3,
+    defense: 4,
+    height: 5,
+    points: 50,
+    letter: 'T',
+    power: 'live',
+  },
   finn: {
     id: 'finn',
     name: 'Finn the Viking Champion',
@@ -23,6 +50,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 80,
     letter: 'F',
+    power: 'live',
   },
   thorgrim: {
     id: 'thorgrim',
@@ -38,21 +66,88 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 5,
     points: 80,
     letter: 'T',
+    power: 'live',
   },
-  tarn_vikings: {
-    id: 'tarn_vikings',
-    name: 'Tarn Viking Warriors',
-    shortName: 'Tarn Viking',
+  airborne_elite: {
+    id: 'airborne_elite',
+    name: 'Airborne Elite',
+    shortName: 'Airborne',
     type: 'squad',
     figures: 4,
     life: 1,
     move: 4,
+    range: 8,
+    attack: 3,
+    defense: 2,
+    height: 5,
+    points: 110,
+    letter: 'A',
+    power: 'wip',
+  },
+  drake: {
+    id: 'drake',
+    name: 'Sgt. Drake Alexander',
+    shortName: 'Drake',
+    type: 'hero',
+    figures: 1,
+    life: 5,
+    move: 5,
+    range: 1,
+    attack: 6,
+    defense: 3,
+    height: 5,
+    points: 110,
+    letter: 'D',
+    power: 'wip',
+  },
+  raelin: {
+    id: 'raelin',
+    name: 'Raelin the Kyrie Warrior',
+    shortName: 'Raelin',
+    type: 'hero',
+    figures: 1,
+    life: 5,
+    move: 6,
     range: 1,
     attack: 3,
-    defense: 4,
+    defense: 3,
     height: 5,
-    points: 50,
-    letter: 'T',
+    points: 120,
+    letter: 'R',
+    power: 'wip',
+  },
+  // ---- Utgar ----
+  zettian_guards: {
+    id: 'zettian_guards',
+    name: 'Zettian Guards',
+    shortName: 'Zettian',
+    type: 'squad',
+    figures: 2,
+    life: 1,
+    move: 4,
+    range: 7,
+    attack: 2,
+    defense: 7,
+    height: 5,
+    points: 70,
+    letter: 'Z',
+    power: 'wip',
+  },
+  ne_gok_sa: {
+    id: 'ne_gok_sa',
+    name: 'Ne-Gok-Sa',
+    shortName: 'Ne-Gok-Sa',
+    type: 'hero',
+    figures: 1,
+    life: 5,
+    move: 5,
+    range: 1,
+    attack: 3,
+    defense: 6,
+    height: 5,
+    points: 90,
+    letter: 'N',
+    power: 'wip',
   },
   marro_warriors: {
     id: 'marro_warriors',
@@ -68,12 +163,139 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     height: 4,
     points: 105,
     letter: 'M',
+    power: 'live',
+  },
+  deathwalker_9000: {
+    id: 'deathwalker_9000',
+    name: 'Deathwalker 9000',
+    shortName: 'Deathwalker',
+    type: 'hero',
+    figures: 1,
+    life: 1,
+    move: 5,
+    range: 7,
+    attack: 4,
+    defense: 7,
+    height: 7,
+    points: 140,
+    letter: 'W',
+    power: 'wip',
+  },
+  mimring: {
+    id: 'mimring',
+    name: 'Mimring',
+    shortName: 'Mimring',
+    type: 'hero',
+    figures: 1,
+    life: 5,
+    move: 6,
+    range: 1,
+    attack: 4,
+    defense: 3,
+    height: 9,
+    points: 150,
+    letter: 'Y',
+    power: 'wip',
+  },
+  grimnak: {
+    id: 'grimnak',
+    name: 'Grimnak',
+    shortName: 'Grimnak',
+    type: 'hero',
+    figures: 1,
+    life: 5,
+    move: 5,
+    range: 1,
+    attack: 2,
+    defense: 4,
+    height: 11,
+    points: 160,
+    letter: 'G',
+    power: 'wip',
+  },
+  // ---- Ullar ----
+  syvarris: {
+    id: 'syvarris',
+    name: 'Syvarris',
+    shortName: 'Syvarris',
+    type: 'hero',
+    figures: 1,
+    life: 4,
+    move: 5,
+    range: 9,
+    attack: 3,
+    defense: 2,
+    height: 5,
+    points: 100,
+    letter: 'S',
+    power: 'wip',
+  },
+  // ---- Vydar ----
+  agent_carr: {
+    id: 'agent_carr',
+    name: 'Agent Carr',
+    shortName: 'Agent Carr',
+    type: 'hero',
+    figures: 1,
+    life: 4,
+    move: 5,
+    range: 6,
+    attack: 2,
+    defense: 4,
+    height: 5,
+    points: 100,
+    letter: 'C',
+    power: 'wip',
+  },
+  krav_maga: {
+    id: 'krav_maga',
+    name: 'Krav Maga Agents',
+    shortName: 'Krav Maga',
+    type: 'squad',
+    figures: 3,
+    life: 1,
+    move: 6,
+    range: 7,
+    attack: 3,
+    defense: 3,
+    height: 4,
+    points: 100,
+    letter: 'K',
+    power: 'wip',
+  },
+  // ---- Einar ----
+  izumi_samurai: {
+    id: 'izumi_samurai',
+    name: 'Izumi Samurai',
+    shortName: 'Izumi',
+    type: 'squad',
+    figures: 3,
+    life: 1,
+    move: 6,
+    range: 1,
+    attack: 2,
+    defense: 5,
+    height: 5,
+    points: 60,
+    letter: 'I',
+    power: 'wip',
   },
 };
 
-/** Slice-1 fixed armies by roster index (hero first):
+/** The full draft pool: every card id in HS_CARDS, in roster (cards.md) order —
+ *  General, then points. The draft removes a card from this pool when taken
+ *  (all 16 are UNIQUE in this printing, so each is draftable once total). */
+export const HS_DRAFT_POOL: readonly string[] = [
+  'tarn_vikings', 'finn', 'thorgrim', 'airborne_elite', 'drake', 'raelin',
+  'zettian_guards', 'ne_gok_sa', 'marro_warriors', 'deathwalker_9000', 'mimring',
+  'grimnak', 'syvarris', 'agent_carr', 'krav_maga', 'izumi_samurai',
+];
+
+/** Quick-battle fixed armies by roster index (hero first):
  *  Player 1 = Finn + Tarn Viking Warriors, Player 2 = Thorgrim + Marro
- *  Warriors (the pairing test-maps.md suggests for the Training Field). */
+ *  Warriors (the pairing test-maps.md suggests for the Training Field). Used by
+ *  the quick-battle mode, which auto-drafts these and auto-places them — it
+ *  reproduces the slice-4 fixed-army experience exactly. */
 export const SLICE1_ARMIES: ReadonlyArray<readonly string[]> = [
   ['finn', 'tarn_vikings'],
   ['thorgrim', 'marro_warriors'],

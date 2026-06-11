@@ -52,7 +52,7 @@ import type { RPSState, RPSChoice } from './rps';
 import type { SDState, ResolvedTarget as SDResolvedTarget } from './spellduel';
 import type { LegendaryState } from './legendary';
 import type { HQState, HeroClass as HQHeroClass, Coord as HQCoord } from './heroquest';
-import type { HSState, HexKey as HSHexKey, OrderMarkerValue as HSOrderMarkerValue, HSChoiceResolution } from './heroscape';
+import type { HSState, HexKey as HSHexKey, OrderMarkerValue as HSOrderMarkerValue, HSChoiceResolution, HSMode } from './heroscape';
 
 import { gameMove } from '@/app/rooms/[id]/actions';
 
@@ -267,7 +267,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       currentUserId={currentUserId}
       isHost={isHost}
       disabled={pending}
-      onStart={(mapId?: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game', mapId }); })}
+      onStart={(mapId?: string, pointBudget?: number, mode?: HSMode) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game', mapId, pointBudget, mode }); })}
       onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
       onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
       onAttack={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'attack', attackerId, targetId }); })}
@@ -275,6 +275,11 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onWaterClone={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'water_clone' }); })}
       onResolveChoice={(choice: HSChoiceResolution) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'resolve_choice', choice }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
+      onDraftCard={(cardId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_card', cardId }); })}
+      onDraftPass={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_pass' }); })}
+      onPlaceFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_figure', figureId, to }); })}
+      onUnplaceFigure={(figureId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'unplace_figure', figureId }); })}
+      onPlacementReady={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'placement_ready' }); })}
     />
   ),
 

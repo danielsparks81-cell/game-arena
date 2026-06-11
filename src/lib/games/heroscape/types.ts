@@ -57,6 +57,17 @@ export type HSCardDef = {
   points: number;
   /** Single letter shown on the figure's disc. */
   letter: string;
+  /**
+   * Special-power implementation status (slice 5).
+   *   • 'live' — the card's printed power(s) are implemented (Finn/Thorgrim
+   *     auras + Spirits, Tarn Berserker Charge, Marro Water Clone — slice 4).
+   *   • 'wip'  — the card is draftable and fights with its printed stats, but
+   *     its special power is NOT yet wired (no handler). The draft UI tags it
+   *     "⚡ powers WIP". The remaining powers land in slice 6+.
+   * The engine's power dispatch keys off card id, so a `wip` card simply has no
+   * handler — this flag drives the UI label, not engine branching.
+   */
+  power: 'live' | 'wip';
 };
 
 /** A placeable order-marker face: 1/2/3 grant your 1st/2nd/3rd turn this
@@ -238,7 +249,50 @@ export type HSChoiceResolution =
   | { kind: 'water_clone_place'; hex: HexKey } // landing for the NEXT pending placement
   | { kind: 'spirit_placement'; cardUid: string }; // unique card to receive the Spirit
 
-export type HSPhase = 'lobby' | 'playing' | 'finished';
+/**
+ * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`
+ * (arrange-your-figures) phase between lobby and playing — but only in `draft`
+ * mode. `quick` mode auto-fills the preset armies and auto-places them, going
+ * straight to `playing` (preserving the slice-4 fast path).
+ *
+ *   lobby → (draft → placement)? → playing(rounds…) → finished
+ */
+export type HSPhase = 'lobby' | 'draft' | 'placement' | 'playing' | 'finished';
+
+/**
+ * Draft state (slice 5; phase === 'draft'). The 2-player procedure from
+ * docs/heroscape/extraction/resolutions.md (verified): both roll d20 (re-roll
+ * ties); the HIGH roller picks 1 card, the OTHER picks 2, then alternate 1 each
+ * starting back with the high roller (A, B, B, A, B, A, …). Each of the 16
+ * cards is UNIQUE — drafting it removes it from `pool`. A player may not pick a
+ * card whose Points push their army over `pointBudget`; they MUST pass when no
+ * affordable card remains, and MAY pass voluntarily under budget. Passing
+ * permanently completes that army. Draft ends when BOTH have passed.
+ *
+ * Open draft: every field here is PUBLIC (you watch the opponent's army form) —
+ * projection adds nothing hidden.
+ */
+export type HSDraftState = {
+  /** Remaining (un-drafted) card ids. A taken card is spliced out. */
+  pool: string[];
+  /** [highRoller, other] seats — the pick order from the roll-off. */
+  order: number[];
+  /** Every d20 roll-off attempt (ties re-rolled), for the board's display. */
+  rollOff: InitiativeAttempt[];
+  /** Whose pick it is now; null once BOTH seats have passed (draft over). */
+  turnSeat: number | null;
+  /** Picks left in the current seat's turn (2 for the second player's opener,
+   *  else 1). Decrements per pick; at 0 the turn passes to the other seat. */
+  remainingPicks: number;
+  /** Seats that have completed their army (passed). They leave the rotation. */
+  passed: number[];
+  /** seat → drafted card ids, in pick order (public). */
+  armies: Record<number, string[]>;
+  /** seat → points spent so far (Σ Points of drafted cards). */
+  spent: Record<number, number>;
+};
+
+export type HSMode = 'draft' | 'quick';
 
 /** Where a round stands while phase === 'playing' (02-rounds §The round):
  *  'place_markers' — all players simultaneously assign 1/2/3/X (ready-gated);
@@ -252,6 +306,24 @@ export type HSState = {
   /** Battlefield id -> MAPS in maps.ts. Map geometry is static content, not
    *  stored in state (keeps the room JSONB lean). */
   mapId: string;
+  /** Army-building mode chosen in the lobby (slice 5). 'draft' runs the roll-off
+   *  + pick procedure; 'quick' auto-fills the preset armies. Absent on pre-
+   *  slice-5 saves → treated as 'quick' (the old fixed-army behaviour). */
+  mode: HSMode;
+  /** Point budget for the draft (200/300/400/500). The cap a drafted army may
+   *  not exceed. Unused by quick mode. */
+  pointBudget: number;
+  /** Draft state — present only while phase === 'draft' (slice 5). */
+  draft?: HSDraftState;
+  /** Placement hands — present only while phase === 'placement' (slice 5):
+   *  seat → ids of that seat's figures still IN HAND (not yet placed). A figure
+   *  leaves the hand when placed and returns when unplaced. Figures left in hand
+   *  at `placement_ready` are dropped (unused — faithful to "excess figures are
+   *  unused", 01-components §5). */
+  hand?: Record<number, string[]>;
+  /** Seats that have locked in their placement (slice 5, phase === 'placement').
+   *  Both ready → playing, round 1, place_markers. */
+  placementReady?: number[];
   cards: ArmyCardInstance[];
   figures: Figure[];
   /** Round step — only meaningful while phase === 'playing'. */
@@ -310,6 +382,48 @@ export type HSAction =
       /** Battlefield the host chose in the lobby (validated against MAPS).
        *  Omitted → the default Training Field. */
       mapId?: string;
+      /** Point budget for the draft (slice 5). Omitted → DEFAULT_POINT_BUDGET. */
+      pointBudget?: number;
+      /** Army-building mode (slice 5). Omitted → 'draft'. 'quick' skips the
+       *  draft, auto-fills the preset armies, and auto-places them. */
+      mode?: HSMode;
+    }
+  | {
+      // SERVER-rolled draft roll-off (slice 5): both seats' d20 attempts, ties
+      // re-rolled (capped). Issued by makeMoveHS when entering the draft; the
+      // engine validates the tie discipline and sets the pick order.
+      kind: 'draft_roll';
+      attempts: InitiativeAttempt[];
+    }
+  | {
+      // Draft a card (slice 5): must be in the pool, affordable within the
+      // seat's remaining budget, and it must be this seat's pick.
+      kind: 'draft_card';
+      cardId: string;
+    }
+  | {
+      // Pass in the draft (slice 5): completes this seat's army permanently. The
+      // engine FORCES a pass when nothing is affordable and ALLOWS a voluntary
+      // pass under budget — but rejects passing with an empty army while an
+      // affordable card still exists (≥1 card per player).
+      kind: 'draft_pass';
+    }
+  | {
+      // Placement (slice 5): set a still-in-hand figure onto an EMPTY hex of the
+      // owner's OWN start zone.
+      kind: 'place_figure';
+      figureId: string;
+      to: HexKey;
+    }
+  | {
+      // Placement (slice 5): return a placed figure to the hand.
+      kind: 'unplace_figure';
+      figureId: string;
+    }
+  | {
+      // Placement (slice 5): lock in this seat's placement (≥1 figure placed).
+      // Figures left in hand are dropped (unused). Both ready → playing.
+      kind: 'placement_ready';
     }
   | {
       kind: 'place_markers';

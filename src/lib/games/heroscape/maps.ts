@@ -96,19 +96,19 @@ export function parseMap(
 }
 
 /** TEST-1 "Training Field" (docs/heroscape/test-maps.md) — 7×8, all grass
- *  height 1; start zones: row 1 (player 1) and row 8 (player 2), full width.
- *  Implemented exactly as specified. */
+ *  height 1. Slice-5 start zones are TWO rows deep so a drafted army fits:
+ *  seat 0 = rows 1-2, seat 1 = rows 7-8, full width (14 hexes each). */
 export const TRAINING_FIELD: HSMap = parseMap(
   'training_field',
   'Training Field',
   `
   row1@1: G1 G1 G1 G1 G1 G1 G1
-  row2:   G1 G1 G1 G1 G1 G1 G1
+  row2@1: G1 G1 G1 G1 G1 G1 G1
   row3:   G1 G1 G1 G1 G1 G1 G1
   row4:   G1 G1 G1 G1 G1 G1 G1
   row5:   G1 G1 G1 G1 G1 G1 G1
   row6:   G1 G1 G1 G1 G1 G1 G1
-  row7:   G1 G1 G1 G1 G1 G1 G1
+  row7@2: G1 G1 G1 G1 G1 G1 G1
   row8@2: G1 G1 G1 G1 G1 G1 G1
   `,
   // Slice-4 glyphs: Astrid (+1 attack) and Gerda (+1 defense) on two mid-row
@@ -120,8 +120,9 @@ export const TRAINING_FIELD: HSMap = parseMap(
 );
 
 /** TEST-2 "The Knoll" (docs/heroscape/test-maps.md) — 9×8 with a 3-tier rock
- *  hill in the center (heights 1→2→3→4). Start zones: full-width row 1
- *  (player 1) and row 8 (player 2). Exercises climb cost / climb limit / free
+ *  hill in the center (heights 1→2→3→4). Slice-5 start zones are two rows deep:
+ *  seat 0 = rows 1-2, seat 1 = rows 7-8 (18 hexes each). Exercises climb cost /
+ *  climb limit / free
  *  descent / falling off the R4 summit / height advantage / engagement-breaking
  *  elevation. The `*` summit glyph spot is parsed for forward-compat (slice 4).
  *  Implemented exactly as the token grid specifies. */
@@ -130,12 +131,12 @@ export const THE_KNOLL: HSMap = parseMap(
   'The Knoll',
   `
   row1@1: G1 G1 G1 G1 G1 G1 G1 G1 G1
-  row2:   G1 G1 G1 G2 G2 G2 G1 G1 G1
+  row2@1: G1 G1 G1 G2 G2 G2 G1 G1 G1
   row3:   G1 G1 G2 R3 R3 R3 G2 G1 G1
   row4:   G1 G2 R3 R4 R4 R4 R3 G2 G1
   row5:   G1 G2 R3 R4 R4 R4 R3 G2 G1
   row6:   G1 G1 G2 R3 R3 R3 G2 G1 G1
-  row7:   G1 G1 G1 G2 G2 G2 G1 G1 G1
+  row7@2: G1 G1 G1 G2 G2 G2 G1 G1 G1
   row8@2: G1 G1 G1 G1 G1 G1 G1 G1 G1
   `,
   // Slice-4 glyphs: Astrid on the R4 summit (height advantage stacks with the
@@ -151,27 +152,29 @@ export const THE_KNOLL: HSMap = parseMap(
  *  (rows 3-5) splits two grass banks; a 1-hex ford (col 5 grass) and a sand
  *  spit (col 4/6 row 4) are the only dry crossings. Two void hexes (row 2/6
  *  col 8) test Range counting around gaps. Start zones: full-width row 1
- *  (player 1) and row 7 (player 2). Exercises water forced-stop, climbing out
+ *  Slice-5 start zones are two rows deep: seat 0 = rows 1-2, seat 1 = rows 6-7
+ *  (the river rows 3-5 stay neutral). Exercises water forced-stop, climbing out
  *  of water, ranged attacks across the river, Range routed around voids.
- *  NOTE: the `@2`/`@1` row tokens (G2 = grass height 2) are terrain heights,
- *  NOT start-zone owners — only the `@N` row-label suffix marks a start zone. */
+ *  NOTE: the `G2` tokens (grass height 2) are terrain heights, NOT start-zone
+ *  owners — only the `@N` row-label suffix marks a start zone. */
 export const FORD_CROSSING: HSMap = parseMap(
   'ford_crossing',
   'Ford Crossing',
   `
   row1@1: G1 G1 G1 G2 G2 G1 G1 G1 G1 G1
-  row2:   G1 G1 G1 G1 G2 G1 G1 .  G1 G1
+  row2@1: G1 G1 G1 G1 G2 G1 G1 .  G1 G1
   row3:   W1 W1 W1 W1 G1 W1 W1 W1 W1 W1
   row4:   W1 W1 W1 S1 G1 S1 W1 W1 W1 W1
   row5:   W1 W1 W1 W1 G1 W1 W1 W1 W1 W1
-  row6:   G1 G1 G1 G1 G2 G1 G1 .  G1 G1
+  row6@2: G1 G1 G1 G1 G2 G1 G1 .  G1 G1
   row7@2: G1 G1 G1 G2 G2 G1 G1 G1 G1 G1
   `,
-  // Slice-4 glyphs: Kelda (Healer) on a south-bank grass hex (heal up after
-  // fording), Ivor on the mid-river ford grass (Range +4 for the long-ranged
-  // Marro / Range≥4 figures who hold the crossing).
+  // Slice-4 glyphs on neutral mid-river terrain (now that the two-row start
+  // zones cover both banks): Kelda (Healer) on the west sand spit beside the
+  // ford, Ivor on the mid-river ford grass (Range +4 for the long-ranged Marro
+  // / Range≥4 figures who hold the crossing).
   [
-    { id: 'kelda', col: 1, row: 5 }, // (2,6) — south bank grass (height 1)
+    { id: 'kelda', col: 3, row: 3 }, // (4,4) — west sand spit (height 1)
     { id: 'ivor', col: 4, row: 3 }, // (5,4) — the ford, ringed by water/sand
   ],
 );
