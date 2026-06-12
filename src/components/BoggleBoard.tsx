@@ -464,7 +464,7 @@ function FoundList({ words }: { words: string[] }) {
   );
 }
 
-function RoundScoresBlock({ scores, me, medals = false, animated = false, accentByPlayerId }: {
+function RoundScoresBlock({ scores, me, medals = false, animated = false, accentByPlayerId, onRevealComplete }: {
   scores: { playerId: string; username: string; breakdown: { word: string; points: number; duplicate: boolean }[]; total: number }[];
   me: string | null;
   medals?: boolean;
@@ -473,6 +473,9 @@ function RoundScoresBlock({ scores, me, medals = false, animated = false, accent
   animated?: boolean;
   /** Optional map of playerId → accent color for coloring usernames in the header. */
   accentByPlayerId?: Record<string, string | undefined>;
+  /** Fired once the tally reveal finishes — lets the parent unmask cumulative
+   *  totals only after the per-word calculation is done (no spoiler). */
+  onRevealComplete?: () => void;
 }) {
   const medalEmoji = ['🥇', '🥈', '🥉'];
 
@@ -512,6 +515,15 @@ function RoundScoresBlock({ scores, me, medals = false, animated = false, accent
   const [step, setStep] = useState(0);
   // Tallying is "done" when not animated (static view) OR when all words have been revealed.
   const done = !animated || step >= sequence.length;
+
+  // Signal the parent the moment the reveal completes, so cumulative totals stay
+  // masked until the per-word calculation has actually finished. Ref-wrapped so a
+  // fresh inline callback each render doesn't re-fire it.
+  const onDoneRef = useRef(onRevealComplete);
+  onDoneRef.current = onRevealComplete;
+  useEffect(() => {
+    if (done) onDoneRef.current?.();
+  }, [done]);
 
   useEffect(() => {
     if (!animated) { setStep(sequence.length); return; }
@@ -637,6 +649,12 @@ function BetweenRoundsView({
   // player's name with their preferred accent.
   const accentByPlayerId: Record<string, string | undefined> = {};
   for (const p of state.players) accentByPlayerId[p.playerId] = p.accent_color;
+  // The cumulative totals below stay masked until the per-word reveal above has
+  // finished tallying (otherwise the final answer spoils the dramatic count).
+  // Reset whenever a new round completes so the next reveal re-masks.
+  const [revealed, setRevealed] = useState(false);
+  useEffect(() => { setRevealed(false); }, [state.round]);
+  const currentRoundIdx = state.rounds.length - 1;
   const roundsLabel = state.mode === '3-rounds'
     ? `Round ${state.round} of 3`
     : target
@@ -654,7 +672,7 @@ function BetweenRoundsView({
         <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Round {state.round} scores
         </div>
-        {lastRound && <RoundScoresBlock scores={lastRound.scores} me={me} animated accentByPlayerId={accentByPlayerId} />}
+        {lastRound && <RoundScoresBlock scores={lastRound.scores} me={me} animated accentByPlayerId={accentByPlayerId} onRevealComplete={() => setRevealed(true)} />}
       </div>
 
       {/* Cumulative standings so far */}
@@ -674,13 +692,17 @@ function BetweenRoundsView({
             {standings.map(s => (
               <tr key={s.playerId} className={`border-t border-neutral-800/60 ${s.playerId === me ? 'bg-emerald-500/5' : ''}`}>
                 <td className="px-2 py-1.5 font-medium" style={{ color: safeAccent(accentByPlayerId[s.playerId]) }}>{s.username}</td>
-                {s.perRound.map((p, i) => <td key={i} className="px-2 py-1.5 text-center font-mono text-neutral-300">{p}</td>)}
-                <td className="px-2 py-1.5 text-center font-mono text-lg font-bold text-amber-400">{s.total}</td>
+                {s.perRound.map((p, i) => (
+                  <td key={i} className="px-2 py-1.5 text-center font-mono text-neutral-300">
+                    {!revealed && i === currentRoundIdx ? '—' : p}
+                  </td>
+                ))}
+                <td className="px-2 py-1.5 text-center font-mono text-lg font-bold text-amber-400">{revealed ? s.total : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {target && (
+        {revealed && target && (
           <p className="mt-2 text-center text-[11px] text-neutral-500">
             First to {target} wins. Leader: <span className="text-amber-300">{standings[0]?.username}</span> at {standings[0]?.total}.
           </p>
