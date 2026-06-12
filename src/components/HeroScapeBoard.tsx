@@ -8,11 +8,12 @@
 // PROJECTED: an opponent's unrevealed markers are literally 'hidden' — the
 // board renders every one of them as the same face-down chip (X included).
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   type HSState,
   type Figure,
   type CombatFace,
+  type LastAttack,
   type HexKey,
   type OrderMarker,
   type OrderMarkerValue,
@@ -166,9 +167,14 @@ function CardArt({ cardId, className }: { cardId: string; className?: string }) 
   );
 }
 
-/** A draft-pool stat card: name, points, figures, the Mv/Rg/⚔/🛡/H line, a
- *  "⚡ powers WIP" tag for stat-only cards, greyed + struck when taken. Clicking
- *  an affordable, available card drafts it (when it's your pick). */
+/** A draft-pool card. The scanned card ART now FILLS a portrait panel (the art
+ *  shows the name + full stat line). Draft-only bits overlay the image: a
+ *  translucent bottom bar with name + points (so you can still scan budgets), a
+ *  "⚡ powers WIP" corner badge for stat-only cards, and a dim "✓ taken by X"
+ *  overlay when drafted. If the image fails to load it hides itself (CardArt
+ *  onError) and the text/stat card layered BEHIND it shows through as a graceful
+ *  fallback. Clicking an affordable, available card drafts it (when it's your
+ *  pick). */
 function DraftCard({
   cardId, taken, takenByLabel, affordable, clickable, onPick,
 }: {
@@ -194,7 +200,7 @@ function DraftCard({
             : `Draft ${def.name} (${def.points} pts)`
       }
       className={
-        'flex h-full w-full flex-col items-stretch rounded-lg border-2 px-3 py-2 text-left transition ' +
+        'relative aspect-[886/1432] w-full overflow-hidden rounded-lg border-2 text-left transition ' +
         (taken
           ? 'border-neutral-800 bg-neutral-900/40 opacity-50'
           : clickable
@@ -202,22 +208,47 @@ function DraftCard({
             : 'border-neutral-800 bg-neutral-900/40 ' + (dim ? 'opacity-50' : ''))
       }
     >
-      {/* Scanned card art (primary). Hides itself on load failure, leaving the
-          name / points / stat lines below as a graceful fallback. */}
-      <CardArt cardId={cardId} className="mb-1 h-40 w-full rounded object-contain" />
-      <div className="flex items-baseline justify-between gap-1">
-        <span className={'text-sm font-bold leading-tight ' + (taken ? 'text-neutral-500 line-through' : 'text-neutral-100')}>
+      {/* Text/stat fallback — layered BEHIND the art. Shows through only if the
+          scanned image fails to load (CardArt hides itself on error). */}
+      <div className="absolute inset-0 flex flex-col items-stretch px-2 py-2">
+        <div className="flex items-baseline justify-between gap-1">
+          <span className={'text-sm font-bold leading-tight ' + (taken ? 'text-neutral-500 line-through' : 'text-neutral-100')}>
+            {def.name}
+          </span>
+          <span className="shrink-0 text-base font-extrabold tabular-nums text-amber-300">{def.points}</span>
+        </div>
+        <div className="mt-1 text-[11px] text-neutral-400 tabular-nums">
+          {def.type === 'hero' ? '1 hero' : `${def.figures} figures`} · Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
+        </div>
+      </div>
+
+      {/* Scanned card art — FILLS the panel edge-to-edge (object-cover). */}
+      <CardArt cardId={cardId} className="absolute inset-0 h-full w-full object-cover" />
+
+      {/* ⚡ powers WIP — corner badge over the art. */}
+      {wip && !taken && (
+        <span
+          className="absolute right-1 top-1 rounded bg-neutral-950/80 px-1 py-0.5 text-[9px] font-semibold text-purple-300"
+          title="Special power not yet implemented — fights with printed stats"
+        >
+          ⚡ WIP
+        </span>
+      )}
+
+      {/* Translucent bottom bar — name + points, readable over the art. */}
+      <div className="absolute inset-x-0 bottom-0 flex items-baseline justify-between gap-1 bg-gradient-to-t from-black/90 via-black/70 to-transparent px-1.5 pb-1 pt-3">
+        <span className={'truncate text-[11px] font-bold leading-tight ' + (taken ? 'text-neutral-400 line-through' : 'text-neutral-50')}>
           {def.name}
         </span>
-        <span className="shrink-0 text-base font-extrabold tabular-nums text-amber-300">{def.points}</span>
+        <span className="shrink-0 text-sm font-extrabold tabular-nums text-amber-300">{def.points}</span>
       </div>
-      <div className="mt-1 text-[11px] text-neutral-400 tabular-nums">
-        {def.type === 'hero' ? '1 hero' : `${def.figures} figures`} · Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
-      </div>
-      <div className="mt-1 flex items-center gap-1">
-        {taken && takenByLabel && <span className="text-[10px] font-semibold text-neutral-500">✓ {takenByLabel}</span>}
-        {wip && !taken && <span className="text-[10px] font-semibold text-purple-300/90" title="Special power not yet implemented — fights with printed stats">⚡ powers WIP</span>}
-      </div>
+
+      {/* "✓ taken by X" — dim overlay with struck name when drafted. */}
+      {taken && (
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/55 px-1 text-center">
+          <span className="text-[10px] font-semibold text-neutral-200">✓ taken{takenByLabel ? ` by ${takenByLabel}` : ''}</span>
+        </div>
+      )}
     </button>
   );
 }
@@ -232,11 +263,13 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
   );
 }
 
-/** Hover popover with the FULL army card: name, General/class, the whole stat
- *  line, and every special power (name + printed text from POWER_DESCRIPTIONS).
- *  Rendered as a CSS group-hover panel — the parent roster card carries the
- *  `group` class, this sits absolutely over the board (pointer-events-none so it
- *  never eats clicks), appearing above the card. */
+/** Hover popover with the CLEAN TEXT army card: name, General/class, the whole
+ *  stat grid, and every special power (name + printed text from
+ *  POWER_DESCRIPTIONS). No image here — the roster/draft PANEL shows the scanned
+ *  art; this hover is the readable detail view. Rendered as a CSS group-hover
+ *  panel — the parent roster card carries the `group` class, this sits
+ *  absolutely over the board (pointer-events-none so it never eats clicks),
+ *  appearing above the card. */
 function CardHoverPanel({ cardId }: { cardId: string }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
@@ -245,9 +278,6 @@ function CardHoverPanel({ cardId }: { cardId: string }) {
     <div
       className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-60 -translate-x-1/2 rounded-lg border-2 border-amber-700 bg-neutral-950/95 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block"
     >
-      {/* Full scanned card art (primary). Hides itself on load failure, leaving
-          the name + stat grid + powers text below as a graceful fallback. */}
-      <CardArt cardId={def.id} className="mb-2 w-56 rounded object-contain" />
       <div className="text-sm font-bold leading-tight text-amber-100">{def.name}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
         {def.unitClass ?? (def.type === 'hero' ? 'Hero' : 'Squad')}
@@ -275,6 +305,166 @@ function CardHoverPanel({ cardId }: { cardId: string }) {
           No special power.
         </div>
       )}
+    </div>
+  );
+}
+
+/** A big die face for the dramatic roll overlay — reuses DieFace's look (skull
+ *  #7f1d1d/💀, shield #1e3a8a/🛡, blank gray) at large size, plus a quick
+ *  tumble/scale-in as each die "lands". */
+function BigDie({ face, landed }: { face: CombatFace; landed: boolean }) {
+  const size = 60;
+  const fill = face === 'skull' ? '#7f1d1d' : face === 'shield' ? '#1e3a8a' : '#404040';
+  const glyph = face === 'skull' ? '💀' : face === 'shield' ? '🛡' : '';
+  return (
+    <span
+      className="inline-flex items-center justify-center rounded-lg border-2 border-neutral-600 shadow-lg shadow-black/50"
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * 0.5,
+        background: fill,
+        animation: landed ? 'hsDieIn 320ms cubic-bezier(0.34,1.56,0.64,1)' : undefined,
+      }}
+      title={face}
+    >
+      {glyph}
+    </span>
+  );
+}
+
+/** The dramatic centered DICE-ROLL overlay. Mounted (by the parent, keyed on
+ *  lastAttack.seq) when a FRESH attack resolves; plays a sequence:
+ *    header → reveal ATTACK dice one-at-a-time (running skull count) → attack
+ *    total → reveal DEFENSE dice one-at-a-time (running shield count) → result.
+ *  Auto-dismisses ~1.6s after the result; backdrop click or "Skip ▸" dismisses
+ *  immediately. All timers are cleaned up on unmount (so a superseding attack —
+ *  which remounts this via a new key — cancels the old sequence). Driven purely
+ *  by the shared lastAttack, so BOTH players see it. */
+function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss: () => void }) {
+  const PER_DIE = 450; // ms between dice
+  const attackN = attack.attackRoll.length;
+  const defenseN = attack.defenseRoll.length;
+  // 'attack' (revealing attack dice) → 'defense' (revealing defense dice) →
+  // 'result'. shownA / shownD = how many dice of each are currently face-up.
+  const [stage, setStage] = useState<'attack' | 'defense' | 'result'>('attack');
+  const [shownA, setShownA] = useState(0);
+  const [shownD, setShownD] = useState(0);
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let t = 250; // small beat before the first die lands
+    // 1) ATTACK dice, one at a time.
+    for (let i = 1; i <= attackN; i++) {
+      timers.push(setTimeout(() => setShownA(i), t));
+      t += PER_DIE;
+    }
+    // 2) DEFENSE phase, then its dice one at a time.
+    t += 300;
+    timers.push(setTimeout(() => setStage('defense'), t));
+    for (let i = 1; i <= defenseN; i++) {
+      t += PER_DIE;
+      timers.push(setTimeout(() => setShownD(i), t));
+    }
+    // 3) RESULT.
+    t += 350;
+    timers.push(setTimeout(() => setStage('result'), t));
+    // 4) Auto-dismiss ~1.6s after the result lands.
+    t += 1600;
+    timers.push(setTimeout(onDismiss, t));
+    return () => { for (const id of timers) clearTimeout(id); };
+    // attack is fixed for this mount (parent re-keys on seq); run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const runningSkulls = attack.attackRoll.slice(0, shownA).filter(f => f === 'skull').length;
+  const runningShields = attack.defenseRoll.slice(0, shownD).filter(f => f === 'shield').length;
+  const showDefense = stage === 'defense' || stage === 'result';
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+      onClick={onDismiss}
+      role="dialog"
+      aria-label="Attack roll"
+    >
+      {/* The keyframe for each die's tumble/scale-in (file has no global CSS). */}
+      <style>{`@keyframes hsDieIn { 0% { transform: scale(0.2) rotate(-120deg); opacity: 0; } 70% { transform: scale(1.12) rotate(8deg); opacity: 1; } 100% { transform: scale(1) rotate(0deg); } }`}</style>
+      <div
+        className="relative w-full max-w-lg rounded-2xl border-2 border-amber-700/80 bg-neutral-950/95 px-6 py-6 text-center shadow-2xl shadow-black/70"
+        onClick={e => e.stopPropagation()}
+      >
+        <button
+          onClick={onDismiss}
+          className="absolute right-3 top-3 rounded-md border border-neutral-700 px-2 py-0.5 text-xs font-semibold text-neutral-400 transition hover:border-neutral-400 hover:text-neutral-200"
+        >
+          Skip ▸
+        </button>
+
+        {/* Header: attacker ⚔ target */}
+        <div className="text-lg font-extrabold text-neutral-100">
+          <span className="text-orange-300">{attack.attackerLabel}</span>
+          <span className="mx-2 text-neutral-400">⚔</span>
+          <span className="text-sky-300">{attack.targetLabel}</span>
+        </div>
+
+        {/* ATTACK row */}
+        <div className="mt-5">
+          <div className="text-xs font-bold uppercase tracking-wider text-orange-300/90">Attack</div>
+          <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
+            {attack.attackRoll.slice(0, shownA).map((f, i) => (
+              <BigDie key={i} face={f} landed />
+            ))}
+          </div>
+          <div className="mt-2 text-3xl font-black tabular-nums text-orange-300">
+            💀 {runningSkulls}
+            {stage !== 'attack' && (
+              <span className="ml-2 text-base font-bold text-neutral-400">skulls</span>
+            )}
+          </div>
+        </div>
+
+        {/* DEFENSE row (revealed after the attack dice) */}
+        {showDefense && (
+          <div className="mt-5 border-t border-neutral-800 pt-4">
+            <div className="text-xs font-bold uppercase tracking-wider text-sky-300/90">Defense</div>
+            <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
+              {attack.defenseRoll.slice(0, shownD).map((f, i) => (
+                <BigDie key={i} face={f} landed />
+              ))}
+            </div>
+            <div className="mt-2 text-3xl font-black tabular-nums text-sky-300">
+              🛡 {runningShields}
+              {stage === 'result' && (
+                <span className="ml-2 text-base font-bold text-neutral-400">shields</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* RESULT */}
+        {stage === 'result' && (
+          <div className="mt-5 border-t border-neutral-800 pt-4">
+            <div
+              className={
+                'text-2xl font-black ' +
+                (attack.destroyed ? 'text-red-400' : attack.wounds > 0 ? 'text-orange-300' : 'text-neutral-300')
+              }
+            >
+              {attack.destroyed
+                ? `${attack.targetLabel} is destroyed!`
+                : attack.wounds > 0
+                  ? `${attack.wounds} wound${attack.wounds === 1 ? '' : 's'}!`
+                  : 'Blocked!'}
+            </div>
+            {attack.counterWounds != null && attack.counterWounds > 0 && (
+              <div className="mt-1.5 text-lg font-bold text-fuchsia-300">
+                ⚔ Counter Strike: {attack.counterWounds} back!
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -312,6 +502,25 @@ export default function HeroScapeBoard({
   useEffect(() => {
     setGrappleMode(false);
   }, [selectedId, state.turnNumber, state.turnSeat]);
+
+  // --- dramatic dice-roll overlay (UI only) ---------------------------------
+  // A big centered animation plays when a FRESH attack resolves. The trigger is
+  // the monotonic lastAttack.seq: when it increases past the last value we saw,
+  // we snapshot that attack and animate it. The ref starts at the CURRENT seq so
+  // an attack already present on first mount is NOT replayed on load. Driven by
+  // shared state.lastAttack ⇒ both players see the same overlay.
+  const [rollAttack, setRollAttack] = useState<LastAttack | null>(null);
+  const lastSeenSeqRef = useRef<number>(state.lastAttack?.seq ?? 0);
+  useEffect(() => {
+    const la = state.lastAttack;
+    if (!la) return;
+    if (la.seq > lastSeenSeqRef.current) {
+      lastSeenSeqRef.current = la.seq;
+      // Only animate when there are dice to show (defensive — a real attack
+      // always rolls ≥1 attack die).
+      if (la.attackRoll.length > 0 || la.defenseRoll.length > 0) setRollAttack(la);
+    }
+  }, [state.lastAttack]);
 
   const map = MAPS[state.mapId];
   const me = state.players.find(p => p.playerId === currentUserId);
@@ -604,28 +813,42 @@ export default function HeroScapeBoard({
               ? MARKERS.filter(v => assign[v] === uid).map(v => ({ marker: v, revealed: false }))
               : markers;
             const active = uid === activeCardUid && state.subPhase === 'turns';
-            const body = (
-              <>
-                {/* Scanned card art (primary). Hides itself on load failure so
-                    the name + stat line below remain as a graceful fallback. */}
+            const dead = alive === 0;
+            // The card PANEL: a fixed portrait box whose scanned art fills it
+            // edge-to-edge. A text/stat block is layered BEHIND the art and shows
+            // through only if the image fails to load (CardArt hides on error).
+            // Active card → amber outline/ring; dead card → dim + grayscale art.
+            const panel = (
+              <div
+                className={
+                  'relative aspect-[886/1432] w-full overflow-hidden rounded-md border ' +
+                  (active ? 'border-amber-500 ring-2 ring-amber-500/70' : 'border-neutral-800')
+                }
+              >
+                {/* Text/stat fallback — behind the art. */}
+                <div className="absolute inset-0 flex flex-col px-1.5 py-1.5">
+                  <div className={'text-xs font-semibold leading-tight ' + (dead ? 'text-neutral-600 line-through' : 'text-neutral-100')}>
+                    {def.name}
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-neutral-400 tabular-nums">
+                    {def.type === 'hero'
+                      ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} />
+                      : `${alive}/${def.figures} figs`}
+                    {' · '}Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
+                  </div>
+                </div>
+                {/* Scanned card art — FILLS the panel (object-cover). Dimmed +
+                    grayscale when the card has no surviving figures. */}
                 <CardArt
                   cardId={def.id}
-                  className={'mb-1 h-32 w-full rounded object-contain ' + (alive === 0 ? 'opacity-40 grayscale' : '')}
+                  className={'absolute inset-0 h-full w-full object-cover ' + (dead ? 'opacity-40 grayscale' : '')}
                 />
-                <div className={'text-xs font-semibold ' + (alive === 0 ? 'text-neutral-600 line-through' : 'text-neutral-100')}>
-                  {def.name}
-                </div>
-                <div className="mt-0.5 text-[10px] text-neutral-400 tabular-nums">
-                  {def.type === 'hero'
-                    ? <WoundPips life={def.life} wounds={alive === 0 ? def.life : heroWounds} />
-                    : `${alive}/${def.figures} figs`}
-                  {' · '}Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
-                </div>
-              </>
+              </div>
             );
             return (
               // `group` + `relative` anchor the hover popover to this card.
-              <div key={uid} className="group relative flex w-44 flex-col items-stretch gap-1">
+              // Portrait art ⇒ keep the card narrow so a row of them fits.
+              <div key={uid} className="group relative flex w-28 flex-col items-stretch gap-1">
                 {/* order markers — directly ABOVE the card */}
                 <div className="flex h-6 items-center justify-center gap-1">
                   {markersToShow.map((m, i) => <MarkerChip key={i} m={m} size={20} />)}
@@ -634,14 +857,12 @@ export default function HeroScapeBoard({
                   <button
                     onClick={() => assignPicked(uid)}
                     disabled={disabled}
-                    className="rounded-md border border-neutral-700 px-2 py-1 text-left transition hover:border-amber-500 hover:bg-amber-900/20"
+                    className="rounded-md text-left transition hover:opacity-90"
                   >
-                    {body}
+                    {panel}
                   </button>
                 ) : (
-                  <div className={'rounded-md border px-2 py-1 ' + (active ? 'border-amber-500 bg-amber-900/20' : 'border-neutral-800')}>
-                    {body}
-                  </div>
+                  panel
                 )}
                 <CardHoverPanel cardId={def.id} />
               </div>
@@ -945,10 +1166,24 @@ export default function HeroScapeBoard({
   // the log lands on the far left. Narrow screens stack: banner, board, cards, log.
   const opponentSeat = me ? state.players.find(p => p.seat !== me.seat)?.seat : undefined;
   return (
-    <div className="flex flex-col gap-3 p-3 lg:flex-row lg:items-start">
+    // On lg+ the play view fills the viewport (minus the room top bar ≈ 4rem)
+    // and clips, so each column scrolls INTERNALLY (the log scrolls in place; the
+    // browser window does not). The columns STRETCH to the fixed row height
+    // (items-stretch) so their overflow-y-auto actually engages. Narrow screens
+    // stack (flex-col) and scroll the window naturally.
+    <div className="flex flex-col gap-3 p-3 lg:h-[calc(100vh-4rem)] lg:flex-row lg:items-stretch lg:overflow-hidden">
+      {/* Dramatic dice-roll overlay (UI only). Keyed on seq so a superseding
+          attack remounts it (cancelling the prior animation's timers). */}
+      {rollAttack && (
+        <DiceRollOverlay
+          key={rollAttack.seq}
+          attack={rollAttack}
+          onDismiss={() => setRollAttack(null)}
+        />
+      )}
       {/* RIGHT RAIL — banner/status, initiative, last attack, choices, end turn.
           (DOM-first so it appears at the top on narrow screens; order-3 on lg+.) */}
-      <div className="flex w-full shrink-0 flex-col gap-3 lg:order-3 lg:w-[290px]">
+      <div className="flex w-full shrink-0 flex-col gap-3 lg:order-3 lg:w-[290px] lg:min-h-0 lg:overflow-y-auto">
         {/* Placement status — the interactive assignment lives below the board,
             directly above your army cards. */}
         {placement ? (
@@ -1245,7 +1480,7 @@ export default function HeroScapeBoard({
       {/* CENTER — opponent army cards (top), board, my army cards (bottom). The
           board is already oriented so my start zone is at the bottom, so my cards
           below + the enemy's above put each player's cards on their figures' side. */}
-      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 lg:order-2">
+      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 lg:order-2 lg:min-h-0 lg:overflow-y-auto">
         {/* Opponent army cards — above the board (their figures' side). */}
         {opponentSeat != null && renderArmyRow(opponentSeat)}
 
@@ -1457,12 +1692,13 @@ export default function HeroScapeBoard({
       </div>
 
       {/* LEFT RAIL — the event log only, tall on the far left (order-1 on lg+;
-          appears last on narrow screens, after banner/board/cards). */}
-      <div className="flex w-full shrink-0 flex-col lg:order-1 lg:w-[210px] lg:self-stretch">
+          appears last on narrow screens, after banner/board/cards). On lg+ the
+          rail fills the fixed column height and the log box scrolls INTERNALLY. */}
+      <div className="flex w-full shrink-0 flex-col lg:order-1 lg:w-[210px] lg:min-h-0 lg:self-stretch lg:overflow-hidden">
         <div className="mb-1 hidden text-[11px] font-semibold uppercase tracking-wider text-neutral-500 lg:block">
           Battle log
         </div>
-        <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-44 lg:max-h-[calc(100vh-7rem)]">
+        <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-44 lg:max-h-none lg:min-h-0 lg:flex-1">
           {state.log.slice(-30).map(e => (
             <div
               key={e.seq}
