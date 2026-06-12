@@ -78,6 +78,29 @@ function started(): HSState {
   return unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'quick' }));
 }
 
+describe('set_lobby_config (host lobby settings sync to shared state)', () => {
+  it('writes mapId / mode / pointBudget onto the shared state so all players see them', () => {
+    let s = lobby();
+    s = unwrap(applyAction(s, 'p1', { kind: 'set_lobby_config', mapId: 'the_knoll' }));
+    expect(s.mapId).toBe('the_knoll');
+    s = unwrap(applyAction(s, 'p1', { kind: 'set_lobby_config', mode: 'quick' }));
+    expect(s.mode).toBe('quick');
+    s = unwrap(applyAction(s, 'p1', { kind: 'set_lobby_config', pointBudget: 300 }));
+    expect(s.pointBudget).toBe(300);
+    expect(s.phase).toBe('lobby'); // still in the lobby
+  });
+
+  it('rejects an unknown battlefield or invalid budget', () => {
+    expect(errOf(applyAction(lobby(), 'p1', { kind: 'set_lobby_config', mapId: 'nope' }))).toMatch(/Unknown battlefield/);
+    expect(errOf(applyAction(lobby(), 'p1', { kind: 'set_lobby_config', pointBudget: 999 }))).toMatch(/valid point budget/);
+  });
+
+  it('cannot change settings once the battle has started', () => {
+    expect(errOf(applyAction(started(), 'p1', { kind: 'set_lobby_config', mapId: 'the_knoll' })))
+      .toMatch(/before the battle starts/);
+  });
+});
+
 function placed(s: HSState, pid: 'p1' | 'p2', assignments: Assignment[]): HSState {
   return unwrap(applyAction(s, pid, { kind: 'place_markers', assignments }));
 }

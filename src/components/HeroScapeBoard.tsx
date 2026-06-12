@@ -74,6 +74,7 @@ type Props = {
   isHost: boolean;
   disabled?: boolean;
   onStart: (mapId?: string, pointBudget?: number, mode?: HSMode) => void;
+  onSetLobbyConfig: (cfg: { mapId?: string; pointBudget?: number; mode?: HSMode }) => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
@@ -471,7 +472,7 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onPlaceMarkers, onMoveFigure, onGrappleMove, onAttack,
+  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onAttack,
   onBerserkerCharge, onWaterClone, onResolveChoice, onEndTurn,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
@@ -479,10 +480,13 @@ export default function HeroScapeBoard({
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
-  // Lobby: the host's chosen battlefield + draft settings (sent with start_game).
-  const [lobbyMapId, setLobbyMapId] = useState<string>('training_field');
-  const [lobbyMode, setLobbyMode] = useState<HSMode>('draft');
-  const [lobbyBudget, setLobbyBudget] = useState<number>(400);
+  // Lobby settings live in SHARED state (state.mapId/mode/pointBudget) so every
+  // player sees the host's choice — the host edits via onSetLobbyConfig, which
+  // updates the room state and broadcasts. (Previously these were local React
+  // state, so only the host saw changes until the battle started.)
+  const lobbyMapId = state.mapId;
+  const lobbyMode = state.mode;
+  const lobbyBudget = state.pointBudget;
   // Placement: the figure the player has picked up to drop next (click-to-place).
   const [placeFigureId, setPlaceFigureId] = useState<string | null>(null);
   // Marker-placement scratchpad: which card each chip sits on, and which chip
@@ -903,7 +907,7 @@ export default function HeroScapeBoard({
               return (
                 <button
                   key={m}
-                  onClick={() => isHost && setLobbyMode(m)}
+                  onClick={() => isHost && onSetLobbyConfig({ mode: m })}
                   disabled={!isHost || disabled}
                   className={
                     'rounded-lg border-2 px-4 py-1.5 text-sm font-semibold transition ' +
@@ -928,7 +932,7 @@ export default function HeroScapeBoard({
                 return (
                   <button
                     key={b}
-                    onClick={() => isHost && setLobbyBudget(b)}
+                    onClick={() => isHost && onSetLobbyConfig({ pointBudget: b })}
                     disabled={!isHost || disabled}
                     className={
                       'rounded-lg border-2 px-3 py-1 text-sm font-bold tabular-nums transition ' +
@@ -955,7 +959,7 @@ export default function HeroScapeBoard({
               return (
                 <button
                   key={m.id}
-                  onClick={() => isHost && setLobbyMapId(m.id)}
+                  onClick={() => isHost && onSetLobbyConfig({ mapId: m.id })}
                   disabled={!isHost || disabled}
                   title={mapBlurb[m.id]}
                   className={

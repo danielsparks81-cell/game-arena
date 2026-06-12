@@ -731,6 +731,7 @@ export type GameAction =
   // attack/defense dice, falling dice, leaving-engagement swipes) and injects
   // the values into the pure engine. The host picks the battlefield at start.
   | { game: 'heroscape'; kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
+  | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
@@ -1164,6 +1165,7 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
  *  the final player locks in their order markers. */
 type HSWireAction =
   | { kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
+  | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   // Sgt. Drake GRAPPLE GUN (slice 7): a one-space replacement move. Like
@@ -1211,8 +1213,9 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   if (error || !room) throw new Error('Room not found');
   if (room.game_type !== 'heroscape') throw new Error('Wrong game type');
 
-  if (action.kind === 'start_game') {
-    if (room.host_id !== user.id) throw new Error('Only the host can start the battle');
+  if (action.kind === 'start_game' || action.kind === 'set_lobby_config') {
+    // Both happen in the waiting lobby and are host-only.
+    if (room.host_id !== user.id) throw new Error('Only the host can change the battle settings');
   } else if (room.status !== 'playing') {
     throw new Error('Battle not in progress');
   }

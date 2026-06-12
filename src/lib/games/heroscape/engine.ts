@@ -188,6 +188,11 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     // validates the game shape (and the chosen battlefield).
     return doStartGame(state, action.mapId, action.pointBudget, action.mode);
   }
+  if (action.kind === 'set_lobby_config') {
+    // Host changing the battlefield/budget/mode in the lobby — written to shared
+    // state so every player sees it (host-gated in the server action).
+    return doSetLobbyConfig(state, action.mapId, action.pointBudget, action.mode);
+  }
   if (state.phase === 'lobby') return { error: 'The battle has not started yet' };
   if (state.phase === 'finished') return { error: 'The battle is over' };
   const me = state.players.find(p => p.playerId === playerId)!;
@@ -376,6 +381,21 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
     ? ` ${s.glyphs.length} glyph${s.glyphs.length === 1 ? '' : 's'} await on the field.`
     : '';
   pushLog(s, 'info', `Battle on the ${map.name}! Round 1 — all players secretly place their order markers.${glyphNote}`);
+}
+
+function doSetLobbyConfig(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode): HSResult {
+  if (state.phase !== 'lobby') return { error: 'Settings can only be changed before the battle starts' };
+  const s = clone(state);
+  if (mapId !== undefined) {
+    if (!MAPS[mapId]) return { error: `Unknown battlefield "${mapId}"` };
+    s.mapId = mapId;
+  }
+  if (mode !== undefined) s.mode = mode;
+  if (pointBudget !== undefined) {
+    if (!POINT_BUDGETS.includes(pointBudget)) return { error: 'Pick a valid point budget' };
+    s.pointBudget = pointBudget;
+  }
+  return s;
 }
 
 function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode): HSResult {

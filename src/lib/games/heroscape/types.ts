@@ -461,6 +461,15 @@ export type HSAction =
       mode?: HSMode;
     }
   | {
+      // Host changes the lobby settings (battlefield / budget / mode) BEFORE the
+      // battle starts. Stored in shared state so every player sees the change —
+      // not just the host's local UI. Host-gated in the server action.
+      kind: 'set_lobby_config';
+      mapId?: string;
+      pointBudget?: number;
+      mode?: HSMode;
+    }
+  | {
       // SERVER-rolled draft roll-off (slice 5): both seats' d20 attempts, ties
       // re-rolled (capped). Issued by makeMoveHS when entering the draft; the
       // engine validates the tie discipline and sets the pick order.
