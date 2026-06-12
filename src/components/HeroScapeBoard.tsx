@@ -480,6 +480,9 @@ export default function HeroScapeBoard({
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
+  // The battle log is collapsible and minimized by default so the map/cards own
+  // the space; expand it (a thin toggle on the far left) to read/scroll history.
+  const [logOpen, setLogOpen] = useState(false);
   // Lobby settings live in SHARED state (state.mapId/mode/pointBudget) so every
   // player sees the host's choice — the host edits via onSetLobbyConfig, which
   // updates the room state and broadcasts. (Previously these were local React
@@ -1180,7 +1183,7 @@ export default function HeroScapeBoard({
     // browser window does not). The columns STRETCH to the fixed row height
     // (items-stretch) so their overflow-y-auto actually engages. Narrow screens
     // stack (flex-col) and scroll the window naturally.
-    <div className="flex flex-col gap-3 p-3 lg:h-[calc(100vh-4rem)] lg:flex-row lg:items-stretch lg:overflow-hidden">
+    <div className="flex w-full flex-col gap-3 p-3 lg:h-[calc(100vh-4rem)] lg:flex-row lg:items-stretch lg:overflow-hidden">
       {/* Dramatic dice-roll overlay (UI only). Keyed on seq so a superseding
           attack remounts it (cancelling the prior animation's timers). */}
       {rollAttack && (
@@ -1717,31 +1720,37 @@ export default function HeroScapeBoard({
         {me && <div className="shrink-0">{renderArmyRow(me.seat)}</div>}
       </div>
 
-      {/* LEFT RAIL — the event log only, tall on the far left (order-1 on lg+;
-          appears last on narrow screens, after banner/board/cards). On lg+ the
-          rail fills the fixed column height and the log box scrolls INTERNALLY. */}
-      <div className="flex w-full shrink-0 flex-col lg:order-1 lg:w-[210px] lg:min-h-0 lg:self-stretch lg:overflow-hidden">
-        <div className="mb-1 hidden text-[11px] font-semibold uppercase tracking-wider text-neutral-500 lg:block">
-          Battle log
-        </div>
-        <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-44 lg:max-h-none lg:min-h-0 lg:flex-1">
-          {state.log.slice(-30).map(e => (
-            <div
-              key={e.seq}
-              className={
-                e.tag === 'win'
-                  ? 'font-bold text-amber-300'
-                  : e.tag === 'attack'
-                    ? 'text-red-300/80'
-                    : e.tag === 'fall'
-                      ? 'text-orange-300/90'
-                      : ''
-              }
-            >
-              {e.text}
-            </div>
-          ))}
-        </div>
+      {/* LEFT RAIL — COLLAPSIBLE event log. Collapsed by default to a thin toggle
+          so the map and cards own the space; the log can never shrink them. When
+          open it's a fixed-width rail whose box scrolls INTERNALLY. */}
+      <div className={'flex w-full shrink-0 flex-col gap-1 lg:order-1 lg:min-h-0 lg:self-stretch lg:overflow-hidden ' + (logOpen ? 'lg:w-[210px]' : 'lg:w-auto')}>
+        <button
+          onClick={() => setLogOpen(o => !o)}
+          title={logOpen ? 'Hide the battle log' : 'Show the battle log'}
+          className="flex shrink-0 items-center gap-1 self-start rounded border border-neutral-700 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 transition hover:border-neutral-500"
+        >
+          📜 {logOpen ? 'Battle log ✕' : 'Log'}
+        </button>
+        {logOpen && (
+          <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-60 lg:max-h-none lg:min-h-0 lg:flex-1">
+            {state.log.slice(-40).map(e => (
+              <div
+                key={e.seq}
+                className={
+                  e.tag === 'win'
+                    ? 'font-bold text-amber-300'
+                    : e.tag === 'attack'
+                      ? 'text-red-300/80'
+                      : e.tag === 'fall'
+                        ? 'text-orange-300/90'
+                        : ''
+                }
+              >
+                {e.text}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
