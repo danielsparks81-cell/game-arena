@@ -767,8 +767,8 @@ export default function HeroScapeBoard({
     const isMe = !!me && pl.seat === me.seat;
     const placingMine = placing && isMe && !iAmReady;
     return (
-      <div className="w-full rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1.5">
-        <div className="mb-1 flex items-center justify-between gap-2">
+      <div className="w-full rounded-lg border border-neutral-800 bg-neutral-900/40 px-2 py-1">
+        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-bold" style={{ color: seatColor(pl.seat) }}>
             {pl.username}{isMe ? ' (you)' : ''}
           </span>
@@ -810,7 +810,8 @@ export default function HeroScapeBoard({
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2">
+        {/* Compact tiles — wrap to a second line if a wide army doesn't fit. */}
+        <div className="flex flex-wrap gap-1.5">
           {cards.map(({ uid, def, alive, heroWounds, markers }) => {
             const canAssign = placingMine && alive > 0;
             const markersToShow = placingMine
@@ -818,30 +819,31 @@ export default function HeroScapeBoard({
               : markers;
             const active = uid === activeCardUid && state.subPhase === 'turns';
             const dead = alive === 0;
-            // The card PANEL: a fixed portrait box whose scanned art fills it
-            // edge-to-edge. A text/stat block is layered BEHIND the art and shows
-            // through only if the image fails to load (CardArt hides on error).
+            // COMPACT play-view tile: a SMALL fixed portrait (~80px tall, the
+            // 886/1432 aspect ⇒ ~50px wide) so the strip is thin and the MAP is
+            // the focus. The scanned art fills it; a tiny name strip is layered
+            // BEHIND the art and shows through only if the image fails to load
+            // (CardArt hides on error). Full detail is in the hover popover.
             // Active card → amber outline/ring; dead card → dim + grayscale art.
             const panel = (
               <div
                 className={
-                  'relative aspect-[886/1432] w-full overflow-hidden rounded-md border ' +
+                  'relative aspect-[886/1432] h-20 overflow-hidden rounded border ' +
                   (active ? 'border-amber-500 ring-2 ring-amber-500/70' : 'border-neutral-800')
                 }
               >
-                {/* Text/stat fallback — behind the art. */}
-                <div className="absolute inset-0 flex flex-col px-1.5 py-1.5">
-                  <div className={'text-xs font-semibold leading-tight ' + (dead ? 'text-neutral-600 line-through' : 'text-neutral-100')}>
+                {/* Tiny text fallback — behind the art (only shows on image error). */}
+                <div className="absolute inset-0 flex flex-col p-0.5">
+                  <div className={'text-[8px] font-semibold leading-tight ' + (dead ? 'text-neutral-600 line-through' : 'text-neutral-100')}>
                     {def.name}
                   </div>
-                  <div className="mt-0.5 text-[10px] text-neutral-400 tabular-nums">
+                  <div className="mt-auto text-[8px] text-neutral-400 tabular-nums">
                     {def.type === 'hero'
                       ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} />
-                      : `${alive}/${def.figures} figs`}
-                    {' · '}Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
+                      : `${alive}/${def.figures}`}
                   </div>
                 </div>
-                {/* Scanned card art — FILLS the panel (object-cover). Dimmed +
+                {/* Scanned card art — FILLS the tile (object-cover). Dimmed +
                     grayscale when the card has no surviving figures. */}
                 <CardArt
                   cardId={def.id}
@@ -850,18 +852,17 @@ export default function HeroScapeBoard({
               </div>
             );
             return (
-              // `group` + `relative` anchor the hover popover to this card.
-              // Portrait art ⇒ keep the card narrow so a row of them fits.
-              <div key={uid} className="group relative flex w-28 flex-col items-stretch gap-1">
-                {/* order markers — directly ABOVE the card */}
-                <div className="flex h-6 items-center justify-center gap-1">
-                  {markersToShow.map((m, i) => <MarkerChip key={i} m={m} size={20} />)}
+              // `group` + `relative` anchor the hover popover to this compact tile.
+              <div key={uid} className="group relative flex shrink-0 flex-col items-center gap-0.5">
+                {/* order markers — directly ABOVE the tile */}
+                <div className="flex h-5 items-center justify-center gap-0.5">
+                  {markersToShow.map((m, i) => <MarkerChip key={i} m={m} size={16} />)}
                 </div>
                 {canAssign ? (
                   <button
                     onClick={() => assignPicked(uid)}
                     disabled={disabled}
-                    className="rounded-md text-left transition hover:opacity-90"
+                    className="rounded text-left transition hover:opacity-90"
                   >
                     {panel}
                   </button>
@@ -1063,7 +1064,9 @@ export default function HeroScapeBoard({
     };
 
     return (
-      <div className="flex flex-col gap-3 p-3">
+      // Draft uses the FULL width (no centered max-width box) so the 16 cards can
+      // be BIG and readable, spread across the whole screen.
+      <div className="flex w-full flex-col gap-3 p-3">
         {/* Whose pick */}
         <div
           className="rounded-lg border-2 px-3 py-2 text-center"
@@ -1104,11 +1107,13 @@ export default function HeroScapeBoard({
           </div>
         )}
 
-        {/* The 16-card pool — bigger cards, multi-row grid, cheapest first */}
+        {/* The 16-card pool — BIG readable cards that FILL the full width. The
+            auto-fill / minmax(200px,1fr) track makes every card ≥200px wide and
+            spreads them across the whole screen (≈6-9 per row → 2-3 rows). */}
         <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Army roster — {d.pool.length} of 16 left · cheapest first
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(200px,1fr))]">
           {sortedPool.map(id => {
             const taken = !d.pool.includes(id);
             const affordable = HS_CARDS[id].points <= myRemaining;
@@ -1483,13 +1488,28 @@ export default function HeroScapeBoard({
 
       {/* CENTER — opponent army cards (top), board, my army cards (bottom). The
           board is already oriented so my start zone is at the bottom, so my cards
-          below + the enemy's above put each player's cards on their figures' side. */}
-      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 lg:order-2 lg:min-h-0 lg:overflow-y-auto">
-        {/* Opponent army cards — above the board (their figures' side). */}
-        {opponentSeat != null && renderArmyRow(opponentSeat)}
+          below + the enemy's above put each player's cards on their figures' side.
+          On lg+ this is a flex COLUMN whose middle (the board) flexes to fill all
+          the space the two compact card strips leave — and the board does NOT
+          scroll (the strips are shrink-0; only the board box flexes). */}
+      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 lg:order-2 lg:min-h-0">
+        {/* Opponent army cards — above the board (their figures' side). Compact,
+            never shrinks the board (shrink-0). */}
+        {opponentSeat != null && (
+          <div className="shrink-0">{renderArmyRow(opponentSeat)}</div>
+        )}
 
-        <div className="w-full overflow-x-auto">
-        <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block max-w-[860px]" style={{ minWidth: 420 }}>
+        {/* The BOARD — the BIGGEST element. On lg+ it flexes to fill the column
+            and is centered; it has NO scrollbar (overflow-hidden). The SVG scales
+            up to fill the box via preserveAspectRatio (no fixed max-width cap).
+            Mobile: a min-height gives the h-full SVG a box to fill (the column has
+            no fixed height there) so the board never collapses; lg overrides it. */}
+        <div className="flex min-h-[60vh] w-full items-center justify-center overflow-hidden lg:min-h-0 lg:flex-1">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="xMidYMid meet"
+          className="block h-full max-h-full w-full"
+        >
           {/* Hexes — terrain + elevation shading (height lightens the fill) */}
           {cells.map(c => {
             const key: HexKey = `${c.q},${c.r}`;
@@ -1514,11 +1534,11 @@ export default function HeroScapeBoard({
                     occupied hexes where the figure disc covers it). */}
                 {!occupied && (c.height > 1 || c.terrain === 'water') && (
                   <text
-                    // Tucked just inside the upper-right edge (was overflowing the
-                    // corner at 0.6/0.55 — outside the hex at that diagonal).
-                    x={ctr.x + HEX * 0.18} y={ctr.y - HEX * 0.44}
+                    // Top-right corner of the hex (toward the upper-right vertex),
+                    // kept just inside the edge so it doesn't overflow.
+                    x={ctr.x + HEX * 0.48} y={ctr.y - HEX * 0.4}
                     textAnchor="middle" dominantBaseline="middle"
-                    fontSize={HEX * 0.3} fontWeight={700}
+                    fontSize={HEX * 0.28} fontWeight={700}
                     fill={c.terrain === 'water' ? '#7dd3fc' : '#e7e5e4'} opacity={0.8}
                     style={{ userSelect: 'none', pointerEvents: 'none' }}
                   >
@@ -1629,9 +1649,10 @@ export default function HeroScapeBoard({
         </div>
 
         {/* slice 5: placement in-hand tray — your unplaced figures. Click one to
-            pick it up, then click a highlighted start-zone hex to deploy it. */}
+            pick it up, then click a highlighted start-zone hex to deploy it.
+            shrink-0 so the board (flex-1) keeps its space on lg+. */}
         {placement && me && !iPlacementReady && (
-          <div className="rounded-lg border border-amber-800 bg-neutral-900/50 px-2 py-1.5">
+          <div className="shrink-0 rounded-lg border border-amber-800 bg-neutral-900/50 px-2 py-1.5">
             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
               In hand — click a figure, then a glowing hex
             </div>
@@ -1670,7 +1691,7 @@ export default function HeroScapeBoard({
         )}
 
         {myTurn && (
-          <div className="text-center text-[11px] text-neutral-500">
+          <div className="shrink-0 text-center text-[11px] text-neutral-500">
             {selected
               ? (() => {
                   // slice 7: a small flyer / ghost-walk hint on the selected figure.
@@ -1684,15 +1705,16 @@ export default function HeroScapeBoard({
           </div>
         )}
         {placing && me && !iAmReady && (
-          <div className="text-center text-[11px] text-neutral-500">
+          <div className="shrink-0 text-center text-[11px] text-neutral-500">
             Pick a chip on your army strip, then click a card to schedule that turn.
           </div>
         )}
 
         {/* My army cards — below the board (my figures' side, where the
             per-viewer flip puts my start zone). Markers above each card; during
-            placement my strip is interactive. */}
-        {me && renderArmyRow(me.seat)}
+            placement my strip is interactive. Compact + shrink-0 so the board
+            stays the biggest element. */}
+        {me && <div className="shrink-0">{renderArmyRow(me.seat)}</div>}
       </div>
 
       {/* LEFT RAIL — the event log only, tall on the far left (order-1 on lg+;
