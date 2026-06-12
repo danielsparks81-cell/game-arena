@@ -1332,6 +1332,32 @@ function applyConcessionCompletion(
 }
 
 /**
+ * When a SECONDARY concession mark (Chain Reaction's free mark, Miracle Worker's
+ * concession option) itself completes a row/column, the player still earns the
+ * base completion bonus — same as a normal concession mark. Stack it onto any
+ * pendingBonus already queued from the mark that triggered the secondary one, so
+ * all the bonuses resolve together in the same claim cycle. No-op when the mark
+ * didn't complete anything. Mutates `log`; returns the updated state.
+ */
+function stackCompletionBonus(
+  state: LSState,
+  actor: LSPlayer,
+  completion: { rowComplete: boolean; colComplete: boolean; bonusCount: number },
+  log: string[],
+): LSState {
+  if (completion.bonusCount <= 0) return state;
+  const existing = state.pendingBonus?.count ?? 0;
+  log.push(`🎉 ${actor.username} completed a ${
+    completion.rowComplete && completion.colComplete ? 'row & column'
+    : completion.rowComplete ? 'row' : 'column'
+  } — choose ${completion.bonusCount} bonus${completion.bonusCount > 1 ? 'es' : ''}!`);
+  return {
+    ...state,
+    pendingBonus: { playerId: actor.playerId, count: existing + completion.bonusCount },
+  };
+}
+
+/**
  * Fire all on-acquisition horse abilities for `horseNum` (regardless of how the horse
  * was acquired — regular Buy, Free Horse bonus, or Half Off Sale follow-up). Returns
  * the mutated player + any state delta + a pending choice to set.
@@ -1533,6 +1559,9 @@ function applyChoiceResolution(
         const completion = applyConcessionCompletion(next, updatedPlayer, c);
         updatedPlayer = completion.actor;
         log.push(...completion.logLines);
+        // Same fix as Chain Reaction: a Miracle Worker concession mark that
+        // completes a row/column still earns the base completion bonus.
+        next = stackCompletionBonus(next, updatedPlayer, completion, log);
       } else if (choice.option === 'helmet') {
         const h = choice.horseNum;
         if (!h || h < 1 || h > NUM_HORSES) return { error: 'Pick a horse for the helmet' };
@@ -1610,6 +1639,10 @@ function applyChoiceResolution(
       const completion = applyConcessionCompletion(next, updatedPlayer, c);
       updatedPlayer = completion.actor;
       log.push(...completion.logLines);
+      // A free Chain Reaction mark that itself completes a row/column awards the
+      // base completion bonus too (previously dropped — the row/col completed but
+      // no bonus was granted).
+      next = stackCompletionBonus(next, updatedPlayer, completion, log);
       break;
     }
     case 'charley_horse': {
