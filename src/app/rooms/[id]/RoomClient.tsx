@@ -306,6 +306,13 @@ export default function RoomClient({
           if (room.game_type === 'legendary') {
             return <div className="w-full">{board}</div>;
           }
+          // HeroScape's live board is responsive (the draft fills the width; the
+          // play view pins to viewport height with the map filling the center),
+          // so render it full-width rather than scaling it to a fixed design
+          // width and letterboxing the spare space.
+          if (room.game_type === 'heroscape') {
+            return <div className="w-full">{board}</div>;
+          }
           return <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type]} maxScale={GAME_MAX_SCALE[room.game_type]}>{board}</GameViewport>;
         })()}
       </section>
