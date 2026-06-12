@@ -147,6 +147,25 @@ function MarkerChip({ m, size = 16 }: { m: OrderMarker; size?: number }) {
   );
 }
 
+/** Scanned army-card art, served from /public/heroscape/cards/<cardId>.png. The
+ *  path is derived purely from the card id (no per-card config). If the image is
+ *  missing or fails to load, it hides itself (onError) so the surrounding text /
+ *  stat layout shows through as a graceful fallback. */
+function CardArt({ cardId, className }: { cardId: string; className?: string }) {
+  return (
+    // Plain <img> (not next/image) avoids image config; the art is a static,
+    // already-sized local asset that falls back to text on error.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`/heroscape/cards/${cardId}.png`}
+      alt=""
+      loading="lazy"
+      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      className={className}
+    />
+  );
+}
+
 /** A draft-pool stat card: name, points, figures, the Mv/Rg/⚔/🛡/H line, a
  *  "⚡ powers WIP" tag for stat-only cards, greyed + struck when taken. Clicking
  *  an affordable, available card drafts it (when it's your pick). */
@@ -183,6 +202,9 @@ function DraftCard({
             : 'border-neutral-800 bg-neutral-900/40 ' + (dim ? 'opacity-50' : ''))
       }
     >
+      {/* Scanned card art (primary). Hides itself on load failure, leaving the
+          name / points / stat lines below as a graceful fallback. */}
+      <CardArt cardId={cardId} className="mb-1 h-40 w-full rounded object-contain" />
       <div className="flex items-baseline justify-between gap-1">
         <span className={'text-sm font-bold leading-tight ' + (taken ? 'text-neutral-500 line-through' : 'text-neutral-100')}>
           {def.name}
@@ -223,6 +245,9 @@ function CardHoverPanel({ cardId }: { cardId: string }) {
     <div
       className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-60 -translate-x-1/2 rounded-lg border-2 border-amber-700 bg-neutral-950/95 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block"
     >
+      {/* Full scanned card art (primary). Hides itself on load failure, leaving
+          the name + stat grid + powers text below as a graceful fallback. */}
+      <CardArt cardId={def.id} className="mb-2 w-56 rounded object-contain" />
       <div className="text-sm font-bold leading-tight text-amber-100">{def.name}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
         {def.unitClass ?? (def.type === 'hero' ? 'Hero' : 'Squad')}
@@ -581,6 +606,12 @@ export default function HeroScapeBoard({
             const active = uid === activeCardUid && state.subPhase === 'turns';
             const body = (
               <>
+                {/* Scanned card art (primary). Hides itself on load failure so
+                    the name + stat line below remain as a graceful fallback. */}
+                <CardArt
+                  cardId={def.id}
+                  className={'mb-1 h-32 w-full rounded object-contain ' + (alive === 0 ? 'opacity-40 grayscale' : '')}
+                />
                 <div className={'text-xs font-semibold ' + (alive === 0 ? 'text-neutral-600 line-through' : 'text-neutral-100')}>
                   {def.name}
                 </div>
