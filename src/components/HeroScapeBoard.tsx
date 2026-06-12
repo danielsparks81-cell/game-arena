@@ -555,9 +555,17 @@ export default function HeroScapeBoard({
                 </button>
               ))}
               <button
+                onClick={() => { setAssign({ '1': null, '2': null, '3': null, X: null }); setPickedMarker('1'); }}
+                disabled={disabled || MARKERS.every(v => !assign[v])}
+                title="Clear all placed markers"
+                className="ml-1 rounded-md border border-neutral-600 px-2 py-0.5 text-xs font-semibold text-neutral-300 transition hover:border-neutral-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Clear
+              </button>
+              <button
                 onClick={lockIn}
                 disabled={disabled || !allAssigned}
-                className="ml-1 rounded-md border-2 border-emerald-600 px-2 py-0.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md border-2 border-emerald-600 px-2 py-0.5 text-xs font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 🔒 Lock in
               </button>
@@ -1236,10 +1244,12 @@ export default function HeroScapeBoard({
                     occupied hexes where the figure disc covers it). */}
                 {!occupied && (c.height > 1 || c.terrain === 'water') && (
                   <text
-                    x={ctr.x + HEX * 0.6} y={ctr.y - HEX * 0.55}
+                    // Tucked just inside the upper-right edge (was overflowing the
+                    // corner at 0.6/0.55 — outside the hex at that diagonal).
+                    x={ctr.x + HEX * 0.18} y={ctr.y - HEX * 0.44}
                     textAnchor="middle" dominantBaseline="middle"
-                    fontSize={HEX * 0.32} fontWeight={700}
-                    fill={c.terrain === 'water' ? '#7dd3fc' : '#e7e5e4'} opacity={0.75}
+                    fontSize={HEX * 0.3} fontWeight={700}
+                    fill={c.terrain === 'water' ? '#7dd3fc' : '#e7e5e4'} opacity={0.8}
                     style={{ userSelect: 'none', pointerEvents: 'none' }}
                   >
                     {c.terrain === 'water' ? '≈' : c.height}
@@ -1421,7 +1431,7 @@ export default function HeroScapeBoard({
         <div className="mb-1 hidden text-[11px] font-semibold uppercase tracking-wider text-neutral-500 lg:block">
           Battle log
         </div>
-        <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-44 lg:max-h-none lg:flex-1">
+        <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-44 lg:max-h-[calc(100vh-7rem)]">
           {state.log.slice(-30).map(e => (
             <div
               key={e.seq}
