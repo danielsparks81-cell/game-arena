@@ -190,6 +190,7 @@ function DraftCard({
   const wip = def.power === 'wip';
   const dim = taken || !affordable;
   return (
+    <div className="group relative aspect-[886/1432] w-full">
     <button
       onClick={() => clickable && onPick()}
       disabled={!clickable}
@@ -201,7 +202,7 @@ function DraftCard({
             : `Draft ${def.name} (${def.points} pts)`
       }
       className={
-        'relative aspect-[886/1432] w-full overflow-hidden rounded-lg border-2 text-left transition ' +
+        'absolute inset-0 overflow-hidden rounded-lg border-2 text-left transition ' +
         (taken
           ? 'border-neutral-800 bg-neutral-900/40 opacity-50'
           : clickable
@@ -251,6 +252,10 @@ function DraftCard({
         </div>
       )}
     </button>
+      {/* Clean text card on hover (not clipped — the group wrapper has no
+          overflow-hidden, unlike the art button). */}
+      <CardHoverPanel cardId={cardId} />
+    </div>
   );
 }
 
@@ -1116,7 +1121,7 @@ export default function HeroScapeBoard({
         <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Army roster — {d.pool.length} of 16 left · cheapest first
         </div>
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(200px,1fr))]">
+        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
           {sortedPool.map(id => {
             const taken = !d.pool.includes(id);
             const affordable = HS_CARDS[id].points <= myRemaining;
