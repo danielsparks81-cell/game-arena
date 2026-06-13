@@ -253,8 +253,9 @@ function DraftCard({
       )}
     </button>
       {/* Clean text card on hover (not clipped — the group wrapper has no
-          overflow-hidden, unlike the art button). */}
-      <CardHoverPanel cardId={cardId} />
+          overflow-hidden, unlike the art button). Below the card so the top
+          row's popover stays on-screen. */}
+      <CardHoverPanel cardId={cardId} placement="below" />
     </div>
   );
 }
@@ -276,13 +277,16 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
  *  panel — the parent roster card carries the `group` class, this sits
  *  absolutely over the board (pointer-events-none so it never eats clicks),
  *  appearing above the card. */
-function CardHoverPanel({ cardId }: { cardId: string }) {
+function CardHoverPanel({ cardId, placement = 'above' }: { cardId: string; placement?: 'above' | 'below' }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
   return (
     <div
-      className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-2 hidden w-60 -translate-x-1/2 rounded-lg border-2 border-amber-700 bg-neutral-950/95 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block"
+      className={
+        'pointer-events-none absolute left-1/2 z-30 hidden max-h-[80vh] w-60 -translate-x-1/2 overflow-y-auto rounded-lg border-2 border-amber-700 bg-neutral-950/95 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block ' +
+        (placement === 'below' ? 'top-full mt-2' : 'bottom-full mb-2')
+      }
     >
       <div className="text-sm font-bold leading-tight text-amber-100">{def.name}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
@@ -836,7 +840,7 @@ export default function HeroScapeBoard({
             const panel = (
               <div
                 className={
-                  'relative aspect-[886/1432] h-20 overflow-hidden rounded border ' +
+                  'relative aspect-[886/1432] h-32 overflow-hidden rounded border ' +
                   (active ? 'border-amber-500 ring-2 ring-amber-500/70' : 'border-neutral-800')
                 }
               >
@@ -877,7 +881,9 @@ export default function HeroScapeBoard({
                 ) : (
                   panel
                 )}
-                <CardHoverPanel cardId={def.id} />
+                {/* My cards sit at the BOTTOM (popover above); the opponent's at
+                    the TOP (popover below) — so it never runs off-screen. */}
+                <CardHoverPanel cardId={def.id} placement={isMe ? 'above' : 'below'} />
               </div>
             );
           })}
