@@ -62,6 +62,7 @@ export {
   isoDrawOrderKey,
   isoSortByDepth,
   isoSceneBounds,
+  ISO_ROTATE_DEG,
   ISO_SQUASH,
   ISO_LEVEL_H,
 } from './board';

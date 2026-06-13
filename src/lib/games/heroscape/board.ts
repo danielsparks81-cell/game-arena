@@ -500,15 +500,23 @@ export function computeFall(
 // and applies the per-viewer 180° flip BEFORE calling these — exactly as the
 // flat board flips hex CENTERS — so the iso math and the engine read one source.
 //
-// Projection. The spec's `(q-r, q+r)` form is a 45° rotation of axial space;
-// we use the EQUIVALENT, tiling-guaranteed dimetric variant: take the flat
-// pointy-top center `hexToPixel`, SQUASH it vertically by `ISO_SQUASH` (so the
-// ground reads as receding), and LIFT it by `height * LEVEL_H` (the column
-// depth). Squashing a valid hex grid by a constant keeps it a valid grid, so
-// the squashed top hexagons still tile perfectly edge-to-edge — no seams — while
-// the elevation lift produces the stacked-column look. (Chosen over the literal
-// `(q-r, q+r)` so adjacent same-height tiles abut exactly; documented deviation.)
+// Projection (affine ground plane + vertical lift):
+//   1. YAW — rotate the flat pointy-top center `hexToPixel` about the origin by
+//      `ISO_ROTATE_DEG` (the "camera angle"). 0° = head-on (rows recede straight
+//      up the screen); 45° = classic corner-on isometric, where BOTH axes recede
+//      and two faces of every column show.
+//   2. SQUASH — compress the result vertically by `ISO_SQUASH` so the ground
+//      reads as receding under a tilted camera.
+//   3. LIFT — raise the top face up the screen (−y) by `height * ISO_LEVEL_H`,
+//      the column depth.
+// Steps 1–2 are a single AFFINE map, and affine maps send a tiling to a tiling,
+// so the projected top hexagons still abut perfectly edge-to-edge — no seams —
+// at ANY yaw. (This generalises the original pure-squash variant; the spec's
+// literal `(q-r, q+r)` is simply the yaw=45° special case of the rotation.)
 
+/** Camera YAW (degrees) applied to the ground plane before the vertical squash —
+ *  the "turn the camera" knob. 0 = head-on; 45 = corner-on isometric. */
+export const ISO_ROTATE_DEG = 45;
 /** Vertical squash of the ground plane (0..1): smaller = more "tilted" / flatter
  *  tiles. ~0.55 reads as receding ground without losing the hex shape. */
 export const ISO_SQUASH = 0.56;
@@ -516,9 +524,17 @@ export const ISO_SQUASH = 0.56;
  *  level of terrain height — the depth of a column's side faces. */
 export const ISO_LEVEL_H = 0.62;
 
-/** Squash a flat unit pixel onto the iso ground plane (no height lift). */
-function isoSquash(p: Pixel): Pixel {
-  return { x: p.x, y: p.y * ISO_SQUASH };
+const ISO_ROT = (Math.PI / 180) * ISO_ROTATE_DEG;
+const ISO_COS = Math.cos(ISO_ROT);
+const ISO_SIN = Math.sin(ISO_ROT);
+
+/** Project a flat unit pixel onto the iso ground plane: yaw-rotate, then squash
+ *  vertically. (No height lift — the callers add that.) Affine, so it preserves
+ *  the hex tiling (shared edges stay shared) at any yaw. */
+function isoProjectFlat(p: Pixel): Pixel {
+  const rx = p.x * ISO_COS - p.y * ISO_SIN;
+  const ry = p.x * ISO_SIN + p.y * ISO_COS;
+  return { x: rx, y: ry * ISO_SQUASH };
 }
 
 /**
@@ -527,33 +543,38 @@ function isoSquash(p: Pixel): Pixel {
  * column height so a taller tile floats above its footprint.
  */
 export function isoTopCenter(key: HexKey, height: number): Pixel {
-  const flat = isoSquash(hexToPixel(key));
-  return { x: flat.x, y: flat.y - height * ISO_LEVEL_H };
+  const g = isoProjectFlat(hexToPixel(key));
+  return { x: g.x, y: g.y - height * ISO_LEVEL_H };
 }
 
 /** The footprint center on the BASE plane (height 0) — where a column's bottom
  *  sits. Used for the side-face quads and the scene's lower bound. */
 export function isoBaseCenter(key: HexKey): Pixel {
-  return isoSquash(hexToPixel(key));
+  return isoProjectFlat(hexToPixel(key));
 }
 
 /**
  * The six corners of a cell's iso TOP hexagon, in unit space, ordered the same
  * as `hexCorners` (k=0 is the right-ish vertex, going clockwise in screen
- * space). It is the flat pointy-top hexagon with its y squashed and lifted by
- * height — so it tiles with its neighbours' tops. `scale` shrinks it toward the
- * center (e.g. for a slightly inset highlight), mirroring `hexCorners`.
+ * space). It is the cell's real pointy-top hexagon projected through the camera
+ * yaw + vertical squash and lifted by height — so it still tiles with its
+ * neighbours' tops at any yaw. `scale` shrinks it toward the center (e.g. for a
+ * slightly inset highlight), mirroring `hexCorners`.
  */
 export function isoTopHexCorners(key: HexKey, height: number, scale = 1): Pixel[] {
-  const c = isoTopCenter(key, height);
-  // Flat corners around the ORIGIN, squashed, then re-centered on the iso anchor.
+  const flatC = hexToPixel(key);
+  const lift = height * ISO_LEVEL_H;
+  // Project each flat corner through the SAME affine as the centers, then lift,
+  // so the top face is the genuine projected hexagon (not an axis-aligned
+  // approximation) and shares its edges with the neighbouring tops.
   const out: Pixel[] = [];
   for (let k = 0; k < 6; k++) {
     const angle = (Math.PI / 180) * (60 * k - 30);
-    out.push({
-      x: c.x + scale * Math.cos(angle),
-      y: c.y + scale * Math.sin(angle) * ISO_SQUASH,
+    const g = isoProjectFlat({
+      x: flatC.x + scale * Math.cos(angle),
+      y: flatC.y + scale * Math.sin(angle),
     });
+    out.push({ x: g.x, y: g.y - lift });
   }
   return out;
 }
@@ -602,15 +623,19 @@ export function isoSideFaces(key: HexKey, height: number): IsoSideFace[] {
  * Back-to-front PAINTER's-ORDER key for a cell, given its FLIPPED axial (the
  * component flips (q, r) for the viewer before calling). Cells are drawn in
  * ascending order of this key so nearer/taller tiles paint over farther ones:
- * sort by footprint depth `(q + r)` first (the diagonal sweeping toward the
- * viewer), then by `height` (a tall column at the same footprint draws after a
- * short one behind it). Returns a single comparable number; ties are fine
- * (same footprint+height never overlap). The figure draws right after its tile.
+ * sort by the cell's projected BASE-plane screen depth first (farther tiles sit
+ * higher on screen, smaller y), then by `height` (a tall column at the same
+ * footprint draws after a short one behind it). Returns a single comparable
+ * number; ties are fine (same footprint+height never overlap). The figure draws
+ * right after its tile.
  */
 export function isoDrawOrderKey(q: number, r: number, height: number): number {
-  // (q + r) dominates; height is a small tiebreak that never reorders across
-  // different footprints (heights are ≤ ~6, the depth step is 1000).
-  return (q + r) * 1000 + height;
+  // Depth = projected base-plane screen-y under the camera yaw + squash, scaled
+  // up so it dominates; height is a small tiebreak so a tall column paints after
+  // a shorter one directly behind it. Using the projected y (not raw q+r) keeps
+  // the order correct at ANY yaw, where both axes recede toward the viewer.
+  const baseY = isoProjectFlat(hexToPixel(hexKey(q, r))).y;
+  return baseY * 1000 + height;
 }
 
 /** Sort cells back-to-front for the painter's algorithm. Pure; returns a new

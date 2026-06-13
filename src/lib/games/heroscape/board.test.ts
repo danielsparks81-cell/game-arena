@@ -24,6 +24,7 @@ import {
   isoSceneBounds,
   ISO_SQUASH,
   ISO_LEVEL_H,
+  ISO_ROTATE_DEG,
   type Occupancy,
 } from './board';
 import { parseMap, TRAINING_FIELD, THE_KNOLL } from './maps';
@@ -522,24 +523,35 @@ describe('iso projection — anchors & lift', () => {
     expect(lo.y - hi.y).toBeCloseTo(3 * ISO_LEVEL_H);
   });
 
-  it('the base center is the squashed flat center (height 0 plane)', () => {
+  it('the base center is the flat center yaw-rotated then squashed', () => {
     const k = hexKey(1, 2);
     const base = isoBaseCenter(k);
     const top0 = isoTopCenter(k, 0);
     // Height-0 top sits exactly on the base plane.
     expect(top0).toEqual(base);
-    // The base y is the flat y scaled by the squash factor.
-    expect(base.y).toBeCloseTo((1.5 * 2) * ISO_SQUASH);
+    // Independently recompute the documented projection: rotate the flat center
+    // by the camera yaw, then squash y. (Pins both the yaw and the squash.)
+    const flat = hexToPixel(k);
+    const a = (Math.PI / 180) * ISO_ROTATE_DEG;
+    const c = Math.cos(a), s = Math.sin(a);
+    expect(base.x).toBeCloseTo(flat.x * c - flat.y * s);
+    expect(base.y).toBeCloseTo((flat.x * s + flat.y * c) * ISO_SQUASH);
   });
 
-  it('the ground plane is squashed vertically but not horizontally', () => {
-    // Two cells one axial row apart: x unchanged by the squash, y compressed.
-    const a = isoBaseCenter(hexKey(0, 0));
-    const b = isoBaseCenter(hexKey(0, 1));
-    const fa = hexToPixel(hexKey(0, 0));
-    const fb = hexToPixel(hexKey(0, 1));
-    expect(b.x - a.x).toBeCloseTo(fb.x - fa.x); // horizontal preserved
-    expect(b.y - a.y).toBeCloseTo((fb.y - fa.y) * ISO_SQUASH); // vertical squashed
+  it('equal axial steps map to equal screen vectors (affine ground plane)', () => {
+    // The ground projection is affine, so the SAME axial step is the same screen
+    // vector everywhere — this is what guarantees the tops keep tiling at any yaw.
+    const step = (k1: HexKey, k2: HexKey) => ({
+      dx: isoBaseCenter(k2).x - isoBaseCenter(k1).x,
+      dy: isoBaseCenter(k2).y - isoBaseCenter(k1).y,
+    });
+    const s1 = step(hexKey(0, 0), hexKey(0, 1));
+    const s2 = step(hexKey(2, 3), hexKey(2, 4)); // same (0,+1) step, elsewhere
+    expect(s2.dx).toBeCloseTo(s1.dx);
+    expect(s2.dy).toBeCloseTo(s1.dy);
+    // And the ground is vertically compressed: a +1 row step rises less on screen
+    // than its flat row pitch of 1.5 (the squash), so the board reads as receding.
+    expect(Math.abs(s1.dy)).toBeLessThan(1.5);
   });
 });
 
@@ -554,12 +566,13 @@ describe('iso top hexagon', () => {
     const cy = pts.reduce((s, p) => s + p.y, 0) / 6;
     expect(cx).toBeCloseTo(c.x);
     expect(cy).toBeCloseTo(c.y);
-    // The hexagon is wider than it is tall (squashed): full width SQRT3 ≈ 1.732,
-    // full height 2 × ISO_SQUASH < width.
+    // The projected hexagon is wider than it is tall (the vertical squash) and
+    // shorter than a flat, unsquashed pointy-top hex's full height of 2 (size 1)
+    // — true at any camera yaw, since the squash only compresses the y axis.
     const w = Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x));
     const ht = Math.max(...pts.map(p => p.y)) - Math.min(...pts.map(p => p.y));
     expect(w).toBeGreaterThan(ht);
-    expect(ht).toBeCloseTo(2 * ISO_SQUASH);
+    expect(ht).toBeLessThan(2);
   });
 
   it('scale shrinks the hexagon toward its center (for inset highlights)', () => {
