@@ -171,6 +171,11 @@ export type Figure = {
   index: number;
   /** Wound markers taken. Destroyed when wounds reach the card's Life. */
   wounds: number;
+  /** Player-set FACING — a hex direction 0-5 (indexing the board's DIRS). For a
+   *  DOUBLE-SPACE figure it tracks the lead→trailing direction so the base
+   *  orients to match; for a 1-hex figure it is purely cosmetic (HeroScape has
+   *  no facing rules). Absent → 0. Set via the `orient_figure` action. */
+  facing?: number;
 };
 
 export type HSPlayer = {
@@ -605,6 +610,17 @@ export type HSAction =
       // payload kind must match (engine-validated). NEVER auto-issued.
       kind: 'resolve_choice';
       choice: HSChoiceResolution;
+    }
+  | {
+      // Player-chosen ORIENTATION (figure-presentation slice). `dir` is a hex
+      // direction 0-5 (board DIRS). For a DOUBLE-SPACE figure it swings the
+      // TRAILING hex onto the lead's neighbour in `dir` — which must be a real,
+      // EMPTY, SAME-LEVEL hex; BLOCKED while the figure is engaged so it can't be
+      // a free escape from a leaving-engagement swipe. For a 1-hex figure it sets
+      // a purely cosmetic facing. Free — never consumes the move/attack.
+      kind: 'orient_figure';
+      figureId: string;
+      dir: number;
     }
   | { kind: 'end_turn' };
 

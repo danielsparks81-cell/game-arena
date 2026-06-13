@@ -221,6 +221,9 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
         return doUnplaceFigure(state, me.seat, action.figureId);
       case 'placement_ready':
         return doPlacementReady(state, me.seat);
+      case 'orient_figure':
+        // Orienting a deployed figure during setup is free (no engagement yet).
+        return doOrientFigure(state, me.seat, action.figureId, action.dir);
       default:
         return { error: 'Place your figures in your start zone first' };
     }
@@ -257,6 +260,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'fire_line':
     case 'berserker_charge':
     case 'water_clone':
+    case 'orient_figure':
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
@@ -282,6 +286,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (action.kind === 'fire_line') return doFireLine(state, action);
       if (action.kind === 'berserker_charge') return doBerserkerCharge(state, me.seat, action.d20);
       if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
+      if (action.kind === 'orient_figure') return doOrientFigure(state, me.seat, action.figureId, action.dir);
       return doEndTurn(state, me.seat);
     }
     // Draft/placement actions arriving during 'playing' — out of phase.
@@ -704,6 +709,97 @@ function doUnplaceFigure(state: HSState, seat: number, figureId: string): HSResu
   s.hand![seat] = [...(s.hand![seat] ?? []), figureId];
   pushLog(s, 'move', `${playerName(s, seat)} returns ${figureLabel(s, fig)} to hand.`);
   return s;
+}
+
+/**
+ * Player-chosen ORIENTATION (figure-presentation slice). A 1-hex figure gets a
+ * purely COSMETIC facing (HeroScape has no facing rules) — always allowed. A
+ * DOUBLE-SPACE figure swings its TRAILING hex onto the lead's neighbour in hex
+ * direction `dir`, which must be a real, EMPTY, SAME-LEVEL hex. Reorienting must
+ * never be a free escape from engagement — that would dodge the leaving-
+ * engagement swipe dice a real move provokes — so a 2-hex figure that is
+ * currently engaged with an enemy must MOVE instead. Free: it never spends the
+ * figure's move or attack (the lead hex never changes).
+ */
+function doOrientFigure(state: HSState, seat: number, figureId: string, dir: number): HSResult {
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!fig || fig.at == null) return { error: 'No such figure to turn' };
+  if (fig.ownerSeat !== seat) return { error: 'You can only turn your own figures' };
+  if (!Number.isInteger(dir) || dir < 0 || dir > 5) return { error: 'Not a valid facing' };
+  const def = cardDefFor(state, fig);
+
+  // 1-hex: cosmetic facing only — never touches the footprint, so always allowed.
+  if (baseSizeOf(def) !== 2) {
+    if ((fig.facing ?? 0) === dir) return state; // no-op (already facing that way)
+    const s = clone(state);
+    s.figures.find(f => f.id === figureId)!.facing = dir;
+    return s;
+  }
+
+  // 2-hex: swing the TRAILING hex onto the lead's neighbour in `dir`.
+  const lead = fig.at;
+  const tail = neighborKeys(lead)[dir];
+  const cells = MAPS[state.mapId]?.cells;
+  if (!cells || !cells[tail]) return { error: 'No space there to swing the second hex onto' };
+  if (tail === fig.at2) return state; // already oriented that way (no-op)
+  if (cells[tail].height !== cells[lead].height) {
+    return { error: `${def.name}'s two hexes must be the same height` };
+  }
+  const blocked = state.figures.some(
+    o => o.id !== fig.id && o.at != null && figureHexes(o).includes(tail),
+  );
+  if (blocked) return { error: 'That hex is occupied' };
+  if (enemiesEngagedWith(state, fig).length > 0) {
+    return { error: `${def.name} is engaged — move to reposition instead of turning in place` };
+  }
+
+  const s = clone(state);
+  const f = s.figures.find(f => f.id === figureId)!;
+  f.at2 = tail;
+  f.facing = dir;
+  pushLog(s, 'move', `${playerName(s, seat)} turns ${figureLabel(s, fig)} to face ${hexLabel(tail)}.`);
+  return s;
+}
+
+/**
+ * UI helper for the board's rotate control (figure-presentation slice): for one
+ * figure, which hex directions it can orient toward right NOW, its current
+ * facing, and — for a 2-hex figure — whether an in-place turn is currently
+ * BLOCKED because it is engaged (the board disables the control + explains). A
+ * 1-hex figure can always face any of the six directions (cosmetic). Pure.
+ */
+export function orientationOptions(
+  state: HSState,
+  figureId: string,
+): { baseSize: 1 | 2; currentDir: number; validDirs: number[]; engagedBlocked: boolean } {
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!fig || fig.at == null) {
+    return { baseSize: 1, currentDir: 0, validDirs: [], engagedBlocked: false };
+  }
+  const def = cardDefFor(state, fig);
+  if (baseSizeOf(def) !== 2) {
+    return { baseSize: 1, currentDir: fig.facing ?? 0, validDirs: [0, 1, 2, 3, 4, 5], engagedBlocked: false };
+  }
+  const lead = fig.at;
+  const cells = MAPS[state.mapId]?.cells;
+  const neigh = neighborKeys(lead);
+  const dirOf = fig.at2 != null ? neigh.indexOf(fig.at2) : -1;
+  const currentDir = dirOf >= 0 ? dirOf : (fig.facing ?? 0);
+  const validDirs: number[] = [];
+  if (cells) {
+    for (let d = 0; d < 6; d++) {
+      const t = neigh[d];
+      if (!cells[t] || cells[t].height !== cells[lead].height) continue;
+      if (state.figures.some(o => o.id !== fig.id && o.at != null && figureHexes(o).includes(t))) continue;
+      validDirs.push(d);
+    }
+  }
+  return {
+    baseSize: 2,
+    currentDir,
+    validDirs,
+    engagedBlocked: enemiesEngagedWith(state, fig).length > 0,
+  };
 }
 
 function doPlacementReady(state: HSState, seat: number): HSResult {

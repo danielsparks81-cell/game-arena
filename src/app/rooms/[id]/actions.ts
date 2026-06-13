@@ -738,6 +738,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
+  | { game: 'heroscape'; kind: 'orient_figure'; figureId: string; dir: number }
   | { game: 'heroscape'; kind: 'berserker_charge' }
   | { game: 'heroscape'; kind: 'water_clone' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
@@ -1178,6 +1179,9 @@ type HSWireAction =
   // Mimring FIRE LINE (slice 8): the attack/defense dice are NOT on the wire —
   // the server rolls 4 attack dice once + each affected figure's defense.
   | { kind: 'fire_line'; attackerId: string; dir: number }
+  // Player-chosen ORIENTATION (figure-presentation slice) — no dice; passed
+  // through verbatim. Swings a 2-hex figure's trailing hex / sets 1-hex facing.
+  | { kind: 'orient_figure'; figureId: string; dir: number }
   // Special powers (slice 4): the d20(s) are NOT on the wire — makeMoveHS rolls
   // them server-side and injects the values into the engine action.
   | { kind: 'berserker_charge' }

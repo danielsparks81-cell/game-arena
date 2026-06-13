@@ -32,12 +32,14 @@ import {
   legalTargets,
   placeableHexes,
   placeable2Leads,
+  orientationOptions,
   figureLabel,
   getActiveCardUid,
   axialToOffset,
   offsetToAxial,
   hexKey,
   parseHexKey,
+  neighborKeys,
   isoTopCenter,
   isoTopHexCorners,
   isoSideFaces,
@@ -127,6 +129,7 @@ type Props = {
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
   onFireLine: (attackerId: string, dir: number) => void;
+  onOrient: (figureId: string, dir: number) => void;
   onAttack: (attackerId: string, targetId: string) => void;
   onBerserkerCharge: () => void;
   onWaterClone: () => void;
@@ -267,7 +270,7 @@ function CardArt({ cardId, className }: { cardId: string; className?: string }) 
  * a tidy standee, hiding the crop seams — v1 accepts the painted background).
  */
 function FigureStandee({
-  cardId, cx, cy, hex, accent, fallbackLabel, billboard, cx2, cy2, squadIndex,
+  cardId, cx, cy, hex, accent, fallbackLabel, billboard, cx2, cy2, squadIndex, facingVec,
 }: {
   cardId: string;
   cx: number;
@@ -283,6 +286,11 @@ function FigureStandee({
   /** Squad figure index (1-based): tries a per-trooper sprite
    *  `<cardId>-<index>.png` first so each squad member keeps its own pose. */
   squadIndex?: number;
+  /** Cosmetic FACING for a 1-hex figure — a normalised SCREEN-space vector toward
+   *  the hex the figure faces (the parent projects the facing neighbour). Drawn
+   *  as a small notch on the base rim so a player can see which way it points. A
+   *  2-hex figure shows its facing through the elongated base, so this is null. */
+  facingVec?: { dx: number; dy: number } | null;
 }) {
   // Sprite source chain, best → fallback:
   //   'pngIdx' = a per-squad-member cut-out (<cardId>-<index>.png) so each trooper
@@ -340,6 +348,19 @@ function FigureStandee({
         fill="none" stroke="#ffffff" strokeWidth={1} opacity={0.28}
         transform={wide ? `rotate(${baseAngle} ${mx} ${my})` : undefined}
       />
+      {/* FACING notch (1-hex cosmetic facing) — a small wedge on the colour rim
+       *  pointing the way the figure faces. Sits at the chip rim (outside the
+       *  figure's own smaller base) so it stays visible. */}
+      {facingVec && !wide && (() => {
+        const { dx, dy } = facingVec;
+        const px = mx + dx * baseRx, py = my + dy * baseRy;
+        return (
+          <polygon
+            points={`${px + dx * 5},${py + dy * 5} ${px - dy * 3.5},${py + dx * 3.5} ${px + dy * 3.5},${py - dx * 3.5}`}
+            fill="#f5f5f5" stroke="#0a0a0a" strokeWidth={0.75} opacity={0.92}
+          />
+        );
+      })()}
       {mode === 'pngIdx' || mode === 'png' ? (
         // Clean cut-out: no frame — the figure standing on its base, bottom-
         // anchored (xMidYMax) and shown whole (meet). A squad member tries its own
@@ -705,7 +726,7 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onAttack,
+  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
   onBerserkerCharge, onWaterClone, onResolveChoice, onEndTurn,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
@@ -855,6 +876,32 @@ export default function HeroScapeBoard({
   };
 
   const selected = state.figures.find(f => f.id === selectedId) ?? null;
+
+  // --- figure-presentation slice: rotate control ----------------------------
+  // A selected OWN figure can be re-oriented while I'm placing my army OR on my
+  // turn. orientationOptions is the single engine source for the legal facings:
+  // a 2-hex figure swings its trailing hex among free same-level neighbours
+  // (engagedBlocked → it must MOVE to reposition, so we disable the control); a
+  // 1-hex figure turns purely cosmetically (all six directions always legal).
+  const canOrientNow =
+    !!selected && !!me && selected.ownerSeat === me.seat && !disabled &&
+    (canAct || (placement && !iPlacementReady));
+  const orientInfo = useMemo(
+    () => (canOrientNow && selected ? orientationOptions(state, selected.id) : null),
+    [canOrientNow, selected, state],
+  );
+  const rotateBlocked = !!orientInfo && orientInfo.baseSize === 2 && orientInfo.engagedBlocked && !placement;
+  const rotateFig = useCallback(
+    (delta: 1 | -1) => {
+      if (!orientInfo || !selected || orientInfo.validDirs.length === 0) return;
+      const dirs = orientInfo.validDirs;
+      const here = dirs.indexOf(orientInfo.currentDir);
+      const from = here >= 0 ? here : (delta > 0 ? -1 : 0);
+      const next = dirs[(((from + delta) % dirs.length) + dirs.length) % dirs.length];
+      onOrient(selected.id, next);
+    },
+    [orientInfo, selected, onOrient],
+  );
 
   // Engine-derived legality for the selected figure (empty when not my figure
   // or it has already moved/attacked — the engine helpers encode all of that).
@@ -1774,6 +1821,40 @@ export default function HeroScapeBoard({
 
         {/* (Army cards render below the board — see the main column.) */}
 
+        {/* figure-presentation slice: ROTATE control for a selected own figure.
+            A 2-hex figure (Mimring/Grimnak) swings its TRAILING hex to the next
+            free same-level direction — disabled while engaged, where it must
+            MOVE to reposition; a 1-hex figure turns purely cosmetically. Shown
+            during placement AND on your turn (orientInfo encodes that gate). */}
+        {orientInfo && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-sky-700 bg-neutral-900/70 px-3 py-2">
+            <span className="text-xs font-semibold text-sky-300">
+              {orientInfo.baseSize === 2 ? '⟳ Rotate figure' : '⟳ Facing'}
+            </span>
+            <div className="ml-auto flex items-center gap-1.5">
+              <button
+                onClick={() => rotateFig(-1)}
+                disabled={disabled || rotateBlocked || orientInfo.validDirs.length < 2}
+                title={rotateBlocked ? 'Engaged — move to reposition' : 'Turn counter-clockwise'}
+                className="rounded-md border-2 border-sky-600 px-3 py-1 text-base font-bold leading-none text-sky-200 transition hover:bg-sky-900/40 disabled:opacity-40"
+              >
+                ↺
+              </button>
+              <button
+                onClick={() => rotateFig(1)}
+                disabled={disabled || rotateBlocked || orientInfo.validDirs.length < 2}
+                title={rotateBlocked ? 'Engaged — move to reposition' : 'Turn clockwise'}
+                className="rounded-md border-2 border-sky-600 px-3 py-1 text-base font-bold leading-none text-sky-200 transition hover:bg-sky-900/40 disabled:opacity-40"
+              >
+                ↻
+              </button>
+            </div>
+            {rotateBlocked && (
+              <span className="w-full text-[10px] text-neutral-500">Engaged — move to reposition instead of turning.</span>
+            )}
+          </div>
+        )}
+
         {/* slice 4: special-power buttons (after moving, before attacking) */}
         {canBerserk && (
           <button
@@ -2024,6 +2105,18 @@ export default function HeroScapeBoard({
             const aCx = ctr2 ? (ctr.x + ctr2.x) / 2 : ctr.x;
             const aCy = ctr2 ? (ctr.y + ctr2.y) / 2 : ctr.y;
             const baseSpan = ctr2 ? Math.hypot(ctr2.x - ctr.x, ctr2.y - ctr.y) / 2 : 0;
+            // Cosmetic FACING for a 1-hex figure: project the hex it faces and
+            // hand the standee a normalised screen vector for the base notch. A
+            // 2-hex figure shows facing via its elongated base, so it gets none.
+            const faceVec = (() => {
+              if (!fig || fig.at == null || is2 || !isSel) return null;
+              const fn = neighborKeys(fig.at)[fig.facing ?? 0];
+              if (!fn) return null;
+              const fs = toScreen(fn);
+              const dx = fs.x - ctr.x, dy = fs.y - ctr.y;
+              const len = Math.hypot(dx, dy) || 1;
+              return { dx: dx / len, dy: dy / len };
+            })();
 
             return (
               <g key={key}>
@@ -2116,6 +2209,7 @@ export default function HeroScapeBoard({
                       fallbackLabel={fLabel}
                       billboard={!!fCardId}
                       squadIndex={fdef?.type === 'squad' ? fig.index : undefined}
+                      facingVec={faceVec}
                     />
                     {/* squad index chip (bottom-right of the base) so squad
                         members stay distinguishable on the standee. */}

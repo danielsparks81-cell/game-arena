@@ -21,6 +21,7 @@ import {
   moveConsequences,
   placeableHexes,
   placeable2Leads,
+  orientationOptions,
   fireLineSpaces,
   fireLineTargets,
   fireLineDefenders,
@@ -3793,5 +3794,83 @@ describe('Fire Line Special Attack (Mimring)', () => {
     const defs = fireLineDefenders(s, 'mim', 0);
     expect(defs.length).toBe(fireLineTargets(s, 'mim', 0).length);
     for (const d of defs) expect(d.defense).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// orient_figure — player-chosen 2-hex orientation + 1-hex cosmetic facing
+// ---------------------------------------------------------------------------
+describe('orient_figure (2-hex orientation + 1-hex facing)', () => {
+  /** Stage a figure on its own card (1-hex when at2 is null, else 2-hex). */
+  function inject(s: HSState, seat: number, cardId: string, id: string, at1: string, at2: string | null = null): HSState {
+    const c: HSState = JSON.parse(JSON.stringify(s));
+    const uid = `s${seat}-${cardId}-${id}`;
+    c.cards.push({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    c.figures.push({ id, cardUid: uid, ownerSeat: seat, at: at1, at2, index: 1, wounds: 0 });
+    return c;
+  }
+
+  it('swings a 2-hex figure’s trailing hex to a chosen free same-level direction', () => {
+    let s = clearExcept(inTurns('p1'), FINN, THORGRIM);
+    s = inject(s, 0, 'grimnak', 'big', at(3, 3), at(4, 3)); // my figure, my turn
+    const opts = orientationOptions(s, 'big');
+    expect(opts.baseSize).toBe(2);
+    const target = opts.validDirs.find(d => d !== opts.currentDir);
+    expect(target).toBeDefined();
+    s = unwrap(applyAction(s, 'p1', { kind: 'orient_figure', figureId: 'big', dir: target! }));
+    const f = fig(s, 'big');
+    expect(f.at).toBe(at(3, 3)); // the LEAD never moves — orienting is not a move
+    expect(f.at2).toBe(neighborKeys(at(3, 3))[target!]); // the tail swung to the chosen dir
+    expect(f.facing).toBe(target);
+  });
+
+  it('rejects swinging the trailing hex onto an OCCUPIED hex', () => {
+    let s = clearExcept(inTurns('p1'), FINN, THORGRIM);
+    s = inject(s, 0, 'grimnak', 'big', at(3, 3), at(4, 3));
+    const target = orientationOptions(s, 'big').validDirs.find(
+      d => d !== orientationOptions(s, 'big').currentDir,
+    )!;
+    const blockHex = neighborKeys(at(3, 3))[target];
+    s = inject(s, 0, 'finn', 'block', blockHex); // park a friendly on the target
+    expect(errOf(applyAction(s, 'p1', { kind: 'orient_figure', figureId: 'big', dir: target })))
+      .toMatch(/occupied/);
+  });
+
+  it('a 2-hex figure ENGAGED with an enemy cannot turn in place — it must move', () => {
+    let s = clearExcept(inTurns('p1'), FINN, THORGRIM);
+    s = inject(s, 0, 'grimnak', 'big', at(3, 3), at(4, 3));
+    const before = orientationOptions(s, 'big');
+    const enemyDir = before.validDirs.find(d => d !== before.currentDir)!;
+    s = inject(s, 1, 'finn', 'foe', neighborKeys(at(3, 3))[enemyDir]); // adjacent enemy → engaged
+    const after = orientationOptions(s, 'big');
+    expect(after.engagedBlocked).toBe(true);
+    const otherDir = after.validDirs.find(d => d !== after.currentDir)!;
+    expect(errOf(applyAction(s, 'p1', { kind: 'orient_figure', figureId: 'big', dir: otherDir })))
+      .toMatch(/engaged/);
+  });
+
+  it('sets a 1-hex figure’s cosmetic facing without moving it', () => {
+    let s = clearExcept(inTurns('p1'), FINN, THORGRIM);
+    const before = fig(s, FINN).at;
+    s = unwrap(applyAction(s, 'p1', { kind: 'orient_figure', figureId: FINN, dir: 3 }));
+    expect(fig(s, FINN).facing).toBe(3);
+    expect(fig(s, FINN).at).toBe(before); // a 1-hex turn never changes position
+  });
+
+  it('only your OWN figure, only on your turn', () => {
+    const s = clearExcept(inTurns('p1'), FINN, THORGRIM);
+    // p1 holds the turn but THORGRIM is the enemy's figure.
+    expect(errOf(applyAction(s, 'p1', { kind: 'orient_figure', figureId: THORGRIM, dir: 1 })))
+      .toMatch(/your own/);
+    // p2 cannot act at all on p1's turn.
+    expect(errOf(applyAction(s, 'p2', { kind: 'orient_figure', figureId: THORGRIM, dir: 1 })))
+      .toMatch(/Not your turn/);
+  });
+
+  it('orientationOptions: a 1-hex figure can face any of the six directions', () => {
+    const opts = orientationOptions(clearExcept(inTurns('p1'), FINN, THORGRIM), FINN);
+    expect(opts.baseSize).toBe(1);
+    expect(opts.validDirs).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(opts.engagedBlocked).toBe(false);
   });
 });

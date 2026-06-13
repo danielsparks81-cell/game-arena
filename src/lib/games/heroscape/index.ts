@@ -20,6 +20,7 @@ export {
   fireLineDefenders,
   placeableHexes,
   placeable2Leads,
+  orientationOptions,
   POINT_BUDGETS,
   DEFAULT_POINT_BUDGET,
   attackDiceRequirements,
