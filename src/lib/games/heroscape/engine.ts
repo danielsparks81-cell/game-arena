@@ -61,7 +61,7 @@ import {
   type Occupancy,
 } from './board';
 
-export const STATE_VERSION = 7;
+export const STATE_VERSION = 8;
 export const LOG_MAX = 60;
 const SEATS = 2;
 const DEFAULT_MAP_ID = 'training_field';
@@ -638,8 +638,22 @@ function doDraftPass(state: HSState, seat: number): HSResult {
 export function placeableHexes(state: HSState, seat: number): Set<HexKey> {
   const map = MAPS[state.mapId];
   const zone = map?.startZones[seat] ?? [];
-  const occupied = new Set(state.figures.filter(f => f.at != null).map(f => f.at!));
+  const occupied = new Set<HexKey>();
+  for (const f of state.figures) for (const k of figureHexes(f)) occupied.add(k);
   return new Set(zone.filter(k => !occupied.has(k)));
+}
+
+/** Lead hexes a DOUBLE-SPACE figure may be placed on: an empty start-zone hex
+ *  that also has an empty SAME-LEVEL start-zone neighbour for its trailing
+ *  space. The board highlights these when a 2-hex figure is the one being
+ *  placed; the engine fills the trailing hex deterministically (`tailFor`). */
+export function placeable2Leads(state: HSState, seat: number): Set<HexKey> {
+  const map = MAPS[state.mapId];
+  if (!map) return new Set();
+  const free = placeableHexes(state, seat);
+  const out = new Set<HexKey>();
+  for (const lead of free) if (tailFor(map.cells, free, lead) != null) out.add(lead);
+  return out;
 }
 
 function doPlaceFigure(state: HSState, seat: number, figureId: string, to: HexKey): HSResult {
@@ -650,11 +664,24 @@ function doPlaceFigure(state: HSState, seat: number, figureId: string, to: HexKe
   if (!fig || fig.ownerSeat !== seat) return { error: 'That is not your figure' };
   if (fig.at != null) return { error: 'That figure is already on the battlefield' };
   if (!(state.hand?.[seat] ?? []).includes(figureId)) return { error: 'That figure is not in your hand' };
-  if (!placeableHexes(state, seat).has(to)) {
+  const free = placeableHexes(state, seat);
+  if (!free.has(to)) {
     return { error: 'Place onto an empty hex of your own start zone' };
   }
+  // A DOUBLE-SPACE figure needs a second empty same-level zone hex; the engine
+  // picks it deterministically (tailFor) so the board only sends the lead.
+  const def = cardDefFor(state, fig);
+  let tail: HexKey | null = null;
+  if (baseSizeOf(def) === 2) {
+    tail = tailFor(MAPS[state.mapId].cells, free, to);
+    if (tail == null) {
+      return { error: `${def.name} needs two empty adjacent spaces of the same level in your start zone` };
+    }
+  }
   const s = clone(state);
-  s.figures.find(f => f.id === figureId)!.at = to;
+  const placed = s.figures.find(f => f.id === figureId)!;
+  placed.at = to;
+  placed.at2 = tail;
   s.hand![seat] = (s.hand![seat] ?? []).filter(id => id !== figureId);
   pushLog(s, 'move', `${playerName(s, seat)} places ${figureLabel(s, fig)} at ${hexLabel(to)}.`);
   return s;
@@ -668,7 +695,9 @@ function doUnplaceFigure(state: HSState, seat: number, figureId: string): HSResu
   if (!fig || fig.ownerSeat !== seat) return { error: 'That is not your figure' };
   if (fig.at == null) return { error: 'That figure is already in your hand' };
   const s = clone(state);
-  s.figures.find(f => f.id === figureId)!.at = null;
+  const f = s.figures.find(f => f.id === figureId)!;
+  f.at = null;
+  f.at2 = null;
   s.hand![seat] = [...(s.hand![seat] ?? []), figureId];
   pushLog(s, 'move', `${playerName(s, seat)} returns ${figureLabel(s, fig)} to hand.`);
   return s;
@@ -969,9 +998,10 @@ function heightOfKey(state: HSState, key: HexKey | null): number {
   return MAPS[state.mapId]?.cells[key]?.height ?? 0;
 }
 
-/** A figure's base level = the height of the cell it stands on. */
+/** A figure's base level = the height of the cell it stands on (a double-space
+ *  figure rests on two same-level cells, so either works). */
 function baseLevel(state: HSState, fig: Figure): number {
-  return heightOfKey(state, fig.at);
+  return figureStandLevel(state, fig);
 }
 
 /** Sightline elevation of a figure for elevation-aware LOS (board §LOS): the
@@ -980,28 +1010,67 @@ function eyeHeightOfKey(state: HSState, key: HexKey): number {
   return heightOfKey(state, key) + 1;
 }
 
+// ============================================================================
+// DOUBLE-SPACE (2-hex) figure helpers — Mimring & Grimnak occupy 2 hexes.
+// `figureHexes` is the single source of a figure's FOOTPRINT: a 1-hex figure
+// yields [at]; a double-space figure yields [at, at2]. Occupancy, engagement,
+// range and LOS all loop over it, so a 2-hex figure blocks both spaces and is
+// engaged / targeted / sighted from EITHER end (04-combat "from the better
+// end"). A double-space figure always RESTS on two same-level hexes.
+// ============================================================================
+function baseSizeOf(def: HSCardDef): 1 | 2 {
+  return def.baseSize === 2 ? 2 : 1;
+}
+function figureHexes(fig: Figure): HexKey[] {
+  if (fig.at == null) return [];
+  return fig.at2 != null ? [fig.at, fig.at2] : [fig.at];
+}
+/** Resting elevation of a figure (max over its hexes; equals height(at) for a
+ *  1-hex figure, and a 2-hex figure always rests level so max == min). */
+function figureStandLevel(state: HSState, fig: Figure): number {
+  let h = 0;
+  for (const k of figureHexes(fig)) h = Math.max(h, heightOfKey(state, k));
+  return h;
+}
+/** The trailing hex for a 2-hex LEAD: the first empty, same-level neighbour in
+ *  fixed DIRS order, so the engine (and any preview) agree deterministically.
+ *  `free` is the set of currently-empty (or vacated) candidate hexes. */
+function tailFor(
+  cells: Record<HexKey, { height: number }>,
+  free: Set<HexKey>,
+  lead: HexKey,
+): HexKey | null {
+  const lh = cells[lead]?.height;
+  for (const n of neighborKeys(lead)) {
+    if (n !== lead && free.has(n) && cells[n] && cells[n].height === lh) return n;
+  }
+  return null;
+}
+
 /** Living ENEMY figures of `fig` that it is currently engaged with — pure
  *  geometry (adjacency + the elevation exception, 03-movement §8). */
 function enemiesEngagedWith(state: HSState, fig: Figure): Figure[] {
   if (fig.at == null) return [];
-  const figH = cardDefFor(state, fig).height;
-  const heightAt = (k: HexKey) => heightOfKey(state, k);
   return state.figures.filter(other => {
     if (other.at == null || other.ownerSeat === fig.ownerSeat || other.id === fig.id) return false;
-    return areEngaged(fig.at!, figH, other.at, cardDefFor(state, other).height, heightAt);
+    return engagedPair(state, fig, other);
   });
 }
 
-/** Is `fig` (at its current cell) engaged with `enemy` (at its current cell)? */
+/** Is `fig` engaged with `enemy`? True when ANY hex of one is engagement-
+ *  adjacent to ANY hex of the other, so a double-space figure engages (and is
+ *  engaged) from either of its two spaces (03-movement §8). */
 function engagedPair(state: HSState, fig: Figure, enemy: Figure): boolean {
   if (fig.at == null || enemy.at == null) return false;
-  return areEngaged(
-    fig.at,
-    cardDefFor(state, fig).height,
-    enemy.at,
-    cardDefFor(state, enemy).height,
-    (k: HexKey) => heightOfKey(state, k),
-  );
+  const fh = cardDefFor(state, fig).height;
+  const eh = cardDefFor(state, enemy).height;
+  const heightAt = (k: HexKey) => heightOfKey(state, k);
+  for (const fk of figureHexes(fig)) {
+    for (const ek of figureHexes(enemy)) {
+      if (areEngaged(fk, fh, ek, eh, heightAt)) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1016,13 +1085,15 @@ function engagedPair(state: HSState, fig: Figure, enemy: Figure): boolean {
  */
 function figuresAdjacent(state: HSState, a: Figure, b: Figure): boolean {
   if (a.id === b.id || a.at == null || b.at == null) return false;
-  return areEngaged(
-    a.at,
-    cardDefFor(state, a).height,
-    b.at,
-    cardDefFor(state, b).height,
-    (k: HexKey) => heightOfKey(state, k),
-  );
+  const ah = cardDefFor(state, a).height;
+  const bh = cardDefFor(state, b).height;
+  const heightAt = (k: HexKey) => heightOfKey(state, k);
+  for (const ak of figureHexes(a)) {
+    for (const bk of figureHexes(b)) {
+      if (areEngaged(ak, ah, bk, bh, heightAt)) return true;
+    }
+  }
+  return false;
 }
 
 /** Is there a LIVING figure owned by `seat`, on a card of `cardId`, FIGURE-
@@ -1165,10 +1236,58 @@ export function legalDestinations(state: HSState, figureId: string): Set<HexKey>
   return movementDestinations(state, r.fig);
 }
 
+/**
+ * Simple-move destinations for a DOUBLE-SPACE figure (the approved "foundation"
+ * model — not the strict snake path yet). The figure may lead with EITHER end,
+ * so we union the single-hex reachable sets from its two spaces, then keep a
+ * lead L (within Move) that has at least one empty SAME-LEVEL neighbour T for
+ * its trailing space — it ends on {L, T}. Its own two spaces count as free (it
+ * vacates them). Returns the legal LEAD hexes + the deterministic tail per lead
+ * (orientation isn't player-selectable yet).
+ */
+function movementDestinations2(
+  state: HSState,
+  fig: Figure,
+): { leads: Set<HexKey>; tailOf: Map<HexKey, HexKey> } {
+  const out = { leads: new Set<HexKey>(), tailOf: new Map<HexKey, HexKey>() };
+  const map = MAPS[state.mapId];
+  if (!map || fig.at == null) return out;
+  const def = cardDefFor(state, fig);
+  const move = effectiveMove(state, fig).dice;
+  const occ = occupancyLookup(state, fig); // excludes the mover's BOTH hexes
+  const opts = { glyphHexes: glyphHexSet(state), flyer: !!def.flying, ghostWalk: !!def.ghostWalk };
+  const reach = new Set<HexKey>();
+  for (const start of figureHexes(fig)) {
+    for (const k of reachableDestinations(map.cells, start, move, occ, def.height, opts)) reach.add(k);
+  }
+  const isFree = (k: HexKey) => !!map.cells[k] && occ(k) == null; // mover's own hexes read null → free
+  for (const lead of reach) {
+    if (!isFree(lead)) continue;
+    const lh = map.cells[lead].height;
+    for (const t of neighborKeys(lead)) {
+      if (t === lead || !map.cells[t] || map.cells[t].height !== lh || !isFree(t)) continue;
+      if ((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)) continue; // not the current placement
+      out.leads.add(lead);
+      out.tailOf.set(lead, t);
+      break;
+    }
+  }
+  return out;
+}
+/** The trailing hex a double-space figure's move to `to` will occupy (same
+ *  deterministic choice the highlight used), or null if `to` is not a legal
+ *  lead for it right now. */
+function moveTailFor(state: HSState, fig: Figure, to: HexKey): HexKey | null {
+  return movementDestinations2(state, fig).tailOf.get(to) ?? null;
+}
+
 function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
   const map = MAPS[state.mapId];
   if (!map || fig.at == null) return new Set();
   const def = cardDefFor(state, fig);
+  // A double-space figure ends on two same-level hexes — its legal "destinations"
+  // are the legal LEAD hexes (the trailing hex follows deterministically).
+  if (baseSizeOf(def) === 2) return movementDestinations2(state, fig).leads;
   // Effective Move folds in the Glyph of Valda (single source of truth — the
   // board preview reads the same helper).
   const move = effectiveMove(state, fig).dice;
@@ -1196,7 +1315,8 @@ function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
 function occupancyLookup(state: HSState, mover: Figure): (key: HexKey) => Occupancy {
   const byHex = new Map<HexKey, number>();
   for (const f of state.figures) {
-    if (f.at != null && f.id !== mover.id) byHex.set(f.at, f.ownerSeat);
+    if (f.id === mover.id) continue;
+    for (const k of figureHexes(f)) byHex.set(k, f.ownerSeat);
   }
   return key => {
     const owner = byHex.get(key);
@@ -1226,32 +1346,37 @@ export function moveConsequences(
   state: HSState,
   fig: Figure,
   to: HexKey,
+  to2?: HexKey,
 ): { tier: FallTier; fallDice: number; abandonedEnemyIds: string[] } {
   const from = fig.at;
   const map = MAPS[state.mapId];
   const def = cardDefFor(state, fig);
   const cardHeight = def.height;
+  // A double-space figure derives its trailing destination the same way the
+  // mover does, so the server's dice-need and the engine's apply agree.
+  const destTail =
+    baseSizeOf(def) === 2 ? (to2 ?? moveTailFor(state, fig, to) ?? null) : null;
 
-  // Fall: drop = height(from) − height(to); none if landing on water. A FLYER
-  // descends rather than falling, so it never takes fall damage (cards.md).
+  // Fall: a figure rests level, so drop = its rest level − the destination
+  // level (for a 1-hex figure this is height(from) − height(to)); none onto
+  // water. A FLYER descends rather than falling (cards.md).
   let tier: FallTier = 'none';
   let fallDice = 0;
   if (!def.flying) {
-    const drop = from != null ? heightOfKey(state, from) - heightOfKey(state, to) : 0;
+    const drop = from != null ? figureStandLevel(state, fig) - heightOfKey(state, to) : 0;
     const intoWater = map?.cells[to]?.terrain === 'water';
     const fall = computeFall(Math.max(0, drop), cardHeight, intoWater);
     tier = fall.tier;
     fallDice = fall.dice;
   }
 
-  // Leaving engagement: enemies engaged at move START that the DESTINATION is
-  // no longer adjacent-engaged to. Build a hypothetical "fig stands on `to`"
-  // figure for the end-adjacency test. DISENGAGE (Agent Carr) suppresses this
-  // entirely — he is never swiped when leaving an engagement (cards.md).
+  // Leaving engagement: enemies engaged at move START that the DESTINATION
+  // footprint {to, to2} is no longer adjacent-engaged to. DISENGAGE (Agent Carr)
+  // suppresses this entirely — never swiped when leaving (cards.md).
   let abandonedEnemyIds: string[] = [];
   if (!def.disengage) {
     const startEngaged = enemiesEngagedWith(state, fig);
-    const figAtDest: Figure = { ...fig, at: to };
+    const figAtDest: Figure = { ...fig, at: to, at2: destTail };
     abandonedEnemyIds = startEngaged
       .filter(enemy => !engagedPair(state, figAtDest, enemy))
       .map(enemy => enemy.id);
@@ -1275,9 +1400,16 @@ function doMove(
   if (!movementDestinations(state, r.fig).has(to)) {
     return { error: 'That hex is out of reach for this figure' };
   }
+  // A double-space figure also lands its trailing hex (resolved deterministically
+  // from the lead, so the board only had to send `to`).
+  const def = cardDefFor(state, r.fig);
+  const to2 = baseSizeOf(def) === 2 ? moveTailFor(state, r.fig, to) : null;
+  if (baseSizeOf(def) === 2 && to2 == null) {
+    return { error: 'That hex is out of reach for this figure' };
+  }
   // Reachability passed → resolve the move (dice validation + execution) through
   // the shared path Grapple Gun also uses. "moves to" is the normal-move log.
-  return applyValidatedMove(state, figureId, to, { fallRoll, extremeFallD20, leaveRolls }, 'moves to');
+  return applyValidatedMove(state, figureId, to, { fallRoll, extremeFallD20, leaveRolls, to2 }, 'moves to');
 }
 
 /**
@@ -1301,12 +1433,14 @@ function applyValidatedMove(
     fallRoll?: CombatFace[];
     extremeFallD20?: number;
     leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+    /** Trailing destination hex for a double-space mover (null for 1-hex). */
+    to2?: HexKey | null;
   },
   verb: string,
 ): HSResult {
   const mover = state.figures.find(f => f.id === figureId)!;
   const { fallRoll, extremeFallD20, leaveRolls } = rolls;
-  const { tier, fallDice, abandonedEnemyIds } = moveConsequences(state, mover, to);
+  const { tier, fallDice, abandonedEnemyIds } = moveConsequences(state, mover, to, rolls.to2 ?? undefined);
 
   // --- validate falling dice ---
   if (tier === 'extreme') {
@@ -1344,6 +1478,7 @@ function applyValidatedMove(
   const moverLabel = figureLabel(s, fig);
   const fromKey = fig.at;
   fig.at = to;
+  fig.at2 = rolls.to2 ?? null; // double-space trailing hex (null for 1-hex)
   s.movedFigureIds.push(figureId);
   pushLog(s, 'move', `${moverLabel} ${verb} ${hexLabel(to)}.`);
 
@@ -1615,20 +1750,26 @@ function targetBlockReason(
   }
 
   const range = effectiveRange(state, attacker).dice;
-  const dist = rangeDistance(map.cells, attacker.at!, target.at);
-  if (dist == null || dist > range) return `Out of range (Range ${range})`;
+  // A double-space figure measures range and traces LOS from EITHER of its two
+  // spaces, to EITHER of the target's — the owner gets the better end (04-combat).
   const occupied: HexKey[] = [];
   for (const f of state.figures) {
-    if (f.at != null && f.id !== attacker.id && f.id !== target.id) occupied.push(f.at);
+    if (f.id === attacker.id || f.id === target.id) continue;
+    for (const k of figureHexes(f)) occupied.push(k);
   }
-  if (
-    !hasLineOfSight3D(map.cells, attacker.at!, target.at, occupied, (k: HexKey) =>
-      eyeHeightOfKey(state, k),
-    )
-  ) {
-    return 'No line of sight — terrain or a figure is in the way';
+  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  let inRange = false;
+  for (const ak of figureHexes(attacker)) {
+    for (const tk of figureHexes(target)) {
+      const dist = rangeDistance(map.cells, ak, tk);
+      if (dist == null || dist > range) continue;
+      inRange = true;
+      if (hasLineOfSight3D(map.cells, ak, tk, occupied, eye)) return null;
+    }
   }
-  return null;
+  return inRange
+    ? 'No line of sight — terrain or a figure is in the way'
+    : `Out of range (Range ${range})`;
 }
 
 /** Enemy figure ids `attackerId` may attack right now (range + LOS + turn

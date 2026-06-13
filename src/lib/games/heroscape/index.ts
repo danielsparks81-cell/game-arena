@@ -15,6 +15,7 @@ export {
   grappleDestinations,
   legalTargets,
   placeableHexes,
+  placeable2Leads,
   POINT_BUDGETS,
   DEFAULT_POINT_BUDGET,
   attackDiceRequirements,

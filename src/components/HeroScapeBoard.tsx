@@ -29,6 +29,7 @@ import {
   grappleDestinations,
   legalTargets,
   placeableHexes,
+  placeable2Leads,
   figureLabel,
   getActiveCardUid,
   axialToOffset,
@@ -215,7 +216,7 @@ function CardArt({ cardId, className }: { cardId: string; className?: string }) 
  * a tidy standee, hiding the crop seams — v1 accepts the painted background).
  */
 function FigureStandee({
-  cardId, cx, cy, hex, accent, fallbackLabel, billboard,
+  cardId, cx, cy, hex, accent, fallbackLabel, billboard, cx2, cy2,
 }: {
   cardId: string;
   cx: number;
@@ -224,6 +225,10 @@ function FigureStandee({
   accent: string;
   fallbackLabel: string;
   billboard: boolean; // false → squad/extra: skip the sprite, just disc+label
+  /** Second hex center for a DOUBLE-SPACE figure — when present the standee is
+   *  centred on the midpoint of (cx,cy)-(cx2,cy2) with a wider, rotated base. */
+  cx2?: number;
+  cy2?: number;
 }) {
   // Sprite source chain, best → fallback:
   //   'png' = a clean cut-out figure (transparent bg) → drawn FRAMELESS, standing
@@ -236,19 +241,36 @@ function FigureStandee({
   // Base ellipse footprint (squashed, sits flat on the iso top face).
   const baseRx = hex * 0.46;
   const baseRy = hex * 0.24;
-  // Billboard size: a portrait standing on the base center. ~1.1×HEX wide,
-  // ~1.7×HEX tall, its BOTTOM resting just above the base center.
-  const spriteW = hex * 1.15;
-  const spriteH = hex * 1.7;
-  const spriteX = cx - spriteW / 2;
-  const spriteY = cy - spriteH + baseRy * 0.4; // feet near the base center
-  const clipId = `hs-fig-clip-${cardId}-${Math.round(cx)}-${Math.round(cy)}`;
+  // DOUBLE-SPACE figures pass a second hex center: the standee centres on the
+  // midpoint, its base is elongated + rotated along the two-hex axis, and the
+  // billboard grows so the big model reads across both spaces.
+  const wide = cx2 != null && cy2 != null;
+  const mx = wide ? (cx + cx2!) / 2 : cx;
+  const my = wide ? (cy + cy2!) / 2 : cy;
+  const span = wide ? Math.hypot(cx2! - cx, cy2! - cy) : 0;
+  const baseAngle = wide ? (Math.atan2(cy2! - cy, cx2! - cx) * 180) / Math.PI : 0;
+  const wideRx = wide ? baseRx + span / 2 : baseRx;
+  // Billboard: ~1.1×HEX wide / ~1.7×HEX tall (1-hex); a 2-hex figure grows by the
+  // span and stands a touch taller. Bottom rests just above the base.
+  const spriteW = wide ? hex * 1.15 + span : hex * 1.15;
+  const spriteH = wide ? hex * 2.0 : hex * 1.7;
+  const spriteX = mx - spriteW / 2;
+  const spriteY = my - spriteH + baseRy * 0.4;
+  const clipId = `hs-fig-clip-${cardId}-${Math.round(mx)}-${Math.round(my)}`;
   return (
     <g style={{ pointerEvents: 'none' }}>
-      {/* drop shadow on the tile */}
-      <ellipse cx={cx} cy={cy + baseRy * 0.5} rx={baseRx * 1.02} ry={baseRy * 0.8} fill="#000000" opacity={0.28} />
-      {/* accent base disc (ownership) */}
-      <ellipse cx={cx} cy={cy} rx={baseRx} ry={baseRy} fill={accent} stroke="#0a0a0a" strokeWidth={1.5} opacity={0.95} />
+      {/* drop shadow — elongated + rotated for a double-space figure */}
+      <ellipse
+        cx={mx} cy={my + baseRy * 0.5} rx={wideRx * 1.02} ry={baseRy * 0.8}
+        fill="#000000" opacity={0.28}
+        transform={wide ? `rotate(${baseAngle} ${mx} ${my + baseRy * 0.5})` : undefined}
+      />
+      {/* accent base (ownership) — a 2-hex oval, or the 1-hex disc */}
+      <ellipse
+        cx={mx} cy={my} rx={wideRx} ry={baseRy}
+        fill={accent} stroke="#0a0a0a" strokeWidth={1.5} opacity={0.95}
+        transform={wide ? `rotate(${baseAngle} ${mx} ${my})` : undefined}
+      />
       {mode === 'png' ? (
         // Clean cut-out: no frame, no clip — just the figure standing on its base,
         // bottom-anchored (xMidYMax) and shown whole (meet). Falls to 'jpg' if absent.
@@ -285,9 +307,9 @@ function FigureStandee({
         // Fallback: the legacy colored disc + letter (sprite missing or a
         // squad's extra figures we keep as discs).
         <>
-          <circle cx={cx} cy={cy - hex * 0.18} r={hex * 0.42} fill={accent} stroke="#0a0a0a" strokeWidth={1.5} />
+          <circle cx={mx} cy={my - hex * 0.18} r={hex * 0.42} fill={accent} stroke="#0a0a0a" strokeWidth={1.5} />
           <text
-            x={cx} y={cy - hex * 0.18 + 1}
+            x={mx} y={my - hex * 0.18 + 1}
             textAnchor="middle" dominantBaseline="middle"
             fontSize={hex * 0.42} fontWeight={800} fill="#0a0a0a"
             style={{ userSelect: 'none' }}
@@ -703,10 +725,16 @@ export default function HeroScapeBoard({
   const canPlace = placement && !!me && !iPlacementReady && !disabled;
   const myHand = placement && me ? (state.hand?.[me.seat] ?? []) : [];
   // Empty own start-zone hexes I may drop a figure on (engine single-source).
-  const placeHexes = useMemo(
-    () => (canPlace && me ? placeableHexes(state, me.seat) : new Set<HexKey>()),
-    [state, me, canPlace],
-  );
+  const placeHexes = useMemo(() => {
+    if (!canPlace || !me) return new Set<HexKey>();
+    // Highlight the legal LEAD hexes for the figure being placed: a double-space
+    // figure needs two empty same-level zone hexes, so it uses placeable2Leads.
+    const toPlaceId = placeFigureId ?? (state.hand?.[me.seat] ?? [])[0];
+    const f = toPlaceId ? state.figures.find(x => x.id === toPlaceId) : null;
+    const cardId = f ? state.cards.find(c => c.uid === f.cardUid)?.cardId : null;
+    const is2 = cardId ? HS_CARDS[cardId]?.baseSize === 2 : false;
+    return is2 ? placeable2Leads(state, me.seat) : placeableHexes(state, me.seat);
+  }, [state, me, canPlace, placeFigureId]);
   const activeCardUid = getActiveCardUid(state);
   const activeCard = state.cards.find(c => c.uid === activeCardUid);
   const activeCardDef = HS_CARDS[activeCard?.cardId ?? ''];
@@ -882,6 +910,11 @@ export default function HeroScapeBoard({
   const ptsStr = (pts: { x: number; y: number }[]) => pts.map(p => `${p.x},${p.y}`).join(' ');
 
   const figureAt = (key: HexKey) => state.figures.find(f => f.at === key) ?? null;
+  // A figure OCCUPYING this hex — its anchor OR the trailing hex of a double-
+  // space figure. Drives clicks / occupancy; `figureAt` (anchor only) drives the
+  // one-time standee draw so a 2-hex figure isn't drawn twice.
+  const occupantAt = (key: HexKey) =>
+    state.figures.find(f => f.at === key || f.at2 === key) ?? null;
 
   // Current view rectangle (in iso-scene units). Null = full frame (the default,
   // identical to before zoom existed).
@@ -929,7 +962,7 @@ export default function HeroScapeBoard({
     // slice 5: placement — click your own placed figure to pick it up (unplace);
     // click a highlighted empty start-zone hex to drop the picked figure there.
     if (canPlace) {
-      const onHex = figureAt(key);
+      const onHex = occupantAt(key);
       if (onHex && onHex.ownerSeat === me!.seat) {
         // Picking up a placed figure returns it to hand; clicking a hand figure
         // already-picked toggles selection.
@@ -953,22 +986,30 @@ export default function HeroScapeBoard({
       return;
     }
     if (!canAct) return;
-    const fig = figureAt(key);
-    if (fig && fig.ownerSeat === me!.seat) { setSelectedId(fig.id === selectedId ? null : fig.id); return; }
-    if (fig && selected && targets.has(fig.id)) {
-      onAttack(selected.id, fig.id);
-      // slice 6: keep Syvarris selected after his first attack so his targets
-      // stay highlighted for the optional Double Attack (legalTargets re-allows
-      // him while his count < 2). Other figures deselect on attack as before.
-      const attackerCardId = state.cards.find(c => c.uid === selected.cardUid)?.cardId;
-      if (!(attackerCardId === 'syvarris' && state.turnAttacks.length === 0)) setSelectedId(null);
+    const occ = occupantAt(key);
+    // Attack: the clicked hex holds an enemy I can currently target (a 2-hex
+    // enemy is targetable by clicking EITHER of its hexes).
+    if (occ && selected && occ.ownerSeat !== me!.seat) {
+      if (targets.has(occ.id)) {
+        onAttack(selected.id, occ.id);
+        // slice 6: keep Syvarris selected after his first attack so his targets
+        // stay highlighted for the optional Double Attack. Others deselect.
+        const attackerCardId = state.cards.find(c => c.uid === selected.cardUid)?.cardId;
+        if (!(attackerCardId === 'syvarris' && state.turnAttacks.length === 0)) setSelectedId(null);
+      }
       return;
     }
-    if (!fig && selected && destinations.has(key)) {
-      // slice 7: in Grapple-Gun mode the destination set IS the grapple set, so
-      // route the click to grapple_move; otherwise it's a normal move.
+    // Move: a legal destination (the LEAD hex for a double-space figure, which
+    // may overlap the figure's own current footprint as it slides forward). In
+    // Grapple-Gun mode the destination set IS the grapple set.
+    if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); }
       else onMoveFigure(selected.id, key);
+      return;
+    }
+    // Select / deselect one of my own figures (click either hex of a 2-hex one).
+    if (occ && occ.ownerSeat === me!.seat) {
+      setSelectedId(occ.id === selectedId ? null : occ.id);
       return;
     }
   }
@@ -1795,8 +1836,8 @@ export default function HeroScapeBoard({
             const topFill = isCloneOpt ? '#0e4f6e' : colors.top;
             const topStroke = isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : colors.stroke;
             const startZoneSeat = Object.entries(map.startZones).find(([, keys]) => keys.includes(key))?.[0];
-            const fig = figureAt(key);
-            const occupied = !!fig;
+            const fig = figureAt(key); // ANCHOR figure (drawn once, here)
+            const occupied = !!occupantAt(key); // either hex of a 2-hex figure
             const clickable = canAct || isCloneOpt || (canPlace && (isPlaceHex || occupied));
 
             // --- glyph on this hex (drawn between tile top and standee) ---
@@ -1814,6 +1855,13 @@ export default function HeroScapeBoard({
             const ring = act === 'move' ? '#22c55e' : act === 'attack' ? '#f59e0b' : null;
             const figClickable = fig ? (canAct && (mine || isTarget)) || placeClickable : false;
             const fLabel = `${fdef?.letter ?? ''}${fdef?.type === 'squad' ? fig?.index : ''}`;
+            // Double-space figures (Mimring, Grimnak) span TWO hexes: one standee
+            // centred on the midpoint of both top-faces, with a wider base.
+            const is2 = !!(fdef && fdef.baseSize === 2 && fig?.at2);
+            const ctr2 = is2 ? toScreen(fig!.at2!) : null;
+            const aCx = ctr2 ? (ctr.x + ctr2.x) / 2 : ctr.x;
+            const aCy = ctr2 ? (ctr.y + ctr2.y) / 2 : ctr.y;
+            const baseSpan = ctr2 ? Math.hypot(ctr2.x - ctr.x, ctr2.y - ctr.y) / 2 : 0;
 
             return (
               <g key={key}>
@@ -1888,19 +1936,20 @@ export default function HeroScapeBoard({
                   >
                     {/* target ring (red dashed) — on the base footprint */}
                     {isTarget && (
-                      <ellipse cx={ctr.x} cy={ctr.y} rx={HEX * 0.56} ry={HEX * 0.32} fill="none" stroke="#ef4444" strokeWidth={3} strokeDasharray="6 3" style={{ pointerEvents: 'none' }} />
+                      <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#ef4444" strokeWidth={3} strokeDasharray="6 3" style={{ pointerEvents: 'none' }} />
                     )}
                     {/* activation ring: green=can move, amber=can attack */}
                     {ring && (
-                      <ellipse cx={ctr.x} cy={ctr.y} rx={HEX * 0.52} ry={HEX * 0.3} fill="none" stroke={ring} strokeWidth={3.5} opacity={0.95} style={{ pointerEvents: 'none' }} />
+                      <ellipse cx={aCx} cy={aCy} rx={HEX * 0.52 + baseSpan} ry={HEX * 0.3} fill="none" stroke={ring} strokeWidth={3.5} opacity={0.95} style={{ pointerEvents: 'none' }} />
                     )}
                     {/* selection ring (amber) on the base */}
                     {isSel && (
-                      <ellipse cx={ctr.x} cy={ctr.y} rx={HEX * 0.5} ry={HEX * 0.28} fill="none" stroke="#fde68a" strokeWidth={3.5} style={{ pointerEvents: 'none' }} />
+                      <ellipse cx={aCx} cy={aCy} rx={HEX * 0.5 + baseSpan} ry={HEX * 0.28} fill="none" stroke="#fde68a" strokeWidth={3.5} style={{ pointerEvents: 'none' }} />
                     )}
                     <FigureStandee
                       cardId={fCardId}
                       cx={ctr.x} cy={ctr.y} hex={HEX}
+                      cx2={ctr2?.x} cy2={ctr2?.y}
                       accent={seatColor(fig.ownerSeat)}
                       fallbackLabel={fLabel}
                       billboard={!!fCardId}
@@ -1915,11 +1964,12 @@ export default function HeroScapeBoard({
                         </text>
                       </g>
                     )}
-                    {/* wound pip — above the standee's head */}
+                    {/* wound pip — above the standee's head (higher for a 2-hex
+                        figure's taller billboard), anchored to the midpoint */}
                     {fig.wounds > 0 && (
                       <g style={{ pointerEvents: 'none' }}>
-                        <circle cx={ctr.x + HEX * 0.34} cy={ctr.y - HEX * 1.45} r={7} fill="#dc2626" stroke="#0a0a0a" strokeWidth={1.5} />
-                        <text x={ctr.x + HEX * 0.34} y={ctr.y - HEX * 1.45 + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight={800} fill="#fee2e2" style={{ userSelect: 'none' }}>
+                        <circle cx={aCx + HEX * 0.34} cy={aCy - HEX * (is2 ? 1.7 : 1.45)} r={7} fill="#dc2626" stroke="#0a0a0a" strokeWidth={1.5} />
+                        <text x={aCx + HEX * 0.34} y={aCy - HEX * (is2 ? 1.7 : 1.45) + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight={800} fill="#fee2e2" style={{ userSelect: 'none' }}>
                           {fig.wounds}
                         </text>
                       </g>

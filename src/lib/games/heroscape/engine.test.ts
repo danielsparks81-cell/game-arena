@@ -20,9 +20,10 @@ import {
   effectiveRange,
   moveConsequences,
   placeableHexes,
+  placeable2Leads,
   POINT_BUDGETS,
 } from './engine';
-import { hexKey, offsetToAxial, rangeDistance } from './board';
+import { hexKey, offsetToAxial, rangeDistance, neighborKeys } from './board';
 import { MAPS, parseMap } from './maps';
 import { HS_CARDS, HS_DRAFT_POOL } from './content';
 import type {
@@ -3661,5 +3662,75 @@ describe('slice 7: regression + projection + history', () => {
     expect(computeHistory(s)).toBeNull();
     s = unwrap(applyAction(s, 'p1', { kind: 'grapple_move', figureId: 's0-drake-1', to: at(2, 1) }));
     expect(computeHistory(s)).toBeNull(); // mid-game — still null
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Double-space (2-hex) figures — Mimring / Grimnak occupy TWO hexes
+// ---------------------------------------------------------------------------
+describe('double-space (2-hex) figures', () => {
+  /** Stage a double-space figure for `seat` across {lead, tail} (its own card,
+   *  so it doesn't collide with the fixed army's copy). */
+  function injectBig(s: HSState, seat: number, cardId: string, id: string, lead: string, tail: string): HSState {
+    const c: HSState = JSON.parse(JSON.stringify(s));
+    const uid = `s${seat}-${cardId}-big`;
+    c.cards.push({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    c.figures.push({ id, cardUid: uid, ownerSeat: seat, at: lead, at2: tail, index: 1, wounds: 0 });
+    return c;
+  }
+
+  it('Mimring and Grimnak are baseSize 2; ordinary figures are 1', () => {
+    expect(HS_CARDS.mimring.baseSize).toBe(2);
+    expect(HS_CARDS.grimnak.baseSize).toBe(2);
+    expect(HS_CARDS.finn.baseSize ?? 1).toBe(1);
+    expect(HS_CARDS.tarn_vikings.baseSize ?? 1).toBe(1);
+  });
+
+  it('occupies BOTH hexes — neither is a legal move destination for an enemy', () => {
+    let s = inTurns('p1'); // p1's turn, Finn is the active/movable figure
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(2, 3));
+    s = injectBig(s, 1, 'grimnak', 'big-grim', at(3, 3), at(4, 3));
+    const dests = legalDestinations(s, FINN);
+    expect(dests.has(at(3, 3))).toBe(false); // lead hex is occupied
+    expect(dests.has(at(4, 3))).toBe(false); // trailing hex is occupied too
+    expect(dests.has(at(2, 2))).toBe(true); // an empty neighbour is still reachable
+  });
+
+  it('is TARGETABLE from EITHER hex — range measured from the better end', () => {
+    // Finn (Range 1) sits adjacent ONLY to Grimnak's TRAILING hex (4,3).
+    let near = inTurns('p1');
+    near = clearExcept(near, FINN, THORGRIM);
+    near = place(near, FINN, at(5, 3));
+    near = injectBig(near, 1, 'grimnak', 'big-grim', at(3, 3), at(4, 3));
+    expect(legalTargets(near, FINN)).toContain('big-grim');
+    // Far away → neither hex within Range 1 → not targetable.
+    let far = inTurns('p1');
+    far = clearExcept(far, FINN, THORGRIM);
+    far = place(far, FINN, at(0, 3));
+    far = injectBig(far, 1, 'grimnak', 'big-grim', at(3, 3), at(4, 3));
+    expect(legalTargets(far, FINN)).not.toContain('big-grim');
+  });
+
+  it('ENGAGES from either hex — touching only the trailing hex draws a leaving swipe', () => {
+    let s = inTurns('p1');
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(5, 3)); // adjacent to the TRAILING hex (4,3)
+    s = injectBig(s, 1, 'grimnak', 'big-grim', at(3, 3), at(4, 3));
+    // Finn was engaged via the dragon's trailing hex; stepping out abandons it.
+    const cons = moveConsequences(s, fig(s, FINN), at(6, 3));
+    expect(cons.abandonedEnemyIds).toContain('big-grim');
+  });
+
+  it('placeable2Leads returns only leads with an empty same-level neighbour', () => {
+    const s = clearExcept(inTurns('p1'), FINN); // clear the seat-0 zone clutter
+    const seat = s.turnSeat;
+    const leads = placeable2Leads(s, seat);
+    const free = placeableHexes(s, seat);
+    expect(leads.size).toBeGreaterThan(0);
+    for (const lead of leads) {
+      expect(free.has(lead)).toBe(true);
+      expect(neighborKeys(lead).some(n => free.has(n))).toBe(true);
+    }
   });
 });

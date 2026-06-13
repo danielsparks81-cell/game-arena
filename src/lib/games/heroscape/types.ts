@@ -54,6 +54,9 @@ export type HSCardDef = {
   defense: number;
   /** Printed Height in levels (drives climbing/engagement in later slices). */
   height: number;
+  /** BASE SIZE in hexes: a DOUBLE-SPACE figure (Mimring, Grimnak) occupies TWO
+   *  adjacent same-level hexes; every other figure occupies one. Absent → 1. */
+  baseSize?: 1 | 2;
   points: number;
   /** Single letter shown on the figure's disc. */
   letter: string;
@@ -157,8 +160,13 @@ export type Figure = {
   id: string; // `${cardUid}-${index}`
   cardUid: string;
   ownerSeat: number;
-  /** Hex the figure stands on; null once destroyed. */
+  /** Hex the figure stands on; null once destroyed. For a DOUBLE-SPACE figure
+   *  this is the anchor / leading hex. */
   at: HexKey | null;
+  /** DOUBLE-SPACE figures (baseSize 2: Mimring, Grimnak) also occupy this
+   *  TRAILING hex — adjacent to `at`, same level. null/absent for 1-hex figures
+   *  and once destroyed; the footprint is {at, at2}. */
+  at2?: HexKey | null;
   /** 1-based index within its card (squad disc numbering). */
   index: number;
   /** Wound markers taken. Destroyed when wounds reach the card's Life. */
