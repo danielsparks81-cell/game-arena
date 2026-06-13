@@ -225,11 +225,17 @@ function FigureStandee({
   fallbackLabel: string;
   billboard: boolean; // false → squad/extra: skip the sprite, just disc+label
 }) {
-  const [broken, setBroken] = useState(false);
+  // Sprite source chain, best → fallback:
+  //   'png' = a clean cut-out figure (transparent bg) → drawn FRAMELESS, standing
+  //           on its base (this is what the user's own photos become).
+  //   'jpg' = the card-art crop (opaque) → drawn inside a rounded frame to hide
+  //           the crop seams (the original online/card-derived sprite).
+  //   'disc' = no sprite at all → the legacy colored disc + letter.
+  // We try png first; onError walks down the chain, so a missing file never breaks.
+  const [mode, setMode] = useState<'png' | 'jpg' | 'disc'>(billboard ? 'png' : 'disc');
   // Base ellipse footprint (squashed, sits flat on the iso top face).
   const baseRx = hex * 0.46;
   const baseRy = hex * 0.24;
-  const showSprite = billboard && !broken;
   // Billboard size: a portrait standing on the base center. ~1.1×HEX wide,
   // ~1.7×HEX tall, its BOTTOM resting just above the base center.
   const spriteW = hex * 1.15;
@@ -243,21 +249,30 @@ function FigureStandee({
       <ellipse cx={cx} cy={cy + baseRy * 0.5} rx={baseRx * 1.02} ry={baseRy * 0.8} fill="#000000" opacity={0.28} />
       {/* accent base disc (ownership) */}
       <ellipse cx={cx} cy={cy} rx={baseRx} ry={baseRy} fill={accent} stroke="#0a0a0a" strokeWidth={1.5} opacity={0.95} />
-      {showSprite ? (
+      {mode === 'png' ? (
+        // Clean cut-out: no frame, no clip — just the figure standing on its base,
+        // bottom-anchored (xMidYMax) and shown whole (meet). Falls to 'jpg' if absent.
+        <image
+          href={`/heroscape/figures/${cardId}.png`}
+          x={spriteX} y={spriteY} width={spriteW} height={spriteH}
+          preserveAspectRatio="xMidYMax meet"
+          onError={() => setMode('jpg')}
+        />
+      ) : mode === 'jpg' ? (
         <>
           <defs>
             <clipPath id={clipId}>
               <rect x={spriteX} y={spriteY} width={spriteW} height={spriteH} rx={hex * 0.16} ry={hex * 0.16} />
             </clipPath>
           </defs>
-          {/* upright billboard sprite — bottom-anchored on the base */}
+          {/* card-art crop — clipped to a rounded card to hide the seams */}
           {/* eslint-disable-next-line @next/next/no-img-element is N/A for SVG image */}
           <image
             href={`/heroscape/figures/${cardId}.jpg`}
             x={spriteX} y={spriteY} width={spriteW} height={spriteH}
             preserveAspectRatio="xMidYMid slice"
             clipPath={`url(#${clipId})`}
-            onError={() => setBroken(true)}
+            onError={() => setMode('disc')}
           />
           {/* thin frame around the standee so it reads as a stand-up piece */}
           <rect
