@@ -159,7 +159,7 @@ function CardArt({ cardId, className }: { cardId: string; className?: string }) 
     // already-sized local asset that falls back to text on error.
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={`/heroscape/cards/${cardId}.png`}
+      src={`/heroscape/cards/${cardId}.jpg`}
       alt=""
       loading="lazy"
       onError={(e) => { e.currentTarget.style.display = 'none'; }}
