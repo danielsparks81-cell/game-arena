@@ -741,6 +741,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
   | { game: 'heroscape'; kind: 'orient_figure'; figureId: string; dir: number }
   | { game: 'heroscape'; kind: 'mind_shackle'; targetId: string }
+  | { game: 'heroscape'; kind: 'chomp'; targetId: string }
   | { game: 'heroscape'; kind: 'grenade' }
   | { game: 'heroscape'; kind: 'grenade_throw'; targetId: string }
   | { game: 'heroscape'; kind: 'berserker_charge' }
@@ -1189,6 +1190,9 @@ type HSWireAction =
   // Ne-Gok-Sa MIND SHACKLE (slice 8): the d20 is NOT on the wire — the server
   // rolls it; the board sends only the chosen adjacent-enemy target.
   | { kind: 'mind_shackle'; targetId: string }
+  // Grimnak CHOMP (slice 8): the d20 is NOT on the wire — the server rolls it
+  // (only consulted for Hero targets); the board sends the chosen adjacent enemy.
+  | { kind: 'chomp'; targetId: string }
   // Airborne GRENADE SPECIAL ATTACK (slice 8): `grenade` initiates (no dice);
   // each `grenade_throw` carries only the chosen Range-5 target — the server
   // rolls the 2 attack dice + each affected figure's defense.
@@ -1351,6 +1355,11 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // validates the adjacent-enemy target + timing and, on a natural 20, seizes
     // the target's whole Army Card.
     engineAction = { kind: 'mind_shackle', targetId: action.targetId, d20: d20() };
+  } else if (action.kind === 'chomp') {
+    // Grimnak CHOMP — the server rolls the d20 (used only if the target is a
+    // Hero; a Squad figure is destroyed automatically). The engine validates the
+    // adjacent-enemy + medium/small-size + timing.
+    engineAction = { kind: 'chomp', targetId: action.targetId, d20: d20() };
   } else if (action.kind === 'water_clone') {
     // Marro WATER CLONE — roll one d20 per LIVING Marro Warrior of the active
     // card; the engine validates the set + per-Warrior threshold and collects

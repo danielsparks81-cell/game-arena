@@ -54,6 +54,10 @@ export type HSCardDef = {
   defense: number;
   /** Printed Height in levels (drives climbing/engagement in later slices). */
   height: number;
+  /** Printed SIZE category (cards.md). Only the non-medium figures carry it —
+   *  absent ⇒ Medium. Used by Grimnak's Chomp ("medium or small figure"), which
+   *  cannot target Large/Huge figures. */
+  size?: 'small' | 'medium' | 'large' | 'huge';
   /** BASE SIZE in hexes: a DOUBLE-SPACE figure (Mimring, Grimnak) occupies TWO
    *  adjacent same-level hexes; every other figure occupies one. Absent → 1. */
   baseSize?: 1 | 2;
@@ -472,6 +476,10 @@ export type HSState = {
    *  (cards.md — one d20 in the after-move/before-attack window). Set on the
    *  attempt regardless of success. Cleared each turn. */
   mindShackleSpent?: boolean;
+  /** Whether Grimnak has already Chomped this turn (cards.md — one chomp in the
+   *  before-attack window). Set on the attempt regardless of result. Cleared each
+   *  turn. */
+  chompedThisTurn?: boolean;
   log: HSLogEntry[];
   logSeq: number;
 };
@@ -632,6 +640,14 @@ export type HSAction =
       // Army Card (+ all figures on it) to the shackler and removes its order
       // markers. Does NOT consume Ne-Gok-Sa's attack.
       kind: 'mind_shackle';
+      targetId: string;
+      d20: number;
+    }
+  | {
+      // Grimnak CHOMP (cards.md) — before attacking, choose an adjacent ENEMY
+      // medium-or-small figure. A Squad figure is destroyed automatically; a Hero
+      // is destroyed on a SERVER-rolled d20 of 16+. Does NOT consume the attack.
+      kind: 'chomp';
       targetId: string;
       d20: number;
     }

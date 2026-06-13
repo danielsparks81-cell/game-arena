@@ -270,6 +270,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'berserker_charge':
     case 'water_clone':
     case 'mind_shackle':
+    case 'chomp':
     case 'orient_figure':
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
@@ -298,6 +299,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (action.kind === 'berserker_charge') return doBerserkerCharge(state, me.seat, action.d20);
       if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
       if (action.kind === 'mind_shackle') return doMindShackle(state, me.seat, action.targetId, action.d20);
+      if (action.kind === 'chomp') return doChomp(state, me.seat, action.targetId, action.d20);
       if (action.kind === 'orient_figure') return doOrientFigure(state, me.seat, action.figureId, action.dir);
       return doEndTurn(state, me.seat);
     }
@@ -399,6 +401,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
   delete s.mindShackleSpent;
+  delete s.chompedThisTurn;
   delete s.draft;
   delete s.hand;
   delete s.placementReady;
@@ -1030,6 +1033,7 @@ function beginTurnOrSkip(s: HSState): void {
       delete s.waterClonedThisTurn;
       delete s.berserkerSpent;
       delete s.mindShackleSpent;
+      delete s.chompedThisTurn;
       pushLog(
         s,
         'info',
@@ -1075,6 +1079,7 @@ function startNextRound(s: HSState): void {
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
   delete s.mindShackleSpent;
+  delete s.chompedThisTurn;
   for (const card of s.cards) card.orderMarkers = [];
   pushLog(s, 'info', `Round ${s.round} — all players place their order markers.`);
 }
@@ -2247,8 +2252,9 @@ export function fireLineSpaces(state: HSState, attackerId: string, dir: number):
 }
 
 /** Figures the Fire Line affects: any figure (friend OR foe, never Mimring) on a
- *  line space he has clear, elevation-aware line of sight to — an intervening
- *  figure blocks the ones behind it. */
+ *  line space he has clear, elevation-aware line of sight to. Figures do NOT
+ *  block the line — the fire passes through them, so everyone on the straight
+ *  line is hit unless TERRAIN / height breaks the sightline. */
 export function fireLineTargets(state: HSState, attackerId: string, dir: number): Figure[] {
   const attacker = state.figures.find(f => f.id === attackerId);
   const map = MAPS[state.mapId];
@@ -2262,14 +2268,12 @@ export function fireLineTargets(state: HSState, attackerId: string, dir: number)
     if (f.id === attacker.id || f.at == null) continue;
     const onLine = figureHexes(f).filter(h => spaces.has(h));
     if (onLine.length === 0) continue;
-    // LOS occupancy excludes the attacker AND this target (a body never blocks
-    // sight to itself); every OTHER figure can block.
-    const occupied: HexKey[] = [];
-    for (const g of state.figures) {
-      if (g.id === attacker.id || g.id === f.id) continue;
-      for (const h of figureHexes(g)) occupied.push(h);
-    }
-    const sighted = onLine.some(th => aHexes.some(ah => hasLineOfSight3D(map.cells, ah, th, occupied, eye)));
+    // A LINE special attack's fire passes THROUGH figures — only TERRAIN / height
+    // blocks the straight line, never an intervening figure. So every figure on
+    // the line that Mimring can see past walls/columns is hit (an enemy standing
+    // in front no longer shields the figures behind it). Hence NO figure
+    // occluders in the LOS check — just elevation-aware terrain.
+    const sighted = onLine.some(th => aHexes.some(ah => hasLineOfSight3D(map.cells, ah, th, [], eye)));
     if (sighted) out.push(f);
   }
   return out;
@@ -2913,6 +2917,88 @@ function doMindShackle(state: HSState, seat: number, targetId: string, d20: numb
   return s;
 }
 
+// ============================================================================
+// Grimnak CHOMP (cards.md): "Before attacking, choose one medium or small figure
+// adjacent to Grimnak. If the chosen figure is a Squad figure, destroy it. If the
+// chosen figure is a Hero figure, roll the d20 — on 16+ destroy it." Once per
+// turn, does NOT consume Grimnak's attack. Large/Huge figures cannot be Chomped.
+// (GRIMNAK_CARD_ID is declared above for the Orc Warrior Enhancement aura.)
+// ============================================================================
+const CHOMP_HERO_THRESHOLD = 16;
+
+/** A figure is Chompable only if it is medium or small (cards.md) — Large/Huge
+ *  figures (Deathwalker, Mimring, an enemy Grimnak) are immune. */
+function isChompable(def: HSCardDef): boolean {
+  return def.size !== 'large' && def.size !== 'huge';
+}
+
+/** Living ENEMY medium-or-small figures adjacent to the active Grimnak that he
+ *  could Chomp right now (the board highlights these). Empty unless it is this
+ *  seat's Grimnak turn, before attacking, with the one chomp unspent. */
+export function chompTargets(state: HSState, seat: number): string[] {
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
+  if (state.turnAttacks.length > 0 || state.chompedThisTurn) return [];
+  const active = state.cards.find(c => c.uid === getActiveCardUid(state));
+  if (!active || active.cardId !== GRIMNAK_CARD_ID) return [];
+  const grimnak = state.figures.find(f => f.cardUid === active.uid && f.at != null);
+  if (!grimnak) return [];
+  return state.figures
+    .filter(
+      f =>
+        f.at != null &&
+        f.ownerSeat !== seat &&
+        isChompable(cardDefFor(state, f)) &&
+        figuresAdjacent(state, grimnak, f),
+    )
+    .map(f => f.id);
+}
+
+/** Can this seat's Grimnak Chomp right now (≥1 legal adjacent enemy)? */
+export function canChomp(state: HSState, seat: number): boolean {
+  return chompTargets(state, seat).length > 0;
+}
+
+function doChomp(state: HSState, seat: number, targetId: string, d20: number): HSResult {
+  if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) return { error: 'Chomp requires a d20 roll (1-20)' };
+  const active = state.cards.find(c => c.uid === getActiveCardUid(state));
+  if (!active || active.cardId !== GRIMNAK_CARD_ID) return { error: 'Only Grimnak may Chomp' };
+  if (state.turnAttacks.length > 0) return { error: 'Chomp happens before attacking' };
+  if (state.chompedThisTurn) return { error: 'Grimnak has already Chomped this turn' };
+  const grimnak = state.figures.find(f => f.cardUid === active.uid && f.at != null);
+  if (!grimnak) return { error: 'Grimnak is not on the battlefield' };
+  const target = state.figures.find(f => f.id === targetId);
+  if (!target || target.at == null) return { error: 'No such figure to Chomp' };
+  if (target.ownerSeat === seat) return { error: 'Choose an enemy figure to Chomp' };
+  const tdef = cardDefFor(state, target);
+  if (!isChompable(tdef)) return { error: `${tdef.name} is too large to Chomp (medium or small figures only)` };
+  if (!figuresAdjacent(state, grimnak, target)) return { error: 'The figure must be adjacent to Grimnak' };
+
+  const s = clone(state);
+  s.chompedThisTurn = true;
+  const isSquad = tdef.type === 'squad';
+  const destroyed = isSquad || d20 >= CHOMP_HERO_THRESHOLD;
+  if (destroyed) {
+    const t = s.figures.find(f => f.id === targetId)!;
+    t.at = null;
+    t.at2 = null;
+    pushLog(
+      s,
+      'power',
+      isSquad
+        ? `Chomp! Grimnak devours ${figureLabel(s, target)} (a Squad figure — automatic).`
+        : `Chomp! Grimnak rolls ${d20} (≥${CHOMP_HERO_THRESHOLD}) and devours ${figureLabel(s, target)}.`,
+    );
+    checkEliminationWin(s); // chomping a seat's last figure ends the game
+  } else {
+    pushLog(
+      s,
+      'power',
+      `Grimnak snaps at ${figureLabel(s, target)} but rolls ${d20} (<${CHOMP_HERO_THRESHOLD}) — it survives.`,
+    );
+  }
+  return s;
+}
+
 /**
  * Marro WATER CLONE (cards.md): "Instead of attacking with the Marro Warriors,
  * roll the 20-sided die for each Marro Warrior in play. If you roll a 15 or
@@ -3127,6 +3213,7 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
   delete s.mindShackleSpent;
+  delete s.chompedThisTurn;
   if (advanceSlot(s)) beginTurnOrSkip(s);
   return s;
 }

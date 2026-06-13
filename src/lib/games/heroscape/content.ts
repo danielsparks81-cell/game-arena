@@ -214,6 +214,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     attack: 4,
     defense: 7,
     height: 7,
+    size: 'large', // cards.md: Large 7 — cannot be Chomped
     points: 140,
     letter: 'W',
     species: 'Soulborg',
@@ -232,6 +233,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     attack: 4,
     defense: 3,
     height: 9,
+    size: 'huge', // cards.md: Huge 9 — cannot be Chomped
     points: 150,
     letter: 'Y',
     species: 'Dragon',
@@ -252,11 +254,12 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     attack: 2,
     defense: 4,
     height: 11,
+    size: 'huge', // cards.md: Huge 11 — cannot be Chomped
     points: 160,
     letter: 'G',
     species: 'Orc',
     unitClass: 'Champion',
-    power: 'live', // slice 6: Orc Warrior Enhancement (Chomp → slice 7)
+    power: 'live', // slice 6: Orc Warrior Enhancement + slice 8: Chomp
     baseSize: 2, // DOUBLE-SPACE Orc-on-Tyrannosaurus — occupies two adjacent hexes
   },
   // ---- Ullar ----

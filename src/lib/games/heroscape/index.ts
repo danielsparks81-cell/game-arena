@@ -20,6 +20,8 @@ export {
   fireLineDefenders,
   canMindShackle,
   mindShackleTargets,
+  canChomp,
+  chompTargets,
   canGrenade,
   grenadeTargets,
   grenadeDefenders,

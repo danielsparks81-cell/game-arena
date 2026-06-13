@@ -24,6 +24,8 @@ import {
   orientationOptions,
   canMindShackle,
   mindShackleTargets,
+  canChomp,
+  chompTargets,
   canGrenade,
   grenadeTargets,
   grenadeDefenders,
@@ -3784,13 +3786,13 @@ describe('Fire Line Special Attack (Mimring)', () => {
     expect(ids).not.toContain('mim');
   });
 
-  it('an intervening figure blocks line of sight to the figures behind it', () => {
+  it('figures do NOT block the line — a figure behind another is still hit', () => {
     let s = withMimring();
-    s = inject(s, 1, 'marro_warriors', 'near', at(4, 3)); // blocker
-    s = inject(s, 1, 'marro_warriors', 'far', at(5, 3)); // behind the blocker
+    s = inject(s, 1, 'marro_warriors', 'near', at(4, 3)); // on the line, nearer
+    s = inject(s, 1, 'marro_warriors', 'far', at(5, 3)); // behind 'near' on the line
     const ids = fireLineTargets(s, 'mim', 0).map(f => f.id);
     expect(ids).toContain('near');
-    expect(ids).not.toContain('far');
+    expect(ids).toContain('far'); // the fire passes through 'near' to reach 'far'
   });
 
   it('fireLineDefenders returns one defense entry per affected figure', () => {
@@ -3943,6 +3945,67 @@ describe('Mind Shackle 20 (Ne-Gok-Sa)', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 20 }));
     expect(s.phase).toBe('finished');
     expect(s.winnerSeat).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Grimnak CHOMP — auto-destroy a Squad figure, d20 16+ vs a Hero, no Large/Huge
+// ---------------------------------------------------------------------------
+describe('Chomp (Grimnak)', () => {
+  const GRIM = 's0-grimnak-1';
+  const MW = (n: number) => `s1-marro_warriors-${n}`;
+  const FINN1 = 's1-finn-1';
+
+  /** Grimnak (p1, active) at (3,3); the test parks targets adjacent at (4,3). */
+  function staged(p2: string[] = ['marro_warriors', 'finn']): HSState {
+    let s = customBattle(['grimnak'], p2, 'p1');
+    return place(s, GRIM, at(3, 3));
+  }
+
+  it('chompTargets / canChomp surface adjacent medium/small enemies', () => {
+    let s = staged();
+    s = place(s, MW(1), at(4, 3));
+    expect(chompTargets(s, 0)).toContain(MW(1));
+    expect(canChomp(s, 0)).toBe(true);
+  });
+
+  it('a Squad figure is devoured automatically (no roll needed)', () => {
+    let s = staged();
+    s = place(s, MW(1), at(4, 3));
+    s = unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: MW(1), d20: 1 })); // even a 1
+    expect(fig(s, MW(1)).at).toBeNull(); // destroyed regardless of the roll
+  });
+
+  it('a Hero is devoured on 16+, survives below', () => {
+    let s = staged();
+    s = place(s, FINN1, at(4, 3));
+    expect(fig(unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: FINN1, d20: 15 })), FINN1).at).not.toBeNull();
+    expect(fig(unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: FINN1, d20: 16 })), FINN1).at).toBeNull();
+  });
+
+  it('Large/Huge figures cannot be Chomped', () => {
+    let s = staged(['mimring']); // p2 has a Huge dragon
+    s = place(s, 's1-mimring-1', at(4, 3));
+    expect(chompTargets(s, 0)).not.toContain('s1-mimring-1');
+    expect(errOf(applyAction(s, 'p1', { kind: 'chomp', targetId: 's1-mimring-1', d20: 20 }))).toMatch(/too large/);
+  });
+
+  it('only an adjacent enemy, and only one chomp per turn', () => {
+    let s = staged();
+    s = place(s, MW(1), at(4, 3));
+    s = place(s, MW(2), at(0, 0)); // far away
+    expect(errOf(applyAction(s, 'p1', { kind: 'chomp', targetId: MW(2), d20: 20 }))).toMatch(/adjacent/);
+    s = unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: MW(1), d20: 1 }));
+    expect(s.chompedThisTurn).toBe(true);
+    s = place(s, MW(3), at(4, 3));
+    expect(errOf(applyAction(s, 'p1', { kind: 'chomp', targetId: MW(3), d20: 1 }))).toMatch(/already Chomped/);
+  });
+
+  it('only Grimnak may Chomp', () => {
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1');
+    s = place(s, 's0-finn-1', at(3, 3));
+    s = place(s, MW(1), at(4, 3));
+    expect(errOf(applyAction(s, 'p1', { kind: 'chomp', targetId: MW(1), d20: 20 }))).toMatch(/Only Grimnak/);
   });
 });
 

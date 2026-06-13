@@ -31,6 +31,8 @@ import {
   fireLineSpaces,
   canMindShackle,
   mindShackleTargets,
+  canChomp,
+  chompTargets,
   canGrenade,
   grenadeTargets,
   legalTargets,
@@ -138,6 +140,7 @@ type Props = {
   onBerserkerCharge: () => void;
   onWaterClone: () => void;
   onMindShackle: (targetId: string) => void;
+  onChomp: (targetId: string) => void;
   onGrenade: () => void;
   onGrenadeThrow: (targetId: string) => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
@@ -734,7 +737,7 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
-  onBerserkerCharge, onWaterClone, onMindShackle, onGrenade, onGrenadeThrow, onResolveChoice, onEndTurn,
+  onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onEndTurn,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -745,6 +748,8 @@ export default function HeroScapeBoard({
   // slice 8: Ne-Gok-Sa MIND SHACKLE targeting mode. When on, adjacent enemy
   // figures highlight as shackle targets and a figure click sends mind_shackle.
   const [shackleMode, setShackleMode] = useState(false);
+  // slice 8: Grimnak CHOMP targeting mode (same idea — adjacent enemy click).
+  const [chompMode, setChompMode] = useState(false);
   // Per-seat army-row expand override (opponent rosters collapse to fit 4-6
   // players; the user can toggle any). Keyed by seat; absent → default.
   const [openSeats, setOpenSeats] = useState<Record<number, boolean>>({});
@@ -774,12 +779,14 @@ export default function HeroScapeBoard({
     setGrappleMode(false);
     setFireLineMode(false);
     setShackleMode(false);
+    setChompMode(false);
   }, [state.round, state.phase]);
-  // Drop Grapple-Gun / Fire-Line / Mind-Shackle mode when the selection changes.
+  // Drop Grapple / Fire-Line / Mind-Shackle / Chomp mode when the selection changes.
   useEffect(() => {
     setGrappleMode(false);
     setFireLineMode(false);
     setShackleMode(false);
+    setChompMode(false);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -963,6 +970,15 @@ export default function HeroScapeBoard({
   const shackleTargets = useMemo(
     () => (shackleMode && me ? new Set(mindShackleTargets(state, me.seat)) : new Set<string>()),
     [shackleMode, me, state],
+  );
+
+  // slice 8: Grimnak CHOMP. canDoChomp offers the toggle; chompTargetSet is the
+  // adjacent medium/small enemies a figure click will Chomp (server rolls the
+  // d20 — Squad figures die automatically, Heroes on 16+).
+  const canDoChomp = !!(canAct && me && canChomp(state, me.seat));
+  const chompTargetSet = useMemo(
+    () => (chompMode && me ? new Set(chompTargets(state, me.seat)) : new Set<string>()),
+    [chompMode, me, state],
   );
 
   // slice 8: Airborne GRENADE SPECIAL ATTACK. canThrowGrenade offers the
@@ -1174,6 +1190,12 @@ export default function HeroScapeBoard({
     // server rolls the d20; a natural 20 seizes the card).
     if (shackleMode) {
       if (occ && shackleTargets.has(occ.id)) { onMindShackle(occ.id); setShackleMode(false); }
+      return;
+    }
+    // slice 8: Chomp mode — clicking a highlighted adjacent medium/small enemy
+    // Chomps it (server rolls the d20; Squad figures die automatically).
+    if (chompMode) {
+      if (occ && chompTargetSet.has(occ.id)) { onChomp(occ.id); setChompMode(false); }
       return;
     }
     // Attack: the clicked hex holds an enemy I can currently target (a 2-hex
@@ -1673,7 +1695,7 @@ export default function HeroScapeBoard({
             </div>
           )}
           <div className="max-h-44 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400">
-            {state.log.slice(-12).map(e => (
+            {state.log.slice(-12).reverse().map(e => (
               <div key={e.seq} className={e.tag === 'roll' ? 'text-sky-300/80' : ''}>{e.text}</div>
             ))}
           </div>
@@ -1977,6 +1999,23 @@ export default function HeroScapeBoard({
             🧠 Mind Shackle {shackleMode ? '— pick an adjacent enemy' : '(seize a card on a natural 20)'}
           </button>
         )}
+        {/* slice 8: Grimnak CHOMP toggle — before attacking, devour an adjacent
+            medium/small enemy (Squad auto, Hero on a d20 16+). Not his attack. */}
+        {canDoChomp && (
+          <button
+            onClick={() => setChompMode(m => !m)}
+            disabled={disabled}
+            title="Chomp: before attacking, choose an adjacent medium or small enemy figure. A Squad figure is devoured automatically; a Hero is devoured on a d20 of 16+. Large/Huge figures can't be Chomped. Doesn't use Grimnak's attack."
+            className={
+              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
+              (chompMode
+                ? 'border-lime-400 bg-lime-900/40 text-lime-200'
+                : 'border-lime-600 text-lime-300 hover:bg-lime-900/30')
+            }
+          >
+            🦖 Chomp {chompMode ? '— pick an adjacent enemy' : '(devour medium/small)'}
+          </button>
+        )}
         {/* slice 8: Airborne GRENADE SPECIAL ATTACK — once-per-game initiate. */}
         {canThrowGrenade && (
           <button
@@ -2177,12 +2216,13 @@ export default function HeroScapeBoard({
             const isTarget = fig ? targets.has(fig.id) : false;
             const isShackleTarget = fig ? shackleTargets.has(fig.id) : false; // slice 8
             const isGrenadeTarget = fig ? grenadeTargetSet.has(fig.id) : false; // slice 8
+            const isChompTarget = fig ? chompTargetSet.has(fig.id) : false; // slice 8
             const mine = fig ? me && fig.ownerSeat === me.seat : false;
             const placeClickable = canPlace && !!mine;
             const act = fig ? activation.get(fig.id) : undefined; // move|attack|done
             const dimmed = act === 'done';
             const ring = act === 'move' ? '#22c55e' : act === 'attack' ? '#f59e0b' : null;
-            const figClickable = fig ? (canAct && (mine || isTarget || isShackleTarget || isGrenadeTarget)) || placeClickable : false;
+            const figClickable = fig ? (canAct && (mine || isTarget || isShackleTarget || isGrenadeTarget || isChompTarget)) || placeClickable : false;
             const fLabel = `${fdef?.letter ?? ''}${fdef?.type === 'squad' ? fig?.index : ''}`;
             // Double-space figures (Mimring, Grimnak) span TWO hexes: one standee
             // centred on the midpoint of both top-faces, with a wider base.
@@ -2286,6 +2326,10 @@ export default function HeroScapeBoard({
                     {/* slice 8: Grenade target ring (orange dashed) */}
                     {isGrenadeTarget && (
                       <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#fb923c" strokeWidth={3.5} strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
+                    )}
+                    {/* slice 8: Chomp target ring (lime dashed) */}
+                    {isChompTarget && (
+                      <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#84cc16" strokeWidth={3.5} strokeDasharray="3 2" style={{ pointerEvents: 'none' }} />
                     )}
                     {/* activation ring: green=can move, amber=can attack */}
                     {ring && (
@@ -2418,7 +2462,7 @@ export default function HeroScapeBoard({
         </button>
         {logOpen && (
           <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-60 lg:max-h-none lg:min-h-0 lg:flex-1">
-            {state.log.slice(-40).map(e => (
+            {state.log.slice(-40).reverse().map(e => (
               <div
                 key={e.seq}
                 className={
