@@ -2591,20 +2591,18 @@ describe('slice 5: full 16-card roster', () => {
     expect(HS_CARDS.agent_carr).toMatchObject({ range: 6, attack: 2, defense: 4, points: 100 });
   });
 
-  it('power flags: slice-4/6/7 cards are live; only the 3 slice-8 powers stay wip', () => {
-    // slice 4 + slice 6 (10 cards) + slice 7 (Drake/Krav Maga/Izumi go live; Raelin
-    // & Agent Carr were already live) = 13 live. The remaining 3 (Airborne Elite,
-    // Mimring, Ne-Gok-Sa — each needs a slice-8 special attack / placement /
-    // control power) stay wip. Mimring's Flying is live even though its card is
-    // wip for the Fire Line Special Attack.
+  it('power flags: Mimring Fire Line now live; only the other 2 slice-8 powers stay wip', () => {
+    // slice 4 + slice 6/7 (13 cards) + slice 8 Mimring (Fire Line Special Attack
+    // implemented) = 14 live. The remaining 2 — Airborne Elite (grenade special
+    // attack + The Drop) and Ne-Gok-Sa (Mind Shackle control) — stay wip.
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
       'agent_carr', 'deathwalker_9000', 'drake', 'finn', 'grimnak', 'izumi_samurai',
-      'krav_maga', 'marro_warriors', 'raelin', 'syvarris', 'tarn_vikings', 'thorgrim',
-      'zettian_guards',
+      'krav_maga', 'marro_warriors', 'mimring', 'raelin', 'syvarris', 'tarn_vikings',
+      'thorgrim', 'zettian_guards',
     ]);
     const wip = Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort();
-    expect(wip).toEqual(['airborne_elite', 'mimring', 'ne_gok_sa']);
+    expect(wip).toEqual(['airborne_elite', 'ne_gok_sa']);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {

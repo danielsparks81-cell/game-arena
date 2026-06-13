@@ -236,8 +236,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'Y',
     species: 'Dragon',
     unitClass: 'Beast',
-    power: 'wip', // slice 8: Fire Line Special Attack (its Flying is live in slice 7)
-    flying: true, // slice 7: FLYING — Mimring flies even though Fire Line is wip
+    power: 'live', // slice 8: Fire Line Special Attack implemented (Flying live since slice 7)
+    flying: true, // slice 7: FLYING
     baseSize: 2, // DOUBLE-SPACE dragon — occupies two adjacent hexes
   },
   grimnak: {
