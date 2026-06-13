@@ -84,6 +84,7 @@ import {
   applyAction as applyActionHS,
   attackDiceRequirements as hsAttackDiceRequirements,
   fireLineDefenders as hsFireLineDefenders,
+  grenadeDefenders as hsGrenadeDefenders,
   moveConsequences as hsMoveConsequences,
   getActiveCardUid as hsGetActiveCardUid,
   HS_GLYPHS,
@@ -740,6 +741,8 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
   | { game: 'heroscape'; kind: 'orient_figure'; figureId: string; dir: number }
   | { game: 'heroscape'; kind: 'mind_shackle'; targetId: string }
+  | { game: 'heroscape'; kind: 'grenade' }
+  | { game: 'heroscape'; kind: 'grenade_throw'; targetId: string }
   | { game: 'heroscape'; kind: 'berserker_charge' }
   | { game: 'heroscape'; kind: 'water_clone' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
@@ -1186,6 +1189,11 @@ type HSWireAction =
   // Ne-Gok-Sa MIND SHACKLE (slice 8): the d20 is NOT on the wire — the server
   // rolls it; the board sends only the chosen adjacent-enemy target.
   | { kind: 'mind_shackle'; targetId: string }
+  // Airborne GRENADE SPECIAL ATTACK (slice 8): `grenade` initiates (no dice);
+  // each `grenade_throw` carries only the chosen Range-5 target — the server
+  // rolls the 2 attack dice + each affected figure's defense.
+  | { kind: 'grenade' }
+  | { kind: 'grenade_throw'; targetId: string }
   // Special powers (slice 4): the d20(s) are NOT on the wire — makeMoveHS rolls
   // them server-side and injects the values into the engine action.
   | { kind: 'berserker_charge' }
@@ -1263,6 +1271,20 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       attackerId: action.attackerId,
       dir: action.dir,
       attackRoll: rollDice(4),
+      defenseRolls: defenders.map(d => ({ figureId: d.figureId, roll: rollDice(d.defense) })),
+    };
+  } else if (action.kind === 'grenade_throw') {
+    // Airborne GRENADE — the CURRENT Elite (head of the pending throw queue)
+    // lobs at the chosen target. The server rolls 2 attack dice ONCE + each
+    // affected figure's defense; the engine re-derives the affected set + the
+    // dice need (printed defense + auras, no height) and validates the shapes.
+    const pc = state.pendingChoice;
+    const throwerId = pc && pc.kind === 'grenade_throw' ? pc.throwers[0] : '';
+    const defenders = hsGrenadeDefenders(state, throwerId, action.targetId);
+    engineAction = {
+      kind: 'grenade_throw',
+      targetId: action.targetId,
+      attackRoll: rollDice(2),
       defenseRolls: defenders.map(d => ({ figureId: d.figureId, roll: rollDice(d.defense) })),
     };
   } else if (action.kind === 'move_figure') {

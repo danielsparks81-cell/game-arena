@@ -154,6 +154,10 @@ export type ArmyCardInstance = {
    *  helpers. Default 0; absent on slice-2/3 saves → treated as 0. */
   attackMod: number;
   defenseMod: number;
+  /** Airborne Elite GRENADE SPECIAL ATTACK is ONCE PER GAME (the single grenade
+   *  marker). Set true when the squad throws; never reset. Absent → not yet
+   *  used. Only ever set on the Airborne Elite card. */
+  grenadeUsed?: boolean;
 };
 
 export type Figure = {
@@ -311,6 +315,18 @@ export type HSPendingChoice =
       /** Living unique Army Card uids the Spirit may be placed on (ANY owner —
        *  Finn/Thorgrim's text is not friendly-restricted, cards.md). */
       options: string[];
+    }
+  | {
+      // Airborne GRENADE SPECIAL ATTACK throw sequence (cards.md) — "one at a
+      // time … with each Airborne Elite." `throwers` is the ordered queue of
+      // living Elite figure ids still to throw; the FIRST is throwing now. The
+      // owner resolves each with a `grenade_throw` action (a chosen Range-5
+      // target); the engine shifts the queue, auto-skipping any Elite with no
+      // figure in range, until it is empty.
+      kind: 'grenade_throw';
+      seat: number;
+      cardUid: string;
+      throwers: string[];
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -618,6 +634,23 @@ export type HSAction =
       kind: 'mind_shackle';
       targetId: string;
       d20: number;
+    }
+  | {
+      // Airborne Elite GRENADE SPECIAL ATTACK (cards.md) — INITIATE. Removes the
+      // once-per-game grenade marker and opens the throw sequence (one grenade
+      // per living Elite, resolved one at a time via `grenade_throw`). No dice.
+      kind: 'grenade';
+    }
+  | {
+      // GRENADE SPECIAL ATTACK — resolve the CURRENT Elite's throw at a chosen
+      // figure within Range 5 (no line of sight). Figures adjacent to the target
+      // are also hit. The SERVER rolls 2 attack dice ONCE for all affected and
+      // each affected figure's defense SEPARATELY; the engine re-derives the
+      // affected set + dice need and validates, then advances to the next Elite.
+      kind: 'grenade_throw';
+      targetId: string;
+      attackRoll: CombatFace[];
+      defenseRolls: { figureId: string; roll: CombatFace[] }[];
     }
   | {
       // Resolve the open pendingChoice. Only the owning seat may send it and the

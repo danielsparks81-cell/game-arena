@@ -31,6 +31,8 @@ import {
   fireLineSpaces,
   canMindShackle,
   mindShackleTargets,
+  canGrenade,
+  grenadeTargets,
   legalTargets,
   placeableHexes,
   placeable2Leads,
@@ -136,6 +138,8 @@ type Props = {
   onBerserkerCharge: () => void;
   onWaterClone: () => void;
   onMindShackle: (targetId: string) => void;
+  onGrenade: () => void;
+  onGrenadeThrow: (targetId: string) => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
   onEndTurn: () => void;
   onDraftCard: (cardId: string) => void;
@@ -730,7 +734,7 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
-  onBerserkerCharge, onWaterClone, onMindShackle, onResolveChoice, onEndTurn,
+  onBerserkerCharge, onWaterClone, onMindShackle, onGrenade, onGrenadeThrow, onResolveChoice, onEndTurn,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -961,6 +965,17 @@ export default function HeroScapeBoard({
     [shackleMode, me, state],
   );
 
+  // slice 8: Airborne GRENADE SPECIAL ATTACK. canThrowGrenade offers the
+  // initiate button; once the throw sequence is open, grenadeChoice holds it and
+  // grenadeTargetSet is the CURRENT Elite's in-range figures (each click resolves
+  // one throw, then the engine advances to the next Elite).
+  const canThrowGrenade = !!(canAct && me && canGrenade(state, me.seat));
+  const grenadeChoice = myChoice?.kind === 'grenade_throw' ? myChoice : null;
+  const grenadeTargetSet = useMemo(
+    () => (grenadeChoice ? new Set(grenadeTargets(state, grenadeChoice.throwers[0])) : new Set<string>()),
+    [grenadeChoice, state],
+  );
+
   // Activation highlighting (UI only): during MY turn, classify each figure of
   // the ACTIVE card so the board can ring it —
   //   'move'   → has not moved yet (bright green: can move)
@@ -1136,6 +1151,13 @@ export default function HeroScapeBoard({
     // adjacent hex to land the returning Marro Warrior.
     if (cloneOptions.has(key) && !disabled) {
       onResolveChoice({ kind: 'water_clone_place', hex: key });
+      return;
+    }
+    // slice 8: grenade throw — clicking a highlighted in-range figure lobs the
+    // current Elite's grenade at it (the server rolls; splash hits its neighbours).
+    if (grenadeChoice && !disabled) {
+      const occG = occupantAt(key);
+      if (occG && grenadeTargetSet.has(occG.id)) onGrenadeThrow(occG.id);
       return;
     }
     if (!canAct) return;
@@ -1955,6 +1977,26 @@ export default function HeroScapeBoard({
             🧠 Mind Shackle {shackleMode ? '— pick an adjacent enemy' : '(seize a card on a natural 20)'}
           </button>
         )}
+        {/* slice 8: Airborne GRENADE SPECIAL ATTACK — once-per-game initiate. */}
+        {canThrowGrenade && (
+          <button
+            onClick={() => onGrenade()}
+            disabled={disabled}
+            title="Grenade Special Attack (once per game): each Airborne Elite lobs a grenade one at a time at a figure within Range 5 (no line of sight needed). The target AND every figure adjacent to it are hit (2 attack dice rolled once; each defends separately). Replaces this turn's attack."
+            className="rounded-lg border-2 border-orange-600 px-4 py-2 text-sm font-semibold text-orange-300 transition hover:bg-orange-900/40 disabled:opacity-40"
+          >
+            💣 Grenade (once per game)
+          </button>
+        )}
+        {/* slice 8: Grenade throw sequence — pick a Range-5 figure per Elite. */}
+        {grenadeChoice && (
+          <div className="rounded-lg border-2 border-orange-500 bg-neutral-900/70 px-3 py-2">
+            <div className="text-sm font-bold text-orange-300">💣 Grenade — {grenadeChoice.throwers.length} Elite{grenadeChoice.throwers.length === 1 ? '' : 's'} left to throw</div>
+            <div className="mt-0.5 text-[11px] text-neutral-400">
+              Click a highlighted figure within Range 5 — its neighbours are splashed too.
+            </div>
+          </div>
+        )}
         {/* slice 6: Double Attack hint — Syvarris may take one more attack. No
             modal: his targets stay highlighted (legalTargets still allows him);
             the player either clicks a marked enemy again or ends the turn. */}
@@ -2134,12 +2176,13 @@ export default function HeroScapeBoard({
             const isSel = fig?.id === selectedId;
             const isTarget = fig ? targets.has(fig.id) : false;
             const isShackleTarget = fig ? shackleTargets.has(fig.id) : false; // slice 8
+            const isGrenadeTarget = fig ? grenadeTargetSet.has(fig.id) : false; // slice 8
             const mine = fig ? me && fig.ownerSeat === me.seat : false;
             const placeClickable = canPlace && !!mine;
             const act = fig ? activation.get(fig.id) : undefined; // move|attack|done
             const dimmed = act === 'done';
             const ring = act === 'move' ? '#22c55e' : act === 'attack' ? '#f59e0b' : null;
-            const figClickable = fig ? (canAct && (mine || isTarget || isShackleTarget)) || placeClickable : false;
+            const figClickable = fig ? (canAct && (mine || isTarget || isShackleTarget || isGrenadeTarget)) || placeClickable : false;
             const fLabel = `${fdef?.letter ?? ''}${fdef?.type === 'squad' ? fig?.index : ''}`;
             // Double-space figures (Mimring, Grimnak) span TWO hexes: one standee
             // centred on the midpoint of both top-faces, with a wider base.
@@ -2239,6 +2282,10 @@ export default function HeroScapeBoard({
                     {/* slice 8: Mind-Shackle target ring (fuchsia dashed) */}
                     {isShackleTarget && (
                       <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#d946ef" strokeWidth={3.5} strokeDasharray="5 3" style={{ pointerEvents: 'none' }} />
+                    )}
+                    {/* slice 8: Grenade target ring (orange dashed) */}
+                    {isGrenadeTarget && (
+                      <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#fb923c" strokeWidth={3.5} strokeDasharray="4 3" style={{ pointerEvents: 'none' }} />
                     )}
                     {/* activation ring: green=can move, amber=can attack */}
                     {ring && (

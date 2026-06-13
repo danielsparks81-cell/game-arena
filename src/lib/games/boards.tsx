@@ -278,6 +278,8 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onBerserkerCharge={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'berserker_charge' }); })}
       onWaterClone={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'water_clone' }); })}
       onMindShackle={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'mind_shackle', targetId }); })}
+      onGrenade={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grenade' }); })}
+      onGrenadeThrow={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grenade_throw', targetId }); })}
       onResolveChoice={(choice: HSChoiceResolution) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'resolve_choice', choice }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
       onDraftCard={(cardId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_card', cardId }); })}

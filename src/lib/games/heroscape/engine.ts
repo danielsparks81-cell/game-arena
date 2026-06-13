@@ -233,6 +233,14 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   // every normal action for everyone except the owning seat, and the owner may
   // ONLY resolve it. Never auto-resolved (rules-fidelity §choice).
   if (state.pendingChoice) {
+    // The Airborne grenade throw sequence resolves via its OWN server-rolled
+    // action (not resolve_choice), so it is permitted while its choice is open.
+    if (state.pendingChoice.kind === 'grenade_throw' && action.kind === 'grenade_throw') {
+      if (state.pendingChoice.seat !== me.seat) {
+        return { error: 'This grenade belongs to another player' };
+      }
+      return doGrenadeThrow(state, me.seat, action);
+    }
     if (action.kind !== 'resolve_choice') {
       return state.pendingChoice.seat === me.seat
         ? { error: 'Resolve your pending choice first' }
@@ -258,6 +266,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'grapple_move':
     case 'attack':
     case 'fire_line':
+    case 'grenade':
     case 'berserker_charge':
     case 'water_clone':
     case 'mind_shackle':
@@ -285,6 +294,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
         );
       if (action.kind === 'attack') return doAttack(state, action);
       if (action.kind === 'fire_line') return doFireLine(state, action);
+      if (action.kind === 'grenade') return doGrenade(state, me.seat);
       if (action.kind === 'berserker_charge') return doBerserkerCharge(state, me.seat, action.d20);
       if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
       if (action.kind === 'mind_shackle') return doMindShackle(state, me.seat, action.targetId, action.d20);
@@ -299,6 +309,10 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'unplace_figure':
     case 'placement_ready':
       return { error: 'That action is not available right now' };
+    // A grenade_throw only arrives mid-sequence (caught by the pendingChoice
+    // gate above); reaching here means there is no open grenade.
+    case 'grenade_throw':
+      return { error: 'No grenade throw is pending' };
   }
 }
 
@@ -2353,6 +2367,174 @@ function doFireLine(
     'attack',
     `${figureLabel(s, mover)} unleashes the Fire Line (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no figures in the line'}.`,
   );
+  return s;
+}
+
+// ============================================================================
+// Airborne Elite GRENADE SPECIAL ATTACK (slice 8, cards.md) — Range 5, Lob 12,
+// Attack 2, ONCE PER GAME. One grenade per living Elite, thrown one at a time:
+// choose a figure within Range 5 (no LOS); the target AND every figure adjacent
+// to it (friend or foe) are hit. 2 attack dice rolled ONCE for all affected;
+// each defends separately. Special attack → no height / aura-attack / LOS.
+// ============================================================================
+const AIRBORNE_CARD_ID = 'airborne_elite';
+const GRENADE_RANGE = 5;
+const GRENADE_ATTACK = 2;
+
+/** Figures a given Airborne Elite could lob a grenade at right now: any living
+ *  figure (friend OR foe) within Range 5 — NO line of sight needed ("Lob 12";
+ *  our map heights never exceed the lob arc). */
+export function grenadeTargets(state: HSState, throwerId: string): string[] {
+  const thrower = state.figures.find(f => f.id === throwerId);
+  const map = MAPS[state.mapId];
+  if (!thrower || thrower.at == null || !map) return [];
+  const out: string[] = [];
+  for (const f of state.figures) {
+    if (f.id === thrower.id || f.at == null) continue;
+    const within = figureHexes(thrower).some(ah =>
+      figureHexes(f).some(th => {
+        const d = rangeDistance(map.cells, ah, th);
+        return d != null && d <= GRENADE_RANGE;
+      }),
+    );
+    if (within) out.push(f.id);
+  }
+  return out;
+}
+
+/** The figures a grenade thrown at `targetId` AFFECTS — the target plus every
+ *  figure adjacent to it (friend OR foe) — with each one's defense dice (printed
+ *  + auras, NO height advantage: special attack). */
+export function grenadeDefenders(
+  state: HSState,
+  throwerId: string,
+  targetId: string,
+): { figureId: string; defense: number }[] {
+  const thrower = state.figures.find(f => f.id === throwerId);
+  const target = state.figures.find(f => f.id === targetId);
+  if (!thrower || !target || target.at == null) return [];
+  const affected = new Map<string, Figure>([[target.id, target]]);
+  for (const f of state.figures) {
+    if (f.at == null || f.id === target.id) continue;
+    if (figuresAdjacent(state, target, f)) affected.set(f.id, f);
+  }
+  return [...affected.values()].map(t => ({
+    figureId: t.id,
+    defense: Math.max(0, effectiveDefenseDice(state, t, thrower).dice),
+  }));
+}
+
+/** Can the active Airborne Elite throw grenades now — squad active, marker
+ *  unused, no attack yet, no open choice, and ≥1 Elite has a figure in range. */
+export function canGrenade(state: HSState, seat: number): boolean {
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat) return false;
+  if (state.turnAttacks.length > 0 || state.pendingChoice) return false;
+  const active = state.cards.find(c => c.uid === getActiveCardUid(state));
+  if (!active || active.cardId !== AIRBORNE_CARD_ID || active.grenadeUsed) return false;
+  return state.figures
+    .filter(f => f.cardUid === active.uid && f.at != null)
+    .some(f => grenadeTargets(state, f.id).length > 0);
+}
+
+/** INITIATE the grenade: remove the once-per-game marker, spend the squad's
+ *  attack, and open the throw sequence (living Elites with a target in range). */
+function doGrenade(state: HSState, seat: number): HSResult {
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (!active || active.cardId !== AIRBORNE_CARD_ID) {
+    return { error: 'Only Airborne Elite have the Grenade Special Attack' };
+  }
+  if (active.grenadeUsed) return { error: 'The Grenade Special Attack is once per game (already used)' };
+  if (state.turnAttacks.length > 0) {
+    return { error: 'The Grenade Special Attack replaces this turn’s attack — you have already attacked' };
+  }
+  const living = state.figures.filter(f => f.cardUid === activeUid && f.at != null).map(f => f.id);
+  if (living.length === 0) return { error: 'No Airborne Elite are on the battlefield' };
+
+  const s = clone(state);
+  s.cards.find(c => c.uid === activeUid)!.grenadeUsed = true; // remove the marker (once per game)
+  s.turnAttacks.push({ attackerId: living[0], targetId: living[0] }); // a special attack IS the attack
+  pushLog(s, 'power', `${playerName(s, seat)} pulls the Grenade marker — the Airborne Elite lob grenades one at a time.`);
+  const throwers = living.filter(id => grenadeTargets(s, id).length > 0);
+  if (throwers.length === 0) {
+    pushLog(s, 'power', 'No figures within Range 5 — no grenades are thrown.');
+    return s;
+  }
+  s.pendingChoice = { kind: 'grenade_throw', seat, cardUid: active.uid, throwers };
+  return s;
+}
+
+/** Resolve the CURRENT Elite's grenade at a chosen Range-5 target; apply the
+ *  2-attack-once + per-defender splash, then advance the queue (skipping any
+ *  remaining Elite that no longer has a target). */
+function doGrenadeThrow(
+  state: HSState,
+  seat: number,
+  action: { targetId: string; attackRoll: CombatFace[]; defenseRolls: { figureId: string; roll: CombatFace[] }[] },
+): HSResult {
+  const pc = state.pendingChoice;
+  if (!pc || pc.kind !== 'grenade_throw') return { error: 'No grenade throw is pending' };
+  if (pc.seat !== seat) return { error: 'This grenade belongs to another player' };
+  const throwerId = pc.throwers[0];
+  const thrower = state.figures.find(f => f.id === throwerId);
+  if (!thrower || thrower.at == null) return { error: 'The throwing Elite is no longer on the field' };
+  if (!grenadeTargets(state, throwerId).includes(action.targetId)) {
+    return { error: 'Choose a figure within Range 5 of the throwing Elite' };
+  }
+  if (!validFaces(action.attackRoll, GRENADE_ATTACK)) return { error: 'Malformed grenade attack roll' };
+  const defenders = grenadeDefenders(state, throwerId, action.targetId);
+  const got = new Map(action.defenseRolls.map(d => [d.figureId, d.roll] as const));
+  if (got.size !== action.defenseRolls.length) return { error: 'Duplicate grenade defender' };
+  if (defenders.length !== action.defenseRolls.length) return { error: 'Grenade defender set mismatch' };
+  for (const d of defenders) {
+    const roll = got.get(d.figureId);
+    if (!roll || !validFaces(roll, d.defense)) return { error: 'Malformed grenade defense roll' };
+  }
+
+  const skulls = countFaces(action.attackRoll, 'skull');
+  const s = clone(state);
+  const results: string[] = [];
+  let totalWounds = 0;
+  for (const d of defenders) {
+    const shields = countFaces(got.get(d.figureId)!, 'shield');
+    const w = Math.max(0, skulls - shields);
+    const t = s.figures.find(f => f.id === d.figureId);
+    if (!t) continue;
+    t.wounds += w;
+    totalWounds += w;
+    const destroyed = t.wounds >= cardDefFor(s, t).life;
+    if (destroyed) { t.at = null; t.at2 = null; }
+    results.push(`${figureLabel(s, t)} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
+  }
+  s.lastAttack = {
+    attackerId: throwerId,
+    targetId: action.targetId,
+    attackerLabel: figureLabel(s, s.figures.find(f => f.id === throwerId)!),
+    targetLabel: `Grenade — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
+    attackRoll: action.attackRoll,
+    defenseRoll: [],
+    skulls,
+    shields: 0,
+    wounds: totalWounds,
+    destroyed: false,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: ['Grenade Special Attack', `Attack ${GRENADE_ATTACK} (special — no height / aura / LOS)`],
+    seq: s.logSeq + 1,
+  };
+  pushLog(s, 'attack', `Grenade (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no effect'}.`);
+  checkEliminationWin(s); // a splash can remove a seat's last figures
+  if (s.phase !== 'playing') {
+    delete s.pendingChoice;
+    return s;
+  }
+  // Advance: drop this thrower; skip any remaining Elite that now has no target.
+  const rest = pc.throwers.slice(1).filter(id => {
+    const f = s.figures.find(x => x.id === id);
+    return f && f.at != null && grenadeTargets(s, id).length > 0;
+  });
+  if (rest.length === 0) delete s.pendingChoice;
+  else s.pendingChoice = { kind: 'grenade_throw', seat, cardUid: pc.cardUid, throwers: rest };
   return s;
 }
 

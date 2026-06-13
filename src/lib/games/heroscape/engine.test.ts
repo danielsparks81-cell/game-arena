@@ -24,6 +24,9 @@ import {
   orientationOptions,
   canMindShackle,
   mindShackleTargets,
+  canGrenade,
+  grenadeTargets,
+  grenadeDefenders,
   fireLineSpaces,
   fireLineTargets,
   fireLineDefenders,
@@ -3940,5 +3943,78 @@ describe('Mind Shackle 20 (Ne-Gok-Sa)', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 20 }));
     expect(s.phase).toBe('finished');
     expect(s.winnerSeat).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Airborne Elite GRENADE SPECIAL ATTACK — once/game, per-Elite, splash, no LOS
+// ---------------------------------------------------------------------------
+describe('Grenade Special Attack (Airborne Elite)', () => {
+  const A = (n: number) => `s0-airborne_elite-${n}`;
+  const M = (n: number) => `s1-marro_warriors-${n}`;
+
+  /** Airborne Elite (p1, active) with A1 in grenade range of two ADJACENT Marro
+   *  (M1,M2); the other Marro are parked far away (out of range). */
+  function staged(): HSState {
+    let s = customBattle(['airborne_elite'], ['marro_warriors'], 'p1');
+    for (let n = 1; n <= 4; n++) s = place(s, A(n), at(n - 1, 0)); // Elites near the top
+    s = place(s, M(3), at(0, 7));
+    s = place(s, M(4), at(6, 7)); // M3/M4 far from the Elites
+    s = place(s, A(1), at(3, 1));
+    s = place(s, M(1), at(3, 3));
+    s = place(s, M(2), at(4, 3)); // adjacent to M1
+    return s;
+  }
+
+  it('canGrenade + grenadeTargets surface in-range figures', () => {
+    const s = staged();
+    expect(canGrenade(s, 0)).toBe(true);
+    expect(grenadeTargets(s, A(1))).toContain(M(1));
+  });
+
+  it('initiating opens the throw sequence, removes the once-per-game marker, spends the attack', () => {
+    let s = staged();
+    s = unwrap(applyAction(s, 'p1', { kind: 'grenade' }));
+    expect(s.pendingChoice?.kind).toBe('grenade_throw');
+    expect(s.cards.find(c => c.cardId === 'airborne_elite')!.grenadeUsed).toBe(true);
+    expect(s.turnAttacks.length).toBeGreaterThan(0);
+    expect(canGrenade(s, 0)).toBe(false); // marker gone
+  });
+
+  it('a throw hits the target AND its neighbours (splash)', () => {
+    let s = staged();
+    s = unwrap(applyAction(s, 'p1', { kind: 'grenade' }));
+    const defenders = grenadeDefenders(s, A(1), M(1)).map(d => d.figureId);
+    expect(defenders).toContain(M(1));
+    expect(defenders).toContain(M(2)); // adjacent → splashed
+    s = unwrap(applyAction(s, 'p1', {
+      kind: 'grenade_throw',
+      targetId: M(1),
+      attackRoll: F('kk'),
+      defenseRolls: defenders.map(id => ({ figureId: id, roll: F('bbb') })),
+    }));
+    expect(fig(s, M(1)).at).toBeNull(); // destroyed
+    expect(fig(s, M(2)).at).toBeNull(); // splash destroyed
+  });
+
+  it('once per game: after the grenade is used it cannot be used again', () => {
+    let s = staged();
+    // Leave only ONE living Elite so the throw sequence is exactly [A1] (a
+    // grenade can target friend OR foe, so multiple Elites keep finding each
+    // other as targets — that is correct, just not what this test isolates).
+    s = place(s, A(2), null);
+    s = place(s, A(3), null);
+    s = place(s, A(4), null);
+    s = unwrap(applyAction(s, 'p1', { kind: 'grenade' }));
+    const defenders = grenadeDefenders(s, A(1), M(1)).map(d => ({ figureId: d.figureId, roll: F('bbb') }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'grenade_throw', targetId: M(1), attackRoll: F('kk'), defenseRolls: defenders }));
+    expect(s.pendingChoice).toBeUndefined(); // only Elite has thrown → sequence ends
+    expect(errOf(applyAction(s, 'p1', { kind: 'grenade' }))).toMatch(/once per game/);
+  });
+
+  it('targets beyond Range 5 are not legal', () => {
+    const s = staged();
+    expect(grenadeTargets(s, A(1))).not.toContain(M(3)); // far corner
+    expect(grenadeTargets(s, A(1))).not.toContain(M(4));
   });
 });
