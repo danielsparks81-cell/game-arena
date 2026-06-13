@@ -48,7 +48,20 @@ import {
 const HEX = 34; // px size of a unit hex
 const PAD = 26;
 
-const SEAT_COLORS = ['#34d399', '#f87171']; // fallback accents by roster index
+// One DISTINCT team colour per seat (up to 8). Used when a player has no
+// explicit accent_color — without a full palette here, seats 3+ all collapsed to
+// the same grey, making figures indistinguishable at 3-6 players. Chosen for
+// mutual contrast AND contrast against the board's grass/sand/water terrain.
+const SEAT_COLORS = [
+  '#ef4444', // 1 red
+  '#3b82f6', // 2 blue
+  '#eab308', // 3 yellow
+  '#a855f7', // 4 purple
+  '#ec4899', // 5 pink
+  '#14b8a6', // 6 teal
+  '#f97316', // 7 orange
+  '#84cc16', // 8 lime
+];
 const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
 type Assignment = { marker: OrderMarkerValue; cardUid: string };
@@ -303,13 +316,28 @@ function FigureStandee({
       {/* drop shadow — elongated + rotated for a double-space figure */}
       <ellipse
         cx={mx} cy={my + baseRy * 0.5} rx={wideRx * 1.02} ry={baseRy * 0.8}
-        fill="#000000" opacity={0.28}
+        fill="#000000" opacity={0.26}
         transform={wide ? `rotate(${baseAngle} ${mx} ${my + baseRy * 0.5})` : undefined}
       />
-      {/* accent base (ownership) — a 2-hex oval, or the 1-hex disc */}
+      {/* OWNERSHIP COLOUR — a figure's own moulded base is SMALLER than the hex
+       *  footprint, so we ring it in the owner's team colour. A soft ground AURA
+       *  plus a bold colour chip make "whose figure is this?" read at a glance
+       *  even with 3-6 players sharing the board: the sprite's real base sits on
+       *  top, leaving a clear colour band around it. Both rotate along the long
+       *  axis for a double-space figure so the colour spans both hexes. */}
+      <ellipse
+        cx={mx} cy={my} rx={wideRx + hex * 0.17} ry={baseRy + hex * 0.09}
+        fill={accent} opacity={0.30}
+        transform={wide ? `rotate(${baseAngle} ${mx} ${my})` : undefined}
+      />
       <ellipse
         cx={mx} cy={my} rx={wideRx} ry={baseRy}
-        fill={accent} stroke="#0a0a0a" strokeWidth={1.5} opacity={0.95}
+        fill={accent} stroke="#0a0a0a" strokeWidth={2} opacity={0.97}
+        transform={wide ? `rotate(${baseAngle} ${mx} ${my})` : undefined}
+      />
+      <ellipse
+        cx={mx} cy={my} rx={wideRx} ry={baseRy}
+        fill="none" stroke="#ffffff" strokeWidth={1} opacity={0.28}
         transform={wide ? `rotate(${baseAngle} ${mx} ${my})` : undefined}
       />
       {mode === 'pngIdx' || mode === 'png' ? (
