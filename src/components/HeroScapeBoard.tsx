@@ -254,7 +254,7 @@ function CardArt({ cardId, className }: { cardId: string; className?: string }) 
  * a tidy standee, hiding the crop seams — v1 accepts the painted background).
  */
 function FigureStandee({
-  cardId, cx, cy, hex, accent, fallbackLabel, billboard, cx2, cy2,
+  cardId, cx, cy, hex, accent, fallbackLabel, billboard, cx2, cy2, squadIndex,
 }: {
   cardId: string;
   cx: number;
@@ -267,15 +267,18 @@ function FigureStandee({
    *  centred on the midpoint of (cx,cy)-(cx2,cy2) with a wider, rotated base. */
   cx2?: number;
   cy2?: number;
+  /** Squad figure index (1-based): tries a per-trooper sprite
+   *  `<cardId>-<index>.png` first so each squad member keeps its own pose. */
+  squadIndex?: number;
 }) {
   // Sprite source chain, best → fallback:
-  //   'png' = a clean cut-out figure (transparent bg) → drawn FRAMELESS, standing
-  //           on its base (this is what the user's own photos become).
-  //   'jpg' = the card-art crop (opaque) → drawn inside a rounded frame to hide
-  //           the crop seams (the original online/card-derived sprite).
-  //   'disc' = no sprite at all → the legacy colored disc + letter.
-  // We try png first; onError walks down the chain, so a missing file never breaks.
-  const [mode, setMode] = useState<'png' | 'jpg' | 'disc'>(billboard ? 'png' : 'disc');
+  //   'pngIdx' = a per-squad-member cut-out (<cardId>-<index>.png) so each trooper
+  //              shows its OWN pose; 'png' = the shared clean cut-out (frameless);
+  //   'jpg' = the card-art crop (framed); 'disc' = the colored disc + letter.
+  // onError walks down the chain, so a missing file never breaks.
+  const [mode, setMode] = useState<'pngIdx' | 'png' | 'jpg' | 'disc'>(
+    billboard ? (squadIndex != null ? 'pngIdx' : 'png') : 'disc',
+  );
   // Base ellipse footprint (squashed, sits flat on the iso top face).
   const baseRx = hex * 0.46;
   const baseRy = hex * 0.24;
@@ -309,14 +312,15 @@ function FigureStandee({
         fill={accent} stroke="#0a0a0a" strokeWidth={1.5} opacity={0.95}
         transform={wide ? `rotate(${baseAngle} ${mx} ${my})` : undefined}
       />
-      {mode === 'png' ? (
-        // Clean cut-out: no frame, no clip — just the figure standing on its base,
-        // bottom-anchored (xMidYMax) and shown whole (meet). Falls to 'jpg' if absent.
+      {mode === 'pngIdx' || mode === 'png' ? (
+        // Clean cut-out: no frame — the figure standing on its base, bottom-
+        // anchored (xMidYMax) and shown whole (meet). A squad member tries its own
+        // <cardId>-<index>.png, then the shared <cardId>.png, then the framed jpg.
         <image
-          href={`/heroscape/figures/${cardId}.png`}
+          href={mode === 'pngIdx' ? `/heroscape/figures/${cardId}-${squadIndex}.png` : `/heroscape/figures/${cardId}.png`}
           x={spriteX} y={spriteY} width={spriteW} height={spriteH}
           preserveAspectRatio="xMidYMax meet"
-          onError={() => setMode('jpg')}
+          onError={() => setMode(mode === 'pngIdx' ? 'png' : 'jpg')}
         />
       ) : mode === 'jpg' ? (
         <>
@@ -2083,6 +2087,7 @@ export default function HeroScapeBoard({
                       accent={seatColor(fig.ownerSeat)}
                       fallbackLabel={fLabel}
                       billboard={!!fCardId}
+                      squadIndex={fdef?.type === 'squad' ? fig.index : undefined}
                     />
                     {/* squad index chip (bottom-right of the base) so squad
                         members stay distinguishable on the standee. */}
