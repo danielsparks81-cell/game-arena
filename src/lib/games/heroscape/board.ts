@@ -487,3 +487,169 @@ export function computeFall(
   if (over >= 10) return { tier: 'major', dice: 3 };
   return { tier: 'fall', dice: 1 };
 }
+
+// ============================================================================
+// 2.5D ISOMETRIC projection (renderer only — docs/heroscape/slice-iso-spec.md)
+// ============================================================================
+//
+// A pure, drop-in projection over the SAME data the flat renderer uses: it maps
+// an axial (q, r) cell at a given `height` to a 2.5D "tilted-camera" anchor and
+// builds the hex-PRISM geometry (top hexagon + the front side-face quads) plus
+// the back-to-front draw order and the whole-scene bounds. Everything stays in
+// UNIT space here (a tile is `size 1`); the component scales by its pixel HEX
+// and applies the per-viewer 180° flip BEFORE calling these — exactly as the
+// flat board flips hex CENTERS — so the iso math and the engine read one source.
+//
+// Projection. The spec's `(q-r, q+r)` form is a 45° rotation of axial space;
+// we use the EQUIVALENT, tiling-guaranteed dimetric variant: take the flat
+// pointy-top center `hexToPixel`, SQUASH it vertically by `ISO_SQUASH` (so the
+// ground reads as receding), and LIFT it by `height * LEVEL_H` (the column
+// depth). Squashing a valid hex grid by a constant keeps it a valid grid, so
+// the squashed top hexagons still tile perfectly edge-to-edge — no seams — while
+// the elevation lift produces the stacked-column look. (Chosen over the literal
+// `(q-r, q+r)` so adjacent same-height tiles abut exactly; documented deviation.)
+
+/** Vertical squash of the ground plane (0..1): smaller = more "tilted" / flatter
+ *  tiles. ~0.55 reads as receding ground without losing the hex shape. */
+export const ISO_SQUASH = 0.56;
+/** Pixel rise (in unit-size space, before the component's HEX scale) per ONE
+ *  level of terrain height — the depth of a column's side faces. */
+export const ISO_LEVEL_H = 0.62;
+
+/** Squash a flat unit pixel onto the iso ground plane (no height lift). */
+function isoSquash(p: Pixel): Pixel {
+  return { x: p.x, y: p.y * ISO_SQUASH };
+}
+
+/**
+ * Iso TOP-FACE center (anchor) for a cell, in unit space. This is where the
+ * figure stands and the highlight/badge sit. Lifted UP the screen (−y) by the
+ * column height so a taller tile floats above its footprint.
+ */
+export function isoTopCenter(key: HexKey, height: number): Pixel {
+  const flat = isoSquash(hexToPixel(key));
+  return { x: flat.x, y: flat.y - height * ISO_LEVEL_H };
+}
+
+/** The footprint center on the BASE plane (height 0) — where a column's bottom
+ *  sits. Used for the side-face quads and the scene's lower bound. */
+export function isoBaseCenter(key: HexKey): Pixel {
+  return isoSquash(hexToPixel(key));
+}
+
+/**
+ * The six corners of a cell's iso TOP hexagon, in unit space, ordered the same
+ * as `hexCorners` (k=0 is the right-ish vertex, going clockwise in screen
+ * space). It is the flat pointy-top hexagon with its y squashed and lifted by
+ * height — so it tiles with its neighbours' tops. `scale` shrinks it toward the
+ * center (e.g. for a slightly inset highlight), mirroring `hexCorners`.
+ */
+export function isoTopHexCorners(key: HexKey, height: number, scale = 1): Pixel[] {
+  const c = isoTopCenter(key, height);
+  // Flat corners around the ORIGIN, squashed, then re-centered on the iso anchor.
+  const out: Pixel[] = [];
+  for (let k = 0; k < 6; k++) {
+    const angle = (Math.PI / 180) * (60 * k - 30);
+    out.push({
+      x: c.x + scale * Math.cos(angle),
+      y: c.y + scale * Math.sin(angle) * ISO_SQUASH,
+    });
+  }
+  return out;
+}
+
+/**
+ * A column side face (one quad) for the prism: the FRONT-facing top edges
+ * dropped straight down to the base by `height * ISO_LEVEL_H`. Each face is
+ * `{ pts: [topA, topB, baseB, baseA], shade }` where `shade` is a 0..1 form
+ * factor (left faces darker than right) the renderer multiplies into the
+ * terrain color. Only edges whose midpoint faces the viewer (lower half of the
+ * squashed hex, screen-y ≥ center) get a wall — the back edges are hidden, so
+ * we skip them (fewer polygons, correct overlap). A height-0/water tile yields
+ * NO faces (flat top, no column).
+ */
+export type IsoSideFace = { pts: Pixel[]; shade: number };
+
+export function isoSideFaces(key: HexKey, height: number): IsoSideFace[] {
+  if (height <= 0) return [];
+  const top = isoTopHexCorners(key, height);
+  const drop = height * ISO_LEVEL_H;
+  const center = isoTopCenter(key, height);
+  const faces: IsoSideFace[] = [];
+  for (let k = 0; k < 6; k++) {
+    const a = top[k];
+    const b = top[(k + 1) % 6];
+    // FRONT edge = its midpoint sits at or below the tile center on screen
+    // (the viewer looks slightly down, so the lower rim is the visible wall).
+    const midY = (a.y + b.y) / 2;
+    if (midY < center.y - 1e-9) continue; // back edge — hidden, skip
+    const baseA = { x: a.x, y: a.y + drop };
+    const baseB = { x: b.x, y: b.y + drop };
+    // Directional shading so the prism reads as 3-D: faces on the LEFT of the
+    // tile are darker (in shadow), the front-bottom is mid, RIGHT faces are
+    // lightest (catching the light). Keyed on the face's average x relative to
+    // the tile center → a smooth 0.52 (left) … 0.82 (right). Multiplied into the
+    // terrain color by the renderer.
+    const faceX = (a.x + b.x) / 2 - center.x;
+    const t = Math.max(-1, Math.min(1, faceX / 0.866)); // −1 (far left)…+1 (far right)
+    const shade = 0.67 + t * 0.15;
+    faces.push({ pts: [a, b, baseB, baseA], shade });
+  }
+  return faces;
+}
+
+/**
+ * Back-to-front PAINTER's-ORDER key for a cell, given its FLIPPED axial (the
+ * component flips (q, r) for the viewer before calling). Cells are drawn in
+ * ascending order of this key so nearer/taller tiles paint over farther ones:
+ * sort by footprint depth `(q + r)` first (the diagonal sweeping toward the
+ * viewer), then by `height` (a tall column at the same footprint draws after a
+ * short one behind it). Returns a single comparable number; ties are fine
+ * (same footprint+height never overlap). The figure draws right after its tile.
+ */
+export function isoDrawOrderKey(q: number, r: number, height: number): number {
+  // (q + r) dominates; height is a small tiebreak that never reorders across
+  // different footprints (heights are ≤ ~6, the depth step is 1000).
+  return (q + r) * 1000 + height;
+}
+
+/** Sort cells back-to-front for the painter's algorithm. Pure; returns a new
+ *  array. `qrOf` supplies the (already viewer-flipped) axial + height per cell so
+ *  the caller controls the flip in ONE place. Stable within equal keys. */
+export function isoSortByDepth<T>(
+  cells: readonly T[],
+  qrOf: (cell: T) => { q: number; r: number; height: number },
+): T[] {
+  return cells
+    .map((cell, i) => ({ cell, i, k: (() => { const { q, r, height } = qrOf(cell); return isoDrawOrderKey(q, r, height); })() }))
+    .sort((a, b) => (a.k - b.k) || (a.i - b.i))
+    .map(e => e.cell);
+}
+
+/**
+ * Bounds of the whole iso scene in unit space — the union of every tile's TOP
+ * hexagon (lifted by its height) AND every column BASE (dropped to height 0) —
+ * so the SVG viewBox fits the tallest columns and the lowest footprints. The
+ * caller passes the cells with their (already viewer-flipped) keys + heights;
+ * this returns `{ minX, minY, maxX, maxY }` BEFORE the HEX scale + padding.
+ */
+export function isoSceneBounds(
+  cells: readonly { key: HexKey; height: number }[],
+): { minX: number; minY: number; maxX: number; maxY: number } {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const eat = (p: Pixel) => {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  };
+  for (const { key, height } of cells) {
+    // Top hexagon corners (highest point of the tile).
+    for (const c of isoTopHexCorners(key, height)) eat(c);
+    // Column base corners (lowest point) — the top hex dropped to the base.
+    const drop = height * ISO_LEVEL_H;
+    for (const c of isoTopHexCorners(key, height)) eat({ x: c.x, y: c.y + drop });
+  }
+  if (!Number.isFinite(minX)) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  return { minX, minY, maxX, maxY };
+}

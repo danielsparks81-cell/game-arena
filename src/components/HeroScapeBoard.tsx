@@ -31,9 +31,15 @@ import {
   placeableHexes,
   figureLabel,
   getActiveCardUid,
-  hexToPixel,
-  hexCorners,
   axialToOffset,
+  offsetToAxial,
+  hexKey,
+  parseHexKey,
+  isoTopCenter,
+  isoTopHexCorners,
+  isoSideFaces,
+  isoSortByDepth,
+  isoSceneBounds,
 } from '@/lib/games/heroscape';
 
 const HEX = 34; // px size of a unit hex
@@ -66,6 +72,32 @@ function hexFill(terrain: string, height: number, isDest: boolean): { fill: stri
   // grass
   const fills = ['#2f4a2a', '#3a5a33', '#46693c', '#527845'];
   return { fill: fills[lift], stroke: '#1c2c1a' };
+}
+
+/** Multiply a #rrggbb color by a 0..1+ factor (clamped to 255) for the iso
+ *  side-face shading. Pure string→string; keeps the prism's columns a darker
+ *  shade of the terrain top, with the per-face form factor folded in. */
+function shadeHex(hex: string, factor: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 0xff) * factor));
+  const g = Math.min(255, Math.round(((n >> 8) & 0xff) * factor));
+  const b = Math.min(255, Math.round((n & 0xff) * factor));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+/**
+ * Iso prism colors for a cell: the terrain TOP fill (reusing the flat palette so
+ * the look matches), the top OUTLINE stroke, and the base SIDE color the
+ * per-face shade multiplies. Water keeps its flat blue top and (being height-0
+ * visually) renders no tall column. `isDest` paints the legal-move green top.
+ */
+function isoTileColors(terrain: string, height: number, isDest: boolean): { top: string; stroke: string; side: string } {
+  const { fill, stroke } = hexFill(terrain, height, isDest);
+  // Side base = the top fill darkened ~30%; the per-face shade (0.52…0.82) is
+  // then applied on top for left/right form. Dest-green tiles use a green side.
+  return { top: fill, stroke, side: shadeHex(fill, 0.7) };
 }
 
 type Props = {
@@ -165,6 +197,91 @@ function CardArt({ cardId, className }: { cardId: string; className?: string }) 
       onError={(e) => { e.currentTarget.style.display = 'none'; }}
       className={className}
     />
+  );
+}
+
+/**
+ * A figure STANDEE for the 2.5D iso board (slice-iso-spec §Figures). Anchored at
+ * the tile's iso TOP-face center `(cx, cy)`, it draws (bottom-up):
+ *   • a soft drop-SHADOW ellipse on the tile,
+ *   • a player-accent BASE ellipse (ownership is unmistakable),
+ *   • an upright BILLBOARD sprite (/heroscape/figures/<cardId>.jpg), ~1.7×HEX
+ *     tall, bottom-anchored on the base so the figure "stands" on the tile.
+ * If the sprite is missing/fails to load it falls back (CardArt-style onError)
+ * to the legacy colored DISC + letter so the board never breaks. The ring /
+ * selection / target / wound / squad-index overlays are drawn by the caller,
+ * re-anchored to this same center. `clipId` must be unique per figure (the
+ * billboard is clipped to a rounded card so the painted card background reads as
+ * a tidy standee, hiding the crop seams — v1 accepts the painted background).
+ */
+function FigureStandee({
+  cardId, cx, cy, hex, accent, fallbackLabel, billboard,
+}: {
+  cardId: string;
+  cx: number;
+  cy: number;
+  hex: number;
+  accent: string;
+  fallbackLabel: string;
+  billboard: boolean; // false → squad/extra: skip the sprite, just disc+label
+}) {
+  const [broken, setBroken] = useState(false);
+  // Base ellipse footprint (squashed, sits flat on the iso top face).
+  const baseRx = hex * 0.46;
+  const baseRy = hex * 0.24;
+  const showSprite = billboard && !broken;
+  // Billboard size: a portrait standing on the base center. ~1.1×HEX wide,
+  // ~1.7×HEX tall, its BOTTOM resting just above the base center.
+  const spriteW = hex * 1.15;
+  const spriteH = hex * 1.7;
+  const spriteX = cx - spriteW / 2;
+  const spriteY = cy - spriteH + baseRy * 0.4; // feet near the base center
+  const clipId = `hs-fig-clip-${cardId}-${Math.round(cx)}-${Math.round(cy)}`;
+  return (
+    <g style={{ pointerEvents: 'none' }}>
+      {/* drop shadow on the tile */}
+      <ellipse cx={cx} cy={cy + baseRy * 0.5} rx={baseRx * 1.02} ry={baseRy * 0.8} fill="#000000" opacity={0.28} />
+      {/* accent base disc (ownership) */}
+      <ellipse cx={cx} cy={cy} rx={baseRx} ry={baseRy} fill={accent} stroke="#0a0a0a" strokeWidth={1.5} opacity={0.95} />
+      {showSprite ? (
+        <>
+          <defs>
+            <clipPath id={clipId}>
+              <rect x={spriteX} y={spriteY} width={spriteW} height={spriteH} rx={hex * 0.16} ry={hex * 0.16} />
+            </clipPath>
+          </defs>
+          {/* upright billboard sprite — bottom-anchored on the base */}
+          {/* eslint-disable-next-line @next/next/no-img-element is N/A for SVG image */}
+          <image
+            href={`/heroscape/figures/${cardId}.jpg`}
+            x={spriteX} y={spriteY} width={spriteW} height={spriteH}
+            preserveAspectRatio="xMidYMid slice"
+            clipPath={`url(#${clipId})`}
+            onError={() => setBroken(true)}
+          />
+          {/* thin frame around the standee so it reads as a stand-up piece */}
+          <rect
+            x={spriteX} y={spriteY} width={spriteW} height={spriteH}
+            rx={hex * 0.16} ry={hex * 0.16}
+            fill="none" stroke={accent} strokeWidth={1.5} opacity={0.9}
+          />
+        </>
+      ) : (
+        // Fallback: the legacy colored disc + letter (sprite missing or a
+        // squad's extra figures we keep as discs).
+        <>
+          <circle cx={cx} cy={cy - hex * 0.18} r={hex * 0.42} fill={accent} stroke="#0a0a0a" strokeWidth={1.5} />
+          <text
+            x={cx} y={cy - hex * 0.18 + 1}
+            textAnchor="middle" dominantBaseline="middle"
+            fontSize={hex * 0.42} fontWeight={800} fill="#0a0a0a"
+            style={{ userSelect: 'none' }}
+          >
+            {fallbackLabel}
+          </text>
+        </>
+      )}
+    </g>
   );
 }
 
@@ -667,32 +784,69 @@ export default function HeroScapeBoard({
     [clonePlacement, cloneChosen],
   );
 
-  // Geometry: scale unit-space pixel coords to screen px and translate into view.
+  // ----- 2.5D ISOMETRIC geometry (renderer; board.ts owns the pure math) -----
+  // Same data as the flat board, projected to stacked hex PRISMS via the iso
+  // helpers. The per-viewer 180° flip now happens in AXIAL space (mirror the
+  // (col,row) of every cell) BEFORE projecting — so my start zone reads at the
+  // bottom-front, exactly as the flat renderer flipped hex centers. Heights come
+  // from the cell record (the engine already stores them).
   const cells = Object.values(map?.cells ?? {});
-  const centers = cells.map(c => ({ c, p: hexToPixel(`${c.q},${c.r}`) }));
-  const minX = Math.min(...centers.map(e => e.p.x)) * HEX;
-  const minY = Math.min(...centers.map(e => e.p.y)) * HEX;
-  const maxX = Math.max(...centers.map(e => e.p.x)) * HEX;
-  const maxY = Math.max(...centers.map(e => e.p.y)) * HEX;
-  const W = maxX - minX + 2 * (HEX + PAD);
-  const H = maxY - minY + 2 * (HEX + PAD);
-  // Orient the board so the VIEWER's own start zone is always at the bottom.
-  // Decision is based on the static start zones (not live figure positions), so
-  // it stays fixed for the whole game. We implement it as a 180° point
-  // reflection (x,y)->(W-x,H-y): a pointy-top hex maps onto itself and figure
-  // letters stay upright (we reflect hex CENTERS, not the SVG canvas). Seat 0
-  // starts at the top row, so it flips; seat 1 already sits at the bottom.
+  // Orient so the VIEWER's own start zone is at the bottom-front. Decision is
+  // based on the static start zones, fixed for the whole game (seat 0 starts at
+  // the top → flips; seat 1 already sits at the bottom).
   const myZone = me ? (map?.startZones[me.seat] ?? []) : [];
   const myAvgRow = myZone.length
     ? myZone.reduce((s, k) => s + axialToOffset(k).row, 0) / myZone.length
     : 0;
   const flip = myZone.length > 0 && map != null && myAvgRow < (map.rows - 1) / 2;
-  const toScreen = (key: HexKey) => {
-    const p = hexToPixel(key);
-    const x = p.x * HEX - minX + HEX + PAD;
-    const y = p.y * HEX - minY + HEX + PAD;
-    return flip ? { x: W - x, y: H - y } : { x, y };
+  const cols = map?.cols ?? 0;
+  const rows = map?.rows ?? 0;
+  // The viewer flip as an axial-space transform: mirror the offset (col,row)
+  // about the grid center, then back to an axial key. Identity when not flipped.
+  const flipKey = (key: HexKey): HexKey => {
+    if (!flip) return key;
+    const { col, row } = axialToOffset(key);
+    const { q, r } = offsetToAxial(cols - 1 - col, rows - 1 - row);
+    return hexKey(q, r);
   };
+  const heightOf = (key: HexKey) => map?.cells[key]?.height ?? 0;
+  // Scene bounds over the FLIPPED tops + column bases → the SVG viewBox (scaled
+  // by HEX, padded). Computing over the flipped keys keeps the framing tight
+  // regardless of orientation.
+  const bounds = isoSceneBounds(cells.map(c => ({ key: flipKey(`${c.q},${c.r}`), height: c.height })));
+  const minX = bounds.minX * HEX;
+  const minY = bounds.minY * HEX;
+  // Standees rise ~1.7×HEX above their tile top (+ a wound pip above the head),
+  // which the tile-only scene bounds don't account for — reserve extra TOP
+  // headroom so a back-row figure is never clipped by the viewBox.
+  const STANDEE_HEADROOM = HEX * 1.9;
+  const W = (bounds.maxX - bounds.minX) * HEX + 2 * (HEX + PAD);
+  const H = (bounds.maxY - bounds.minY) * HEX + 2 * (HEX + PAD) + STANDEE_HEADROOM;
+  // Unit→screen: scale by HEX and translate so the scene's top-left sits at PAD,
+  // pushed down by the standee headroom so figures fit above the back row.
+  const place = (p: { x: number; y: number }) => ({
+    x: p.x * HEX - minX + HEX + PAD,
+    y: p.y * HEX - minY + HEX + PAD + STANDEE_HEADROOM,
+  });
+  // Iso TOP-face CENTER of a real-key cell (figures/glyphs/badges anchor here).
+  const toScreen = (key: HexKey) => place(isoTopCenter(flipKey(key), heightOf(key)));
+  // Iso TOP hexagon screen points (the clickable polygon + highlight outline).
+  const topHexPts = (key: HexKey, scale = 1) =>
+    isoTopHexCorners(flipKey(key), heightOf(key), scale).map(place);
+  // Iso column SIDE faces (screen quads + per-face shade) for the prism.
+  const sideFaces = (key: HexKey) =>
+    isoSideFaces(flipKey(key), heightOf(key)).map(f => ({
+      pts: f.pts.map(place),
+      shade: f.shade,
+    }));
+  // Cells sorted back-to-front (painter's algorithm) on their FLIPPED depth, so
+  // nearer/taller prisms overlap farther ones correctly.
+  const drawCells = isoSortByDepth(cells, c => {
+    const { q, r } = parseHexKey(flipKey(`${c.q},${c.r}`));
+    return { q, r, height: c.height };
+  });
+  // Polygon-points string for an iso top hexagon (clickable target / outline).
+  const ptsStr = (pts: { x: number; y: number }[]) => pts.map(p => `${p.x},${p.y}`).join(' ');
 
   const figureAt = (key: HexKey) => state.figures.find(f => f.at === key) ?? null;
 
@@ -1524,141 +1678,162 @@ export default function HeroScapeBoard({
           preserveAspectRatio="xMidYMid meet"
           className="block h-full max-h-full w-full"
         >
-          {/* Hexes — terrain + elevation shading (height lightens the fill) */}
-          {cells.map(c => {
+          {/* 2.5D ISO board — drawn STRICTLY back-to-front (painter's
+              algorithm): for each cell in depth order we paint its PRISM, then
+              its glyph, then the standee that stands on it, so a nearer/taller
+              tile (and its figure) correctly overlaps the ones behind it. All
+              hit-testing stays keyed by hex: the iso TOP hexagon is the click
+              polygon, the standee re-anchors every overlay to the same center. */}
+          {drawCells.map(c => {
             const key: HexKey = `${c.q},${c.r}`;
-            const ctr = toScreen(key);
-            const pts = hexCorners(ctr, HEX * 0.985).map(p => `${p.x},${p.y}`).join(' ');
+            const top = topHexPts(key); // iso top hexagon (screen pts)
+            const ctr = toScreen(key); // iso top-face center
+            const sides = sideFaces(key); // column quads (empty for water/h0)
             const isPlaceHex = placeHexes.has(key); // slice 5 placement target
             const isDest = destinations.has(key) || isPlaceHex;
             const isCloneOpt = cloneOptions.has(key);
-            const { fill, stroke } = hexFill(c.terrain, c.height, isDest);
+            const drawColumn = c.terrain !== 'water' && c.height > 0; // water = flat top
+            const colors = isoTileColors(c.terrain, c.height, isDest);
+            const topFill = isCloneOpt ? '#0e4f6e' : colors.top;
+            const topStroke = isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : colors.stroke;
             const startZoneSeat = Object.entries(map.startZones).find(([, keys]) => keys.includes(key))?.[0];
-            const occupied = !!figureAt(key);
+            const fig = figureAt(key);
+            const occupied = !!fig;
             const clickable = canAct || isCloneOpt || (canPlace && (isPlaceHex || occupied));
+
+            // --- glyph on this hex (drawn between tile top and standee) ---
+            const glyph = (state.glyphs ?? []).find(g => g.at === key);
+
+            // --- figure standee on this hex ---
+            const fdef = fig ? HS_CARDS[state.cards.find(cd => cd.uid === fig.cardUid)?.cardId ?? ''] : null;
+            const fCardId = fig ? state.cards.find(cd => cd.uid === fig.cardUid)?.cardId ?? '' : '';
+            const isSel = fig?.id === selectedId;
+            const isTarget = fig ? targets.has(fig.id) : false;
+            const mine = fig ? me && fig.ownerSeat === me.seat : false;
+            const placeClickable = canPlace && !!mine;
+            const act = fig ? activation.get(fig.id) : undefined; // move|attack|done
+            const dimmed = act === 'done';
+            const ring = act === 'move' ? '#22c55e' : act === 'attack' ? '#f59e0b' : null;
+            const figClickable = fig ? (canAct && (mine || isTarget)) || placeClickable : false;
+            const fLabel = `${fdef?.letter ?? ''}${fdef?.type === 'squad' ? fig?.index : ''}`;
+
             return (
-              <g key={key} onClick={() => clickHex(key)} className={clickable ? 'cursor-pointer' : ''}>
+              <g key={key}>
+                {/* PRISM column side faces (back-to-front within a tile is
+                    implicit — they share the same footprint depth). */}
+                {drawColumn && sides.map((face, i) => (
+                  <polygon
+                    key={`s${i}`}
+                    points={ptsStr(face.pts)}
+                    fill={shadeHex(colors.side, face.shade)}
+                    stroke="#0a0a0a" strokeWidth={0.5}
+                    onClick={() => clickHex(key)}
+                    className={clickable ? 'cursor-pointer' : ''}
+                  />
+                ))}
+                {/* TOP face — the clickable hexagon (same onClick={clickHex}). */}
                 <polygon
-                  points={pts}
-                  fill={isCloneOpt ? '#0e4f6e' : fill}
-                  stroke={isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : stroke}
+                  points={ptsStr(top)}
+                  fill={topFill}
+                  stroke={topStroke}
                   strokeWidth={isCloneOpt || isDest ? 2 : 1}
+                  onClick={() => clickHex(key)}
+                  className={clickable ? 'cursor-pointer' : ''}
                 />
-                {/* Height pip for elevated / water hexes (skip flat grass and
-                    occupied hexes where the figure disc covers it). */}
+                {/* start-zone tint dot on the top face (unoccupied) */}
+                {(state.phase === 'playing' || placement) && startZoneSeat != null && !occupied && (
+                  <circle cx={ctr.x} cy={ctr.y} r={3} fill={seatColor(Number(startZoneSeat))} opacity={placement && Number(startZoneSeat) === me?.seat ? 0.45 : 0.25} style={{ pointerEvents: 'none' }} />
+                )}
+                {/* height badge on the top face (smaller now elevation is visual;
+                    kept per spec). Skip flat grass & occupied tiles. */}
                 {!occupied && (c.height > 1 || c.terrain === 'water') && (
                   <text
-                    // Top-right corner of the hex (toward the upper-right vertex),
-                    // kept just inside the edge so it doesn't overflow.
-                    x={ctr.x + HEX * 0.48} y={ctr.y - HEX * 0.4}
+                    x={ctr.x + HEX * 0.42} y={ctr.y - HEX * 0.16}
                     textAnchor="middle" dominantBaseline="middle"
-                    fontSize={HEX * 0.28} fontWeight={700}
-                    fill={c.terrain === 'water' ? '#7dd3fc' : '#e7e5e4'} opacity={0.8}
+                    fontSize={HEX * 0.24} fontWeight={700}
+                    fill={c.terrain === 'water' ? '#7dd3fc' : '#e7e5e4'} opacity={0.75}
                     style={{ userSelect: 'none', pointerEvents: 'none' }}
                   >
                     {c.terrain === 'water' ? '≈' : c.height}
                   </text>
                 )}
-                {(state.phase === 'playing' || placement) && startZoneSeat != null && !occupied && (
-                  <circle cx={ctr.x} cy={ctr.y} r={3} fill={seatColor(Number(startZoneSeat))} opacity={placement && Number(startZoneSeat) === me?.seat ? 0.45 : 0.25} />
-                )}
-              </g>
-            );
-          })}
 
-          {/* Glyphs — a colored letter badge on each glyph hex. Dimmed when no
-              figure stands on it, LIT when occupied (its power is active). When
-              a figure is on the hex the badge tucks into the top-left corner so
-              the figure disc stays legible. */}
-          {(state.glyphs ?? []).map(g => {
-            const ctr = toScreen(g.at);
-            const def = HS_GLYPHS[g.id];
-            const badge = GLYPH_BADGE[def.letter] ?? GLYPH_BADGE.B;
-            const occ = figureAt(g.at);
-            const lit = occ != null;
-            const cx = occ ? ctr.x - HEX * 0.46 : ctr.x;
-            const cy = occ ? ctr.y + HEX * 0.46 : ctr.y;
-            const r = occ ? HEX * 0.26 : HEX * 0.34;
-            return (
-              <g key={`glyph-${g.at}`} onClick={() => clickHex(g.at)} style={{ pointerEvents: occ ? 'none' : undefined }} className={canAct && !occ ? 'cursor-pointer' : ''}>
-                <title>{`${def.name}${lit ? ' (active)' : ''} — ${def.effect}`}</title>
-                <circle
-                  cx={cx} cy={cy} r={r}
-                  fill={badge.bg}
-                  stroke={lit ? badge.ring : '#0a0a0a'}
-                  strokeWidth={lit ? 2.5 : 1.5}
-                  opacity={lit ? 1 : 0.6}
-                />
-                <text
-                  x={cx} y={cy + 0.5}
-                  textAnchor="middle" dominantBaseline="middle"
-                  fontSize={r * 1.1} fontWeight={900} fill="#fafafa"
-                  opacity={lit ? 1 : 0.85}
-                  style={{ userSelect: 'none', pointerEvents: 'none' }}
-                >
-                  {def.letter}
-                </text>
-              </g>
-            );
-          })}
+                {/* GLYPH badge on the top face — dim when empty, LIT when a
+                    figure stands on it; tucked to the corner when occupied so the
+                    standee stays legible. */}
+                {glyph && (() => {
+                  const def = HS_GLYPHS[glyph.id];
+                  const badge = GLYPH_BADGE[def.letter] ?? GLYPH_BADGE.B;
+                  const lit = occupied;
+                  const gx = occupied ? ctr.x - HEX * 0.42 : ctr.x;
+                  const gy = occupied ? ctr.y + HEX * 0.16 : ctr.y;
+                  const gr = occupied ? HEX * 0.22 : HEX * 0.3;
+                  return (
+                    <g onClick={() => clickHex(key)} style={{ pointerEvents: occupied ? 'none' : undefined }} className={canAct && !occupied ? 'cursor-pointer' : ''}>
+                      <title>{`${def.name}${lit ? ' (active)' : ''} — ${def.effect}`}</title>
+                      <circle cx={gx} cy={gy} r={gr} fill={badge.bg} stroke={lit ? badge.ring : '#0a0a0a'} strokeWidth={lit ? 2.5 : 1.5} opacity={lit ? 1 : 0.6} />
+                      <text x={gx} y={gy + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={gr * 1.1} fontWeight={900} fill="#fafafa" opacity={lit ? 1 : 0.85} style={{ userSelect: 'none', pointerEvents: 'none' }}>
+                        {def.letter}
+                      </text>
+                    </g>
+                  );
+                })()}
 
-          {/* Figures */}
-          {state.figures.filter(f => f.at != null).map(f => {
-            const ctr = toScreen(f.at!);
-            const def = HS_CARDS[state.cards.find(c => c.uid === f.cardUid)?.cardId ?? ''];
-            const isSel = f.id === selectedId;
-            const isTarget = targets.has(f.id);
-            const mine = me && f.ownerSeat === me.seat;
-            const placeClickable = canPlace && !!mine; // click to pick up (unplace)
-            // slice-UX: activation state for active-card figures on my turn.
-            const act = activation.get(f.id); // 'move' | 'attack' | 'done' | undefined
-            const dimmed = act === 'done';
-            const ring = act === 'move' ? '#22c55e' : act === 'attack' ? '#f59e0b' : null;
-            return (
-              <g
-                key={f.id}
-                onClick={() => clickHex(f.at!)}
-                className={(canAct && (mine || isTarget)) || placeClickable ? 'cursor-pointer' : ''}
-                opacity={dimmed ? 0.5 : 1}
-              >
-                {isTarget && (
-                  <circle cx={ctr.x} cy={ctr.y} r={HEX * 0.62} fill="none" stroke="#ef4444" strokeWidth={3} strokeDasharray="6 3" />
-                )}
-                {/* Activation glow: green = can move, amber = can still attack.
-                    Drawn under the disc so the selection outline stays on top. */}
-                {ring && (
-                  <circle cx={ctr.x} cy={ctr.y} r={HEX * 0.66} fill="none" stroke={ring} strokeWidth={3.5} opacity={0.9} />
-                )}
-                <circle
-                  cx={ctr.x} cy={ctr.y} r={HEX * 0.5}
-                  fill={seatColor(f.ownerSeat)}
-                  stroke={isSel ? '#fde68a' : ring ?? '#0a0a0a'}
-                  strokeWidth={isSel ? 3.5 : ring ? 2.5 : 1.5}
-                />
-                <text
-                  x={ctr.x} y={ctr.y + 1}
-                  textAnchor="middle" dominantBaseline="middle"
-                  fontSize={HEX * 0.5} fontWeight={800} fill="#0a0a0a"
-                  style={{ userSelect: 'none', pointerEvents: 'none' }}
-                >
-                  {def?.letter}{def?.type === 'squad' ? f.index : ''}
-                </text>
-                {f.wounds > 0 && (
-                  <g style={{ pointerEvents: 'none' }}>
-                    <circle cx={ctr.x - HEX * 0.34} cy={ctr.y - HEX * 0.34} r={6} fill="#dc2626" stroke="#0a0a0a" />
-                    <text
-                      x={ctr.x - HEX * 0.34} y={ctr.y - HEX * 0.34 + 0.5}
-                      textAnchor="middle" dominantBaseline="middle"
-                      fontSize={8} fontWeight={800} fill="#fee2e2"
-                      style={{ userSelect: 'none' }}
-                    >
-                      {f.wounds}
-                    </text>
+                {/* FIGURE STANDEE — stands on this tile's top face. All overlays
+                    (target ring, activation ring, selection, wound pip, squad
+                    index) re-anchored to the iso top-face center. */}
+                {fig && (
+                  <g
+                    onClick={() => clickHex(fig.at!)}
+                    className={figClickable ? 'cursor-pointer' : ''}
+                    opacity={dimmed ? 0.55 : 1}
+                  >
+                    {/* target ring (red dashed) — on the base footprint */}
+                    {isTarget && (
+                      <ellipse cx={ctr.x} cy={ctr.y} rx={HEX * 0.56} ry={HEX * 0.32} fill="none" stroke="#ef4444" strokeWidth={3} strokeDasharray="6 3" style={{ pointerEvents: 'none' }} />
+                    )}
+                    {/* activation ring: green=can move, amber=can attack */}
+                    {ring && (
+                      <ellipse cx={ctr.x} cy={ctr.y} rx={HEX * 0.52} ry={HEX * 0.3} fill="none" stroke={ring} strokeWidth={3.5} opacity={0.95} style={{ pointerEvents: 'none' }} />
+                    )}
+                    {/* selection ring (amber) on the base */}
+                    {isSel && (
+                      <ellipse cx={ctr.x} cy={ctr.y} rx={HEX * 0.5} ry={HEX * 0.28} fill="none" stroke="#fde68a" strokeWidth={3.5} style={{ pointerEvents: 'none' }} />
+                    )}
+                    <FigureStandee
+                      cardId={fCardId}
+                      cx={ctr.x} cy={ctr.y} hex={HEX}
+                      accent={seatColor(fig.ownerSeat)}
+                      fallbackLabel={fLabel}
+                      billboard={!!fCardId}
+                    />
+                    {/* squad index chip (bottom-right of the base) so squad
+                        members stay distinguishable on the standee. */}
+                    {fdef?.type === 'squad' && (
+                      <g style={{ pointerEvents: 'none' }}>
+                        <circle cx={ctr.x + HEX * 0.34} cy={ctr.y + HEX * 0.04} r={7} fill="#0a0a0a" opacity={0.85} stroke={seatColor(fig.ownerSeat)} strokeWidth={1.5} />
+                        <text x={ctr.x + HEX * 0.34} y={ctr.y + HEX * 0.04 + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight={800} fill="#fafafa" style={{ userSelect: 'none' }}>
+                          {fig.index}
+                        </text>
+                      </g>
+                    )}
+                    {/* wound pip — above the standee's head */}
+                    {fig.wounds > 0 && (
+                      <g style={{ pointerEvents: 'none' }}>
+                        <circle cx={ctr.x + HEX * 0.34} cy={ctr.y - HEX * 1.45} r={7} fill="#dc2626" stroke="#0a0a0a" strokeWidth={1.5} />
+                        <text x={ctr.x + HEX * 0.34} y={ctr.y - HEX * 1.45 + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight={800} fill="#fee2e2" style={{ userSelect: 'none' }}>
+                          {fig.wounds}
+                        </text>
+                      </g>
+                    )}
                   </g>
                 )}
               </g>
             );
           })}
+          {/* iso polish: figures snap to position (no move/attack tween) and the
+              camera is a fixed iso angle (no orbit/zoom) — both intentionally out
+              of scope for this slice; this is where those would hook in. */}
         </svg>
         </div>
 

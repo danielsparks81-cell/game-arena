@@ -55,8 +55,17 @@ export {
   segmentCrossesHex,
   hasLineOfSight,
   hasLineOfSight3D,
+  isoTopCenter,
+  isoBaseCenter,
+  isoTopHexCorners,
+  isoSideFaces,
+  isoDrawOrderKey,
+  isoSortByDepth,
+  isoSceneBounds,
+  ISO_SQUASH,
+  ISO_LEVEL_H,
 } from './board';
-export type { Occupancy, Pixel, FallTier, ReachOptions } from './board';
+export type { Occupancy, Pixel, FallTier, ReachOptions, IsoSideFace } from './board';
 
 export type {
   Axial,

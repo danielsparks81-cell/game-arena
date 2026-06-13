@@ -8,12 +8,22 @@ import {
   hexDistance,
   rangeDistance,
   reachableDestinations,
+  hexToPixel,
   stepCost,
   canStepUp,
   areEngaged,
   computeFall,
   hasLineOfSight,
   hasLineOfSight3D,
+  isoTopCenter,
+  isoBaseCenter,
+  isoTopHexCorners,
+  isoSideFaces,
+  isoDrawOrderKey,
+  isoSortByDepth,
+  isoSceneBounds,
+  ISO_SQUASH,
+  ISO_LEVEL_H,
   type Occupancy,
 } from './board';
 import { parseMap, TRAINING_FIELD, THE_KNOLL } from './maps';
@@ -494,5 +504,164 @@ describe('hasLineOfSight3D (elevation)', () => {
   it('intervening figures still block regardless of terrain', () => {
     const cells = cellsWith(1); // flat terrain
     expect(hasLineOfSight3D(cells, A, B, [MID], eye1)).toBe(false);
+  });
+});
+
+// ===========================================================================
+// 2.5D isometric projection (renderer helpers)
+// ===========================================================================
+
+describe('iso projection — anchors & lift', () => {
+  it('a taller tile floats higher (smaller screen-y) at the same footprint', () => {
+    const k = hexKey(2, 3);
+    const lo = isoTopCenter(k, 1);
+    const hi = isoTopCenter(k, 4);
+    // Same x footprint; the taller top is lifted UP the screen by the extra
+    // levels × ISO_LEVEL_H.
+    expect(hi.x).toBeCloseTo(lo.x);
+    expect(lo.y - hi.y).toBeCloseTo(3 * ISO_LEVEL_H);
+  });
+
+  it('the base center is the squashed flat center (height 0 plane)', () => {
+    const k = hexKey(1, 2);
+    const base = isoBaseCenter(k);
+    const top0 = isoTopCenter(k, 0);
+    // Height-0 top sits exactly on the base plane.
+    expect(top0).toEqual(base);
+    // The base y is the flat y scaled by the squash factor.
+    expect(base.y).toBeCloseTo((1.5 * 2) * ISO_SQUASH);
+  });
+
+  it('the ground plane is squashed vertically but not horizontally', () => {
+    // Two cells one axial row apart: x unchanged by the squash, y compressed.
+    const a = isoBaseCenter(hexKey(0, 0));
+    const b = isoBaseCenter(hexKey(0, 1));
+    const fa = hexToPixel(hexKey(0, 0));
+    const fb = hexToPixel(hexKey(0, 1));
+    expect(b.x - a.x).toBeCloseTo(fb.x - fa.x); // horizontal preserved
+    expect(b.y - a.y).toBeCloseTo((fb.y - fa.y) * ISO_SQUASH); // vertical squashed
+  });
+});
+
+describe('iso top hexagon', () => {
+  it('has 6 corners centered on the tile anchor, vertically squashed', () => {
+    const k = hexKey(2, 2);
+    const h = 3;
+    const pts = isoTopHexCorners(k, h);
+    expect(pts).toHaveLength(6);
+    const c = isoTopCenter(k, h);
+    const cx = pts.reduce((s, p) => s + p.x, 0) / 6;
+    const cy = pts.reduce((s, p) => s + p.y, 0) / 6;
+    expect(cx).toBeCloseTo(c.x);
+    expect(cy).toBeCloseTo(c.y);
+    // The hexagon is wider than it is tall (squashed): full width SQRT3 ≈ 1.732,
+    // full height 2 × ISO_SQUASH < width.
+    const w = Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x));
+    const ht = Math.max(...pts.map(p => p.y)) - Math.min(...pts.map(p => p.y));
+    expect(w).toBeGreaterThan(ht);
+    expect(ht).toBeCloseTo(2 * ISO_SQUASH);
+  });
+
+  it('scale shrinks the hexagon toward its center (for inset highlights)', () => {
+    const k = hexKey(0, 0);
+    const full = isoTopHexCorners(k, 1, 1);
+    const inset = isoTopHexCorners(k, 1, 0.8);
+    const c = isoTopCenter(k, 1);
+    // Every inset corner is closer to the center than the matching full corner.
+    for (let i = 0; i < 6; i++) {
+      const dFull = Math.hypot(full[i].x - c.x, full[i].y - c.y);
+      const dIn = Math.hypot(inset[i].x - c.x, inset[i].y - c.y);
+      expect(dIn).toBeLessThan(dFull);
+    }
+  });
+
+  it('adjacent same-height tiles share an edge (no seams)', () => {
+    // Two east-neighbour cells at the same height: a corner of one coincides
+    // with a corner of the other (the grid still tiles after the squash).
+    const a = isoTopHexCorners(hexKey(0, 0), 1);
+    const b = isoTopHexCorners(hexKey(1, 0), 1);
+    // Some corner of A equals some corner of B (shared vertex of the shared edge).
+    const shared = a.some(pa => b.some(pb => Math.hypot(pa.x - pb.x, pa.y - pb.y) < 1e-6));
+    expect(shared).toBe(true);
+  });
+});
+
+describe('iso side faces (the prism column)', () => {
+  it('height 0 / water yields no column faces (flat top)', () => {
+    expect(isoSideFaces(hexKey(1, 1), 0)).toEqual([]);
+  });
+
+  it('produces only FRONT (viewer-facing) faces, each a 4-point quad', () => {
+    const k = hexKey(2, 2);
+    const faces = isoSideFaces(k, 3);
+    expect(faces.length).toBeGreaterThan(0);
+    // A pointy-top column's visible rim = the two slanted bottom edges + the two
+    // vertical side edges = 4; the two back edges are hidden. Never all 6.
+    expect(faces.length).toBeLessThanOrEqual(4);
+    const center = isoTopCenter(k, 3);
+    for (const f of faces) {
+      expect(f.pts).toHaveLength(4);
+      // Each face's two TOP points are at/below the tile center (front rim).
+      expect((f.pts[0].y + f.pts[1].y) / 2).toBeGreaterThanOrEqual(center.y - 1e-9);
+      expect(f.shade).toBeGreaterThan(0);
+      expect(f.shade).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('the column drops exactly height × ISO_LEVEL_H to the base', () => {
+    const k = hexKey(0, 0);
+    const h = 4;
+    const faces = isoSideFaces(k, h);
+    for (const f of faces) {
+      const [topA, topB, baseB, baseA] = f.pts;
+      expect(baseA.y - topA.y).toBeCloseTo(h * ISO_LEVEL_H);
+      expect(baseB.y - topB.y).toBeCloseTo(h * ISO_LEVEL_H);
+      // base corners sit directly under their top corners.
+      expect(baseA.x).toBeCloseTo(topA.x);
+      expect(baseB.x).toBeCloseTo(topB.x);
+    }
+  });
+});
+
+describe('iso draw order (painter\'s algorithm)', () => {
+  it('footprint depth (q+r) dominates; height is a tiebreak within a footprint', () => {
+    // Farther-back footprint always before a nearer one, regardless of height.
+    expect(isoDrawOrderKey(0, 0, 9)).toBeLessThan(isoDrawOrderKey(1, 0, 0));
+    expect(isoDrawOrderKey(2, 1, 0)).toBeLessThan(isoDrawOrderKey(2, 2, 0));
+    // Same footprint: taller draws later (on top).
+    expect(isoDrawOrderKey(1, 1, 1)).toBeLessThan(isoDrawOrderKey(1, 1, 4));
+  });
+
+  it('isoSortByDepth orders cells back-to-front, stable on ties', () => {
+    const cells = [
+      { id: 'front', q: 3, r: 3, height: 1 },
+      { id: 'back', q: 0, r: 0, height: 4 },
+      { id: 'mid', q: 1, r: 1, height: 1 },
+    ];
+    const sorted = isoSortByDepth(cells, c => ({ q: c.q, r: c.r, height: c.height }));
+    expect(sorted.map(c => c.id)).toEqual(['back', 'mid', 'front']);
+  });
+});
+
+describe('iso scene bounds (viewBox)', () => {
+  it('wraps every top hexagon and every column base', () => {
+    const cells = [
+      { key: hexKey(0, 0), height: 1 },
+      { key: hexKey(3, 4), height: 4 },
+    ];
+    const b = isoSceneBounds(cells);
+    expect(b.maxX).toBeGreaterThan(b.minX);
+    expect(b.maxY).toBeGreaterThan(b.minY);
+    // The tall tile's base (lifted top dropped back down) must be inside the
+    // vertical extent: bounds reach at least the base plane of the height-4 tile.
+    const tallTop = isoTopCenter(hexKey(3, 4), 4);
+    const tallBaseY = tallTop.y + 4 * ISO_LEVEL_H;
+    expect(b.maxY).toBeGreaterThanOrEqual(tallBaseY - 1);
+    // And reach the lifted TOP of the tall column near the top of the scene.
+    expect(b.minY).toBeLessThanOrEqual(tallTop.y + 1);
+  });
+
+  it('is empty-safe', () => {
+    expect(isoSceneBounds([])).toEqual({ minX: 0, minY: 0, maxX: 0, maxY: 0 });
   });
 });
