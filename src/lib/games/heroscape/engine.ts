@@ -2371,6 +2371,7 @@ function doFireLine(
     'attack',
     `${figureLabel(s, mover)} unleashes the Fire Line (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no figures in the line'}.`,
   );
+  checkEliminationWin(s); // a lethal line can remove a seat's last figures
   return s;
 }
 

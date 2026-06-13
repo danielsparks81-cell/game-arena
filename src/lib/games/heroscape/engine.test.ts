@@ -3802,6 +3802,27 @@ describe('Fire Line Special Attack (Mimring)', () => {
     expect(defs.length).toBe(fireLineTargets(s, 'mim', 0).length);
     for (const d of defs) expect(d.defense).toBeGreaterThanOrEqual(0);
   });
+
+  it('a lethal Fire Line that wipes the last enemy ENDS the game (fuzzer-found gap)', () => {
+    // Mimring must be the ACTIVE card to actually fire, so stage it via customBattle.
+    const MIM = 's0-mimring-1';
+    const THOR = 's1-thorgrim-1';
+    let s = customBattle(['mimring'], ['thorgrim'], 'p1'); // p2's ONLY figure is Thorgrim
+    s = place(s, MIM, at(3, 3));
+    s = place(s, THOR, at(4, 3)); // onto Mimring's dir-0 line
+    s = { ...s, figures: s.figures.map(f => (f.id === THOR ? { ...f, wounds: 4 } : f)) }; // 1 life left
+    const defs = fireLineDefenders(s, MIM, 0);
+    s = unwrap(applyAction(s, 'p1', {
+      kind: 'fire_line',
+      attackerId: MIM,
+      dir: 0,
+      attackRoll: F('kkkk'),
+      defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: F('b'.repeat(d.defense)) })),
+    }));
+    expect(fig(s, THOR).at).toBeNull(); // destroyed
+    expect(s.phase).toBe('finished'); // ← was the bug: the game kept going
+    expect(s.winnerSeat).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
