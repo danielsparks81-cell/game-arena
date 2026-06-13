@@ -452,6 +452,10 @@ export type HSState = {
    *  (<15) — "one roll" on a miss (cards.md). A SUCCESS does not set this (the
    *  charge may repeat). Cleared each turn. */
   berserkerSpent?: boolean;
+  /** Whether Ne-Gok-Sa has already made his ONE Mind Shackle attempt this turn
+   *  (cards.md — one d20 in the after-move/before-attack window). Set on the
+   *  attempt regardless of success. Cleared each turn. */
+  mindShackleSpent?: boolean;
   log: HSLogEntry[];
   logSeq: number;
 };
@@ -604,6 +608,16 @@ export type HSAction =
       // collects a water_clone_place PendingChoice for each viable success.
       kind: 'water_clone';
       rolls: { marroFigureId: string; d20: number }[];
+    }
+  | {
+      // Ne-Gok-Sa MIND SHACKLE 20 (cards.md) — after moving, before attacking,
+      // an OPTIONAL attempt on a chosen ADJACENT enemy unique figure. The SERVER
+      // rolls the d20; success on a NATURAL 20 only transfers that figure's whole
+      // Army Card (+ all figures on it) to the shackler and removes its order
+      // markers. Does NOT consume Ne-Gok-Sa's attack.
+      kind: 'mind_shackle';
+      targetId: string;
+      d20: number;
     }
   | {
       // Resolve the open pendingChoice. Only the owning seat may send it and the

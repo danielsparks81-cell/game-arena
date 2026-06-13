@@ -22,6 +22,8 @@ import {
   placeableHexes,
   placeable2Leads,
   orientationOptions,
+  canMindShackle,
+  mindShackleTargets,
   fireLineSpaces,
   fireLineTargets,
   fireLineDefenders,
@@ -2592,18 +2594,18 @@ describe('slice 5: full 16-card roster', () => {
     expect(HS_CARDS.agent_carr).toMatchObject({ range: 6, attack: 2, defense: 4, points: 100 });
   });
 
-  it('power flags: Mimring Fire Line now live; only the other 2 slice-8 powers stay wip', () => {
-    // slice 4 + slice 6/7 (13 cards) + slice 8 Mimring (Fire Line Special Attack
-    // implemented) = 14 live. The remaining 2 — Airborne Elite (grenade special
-    // attack + The Drop) and Ne-Gok-Sa (Mind Shackle control) — stay wip.
+  it('power flags: Mimring Fire Line + Ne-Gok-Sa Mind Shackle live; only Airborne stays wip', () => {
+    // slice 4 + slice 6/7 (13 cards) + slice 8 Mimring (Fire Line) + slice 8
+    // Ne-Gok-Sa (Mind Shackle) = 15 live. The only remaining wip is Airborne
+    // Elite (grenade special attack + The Drop).
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
       'agent_carr', 'deathwalker_9000', 'drake', 'finn', 'grimnak', 'izumi_samurai',
-      'krav_maga', 'marro_warriors', 'mimring', 'raelin', 'syvarris', 'tarn_vikings',
-      'thorgrim', 'zettian_guards',
+      'krav_maga', 'marro_warriors', 'mimring', 'ne_gok_sa', 'raelin', 'syvarris',
+      'tarn_vikings', 'thorgrim', 'zettian_guards',
     ]);
     const wip = Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort();
-    expect(wip).toEqual(['airborne_elite', 'ne_gok_sa']);
+    expect(wip).toEqual(['airborne_elite']);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {
@@ -3872,5 +3874,71 @@ describe('orient_figure (2-hex orientation + 1-hex facing)', () => {
     expect(opts.baseSize).toBe(1);
     expect(opts.validDirs).toEqual([0, 1, 2, 3, 4, 5]);
     expect(opts.engagedBlocked).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ne-Gok-Sa MIND SHACKLE 20 — seize an adjacent enemy's whole Army Card on a 20
+// ---------------------------------------------------------------------------
+describe('Mind Shackle 20 (Ne-Gok-Sa)', () => {
+  const NEGOK = 's0-ne_gok_sa-1';
+  const MW = (n: number) => `s1-marro_warriors-${n}`;
+
+  /** Ne-Gok-Sa (p1, active) adjacent to a Marro Warrior (p2). p2 keeps a SECOND
+   *  card (Thorgrim) so a successful shackle doesn't end the game. */
+  function staged(p2 = ['marro_warriors', 'thorgrim']): HSState {
+    let s = customBattle(['ne_gok_sa'], p2, 'p1');
+    s = place(s, NEGOK, at(3, 3));
+    s = place(s, MW(1), at(4, 3)); // adjacent to Ne-Gok-Sa
+    return s;
+  }
+
+  it('mindShackleTargets / canMindShackle surface the adjacent enemy', () => {
+    const s = staged();
+    expect(mindShackleTargets(s, 0)).toContain(MW(1));
+    expect(canMindShackle(s, 0)).toBe(true);
+  });
+
+  it('a natural 20 seizes the whole Army Card + every figure and clears its markers', () => {
+    let s = staged();
+    const marroUid = s.cards.find(c => c.cardId === 'marro_warriors')!.uid;
+    s = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 20 }));
+    const after = s.cards.find(c => c.uid === marroUid)!;
+    expect(after.ownerSeat).toBe(0); // card seized
+    expect(after.orderMarkers).toEqual([]); // "Remove any Order Markers on this card."
+    for (const f of s.figures.filter(f => f.cardUid === marroUid)) {
+      expect(f.ownerSeat).toBe(0); // ALL figures on the card transferred
+    }
+    expect(s.phase).toBe('playing'); // p2 still has Thorgrim
+  });
+
+  it('below 20 transfers nothing and spends the one attempt for the turn', () => {
+    let s = staged();
+    s = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 19 }));
+    expect(s.cards.find(c => c.cardId === 'marro_warriors')!.ownerSeat).toBe(1);
+    expect(s.mindShackleSpent).toBe(true);
+    expect(errOf(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 20 })))
+      .toMatch(/already been attempted/);
+  });
+
+  it('only an ADJACENT ENEMY figure is a legal target', () => {
+    let s = staged();
+    s = place(s, MW(2), at(0, 0)); // far from Ne-Gok-Sa
+    expect(errOf(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(2), d20: 20 }))).toMatch(/adjacent/);
+    expect(errOf(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: NEGOK, d20: 20 }))).toMatch(/enemy/);
+  });
+
+  it('only Ne-Gok-Sa may Mind Shackle', () => {
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1');
+    s = place(s, 's0-finn-1', at(3, 3));
+    s = place(s, MW(1), at(4, 3));
+    expect(errOf(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 20 }))).toMatch(/Only Ne-Gok-Sa/);
+  });
+
+  it('seizing a seat’s LAST figures wins the game', () => {
+    let s = staged(['marro_warriors']); // p2 has ONLY the Marro
+    s = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 20 }));
+    expect(s.phase).toBe('finished');
+    expect(s.winnerSeat).toBe(0);
   });
 });

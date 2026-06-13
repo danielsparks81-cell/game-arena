@@ -29,6 +29,8 @@ import {
   grappleDestinations,
   canFireLine,
   fireLineSpaces,
+  canMindShackle,
+  mindShackleTargets,
   legalTargets,
   placeableHexes,
   placeable2Leads,
@@ -133,6 +135,7 @@ type Props = {
   onAttack: (attackerId: string, targetId: string) => void;
   onBerserkerCharge: () => void;
   onWaterClone: () => void;
+  onMindShackle: (targetId: string) => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
   onEndTurn: () => void;
   onDraftCard: (cardId: string) => void;
@@ -727,7 +730,7 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
-  onBerserkerCharge, onWaterClone, onResolveChoice, onEndTurn,
+  onBerserkerCharge, onWaterClone, onMindShackle, onResolveChoice, onEndTurn,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -735,6 +738,9 @@ export default function HeroScapeBoard({
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
   const [fireLineMode, setFireLineMode] = useState(false);
+  // slice 8: Ne-Gok-Sa MIND SHACKLE targeting mode. When on, adjacent enemy
+  // figures highlight as shackle targets and a figure click sends mind_shackle.
+  const [shackleMode, setShackleMode] = useState(false);
   // Per-seat army-row expand override (opponent rosters collapse to fit 4-6
   // players; the user can toggle any). Keyed by seat; absent → default.
   const [openSeats, setOpenSeats] = useState<Record<number, boolean>>({});
@@ -763,11 +769,13 @@ export default function HeroScapeBoard({
     setPlaceFigureId(null);
     setGrappleMode(false);
     setFireLineMode(false);
+    setShackleMode(false);
   }, [state.round, state.phase]);
-  // Drop Grapple-Gun / Fire-Line mode whenever the selection changes (per-figure).
+  // Drop Grapple-Gun / Fire-Line / Mind-Shackle mode when the selection changes.
   useEffect(() => {
     setGrappleMode(false);
     setFireLineMode(false);
+    setShackleMode(false);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -943,6 +951,15 @@ export default function HeroScapeBoard({
     }
     return m;
   }, [state, selected, canFire]);
+
+  // slice 8: Ne-Gok-Sa MIND SHACKLE — offered when my active Ne-Gok-Sa has an
+  // adjacent enemy and hasn't attacked. In shackle mode the adjacent enemy
+  // figures (the engine's single-source target set) highlight; a click sends it.
+  const canShackle = !!(canAct && me && canMindShackle(state, me.seat));
+  const shackleTargets = useMemo(
+    () => (shackleMode && me ? new Set(mindShackleTargets(state, me.seat)) : new Set<string>()),
+    [shackleMode, me, state],
+  );
 
   // Activation highlighting (UI only): during MY turn, classify each figure of
   // the ACTIVE card so the board can ring it —
@@ -1130,6 +1147,13 @@ export default function HeroScapeBoard({
       return;
     }
     const occ = occupantAt(key);
+    // slice 8: Mind-Shackle mode — clicking a highlighted adjacent enemy figure
+    // attempts Ne-Gok-Sa's Mind Shackle on that figure's whole Army Card (the
+    // server rolls the d20; a natural 20 seizes the card).
+    if (shackleMode) {
+      if (occ && shackleTargets.has(occ.id)) { onMindShackle(occ.id); setShackleMode(false); }
+      return;
+    }
     // Attack: the clicked hex holds an enemy I can currently target (a 2-hex
     // enemy is targetable by clicking EITHER of its hexes).
     if (occ && selected && occ.ownerSeat !== me!.seat) {
@@ -1913,6 +1937,24 @@ export default function HeroScapeBoard({
             🔥 Fire Line {fireLineMode ? '— pick a direction' : '(line of 8, friend or foe)'}
           </button>
         )}
+        {/* slice 8: Ne-Gok-Sa MIND SHACKLE toggle — after moving, before
+            attacking, target an adjacent enemy; a natural 20 seizes their whole
+            Army Card. Does not consume his attack. */}
+        {canShackle && (
+          <button
+            onClick={() => setShackleMode(m => !m)}
+            disabled={disabled}
+            title="Mind Shackle 20: choose an adjacent enemy figure and roll a d20. On a natural 20, take control of that figure's entire Army Card and every figure on it. Used after moving, before attacking — it does NOT use Ne-Gok-Sa's attack."
+            className={
+              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
+              (shackleMode
+                ? 'border-fuchsia-400 bg-fuchsia-900/40 text-fuchsia-200'
+                : 'border-fuchsia-600 text-fuchsia-300 hover:bg-fuchsia-900/30')
+            }
+          >
+            🧠 Mind Shackle {shackleMode ? '— pick an adjacent enemy' : '(seize a card on a natural 20)'}
+          </button>
+        )}
         {/* slice 6: Double Attack hint — Syvarris may take one more attack. No
             modal: his targets stay highlighted (legalTargets still allows him);
             the player either clicks a marked enemy again or ends the turn. */}
@@ -2091,12 +2133,13 @@ export default function HeroScapeBoard({
             const fCardId = fig ? state.cards.find(cd => cd.uid === fig.cardUid)?.cardId ?? '' : '';
             const isSel = fig?.id === selectedId;
             const isTarget = fig ? targets.has(fig.id) : false;
+            const isShackleTarget = fig ? shackleTargets.has(fig.id) : false; // slice 8
             const mine = fig ? me && fig.ownerSeat === me.seat : false;
             const placeClickable = canPlace && !!mine;
             const act = fig ? activation.get(fig.id) : undefined; // move|attack|done
             const dimmed = act === 'done';
             const ring = act === 'move' ? '#22c55e' : act === 'attack' ? '#f59e0b' : null;
-            const figClickable = fig ? (canAct && (mine || isTarget)) || placeClickable : false;
+            const figClickable = fig ? (canAct && (mine || isTarget || isShackleTarget)) || placeClickable : false;
             const fLabel = `${fdef?.letter ?? ''}${fdef?.type === 'squad' ? fig?.index : ''}`;
             // Double-space figures (Mimring, Grimnak) span TWO hexes: one standee
             // centred on the midpoint of both top-faces, with a wider base.
@@ -2192,6 +2235,10 @@ export default function HeroScapeBoard({
                     {/* target ring (red dashed) — on the base footprint */}
                     {isTarget && (
                       <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#ef4444" strokeWidth={3} strokeDasharray="6 3" style={{ pointerEvents: 'none' }} />
+                    )}
+                    {/* slice 8: Mind-Shackle target ring (fuchsia dashed) */}
+                    {isShackleTarget && (
+                      <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#d946ef" strokeWidth={3.5} strokeDasharray="5 3" style={{ pointerEvents: 'none' }} />
                     )}
                     {/* activation ring: green=can move, amber=can attack */}
                     {ring && (

@@ -182,7 +182,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'N',
     species: 'Marro',
     unitClass: 'Warlord',
-    power: 'wip', // slice 8: Mind Shackle 20
+    power: 'live', // slice 8: Mind Shackle 20 (implemented)
   },
   marro_warriors: {
     id: 'marro_warriors',

@@ -739,6 +739,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
   | { game: 'heroscape'; kind: 'orient_figure'; figureId: string; dir: number }
+  | { game: 'heroscape'; kind: 'mind_shackle'; targetId: string }
   | { game: 'heroscape'; kind: 'berserker_charge' }
   | { game: 'heroscape'; kind: 'water_clone' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
@@ -1182,6 +1183,9 @@ type HSWireAction =
   // Player-chosen ORIENTATION (figure-presentation slice) — no dice; passed
   // through verbatim. Swings a 2-hex figure's trailing hex / sets 1-hex facing.
   | { kind: 'orient_figure'; figureId: string; dir: number }
+  // Ne-Gok-Sa MIND SHACKLE (slice 8): the d20 is NOT on the wire — the server
+  // rolls it; the board sends only the chosen adjacent-enemy target.
+  | { kind: 'mind_shackle'; targetId: string }
   // Special powers (slice 4): the d20(s) are NOT on the wire — makeMoveHS rolls
   // them server-side and injects the values into the engine action.
   | { kind: 'berserker_charge' }
@@ -1320,6 +1324,11 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // Tarn BERSERKER CHARGE — the server rolls the single d20; the engine
     // validates timing + threshold and (on 15+) opens the optional re-move.
     engineAction = { kind: 'berserker_charge', d20: d20() };
+  } else if (action.kind === 'mind_shackle') {
+    // Ne-Gok-Sa MIND SHACKLE — the server rolls the single d20; the engine
+    // validates the adjacent-enemy target + timing and, on a natural 20, seizes
+    // the target's whole Army Card.
+    engineAction = { kind: 'mind_shackle', targetId: action.targetId, d20: d20() };
   } else if (action.kind === 'water_clone') {
     // Marro WATER CLONE — roll one d20 per LIVING Marro Warrior of the active
     // card; the engine validates the set + per-Warrior threshold and collects

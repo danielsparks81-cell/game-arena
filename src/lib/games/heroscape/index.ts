@@ -18,6 +18,8 @@ export {
   fireLineSpaces,
   fireLineTargets,
   fireLineDefenders,
+  canMindShackle,
+  mindShackleTargets,
   placeableHexes,
   placeable2Leads,
   orientationOptions,

@@ -260,6 +260,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'fire_line':
     case 'berserker_charge':
     case 'water_clone':
+    case 'mind_shackle':
     case 'orient_figure':
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
@@ -286,6 +287,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (action.kind === 'fire_line') return doFireLine(state, action);
       if (action.kind === 'berserker_charge') return doBerserkerCharge(state, me.seat, action.d20);
       if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
+      if (action.kind === 'mind_shackle') return doMindShackle(state, me.seat, action.targetId, action.d20);
       if (action.kind === 'orient_figure') return doOrientFigure(state, me.seat, action.figureId, action.dir);
       return doEndTurn(state, me.seat);
     }
@@ -382,6 +384,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   delete s.pendingChoice;
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
+  delete s.mindShackleSpent;
   delete s.draft;
   delete s.hand;
   delete s.placementReady;
@@ -1012,6 +1015,7 @@ function beginTurnOrSkip(s: HSState): void {
       s.turnAttacks = [];
       delete s.waterClonedThisTurn;
       delete s.berserkerSpent;
+      delete s.mindShackleSpent;
       pushLog(
         s,
         'info',
@@ -1056,6 +1060,7 @@ function startNextRound(s: HSState): void {
   s.turnAttacks = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
+  delete s.mindShackleSpent;
   for (const card of s.cards) card.orderMarkers = [];
   pushLog(s, 'info', `Round ${s.round} — all players place their order markers.`);
 }
@@ -2625,6 +2630,107 @@ function doBerserkerCharge(state: HSState, seat: number, d20: number): HSResult 
   return s;
 }
 
+const NE_GOK_SA_CARD_ID = 'ne_gok_sa';
+
+/** Living ENEMY figures adjacent to the active Ne-Gok-Sa that he could Mind
+ *  Shackle right now. Every roster card is Unique, so "any unique figure
+ *  adjacent" admits any adjacent enemy. Empty unless it is this seat's Ne-Gok-Sa
+ *  turn, before attacking, with the one attempt unspent (the board highlights
+ *  these as shackle targets). */
+export function mindShackleTargets(state: HSState, seat: number): string[] {
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
+  if (state.turnAttacks.length > 0 || state.mindShackleSpent) return [];
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (!active || active.cardId !== NE_GOK_SA_CARD_ID) return [];
+  const negok = state.figures.find(f => f.cardUid === activeUid && f.at != null);
+  if (!negok) return [];
+  return state.figures
+    .filter(f => f.at != null && f.ownerSeat !== seat && figuresAdjacent(state, negok, f))
+    .map(f => f.id);
+}
+
+/** Can this seat's Ne-Gok-Sa Mind Shackle right now (≥1 legal adjacent enemy)? */
+export function canMindShackle(state: HSState, seat: number): boolean {
+  return mindShackleTargets(state, seat).length > 0;
+}
+
+/**
+ * Ne-Gok-Sa MIND SHACKLE 20 (cards.md): "After moving and before attacking, you
+ * may choose any unique figure adjacent to Ne-gok-sa. Roll the 20-sided die. If
+ * you roll a 20, take control of the chosen figure and that figure's Army Card.
+ * You now control that Army Card and all figures on it. Remove any Order Markers
+ * on this card. If Ne-Gok-Sa is destroyed, you retain control…"
+ *
+ * Clause-by-clause (rules-fidelity):
+ *  • WHO/WHEN: the active Ne-Gok-Sa only, after the move step and BEFORE attacking
+ *    (turnAttacks empty), one attempt per turn (mindShackleSpent). Optional.
+ *  • TARGET: a unique figure ADJACENT to Ne-Gok-Sa. All roster cards are Unique,
+ *    so we admit any adjacent ENEMY (shackling your own card is a pointless no-op
+ *    the rule never intends).
+ *  • ROLL: success on a NATURAL 20 only.
+ *  • EFFECT: the target's whole Army Card AND every figure on it change owner to
+ *    the shackler; that card's Order Markers are removed (so it sits out the rest
+ *    of the round — getActiveCardUid/beginTurnOrSkip key off ownerSeat+markers).
+ *    Control is a plain ownerSeat change, so it persists if Ne-Gok-Sa later dies.
+ *    Seizing a seat's last living figures eliminates them (checkEliminationWin
+ *    reads live figures' current ownerSeat). Does NOT consume Ne-Gok-Sa's attack.
+ */
+function doMindShackle(state: HSState, seat: number, targetId: string, d20: number): HSResult {
+  if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) {
+    return { error: 'Mind Shackle requires a d20 roll (1-20)' };
+  }
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (!active || active.cardId !== NE_GOK_SA_CARD_ID) {
+    return { error: 'Only Ne-Gok-Sa may Mind Shackle' };
+  }
+  if (state.turnAttacks.length > 0) {
+    return { error: 'Mind Shackle happens after moving and BEFORE attacking' };
+  }
+  if (state.mindShackleSpent) {
+    return { error: 'Mind Shackle has already been attempted this turn' };
+  }
+  const negok = state.figures.find(f => f.cardUid === activeUid && f.at != null);
+  if (!negok) return { error: 'Ne-Gok-Sa is not on the battlefield' };
+  const target = state.figures.find(f => f.id === targetId);
+  if (!target || target.at == null) return { error: 'No such figure to Mind Shackle' };
+  if (target.ownerSeat === seat) return { error: 'Choose an enemy figure to Mind Shackle' };
+  if (!figuresAdjacent(state, negok, target)) {
+    return { error: 'The target must be adjacent to Ne-Gok-Sa' };
+  }
+
+  const s = clone(state);
+  s.mindShackleSpent = true;
+  const tdef = cardDefFor(state, target);
+  if (d20 === 20) {
+    const card = s.cards.find(c => c.uid === target.cardUid)!;
+    const formerSeat = card.ownerSeat;
+    card.ownerSeat = seat;
+    card.orderMarkers = []; // "Remove any Order Markers on this card."
+    let moved = 0;
+    for (const f of s.figures) {
+      if (f.cardUid === card.uid) {
+        f.ownerSeat = seat;
+        moved++;
+      }
+    }
+    pushLog(
+      s,
+      'power',
+      `Mind Shackle! ${playerName(s, seat)} rolls 20 and seizes ${tdef.name} — ${playerName(s, formerSeat)}'s whole Army Card (${moved} figure${moved === 1 ? '' : 's'}).`,
+    );
+    checkEliminationWin(s); // seizing a seat's last figures eliminates them
+  } else {
+    pushLog(
+      s,
+      'power',
+      `${playerName(s, seat)} attempts Mind Shackle on ${tdef.name} but rolls ${d20} (needs a natural 20).`,
+    );
+  }
+  return s;
+}
+
 /**
  * Marro WATER CLONE (cards.md): "Instead of attacking with the Marro Warriors,
  * roll the 20-sided die for each Marro Warrior in play. If you roll a 15 or
@@ -2838,6 +2944,7 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   s.turnAttacks = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
+  delete s.mindShackleSpent;
   if (advanceSlot(s)) beginTurnOrSkip(s);
   return s;
 }
