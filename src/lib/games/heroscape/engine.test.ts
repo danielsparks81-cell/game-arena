@@ -21,6 +21,9 @@ import {
   moveConsequences,
   placeableHexes,
   placeable2Leads,
+  fireLineSpaces,
+  fireLineTargets,
+  fireLineDefenders,
   POINT_BUDGETS,
 } from './engine';
 import { hexKey, offsetToAxial, rangeDistance, neighborKeys } from './board';
@@ -3724,7 +3727,7 @@ describe('double-space (2-hex) figures', () => {
 
   it('placeable2Leads returns only leads with an empty same-level neighbour', () => {
     const s = clearExcept(inTurns('p1'), FINN); // clear the seat-0 zone clutter
-    const seat = s.turnSeat;
+    const seat = s.turnSeat!; // in 'turns' a player always holds the turn
     const leads = placeable2Leads(s, seat);
     const free = placeableHexes(s, seat);
     expect(leads.size).toBeGreaterThan(0);
@@ -3732,5 +3735,65 @@ describe('double-space (2-hex) figures', () => {
       expect(free.has(lead)).toBe(true);
       expect(neighborKeys(lead).some(n => free.has(n))).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fire Line Special Attack (Mimring) — straight line of 8, friend-or-foe, LOS
+// ---------------------------------------------------------------------------
+describe('Fire Line Special Attack (Mimring)', () => {
+  function inject(s: HSState, seat: number, cardId: string, id: string, at1: string, at2: string | null = null): HSState {
+    const c: HSState = JSON.parse(JSON.stringify(s));
+    const uid = `s${seat}-${cardId}-${id}`;
+    c.cards.push({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    c.figures.push({ id, cardUid: uid, ownerSeat: seat, at: at1, at2, index: 1, wounds: 0 });
+    return c;
+  }
+  // Mimring anchored at (3,3) with his trailing hex BEHIND the line, so neither
+  // of his spaces gives an alternate sightline past a blocker on the line.
+  function withMimring(): HSState {
+    let s = clearExcept(inTurns('p1'), FINN, THORGRIM);
+    s = inject(s, 0, 'mimring', 'mim', at(3, 3), at(2, 3));
+    return s;
+  }
+
+  it('the line is 8 straight spaces from Mimring, clipped to the board', () => {
+    const line = fireLineSpaces(withMimring(), 'mim', 0);
+    expect(line).toContain(at(4, 3));
+    expect(line).toContain(at(6, 3));
+    expect(line.length).toBe(3); // cols 4,5,6 on a 7-wide field
+  });
+
+  it('hits a FRIENDLY figure on the line — no "enemy" qualifier', () => {
+    let s = withMimring();
+    s = inject(s, 0, 'tarn_vikings', 'ally', at(4, 3)); // same owner, on the line
+    expect(fireLineTargets(s, 'mim', 0).map(f => f.id)).toContain('ally');
+  });
+
+  it('hits an enemy on the line; never an off-line figure or Mimring himself', () => {
+    let s = withMimring();
+    s = inject(s, 1, 'marro_warriors', 'enemy', at(4, 3));
+    s = inject(s, 1, 'thorgrim', 'off', at(3, 4)); // off the line
+    const ids = fireLineTargets(s, 'mim', 0).map(f => f.id);
+    expect(ids).toContain('enemy');
+    expect(ids).not.toContain('off');
+    expect(ids).not.toContain('mim');
+  });
+
+  it('an intervening figure blocks line of sight to the figures behind it', () => {
+    let s = withMimring();
+    s = inject(s, 1, 'marro_warriors', 'near', at(4, 3)); // blocker
+    s = inject(s, 1, 'marro_warriors', 'far', at(5, 3)); // behind the blocker
+    const ids = fireLineTargets(s, 'mim', 0).map(f => f.id);
+    expect(ids).toContain('near');
+    expect(ids).not.toContain('far');
+  });
+
+  it('fireLineDefenders returns one defense entry per affected figure', () => {
+    let s = withMimring();
+    s = inject(s, 0, 'tarn_vikings', 'ally', at(4, 3));
+    const defs = fireLineDefenders(s, 'mim', 0);
+    expect(defs.length).toBe(fireLineTargets(s, 'mim', 0).length);
+    for (const d of defs) expect(d.defense).toBeGreaterThanOrEqual(0);
   });
 });

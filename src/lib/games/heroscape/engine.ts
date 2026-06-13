@@ -54,6 +54,7 @@ import {
   axialToOffset,
   computeFall,
   hasLineOfSight3D,
+  hexLine,
   neighborKeys,
   rangeDistance,
   reachableDestinations,
@@ -253,6 +254,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'move_figure':
     case 'grapple_move':
     case 'attack':
+    case 'fire_line':
     case 'berserker_charge':
     case 'water_clone':
     case 'end_turn': {
@@ -277,6 +279,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
           action.leaveRolls,
         );
       if (action.kind === 'attack') return doAttack(state, action);
+      if (action.kind === 'fire_line') return doFireLine(state, action);
       if (action.kind === 'berserker_charge') return doBerserkerCharge(state, me.seat, action.d20);
       if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
       return doEndTurn(state, me.seat);
@@ -2097,6 +2100,159 @@ export function attackDiceRequirements(
     attackBreakdown: atk.breakdown,
     defenseBreakdown: def.breakdown,
   };
+}
+
+// ============================================================================
+// SPECIAL ATTACKS (slice 8) — Mimring's FIRE LINE.
+//
+// A special attack is never modified by glyphs, other powers, or height
+// advantage (04-combat): the ATTACK is a flat printed value, and the DEFENDER
+// keeps its defensive powers/auras but gets NO height advantage. The attack is
+// rolled ONCE for all affected figures; each affected figure rolls defense
+// SEPARATELY. Fire Line hits EVERY figure (friend OR foe) on a straight line of
+// 8 spaces from Mimring that he has line of sight to.
+// ============================================================================
+const FIRE_LINE_LEN = 8;
+const FIRE_LINE_ATTACK = 4;
+
+/** Only Mimring has Fire Line, and only when he could otherwise attack — it IS
+ *  his attack (it spends his turn's attack and ends his movement). */
+export function canFireLine(state: HSState, attackerId: string): boolean {
+  const r = attackReadyFigure(state, attackerId);
+  if ('error' in r) return false;
+  return cardDefFor(state, r.fig).id === 'mimring';
+}
+
+/** On-map spaces of the Fire Line in hex direction `dir` (0-5) from Mimring. */
+export function fireLineSpaces(state: HSState, attackerId: string, dir: number): HexKey[] {
+  const fig = state.figures.find(f => f.id === attackerId);
+  const map = MAPS[state.mapId];
+  if (!fig || fig.at == null || !map) return [];
+  return hexLine(fig.at, dir, FIRE_LINE_LEN).filter(k => !!map.cells[k]);
+}
+
+/** Figures the Fire Line affects: any figure (friend OR foe, never Mimring) on a
+ *  line space he has clear, elevation-aware line of sight to — an intervening
+ *  figure blocks the ones behind it. */
+export function fireLineTargets(state: HSState, attackerId: string, dir: number): Figure[] {
+  const attacker = state.figures.find(f => f.id === attackerId);
+  const map = MAPS[state.mapId];
+  if (!attacker || attacker.at == null || !map) return [];
+  const spaces = new Set(fireLineSpaces(state, attackerId, dir));
+  if (spaces.size === 0) return [];
+  const aHexes = figureHexes(attacker);
+  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  const out: Figure[] = [];
+  for (const f of state.figures) {
+    if (f.id === attacker.id || f.at == null) continue;
+    const onLine = figureHexes(f).filter(h => spaces.has(h));
+    if (onLine.length === 0) continue;
+    // LOS occupancy excludes the attacker AND this target (a body never blocks
+    // sight to itself); every OTHER figure can block.
+    const occupied: HexKey[] = [];
+    for (const g of state.figures) {
+      if (g.id === attacker.id || g.id === f.id) continue;
+      for (const h of figureHexes(g)) occupied.push(h);
+    }
+    const sighted = onLine.some(th => aHexes.some(ah => hasLineOfSight3D(map.cells, ah, th, occupied, eye)));
+    if (sighted) out.push(f);
+  }
+  return out;
+}
+
+/** Per-defender defense dice for the SERVER to roll: printed defense + defensive
+ *  auras/glyphs, but NO height advantage (special attack). */
+export function fireLineDefenders(
+  state: HSState,
+  attackerId: string,
+  dir: number,
+): { figureId: string; defense: number }[] {
+  const attacker = state.figures.find(f => f.id === attackerId);
+  if (!attacker) return [];
+  return fireLineTargets(state, attackerId, dir).map(t => {
+    const d = effectiveDefenseDice(state, t, attacker);
+    const h = heightAdvantage(state, attacker, t);
+    return { figureId: t.id, defense: Math.max(0, d.dice - h.defender) };
+  });
+}
+
+function doFireLine(
+  state: HSState,
+  action: {
+    attackerId: string;
+    dir: number;
+    attackRoll: CombatFace[];
+    defenseRolls: { figureId: string; roll: CombatFace[] }[];
+  },
+): HSResult {
+  const r = attackReadyFigure(state, action.attackerId);
+  if ('error' in r) return r;
+  const attacker = r.fig;
+  if (cardDefFor(state, attacker).id !== 'mimring') {
+    return { error: 'Only Mimring has the Fire Line Special Attack' };
+  }
+  if (!Number.isInteger(action.dir) || action.dir < 0 || action.dir > 5) {
+    return { error: 'Invalid Fire Line direction' };
+  }
+  if (!validFaces(action.attackRoll, FIRE_LINE_ATTACK)) {
+    return { error: 'Malformed Fire Line attack roll' };
+  }
+  // Re-derive the affected set + each defender's dice (server-authoritative) and
+  // validate the supplied rolls match it exactly.
+  const defenders = fireLineDefenders(state, action.attackerId, action.dir);
+  const got = new Map(action.defenseRolls.map(d => [d.figureId, d.roll] as const));
+  if (got.size !== action.defenseRolls.length) return { error: 'Duplicate Fire Line defender' };
+  if (defenders.length !== action.defenseRolls.length) return { error: 'Fire Line defender set mismatch' };
+  for (const d of defenders) {
+    const roll = got.get(d.figureId);
+    if (!roll || !validFaces(roll, d.defense)) return { error: 'Malformed Fire Line defense roll' };
+  }
+
+  const skulls = countFaces(action.attackRoll, 'skull');
+  const s = clone(state);
+  const mover = s.figures.find(f => f.id === attacker.id)!;
+  // Spend Mimring's attack: movement is over and he can't attack again this turn.
+  s.turnAttacks.push({ attackerId: attacker.id, targetId: defenders[0]?.figureId ?? attacker.id });
+
+  const results: string[] = [];
+  let totalWounds = 0;
+  for (const d of defenders) {
+    const shields = countFaces(got.get(d.figureId)!, 'shield');
+    const w = Math.max(0, skulls - shields);
+    const t = s.figures.find(f => f.id === d.figureId);
+    if (!t) continue;
+    t.wounds += w;
+    totalWounds += w;
+    const tDef = cardDefFor(s, t);
+    const destroyed = t.wounds >= tDef.life;
+    if (destroyed) { t.at = null; t.at2 = null; }
+    results.push(
+      `${figureLabel(s, t)} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`,
+    );
+  }
+
+  s.lastAttack = {
+    attackerId: attacker.id,
+    targetId: defenders[0]?.figureId ?? attacker.id,
+    attackerLabel: figureLabel(s, mover),
+    targetLabel: `Fire Line — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
+    attackRoll: action.attackRoll,
+    defenseRoll: [],
+    skulls,
+    shields: 0,
+    wounds: totalWounds,
+    destroyed: false,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: ['Fire Line Special Attack', `Attack ${FIRE_LINE_ATTACK} (special — no height / aura)`],
+    seq: s.logSeq + 1,
+  };
+  pushLog(
+    s,
+    'attack',
+    `${figureLabel(s, mover)} unleashes the Fire Line (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no figures in the line'}.`,
+  );
+  return s;
 }
 
 function doAttack(

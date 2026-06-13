@@ -83,6 +83,7 @@ import {
 import {
   applyAction as applyActionHS,
   attackDiceRequirements as hsAttackDiceRequirements,
+  fireLineDefenders as hsFireLineDefenders,
   moveConsequences as hsMoveConsequences,
   getActiveCardUid as hsGetActiveCardUid,
   HS_GLYPHS,
@@ -736,6 +737,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
+  | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
   | { game: 'heroscape'; kind: 'berserker_charge' }
   | { game: 'heroscape'; kind: 'water_clone' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
@@ -1173,6 +1175,9 @@ type HSWireAction =
   // (the engine recomputes the need and re-validates).
   | { kind: 'grapple_move'; figureId: string; to: string }
   | { kind: 'attack'; attackerId: string; targetId: string }
+  // Mimring FIRE LINE (slice 8): the attack/defense dice are NOT on the wire —
+  // the server rolls 4 attack dice once + each affected figure's defense.
+  | { kind: 'fire_line'; attackerId: string; dir: number }
   // Special powers (slice 4): the d20(s) are NOT on the wire — makeMoveHS rolls
   // them server-side and injects the values into the engine action.
   | { kind: 'berserker_charge' }
@@ -1238,6 +1243,19 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       targetId: action.targetId,
       attackRoll: rollDice(req?.attack ?? 0),
       defenseRoll: rollDice(req?.defense ?? 0),
+    };
+  } else if (action.kind === 'fire_line') {
+    // Mimring FIRE LINE SPECIAL ATTACK — roll 4 attack dice ONCE and each
+    // affected figure's defense SEPARATELY. Defenders come from the engine's
+    // single-source helper (printed defense + auras, no height); the engine
+    // re-derives the affected set and validates the dice shapes.
+    const defenders = hsFireLineDefenders(state, action.attackerId, action.dir);
+    engineAction = {
+      kind: 'fire_line',
+      attackerId: action.attackerId,
+      dir: action.dir,
+      attackRoll: rollDice(4),
+      defenseRolls: defenders.map(d => ({ figureId: d.figureId, roll: rollDice(d.defense) })),
     };
   } else if (action.kind === 'move_figure') {
     // The server computes the move's NEED from the engine's pure helper, then

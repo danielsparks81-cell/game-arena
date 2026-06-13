@@ -27,6 +27,8 @@ import {
   POINT_BUDGETS,
   legalDestinations,
   grappleDestinations,
+  canFireLine,
+  fireLineSpaces,
   legalTargets,
   placeableHexes,
   placeable2Leads,
@@ -111,6 +113,7 @@ type Props = {
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
+  onFireLine: (attackerId: string, dir: number) => void;
   onAttack: (attackerId: string, targetId: string) => void;
   onBerserkerCharge: () => void;
   onWaterClone: () => void;
@@ -635,7 +638,7 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onAttack,
+  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onAttack,
   onBerserkerCharge, onWaterClone, onResolveChoice, onEndTurn,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
@@ -643,6 +646,7 @@ export default function HeroScapeBoard({
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
+  const [fireLineMode, setFireLineMode] = useState(false);
   // The battle log is collapsible and minimized by default so the map/cards own
   // the space; expand it (a thin toggle on the far left) to read/scroll history.
   const [logOpen, setLogOpen] = useState(false);
@@ -667,10 +671,12 @@ export default function HeroScapeBoard({
     setSelectedId(null);
     setPlaceFigureId(null);
     setGrappleMode(false);
+    setFireLineMode(false);
   }, [state.round, state.phase]);
-  // Drop Grapple-Gun mode whenever the selection changes (it is per-figure).
+  // Drop Grapple-Gun / Fire-Line mode whenever the selection changes (per-figure).
   useEffect(() => {
     setGrappleMode(false);
+    setFireLineMode(false);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -796,17 +802,30 @@ export default function HeroScapeBoard({
   // hex click routes to grapple_move instead of move_figure.
   const destinations = useMemo(
     () =>
-      canAct && selected
+      canAct && selected && !fireLineMode
         ? grappleMode
           ? grappleHexes
           : legalDestinations(state, selected.id)
         : new Set<HexKey>(),
-    [state, selected, canAct, grappleMode, grappleHexes],
+    [state, selected, canAct, grappleMode, grappleHexes, fireLineMode],
   );
   const targets = useMemo(
-    () => (canAct && selected ? new Set(legalTargets(state, selected.id)) : new Set<string>()),
-    [state, selected, canAct],
+    () => (canAct && selected && !fireLineMode ? new Set(legalTargets(state, selected.id)) : new Set<string>()),
+    [state, selected, canAct, fireLineMode],
   );
+  // slice 8: Mimring FIRE LINE — offered when his special attack is available
+  // (his card active + he hasn't attacked). Each on-board line hex maps to its
+  // direction, so a click in Fire-Line mode resolves the chosen straight line.
+  const canFire = !!(canAct && selected && canFireLine(state, selected.id));
+  const fireLineDirs = useMemo(() => {
+    const m = new Map<HexKey, number>();
+    if (canFire && selected) {
+      for (let d = 0; d < 6; d++) {
+        for (const k of fireLineSpaces(state, selected.id, d)) if (!m.has(k)) m.set(k, d);
+      }
+    }
+    return m;
+  }, [state, selected, canFire]);
 
   // Activation highlighting (UI only): during MY turn, classify each figure of
   // the ACTIVE card so the board can ring it —
@@ -986,6 +1005,13 @@ export default function HeroScapeBoard({
       return;
     }
     if (!canAct) return;
+    // slice 8: Fire-Line mode — clicking a highlighted line space fires that
+    // straight line (Mimring's special attack), replacing his normal attack.
+    if (fireLineMode && selected) {
+      const dir = fireLineDirs.get(key);
+      if (dir != null) { onFireLine(selected.id, dir); setFireLineMode(false); }
+      return;
+    }
     const occ = occupantAt(key);
     // Attack: the clicked hex holds an enemy I can currently target (a 2-hex
     // enemy is targetable by clicking EITHER of its hexes).
@@ -1678,6 +1704,24 @@ export default function HeroScapeBoard({
             🪝 Grapple Gun {grappleMode ? '— pick a hex (1 space, climb anywhere)' : '(climb anywhere, 1 space)'}
           </button>
         )}
+        {/* slice 8: Mimring FIRE LINE SPECIAL ATTACK toggle — choose a straight
+            line of 8 spaces; every figure on it in LOS (friend OR foe) is hit.
+            Replaces his normal attack. */}
+        {canFire && (
+          <button
+            onClick={() => setFireLineMode(m => !m)}
+            disabled={disabled}
+            title="Fire Line Special Attack: a straight line of 8 spaces from Mimring. Every figure on those spaces in line of sight — friend OR foe — is hit (4 attack dice rolled once; each defends separately). Replaces his normal attack."
+            className={
+              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
+              (fireLineMode
+                ? 'border-orange-400 bg-orange-900/40 text-orange-200'
+                : 'border-orange-600 text-orange-300 hover:bg-orange-900/30')
+            }
+          >
+            🔥 Fire Line {fireLineMode ? '— pick a direction' : '(line of 8, friend or foe)'}
+          </button>
+        )}
         {/* slice 6: Double Attack hint — Syvarris may take one more attack. No
             modal: his targets stay highlighted (legalTargets still allows him);
             the player either clicks a marked enemy again or ends the turn. */}
@@ -1830,11 +1874,12 @@ export default function HeroScapeBoard({
             const sides = sideFaces(key); // column quads (empty for water/h0)
             const isPlaceHex = placeHexes.has(key); // slice 5 placement target
             const isDest = destinations.has(key) || isPlaceHex;
+            const isFireHex = fireLineMode && fireLineDirs.has(key); // slice 8 fire-line target space
             const isCloneOpt = cloneOptions.has(key);
             const drawColumn = c.terrain !== 'water' && c.height > 0; // water = flat top
             const colors = isoTileColors(c.terrain, c.height, isDest);
             const topFill = isCloneOpt ? '#0e4f6e' : colors.top;
-            const topStroke = isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : colors.stroke;
+            const topStroke = isFireHex ? '#fb923c' : isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : colors.stroke;
             const startZoneSeat = Object.entries(map.startZones).find(([, keys]) => keys.includes(key))?.[0];
             const fig = figureAt(key); // ANCHOR figure (drawn once, here)
             const occupied = !!occupantAt(key); // either hex of a 2-hex figure
@@ -1882,7 +1927,7 @@ export default function HeroScapeBoard({
                   points={ptsStr(top)}
                   fill={topFill}
                   stroke={topStroke}
-                  strokeWidth={isCloneOpt || isDest ? 2 : 1}
+                  strokeWidth={isCloneOpt || isDest || isFireHex ? 2 : 1}
                   onClick={() => clickHex(key)}
                   className={clickable ? 'cursor-pointer' : ''}
                 />

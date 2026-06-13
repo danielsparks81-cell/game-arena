@@ -42,6 +42,20 @@ export function neighborKeys(key: HexKey): HexKey[] {
 }
 
 /**
+ * The `len` hexes stepping out from `from` in hex direction `dir` (0-5, indexing
+ * DIRS), nearest-first: from+dir·1 … from+dir·len. Pure; does NOT filter to
+ * on-map cells (the caller intersects with the battlefield). Used by line
+ * special attacks (Mimring's Fire Line — a straight line of 8 spaces).
+ */
+export function hexLine(from: HexKey, dir: number, len: number): HexKey[] {
+  const { q, r } = parseHexKey(from);
+  const [dq, dr] = DIRS[((dir % 6) + 6) % 6];
+  const out: HexKey[] = [];
+  for (let k = 1; k <= len; k++) out.push(hexKey(q + dq * k, r + dr * k));
+  return out;
+}
+
+/**
  * Straight-line hex distance (axial metric). NOTE: HeroScape counts Range
  * along actual battlefield spaces AROUND gaps (pp. 6, 13) — use rangeDistance
  * for rules checks. On gap-free maps the two agree.

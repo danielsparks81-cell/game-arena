@@ -272,6 +272,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
       onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
       onGrappleMove={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grapple_move', figureId, to }); })}
+      onFireLine={(attackerId: string, dir: number) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'fire_line', attackerId, dir }); })}
       onAttack={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'attack', attackerId, targetId }); })}
       onBerserkerCharge={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'berserker_charge' }); })}
       onWaterClone={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'water_clone' }); })}

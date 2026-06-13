@@ -572,6 +572,19 @@ export type HSAction =
       defenseRoll: CombatFace[];
     }
   | {
+      // Mimring FIRE LINE SPECIAL ATTACK (slice 8, cards.md): a straight line of
+      // 8 spaces from Mimring in hex direction `dir` (0-5). EVERY figure on those
+      // spaces in line of sight is hit — friend OR foe (no "enemy" qualifier).
+      // The SERVER rolls 4 attack dice ONCE and each affected figure's defense
+      // SEPARATELY; the engine re-derives the affected set + dice need and
+      // validates. Special attack → never modified by glyphs, powers, or height.
+      kind: 'fire_line';
+      attackerId: string;
+      dir: number;
+      attackRoll: CombatFace[];
+      defenseRolls: { figureId: string; roll: CombatFace[] }[];
+    }
+  | {
       // Tarn BERSERKER CHARGE (cards.md) — rolled AFTER moving, BEFORE attacking.
       // The SERVER rolls the d20; on 15+ the engine offers a berserker_charge
       // PendingChoice (the re-move is the player's "may"). On <15 the charge is
