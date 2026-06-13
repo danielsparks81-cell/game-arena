@@ -8,7 +8,7 @@
 // PROJECTED: an opponent's unrevealed markers are literally 'hidden' — the
 // board renders every one of them as the same face-down chip (X included).
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type HSState,
   type Figure,
@@ -659,6 +659,24 @@ export default function HeroScapeBoard({
   // shared state.lastAttack ⇒ both players see the same overlay.
   const [rollAttack, setRollAttack] = useState<LastAttack | null>(null);
   const lastSeenSeqRef = useRef<number>(state.lastAttack?.seq ?? 0);
+
+  // --- board ZOOM / PAN: scroll-wheel zooms toward the cursor, drag pans, the
+  // overlay buttons zoom on the center / reset. The view is a sub-rectangle of
+  // the full iso scene applied via the SVG viewBox, so the cards/UI never move. ---
+  const [view, setView] = useState<{ scale: number; x: number; y: number } | null>(null);
+  const [panning, setPanning] = useState(false);
+  const svgEl = useRef<SVGSVGElement | null>(null);
+  const wheelFn = useRef<(e: WheelEvent) => void>(() => {});
+  const onWheelNative = useRef((e: WheelEvent) => wheelFn.current(e));
+  const dragRef = useRef<{ sx: number; sy: number; vx: number; vy: number; scale: number; id: number; moved: boolean } | null>(null);
+  const draggedRef = useRef(false);
+  // Attach the wheel listener non-passively (so preventDefault stops page zoom);
+  // a ref callback (re)binds whenever the board <svg> mounts/unmounts.
+  const setSvgRef = useCallback((node: SVGSVGElement | null) => {
+    if (svgEl.current) svgEl.current.removeEventListener('wheel', onWheelNative.current);
+    svgEl.current = node;
+    if (node) node.addEventListener('wheel', onWheelNative.current, { passive: false });
+  }, []);
   useEffect(() => {
     const la = state.lastAttack;
     if (!la) return;
@@ -865,7 +883,49 @@ export default function HeroScapeBoard({
 
   const figureAt = (key: HexKey) => state.figures.find(f => f.at === key) ?? null;
 
+  // Current view rectangle (in iso-scene units). Null = full frame (the default,
+  // identical to before zoom existed).
+  const vb = view
+    ? { x: view.x, y: view.y, w: W / view.scale, h: H / view.scale }
+    : { x: 0, y: 0, w: W, h: H };
+  // Clamp a candidate view: scale in [1,6], and keep the rectangle inside the
+  // scene. Scale 1 collapses back to the full-frame (null) view.
+  function clampView(scale: number, x: number, y: number) {
+    const s = Math.min(6, Math.max(1, scale));
+    if (s <= 1.001) return null;
+    const w = W / s, h = H / s;
+    return { scale: s, x: Math.min(W - w, Math.max(0, x)), y: Math.min(H - h, Math.max(0, y)) };
+  }
+  // The actually-rendered content box inside the (letterboxed) <svg> element, so
+  // a client pixel maps to the right scene coordinate.
+  function contentMetrics() {
+    const el = svgEl.current; if (!el) return null;
+    const r = el.getBoundingClientRect();
+    const cAR = W / H, eAR = r.width / r.height;
+    let cw: number, ch: number, px: number, py: number;
+    if (eAR > cAR) { ch = r.height; cw = ch * cAR; px = (r.width - cw) / 2; py = 0; }
+    else { cw = r.width; ch = cw / cAR; px = 0; py = (r.height - ch) / 2; }
+    return { left: r.left, top: r.top, cw, ch, px, py };
+  }
+  function zoomAtCenter(f: number) {
+    const ns = Math.min(6, Math.max(1, (view ? view.scale : 1) * f));
+    const cx = vb.x + vb.w / 2, cy = vb.y + vb.h / 2;
+    setView(clampView(ns, cx - W / ns / 2, cy - H / ns / 2));
+  }
+  // Keep the native wheel handler closed over THIS render's view/geometry.
+  wheelFn.current = (e: WheelEvent) => {
+    e.preventDefault();
+    const m = contentMetrics(); if (!m) return;
+    const nx = Math.min(1, Math.max(0, (e.clientX - m.left - m.px) / m.cw));
+    const ny = Math.min(1, Math.max(0, (e.clientY - m.top - m.py) / m.ch));
+    const ptx = vb.x + nx * vb.w, pty = vb.y + ny * vb.h;
+    const ns = Math.min(6, Math.max(1, (view ? view.scale : 1) * Math.exp(-e.deltaY * 0.0015)));
+    setView(clampView(ns, ptx - nx * (W / ns), pty - ny * (H / ns)));
+  };
+
   function clickHex(key: HexKey) {
+    // A drag that panned the board must not also register as a hex click.
+    if (draggedRef.current) { draggedRef.current = false; return; }
     // slice 5: placement — click your own placed figure to pick it up (unplace);
     // click a highlighted empty start-zone hex to drop the picked figure there.
     if (canPlace) {
@@ -1687,11 +1747,34 @@ export default function HeroScapeBoard({
             up to fill the box via preserveAspectRatio (no fixed max-width cap).
             Mobile: a min-height gives the h-full SVG a box to fill (the column has
             no fixed height there) so the board never collapses; lg overrides it. */}
-        <div className="flex min-h-[60vh] w-full items-center justify-center overflow-hidden lg:min-h-0 lg:flex-1">
+        <div className="relative flex min-h-[60vh] w-full items-center justify-center overflow-hidden lg:min-h-0 lg:flex-1">
+        {/* board zoom controls — scroll to zoom on the cursor, drag to pan */}
+        <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
+          <button type="button" title="Zoom in (or scroll on the board)" onClick={() => zoomAtCenter(1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">+</button>
+          <button type="button" title="Zoom out" onClick={() => zoomAtCenter(1 / 1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">−</button>
+          <button type="button" title="Reset view" onClick={() => setView(null)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-xs leading-none text-neutral-200 transition hover:bg-neutral-800">⟲</button>
+        </div>
         <svg
-          viewBox={`0 0 ${W} ${H}`}
+          ref={setSvgRef}
+          viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
           preserveAspectRatio="xMidYMid meet"
           className="block h-full max-h-full w-full"
+          style={{ cursor: panning ? 'grabbing' : view ? 'grab' : 'default', touchAction: 'none' }}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+            dragRef.current = { sx: e.clientX, sy: e.clientY, vx: vb.x, vy: vb.y, scale: view ? view.scale : 1, id: e.pointerId, moved: false };
+          }}
+          onPointerMove={(e) => {
+            const d = dragRef.current; if (!d) return;
+            const m = contentMetrics(); if (!m) return;
+            const dx = e.clientX - d.sx, dy = e.clientY - d.sy;
+            if (!d.moved) { if (Math.hypot(dx, dy) < 4) return; d.moved = true; setPanning(true); e.currentTarget.setPointerCapture(d.id); }
+            setView(clampView(d.scale, d.vx - dx * (W / d.scale / m.cw), d.vy - dy * (H / d.scale / m.ch)));
+          }}
+          onPointerUp={(e) => {
+            const d = dragRef.current; dragRef.current = null;
+            if (d?.moved) { draggedRef.current = true; setPanning(false); try { e.currentTarget.releasePointerCapture(d.id); } catch { /* not captured */ } }
+          }}
         >
           {/* 2.5D ISO board — drawn STRICTLY back-to-front (painter's
               algorithm): for each cell in depth order we paint its PRISM, then
