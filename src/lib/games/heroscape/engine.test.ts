@@ -102,9 +102,11 @@ describe('set_lobby_config (host lobby settings sync to shared state)', () => {
     expect(s.phase).toBe('lobby'); // still in the lobby
   });
 
-  it('rejects an unknown battlefield or invalid budget', () => {
+  it('rejects an unknown battlefield or out-of-range budget', () => {
     expect(errOf(applyAction(lobby(), 'p1', { kind: 'set_lobby_config', mapId: 'nope' }))).toMatch(/Unknown battlefield/);
-    expect(errOf(applyAction(lobby(), 'p1', { kind: 'set_lobby_config', pointBudget: 999 }))).toMatch(/valid point budget/);
+    // Custom budgets are allowed in range; only out-of-range is rejected.
+    expect(errOf(applyAction(lobby(), 'p1', { kind: 'set_lobby_config', pointBudget: 9999 }))).toMatch(/Budget must be/i);
+    expect(unwrap(applyAction(lobby(), 'p1', { kind: 'set_lobby_config', pointBudget: 250 })).pointBudget).toBe(250);
   });
 
   it('cannot change settings once the battle has started', () => {
@@ -245,13 +247,18 @@ function noGlyphs(s: HSState): HSState {
 // ---------------------------------------------------------------------------
 
 describe('lobby seating', () => {
-  it('addPlayer caps at 2 seats and is idempotent', () => {
-    let s = lobby();
+  it('addPlayer caps at 6 seats and is idempotent', () => {
+    let s = lobby(); // p1, p2
     expect(s.players).toHaveLength(2);
-    s = addPlayer(s, 'p1', 'Alice again', 0);
+    s = addPlayer(s, 'p1', 'Alice again', 0); // same id ⇒ no-op
     expect(s.players).toHaveLength(2);
-    s = addPlayer(s, 'p3', 'Carol', 2);
-    expect(s.players).toHaveLength(2);
+    s = addPlayer(s, 'p3', 'Carol', 2); // 3rd player now allowed (multiplayer)
+    s = addPlayer(s, 'p4', 'Dave', 3);
+    s = addPlayer(s, 'p5', 'Eve', 4);
+    s = addPlayer(s, 'p6', 'Frank', 5);
+    expect(s.players).toHaveLength(6);
+    s = addPlayer(s, 'p7', 'Grace', 6); // 7th rejected — six seats max
+    expect(s.players).toHaveLength(6);
   });
 
   it('removePlayer frees the seat in the lobby only', () => {
@@ -263,9 +270,9 @@ describe('lobby seating', () => {
 });
 
 describe('start_game (fixed setup, straight into marker placement)', () => {
-  it('requires exactly 2 players', () => {
+  it('requires at least 2 players', () => {
     const s = addPlayer(initialState(), 'p1', 'Alice', 0);
-    expect(errOf(applyAction(s, 'p1', { kind: 'start_game' }))).toMatch(/exactly 2 players/);
+    expect(errOf(applyAction(s, 'p1', { kind: 'start_game' }))).toMatch(/at least 2 players/);
   });
 
   it('opens round 1 in place_markers with no active player and no initiative', () => {
@@ -2304,10 +2311,12 @@ describe('slice 5: start_game routing (draft vs quick)', () => {
     expect(s.mode).toBe('draft');
   });
 
-  it('rejects an invalid point budget in draft mode', () => {
-    expect(errOf(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 250 }))).toMatch(/point budget/i);
-    // …but quick mode ignores the budget.
-    expect(unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'quick', pointBudget: 250 })).phase).toBe('playing');
+  it('rejects an out-of-range point budget in draft mode but accepts custom amounts', () => {
+    expect(errOf(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 9999 }))).toMatch(/Budget must be/i);
+    // A custom (non-preset) amount in range is accepted.
+    expect(unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 250 })).pointBudget).toBe(250);
+    // …and quick mode ignores the budget entirely.
+    expect(unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'quick', pointBudget: 9999 })).phase).toBe('playing');
   });
 });
 

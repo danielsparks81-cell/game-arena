@@ -64,17 +64,99 @@ import {
 
 export const STATE_VERSION = 8;
 export const LOG_MAX = 60;
-const SEATS = 2;
+/** Quick (fixed-army) battle is always the classic 1-v-1. */
+const QUICK_SEATS = 2;
+/** Up to 6 players may be seated (multiplayer). The draft + turn engine scale to
+ *  any 2..MAX_SEATS; teams are formed by shared `HSPlayer.team`. */
+export const MAX_SEATS = 6;
 const DEFAULT_MAP_ID = 'training_field';
 const MARKER_VALUES: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
-/** Point-budget presets the lobby offers (slice 5). */
+/** Point-budget presets the lobby offers (slice 5). The lobby also accepts a
+ *  CUSTOM amount (free entry), validated against this range. */
 export const POINT_BUDGETS: readonly number[] = [200, 300, 400, 500];
 export const DEFAULT_POINT_BUDGET = 400;
+/** Bounds for a custom (free-entry) point budget. A drafted army needs at least
+ *  the cheapest card; the ceiling keeps the pool finite and the UI sane. */
+export const MIN_POINT_BUDGET = 50;
+export const MAX_POINT_BUDGET = 2000;
+/** A point budget is valid if it is a preset OR a positive integer in range. */
+export function isValidBudget(n: number): boolean {
+  return Number.isInteger(n) && n >= MIN_POINT_BUDGET && n <= MAX_POINT_BUDGET;
+}
 const DEFAULT_MODE: HSMode = 'draft';
 /** The second player's opening turn is a DOUBLE pick (1,2,…); every later turn
- *  is a single pick (resolutions.md). */
+ *  is a single pick (resolutions.md). 2-player only. */
 const DRAFT_OPENER_PICKS = 2;
+
+// ============================================================================
+// Teams (multiplayer) — players sharing a `team` are allies. The whole engine
+// keys "enemy/ally" off TEAM, not seat; with the default (team absent ⇒ team =
+// seat) a 2-player or free-for-all game is unchanged. See HSPlayer.team.
+// ============================================================================
+
+/** The team a seat belongs to. Absent `team` ⇒ the seat is its own team, so
+ *  free-for-all falls out for free and pre-teams saves load identically. */
+function teamOfSeat(state: HSState, seat: number): number {
+  return state.players.find(p => p.seat === seat)?.team ?? seat;
+}
+
+/** Do two seats share a team (are they allies)? A seat is always its own ally. */
+function alliedSeats(state: HSState, a: number, b: number): boolean {
+  return teamOfSeat(state, a) === teamOfSeat(state, b);
+}
+
+/** Distinct team ids currently seated, in ascending order. */
+function teamsInPlay(state: HSState): number[] {
+  return [...new Set(state.players.map(p => teamOfSeat(state, p.seat)))].sort((x, y) => x - y);
+}
+
+/** Does this seat still have any figure on the board? */
+function seatIsAlive(state: HSState, seat: number): boolean {
+  return state.figures.some(f => f.ownerSeat === seat && f.at != null);
+}
+
+/** Seats with at least one living figure, in seat order. The round flow keys on
+ *  THIS, not `players`: with 3+ players a seat can be wiped out while the game
+ *  goes on (its team-mates fight on), and an eliminated seat neither places
+ *  order markers nor rolls initiative nor takes turns. In a 1-v-1 a wipe ends
+ *  the game, so living seats always equals all seats — unchanged. */
+function livingSeats(state: HSState): number[] {
+  return state.players.map(p => p.seat).filter(seat => seatIsAlive(state, seat));
+}
+
+/** The point budget a SEAT's team drafts within: its team's override, else the
+ *  global `pointBudget`. Team-mates share one pool, so callers sum a team's
+ *  spend against this single value. */
+function teamBudgetForSeat(state: HSState, seat: number): number {
+  return state.teamBudgets?.[teamOfSeat(state, seat)] ?? state.pointBudget;
+}
+
+/** Deal seats out round-robin across teams, preserving the within-team priority
+ *  of the input `order`. "Pass left but skip team-mates until every team has had
+ *  a turn, then come back round." Teams first appear in the order their leading
+ *  seat does. With all-solo teams the output equals the input (a no-op for
+ *  1-v-1 / FFA). Example: order [A1,A2,B1,B2] (team A leads) → [A1,B1,A2,B2]. */
+function interleaveByTeam(state: HSState, order: number[]): number[] {
+  const buckets = new Map<number, number[]>();
+  const teamSequence: number[] = [];
+  for (const seat of order) {
+    const t = teamOfSeat(state, seat);
+    if (!buckets.has(t)) {
+      buckets.set(t, []);
+      teamSequence.push(t);
+    }
+    buckets.get(t)!.push(seat);
+  }
+  const result: number[] = [];
+  while (result.length < order.length) {
+    for (const t of teamSequence) {
+      const q = buckets.get(t)!;
+      if (q.length) result.push(q.shift()!);
+    }
+  }
+  return result;
+}
 
 /** Card ids whose figures have a special power the engine acts on (slice 4). */
 const TARN_CARD_ID = 'tarn_vikings';
@@ -164,7 +246,7 @@ export function addPlayer(
 ): HSState {
   if (state.phase !== 'lobby') return state;
   if (state.players.some(p => p.playerId === playerId)) return state; // idempotent
-  if (state.players.length >= SEATS) return state;
+  if (state.players.length >= MAX_SEATS) return state;
   const players = [...state.players, { seat, playerId, username, accent_color }].sort(
     (a, b) => a.seat - b.seat,
   );
@@ -192,7 +274,14 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   if (action.kind === 'set_lobby_config') {
     // Host changing the battlefield/budget/mode in the lobby — written to shared
     // state so every player sees it (host-gated in the server action).
-    return doSetLobbyConfig(state, action.mapId, action.pointBudget, action.mode);
+    return doSetLobbyConfig(
+      state,
+      action.mapId,
+      action.pointBudget,
+      action.mode,
+      action.teams,
+      action.teamBudgets,
+    );
   }
   if (state.phase === 'lobby') return { error: 'The battle has not started yet' };
   if (state.phase === 'finished') return { error: 'The battle is over' };
@@ -397,6 +486,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   s.movedFigureIds = [];
   s.turnAttacks = [];
   s.winnerSeat = null;
+  s.winnerTeam = null;
   delete s.pendingChoice;
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
@@ -411,7 +501,14 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   pushLog(s, 'info', `Battle on the ${map.name}! Round 1 — all players secretly place their order markers.${glyphNote}`);
 }
 
-function doSetLobbyConfig(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode): HSResult {
+function doSetLobbyConfig(
+  state: HSState,
+  mapId?: string,
+  pointBudget?: number,
+  mode?: HSMode,
+  teams?: Record<number, number>,
+  teamBudgets?: Record<number, number>,
+): HSResult {
   if (state.phase !== 'lobby') return { error: 'Settings can only be changed before the battle starts' };
   const s = clone(state);
   if (mapId !== undefined) {
@@ -420,23 +517,50 @@ function doSetLobbyConfig(state: HSState, mapId?: string, pointBudget?: number, 
   }
   if (mode !== undefined) s.mode = mode;
   if (pointBudget !== undefined) {
-    if (!POINT_BUDGETS.includes(pointBudget)) return { error: 'Pick a valid point budget' };
+    if (!isValidBudget(pointBudget)) {
+      return { error: `Budget must be ${MIN_POINT_BUDGET}–${MAX_POINT_BUDGET} points` };
+    }
     s.pointBudget = pointBudget;
+  }
+  // Team assignment (host groups players by colour). Seats map to team ids; a
+  // seat omitted from the map is its own team (free-for-all). Write it onto each
+  // seated player (an unknown seat in the map is just ignored).
+  if (teams !== undefined) {
+    s.players = s.players.map(p => {
+      const t = teams[p.seat];
+      return t === undefined ? { ...p, team: undefined } : { ...p, team: t };
+    });
+  }
+  if (teamBudgets !== undefined) {
+    for (const v of Object.values(teamBudgets)) {
+      if (!isValidBudget(v)) return { error: `Each team budget must be ${MIN_POINT_BUDGET}–${MAX_POINT_BUDGET} points` };
+    }
+    s.teamBudgets = { ...teamBudgets };
   }
   return s;
 }
 
 function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode): HSResult {
   if (state.phase !== 'lobby') return { error: 'The battle has already started' };
-  if (state.players.length !== SEATS) return { error: 'HeroScape needs exactly 2 players' };
+  if (state.players.length < 2) return { error: 'HeroScape needs at least 2 players' };
+  if (state.players.length > MAX_SEATS) return { error: `HeroScape seats at most ${MAX_SEATS} players` };
+  // At least two opposing TEAMS must be present, or there is no battle to fight
+  // (the host can't put everyone on one colour).
+  if (teamsInPlay(state).length < 2) {
+    return { error: 'Players must be split into at least two teams' };
+  }
   // The host picks the battlefield at game start (default: Training Field).
   const chosenMapId = mapId ?? state.mapId ?? DEFAULT_MAP_ID;
   const map = MAPS[chosenMapId];
   if (!map) return { error: `Unknown battlefield "${chosenMapId}"` };
   const chosenMode: HSMode = mode ?? state.mode ?? DEFAULT_MODE;
   const chosenBudget = pointBudget ?? state.pointBudget ?? DEFAULT_POINT_BUDGET;
-  if (chosenMode === 'draft' && !POINT_BUDGETS.includes(chosenBudget)) {
-    return { error: 'Pick a valid point budget' };
+  if (chosenMode === 'draft' && !isValidBudget(chosenBudget)) {
+    return { error: `Budget must be ${MIN_POINT_BUDGET}–${MAX_POINT_BUDGET} points` };
+  }
+  // Quick (fixed-army) mode only ships the two slice-1 armies — it stays 1-v-1.
+  if (chosenMode === 'quick' && state.players.length !== QUICK_SEATS) {
+    return { error: 'Quick battle is 2 players only — choose Draft for 3+ players' };
   }
 
   const s = clone(state);
@@ -449,7 +573,7 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
   if (chosenMode === 'quick') {
     // Quick battle: auto-draft the fixed slice-1 armies and auto-place them,
     // then go straight to playing (preserves the slice-4 fast path exactly).
-    for (let idx = 0; idx < SEATS; idx++) {
+    for (let idx = 0; idx < QUICK_SEATS; idx++) {
       const { cards, figures } = buildArmy(s.players[idx].seat, SLICE1_ARMIES[idx]);
       s.cards.push(...cards);
       s.figures.push(...figures);
@@ -462,7 +586,9 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
 
   // Draft mode: enter the draft phase. The roll-off d20s are SERVER-rolled —
   // makeMoveHS issues a `draft_roll` in the same request (mirrors initiative),
-  // so the draft is set up but awaits the order roll.
+  // so the draft is set up but awaits the order roll. armies/spent are keyed for
+  // EVERY seat (2..6), not just the original 2.
+  const seats = s.players.map(p => p.seat);
   s.phase = 'draft';
   s.subPhase = 'place_markers'; // unused while drafting; kept canonical
   s.glyphs = [];
@@ -473,8 +599,8 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
     turnSeat: null,
     remainingPicks: 0,
     passed: [],
-    armies: { 0: [], 1: [] },
-    spent: { 0: 0, 1: 0 },
+    armies: Object.fromEntries(seats.map(seat => [seat, [] as string[]])),
+    spent: Object.fromEntries(seats.map(seat => [seat, 0])),
   };
   delete s.hand;
   delete s.placementReady;
@@ -492,51 +618,77 @@ function cardPoints(cardId: string): number {
   return HS_CARDS[cardId]?.points ?? 0;
 }
 
-/** True iff the pool still holds a card the seat can AFFORD (its Points fit the
- *  seat's remaining budget). When false, the seat MUST pass (no legal pick). */
-function hasAffordableCard(state: HSState, seat: number): boolean {
+/** Points a seat's TEAM has spent so far (Σ team-mates' spend) — the shared
+ *  pool is team-wide, so a 3-player team's picks all draw on one budget. For a
+ *  solo seat (FFA) this is just its own spend. */
+function teamSpentInDraft(state: HSState, seat: number): number {
   const d = state.draft!;
-  const remaining = state.pointBudget - (d.spent[seat] ?? 0);
+  const team = teamOfSeat(state, seat);
+  return state.players
+    .filter(p => teamOfSeat(state, p.seat) === team)
+    .reduce((sum, p) => sum + (d.spent[p.seat] ?? 0), 0);
+}
+
+/** Points still available to a seat: its TEAM budget minus the team's spend. */
+function teamRemainingInDraft(state: HSState, seat: number): number {
+  return teamBudgetForSeat(state, seat) - teamSpentInDraft(state, seat);
+}
+
+/** True iff the pool still holds a card the seat can AFFORD within its team's
+ *  remaining budget. When false, the seat MUST pass (no legal pick). */
+function hasAffordableCard(state: HSState, seat: number): boolean {
+  const remaining = teamRemainingInDraft(state, seat);
+  const d = state.draft!;
   return d.pool.some(id => cardPoints(id) <= remaining);
 }
 
-/** Set the draft's turn to the next active (un-passed) seat. The 1/2/alternate-1
- *  sequence (resolutions.md): the high roller opens with 1 pick, the OTHER seat
- *  then takes 2 (its first turn only), and every turn thereafter is a single
- *  pick — back-and-forth — until a seat passes. Both passed → draft over (build
- *  figures + placement hand). */
+/** The next un-passed seat in `order` AFTER `current` (cyclic). With one active
+ *  seat left it returns that seat — it keeps taking single picks until it passes
+ *  too. */
+function nextActiveSeat(order: number[], passed: number[], current: number | null): number {
+  const start = current == null ? -1 : order.indexOf(current);
+  for (let i = 1; i <= order.length; i++) {
+    const seat = order[(start + i) % order.length];
+    if (!passed.includes(seat)) return seat;
+  }
+  return order[0]; // unreachable: callers guard on ≥1 active seat
+}
+
+/** Hand the draft to the next active (un-passed) seat. Two-player (resolutions.md):
+ *  the high roller opens with 1 pick, the OTHER seat then takes 2 (its first turn
+ *  only), thereafter single picks back-and-forth. With 3+ players it is a plain
+ *  cyclic single-pick draft in roll order (no official N-player double-pick rule
+ *  exists, so we don't invent one). All passed → draft over. */
 function advanceDraftTurn(s: HSState): void {
   const d = s.draft!;
-  // Whoever is NOT the current turn seat, in the fixed [high, other] order.
-  const next = d.order.find(seat => seat !== d.turnSeat && !d.passed.includes(seat));
-  if (next == null) {
-    // The other seat has already passed — the SAME seat keeps single picks until
-    // it too passes (or is forced to). Only end when BOTH have passed.
-    if (d.turnSeat != null && !d.passed.includes(d.turnSeat)) {
-      d.remainingPicks = 1;
-      return;
-    }
+  const anyActive = d.order.some(seat => !d.passed.includes(seat));
+  if (!anyActive) {
     finishDraft(s);
     return;
   }
-  // The DOUBLE pick is the SECOND drafter's (order[1]) very first turn — i.e.
-  // when it has drafted nothing yet AND no one has passed (so we're still in the
-  // opening 1,2 exchange, not the late single-pick phase after a pass).
+  const next = nextActiveSeat(d.order, d.passed, d.turnSeat);
+  // The DOUBLE pick is the SECOND drafter's (order[1]) very first turn — only in
+  // the classic 1-v-1 (its purpose is to offset going second when picks strictly
+  // alternate; an N-player cycle spreads that out).
   const isSecondDrafterOpener =
-    next === d.order[1] && (d.armies[next] ?? []).length === 0 && d.passed.length === 0;
+    s.players.length === 2 &&
+    next === d.order[1] &&
+    (d.armies[next] ?? []).length === 0 &&
+    d.passed.length === 0;
   d.turnSeat = next;
   d.remainingPicks = isSecondDrafterOpener ? DRAFT_OPENER_PICKS : 1;
 }
 
-/** When BOTH seats have passed: build each seat's army cards + figures and the
+/** When EVERY seat has passed: build each seat's army cards + figures and the
  *  placement `hand`, then enter the placement phase. */
 function finishDraft(s: HSState): void {
   const d = s.draft!;
   d.turnSeat = null;
   s.cards = [];
   s.figures = [];
-  s.hand = { 0: [], 1: [] };
-  for (const seat of [0, 1]) {
+  const seats = s.players.map(p => p.seat);
+  s.hand = Object.fromEntries(seats.map(seat => [seat, [] as string[]]));
+  for (const seat of seats) {
     const { cards, figures } = buildArmy(seat, d.armies[seat] ?? []);
     s.cards.push(...cards);
     s.figures.push(...figures);
@@ -544,11 +696,8 @@ function finishDraft(s: HSState): void {
   }
   s.placementReady = [];
   s.phase = 'placement';
-  pushLog(
-    s,
-    'info',
-    `Draft complete — place your figures in your start zone. ${playerName(s, 0)}: ${d.spent[0]} pts, ${playerName(s, 1)}: ${d.spent[1]} pts.`,
-  );
+  const tally = seats.map(seat => `${playerName(s, seat)}: ${d.spent[seat] ?? 0} pts`).join(', ');
+  pushLog(s, 'info', `Draft complete — place your figures in your start zone. ${tally}.`);
 }
 
 function doDraftRoll(state: HSState, attempts: InitiativeAttempt[]): HSResult {
@@ -576,16 +725,20 @@ function doDraftRoll(state: HSState, attempts: InitiativeAttempt[]): HSResult {
   }
   const last = attempts[attempts.length - 1];
   if (tiedForHighest(last)) return { error: 'Draft order ended in a tie — roll again' };
-  const highSeat = last.reduce((best, a) => (a.roll > best.roll ? a : best)).seat;
-  const otherSeat = seats.find(x => x !== highSeat)!;
+  // Draft order = ALL seats by roll, highest first (ties broken by seat). The
+  // top roll is unique (the final attempt is tie-free for highest); lower ties
+  // only affect mid-order and are settled deterministically by seat number.
+  const rollOf = (seat: number) => last.find(a => a.seat === seat)!.roll;
+  const order = [...seats].sort((a, b) => rollOf(b) - rollOf(a) || a - b);
+  const highSeat = order[0];
 
   const s = clone(state);
   const dd = s.draft!;
   dd.rollOff = attempts;
-  dd.order = [highSeat, otherSeat];
-  // High roller drafts FIRST, picking ONE card; the other then picks TWO; then
-  // alternate single picks (resolutions.md). So the opener belongs to the high
-  // roller with 1 pick — the DOUBLE pick is the second player's first turn.
+  dd.order = order;
+  // High roller drafts FIRST, picking ONE card; in 1-v-1 the other then picks
+  // TWO (its opener), then single picks alternate (resolutions.md). With 3+
+  // players it is a plain cyclic single-pick draft in this order.
   dd.turnSeat = highSeat;
   dd.remainingPicks = 1;
   attempts.forEach((attempt, i) => {
@@ -603,7 +756,7 @@ function doDraftCard(state: HSState, seat: number, cardId: string): HSResult {
   if (d.turnSeat !== seat) return { error: 'It is not your pick' };
   if (!d.pool.includes(cardId)) return { error: 'That card is no longer in the pool' };
   const cost = cardPoints(cardId);
-  const remaining = state.pointBudget - (d.spent[seat] ?? 0);
+  const remaining = teamRemainingInDraft(state, seat);
   if (cost > remaining) {
     return { error: `${HS_CARDS[cardId].name} costs ${cost} — only ${remaining} points left` };
   }
@@ -613,10 +766,11 @@ function doDraftCard(state: HSState, seat: number, cardId: string): HSResult {
   dd.pool = dd.pool.filter(id => id !== cardId);
   dd.armies[seat] = [...(dd.armies[seat] ?? []), cardId];
   dd.spent[seat] = (dd.spent[seat] ?? 0) + cost;
+  // Show the TEAM pool (shared) so team-mates see the common budget drain.
   pushLog(
     s,
     'info',
-    `${playerName(s, seat)} drafts ${HS_CARDS[cardId].name} (${cost} pts) — ${dd.spent[seat]}/${s.pointBudget}.`,
+    `${playerName(s, seat)} drafts ${HS_CARDS[cardId].name} (${cost} pts) — ${teamSpentInDraft(s, seat)}/${teamBudgetForSeat(s, seat)}.`,
   );
   dd.remainingPicks -= 1;
   if (dd.remainingPicks <= 0) {
@@ -647,7 +801,7 @@ function doDraftPass(state: HSState, seat: number): HSResult {
   );
   // Passing permanently completes the army — leave the rotation. Hand the turn
   // to the other seat (single picks) or finish if both have passed.
-  if (dd.passed.length >= SEATS) {
+  if (dd.passed.length >= s.players.length) {
     finishDraft(s);
   } else {
     advanceDraftTurn(s);
@@ -850,7 +1004,7 @@ function doPlacementReady(state: HSState, seat: number): HSResult {
 
   // Both ready → into playing. Drop any card that has no living figures left
   // (its whole squad was left unplaced) so it cannot hold an order marker.
-  if ((s.placementReady ?? []).length >= SEATS) {
+  if ((s.placementReady ?? []).length >= s.players.length) {
     s.cards = s.cards.filter(c => s.figures.some(f => f.cardUid === c.uid));
     enterPlaying(s, MAPS[s.mapId]);
   }
@@ -919,14 +1073,16 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
     return { error: 'Initiative has already been rolled this round' };
   }
   // Step 1 strictly precedes step 2: players commit their whole turn schedule
-  // BEFORE knowing who acts first (02-rounds §The round).
-  if (state.markersReady.length !== state.players.length) {
+  // BEFORE knowing who acts first (02-rounds §The round). Only LIVING seats
+  // place markers, roll, and take turns — an eliminated seat (3+ players, its
+  // team fighting on) is skipped entirely this and every later round.
+  const seats = livingSeats(state);
+  if (state.markersReady.length !== seats.length) {
     return { error: 'Initiative is rolled once every player has placed order markers' };
   }
   if (!Array.isArray(attempts) || attempts.length === 0) {
     return { error: 'Missing initiative rolls' };
   }
-  const seats = state.players.map(p => p.seat);
   // The Glyph of Dagmar adds +8 to its controller's initiative (05-glyphs). The
   // SERVER applies it; the engine re-validates the bonus matches Dagmar control
   // (controlled by whoever occupies the glyph right now). Each seat is owed
@@ -979,7 +1135,11 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
   // order, not roll order (p. 9) — i.e. seat order rotated to the winner.
   const bySeat = [...seats].sort((a, b) => a - b);
   const w = bySeat.indexOf(winnerSeat);
-  s.initiative = [...bySeat.slice(w), ...bySeat.slice(0, w)];
+  const ffaOrder = [...bySeat.slice(w), ...bySeat.slice(0, w)];
+  // Teams: the turn passes left but SKIPS team-mates until every team has acted,
+  // then comes back round — i.e. deal the seats out round-robin across teams in
+  // the FFA order. With all-solo teams this is a no-op (ffaOrder unchanged).
+  s.initiative = interleaveByTeam(s, ffaOrder);
   s.subPhase = 'turns';
   s.turnNumber = 1;
   s.turnPointer = 0;
@@ -1175,7 +1335,12 @@ function tailFor(
 function enemiesEngagedWith(state: HSState, fig: Figure): Figure[] {
   if (fig.at == null) return [];
   return state.figures.filter(other => {
-    if (other.at == null || other.ownerSeat === fig.ownerSeat || other.id === fig.id) return false;
+    // ALLIES never engage one another (teams): you move freely through team-mates
+    // and are never swiped leaving their side. A solo seat is its own team, so
+    // 1-v-1 / FFA is unchanged. (You may still CHOOSE to attack a team-mate —
+    // friendly fire — but engagement is not forced on allies.)
+    if (other.at == null || other.id === fig.id) return false;
+    if (alliedSeats(state, other.ownerSeat, fig.ownerSeat)) return false;
     return engagedPair(state, fig, other);
   });
 }
@@ -2733,21 +2898,29 @@ function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
  */
 function checkEliminationWin(s: HSState): void {
   if (s.phase !== 'playing') return;
-  const seatsAlive = new Set(
-    s.figures.filter(f => f.at != null).map(f => f.ownerSeat),
-  );
-  if (seatsAlive.size > 1) return;
-  // 0 or 1 seats remain. With 2 players a draw is impossible in practice (a
-  // turn belongs to one seat, whose own move can only kill via a swipe FROM
-  // the enemy or a self-inflicted fall — the surviving seat wins). If somehow
-  // nobody is left, the acting seat is gone too; fall back to the last living
-  // seat, else leave the game running.
-  const winner = [...seatsAlive][0];
-  if (winner == null) return;
+  // Win = last TEAM standing (teams). The game ends once every living figure
+  // belongs to a single team — that team wins even if several of its players
+  // are still alive. A solo seat is its own team, so this is "last seat
+  // standing" for 1-v-1 / FFA, unchanged.
+  const livingSeats = [...new Set(s.figures.filter(f => f.at != null).map(f => f.ownerSeat))];
+  const teamsAlive = new Set(livingSeats.map(seat => teamOfSeat(s, seat)));
+  if (teamsAlive.size > 1) return;
+  // 0 or 1 teams remain. If somehow nobody is left (a mutual wipe), the acting
+  // side is gone too; leave the game running rather than crown a ghost.
+  const winningTeam = [...teamsAlive][0];
+  if (winningTeam == null) return;
+  // A representative living seat of the winning team (the survivor in 1-v-1).
+  const winnerSeat = livingSeats.find(seat => teamOfSeat(s, seat) === winningTeam)!;
+  const teamSeats = s.players.filter(p => teamOfSeat(s, p.seat) === winningTeam);
   s.phase = 'finished';
-  s.winnerSeat = winner;
+  s.winnerSeat = winnerSeat;
+  s.winnerTeam = winningTeam;
   s.turnSeat = null;
-  pushLog(s, 'win', `${playerName(s, winner)} wins — the enemy army is destroyed!`);
+  const who =
+    teamSeats.length > 1
+      ? `${teamSeats.map(p => playerName(s, p.seat)).join(' & ')} win`
+      : `${playerName(s, winnerSeat)} wins`;
+  pushLog(s, 'win', `${who} — all rival armies are destroyed!`);
 }
 
 // ============================================================================

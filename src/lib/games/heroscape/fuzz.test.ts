@@ -3,6 +3,11 @@
 // the pure engine never throws, never produces a malformed state, and that games
 // terminate. This exercises the powers in combinations the scenario tests don't.
 //
+// MULTIPLAYER: each game seats a RANDOM 2..6 players and a RANDOM team layout
+// (free-for-all OR shared teams), so the N-player turn engine, the team-interleave
+// turn order, per-team draft budgets' sibling (win = last TEAM standing), and the
+// "eliminated seat keeps the game going" round flow all get hammered.
+//
 // Deterministic: each game runs from a seeded PRNG, so a failure prints the seed
 // + the action log to reproduce. The engine itself stays pure (no Math.random
 // here leaks into it — the fuzzer rolls the dice and injects them, exactly as the
@@ -31,7 +36,7 @@ import {
 } from './engine';
 import { HS_CARDS } from './content';
 import { MAPS } from './maps';
-import type { HSState, HSAction, Figure, CombatFace, OrderMarkerValue } from './types';
+import type { HSState, HSAction, Figure, CombatFace, OrderMarkerValue, InitiativeAttempt } from './types';
 
 // ---- seeded RNG ------------------------------------------------------------
 function mulberry32(seed: number): () => number {
@@ -53,64 +58,105 @@ const rollN = (rng: () => number, n: number): CombatFace[] =>
   Array.from({ length: Math.max(0, n) }, () => rollFace(rng));
 const d20 = (rng: () => number): number => 1 + Math.floor(rng() * 20);
 
-const ATT = (a: number, b: number) => [[{ seat: 0, roll: a }, { seat: 1, roll: b }]];
+const pidOf = (seat: number): string => `p${seat + 1}`;
+const SEAT_COLORS = ['#10b981', '#ef4444', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 
-// ---- set up a battle with two RANDOM armies (1-3 cards each from the 16, so
-// every power gets exercised across many seeds). Figures are dropped onto real
-// map cells (seat 0 from the front, seat 1 from the back) — double-space figures
-// are placed 1-hex here (at2 omitted), which the engine tolerates; the fuzzer is
-// about crash/termination coverage, not 2-hex fidelity. ---------------------
+/** d20 initiative attempts over `seats`, ties for highest re-rolled until the top
+ *  roll is unique — matching the engine's tie discipline (every non-final attempt
+ *  is tied-for-highest; the final is decisive). No Dagmar bonus (the fuzzer runs
+ *  glyph-free), so plain 1-20 rolls validate. */
+function buildInitAttempts(rng: () => number, seats: number[]): InitiativeAttempt[] {
+  const out: InitiativeAttempt[] = [];
+  for (let guard = 0; guard < 40; guard++) {
+    const att = seats.map(seat => ({ seat, roll: d20(rng) }));
+    out.push(att);
+    const max = Math.max(...att.map(a => a.roll));
+    if (att.filter(a => a.roll === max).length === 1) break; // unique high → done
+  }
+  return out;
+}
+
+// ---- set up a battle with 2..6 RANDOM armies on real map cells. Figures take
+// distinct cells from a single cursor (no overlap); double-space figures are
+// placed 1-hex (at2 omitted), which the engine tolerates — the fuzzer is about
+// crash/termination coverage, not 2-hex fidelity. The 'playing' state is built
+// DIRECTLY (quick mode is 2-player only), glyph-free to keep initiative rolls
+// plain (no Dagmar +8 to mirror). ----------------------------------------------
 function setupRandomBattle(rng: () => number): HSState {
+  const numPlayers = 2 + Math.floor(rng() * 5); // 2..6
+  // Team layout: 40% free-for-all (team undefined ⇒ own team), else 2..numPlayers
+  // shared teams. Seats 0..numTeams-1 get distinct ids so there are always ≥2.
+  const ffa = rng() < 0.4;
+  let teams: Record<number, number> | null = null;
+  if (!ffa) {
+    const numTeams = 2 + Math.floor(rng() * (numPlayers - 1)); // 2..numPlayers
+    teams = {};
+    for (let seat = 0; seat < numPlayers; seat++) {
+      teams[seat] = seat < numTeams ? seat : Math.floor(rng() * numTeams);
+    }
+  }
+
   let s = initialState();
-  s = addPlayer(s, 'p1', 'Alice', 0, '#10b981');
-  s = addPlayer(s, 'p2', 'Bob', 1, '#ef4444');
-  s = applyAction(s, 'p1', { kind: 'start_game', mode: 'quick' }) as HSState;
+  for (let seat = 0; seat < numPlayers; seat++) {
+    s = addPlayer(s, pidOf(seat), `Player ${seat + 1}`, seat, SEAT_COLORS[seat]);
+  }
   const mapId = s.mapId;
   const cellKeys = Object.keys(MAPS[mapId].cells);
   const allCards = Object.keys(HS_CARDS);
   const armyFor = (): string[] => Array.from({ length: 1 + Math.floor(rng() * 3) }, () => pick(rng, allCards));
+
   const cards: HSState['cards'] = [];
   const figures: Figure[] = [];
-  let front = 0;
-  let back = cellKeys.length - 1;
-  for (const [seat, ids] of [[0, armyFor()], [1, armyFor()]] as const) {
-    ids.forEach((cardId, idx) => {
+  let cursor = 0;
+  for (let seat = 0; seat < numPlayers; seat++) {
+    armyFor().forEach((cardId, idx) => {
       const def = HS_CARDS[cardId];
       const uid = `s${seat}-${cardId}-${idx}`;
       cards.push({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
-      for (let n = 1; n <= def.figures && front <= back; n++) {
-        const at = seat === 0 ? cellKeys[front++] : cellKeys[back--];
-        figures.push({ id: `${uid}-${n}`, cardUid: uid, ownerSeat: seat, at, index: n, wounds: 0 });
+      for (let n = 1; n <= def.figures && cursor < cellKeys.length; n++) {
+        figures.push({ id: `${uid}-${n}`, cardUid: uid, ownerSeat: seat, at: cellKeys[cursor++], index: n, wounds: 0 });
       }
     });
   }
+
   const c: HSState = JSON.parse(JSON.stringify(s));
+  c.players = c.players.map(p => ({ ...p, team: teams ? teams[p.seat] : undefined }));
+  c.phase = 'playing';
+  c.subPhase = 'place_markers';
+  c.mode = 'quick';
+  c.round = 1;
+  c.turnNumber = 1;
   c.cards = cards;
   c.figures = figures;
+  c.glyphs = [];
   c.mapId = mapId;
   return placeMarkersAndInit(c, rng);
 }
 
-// ---- place random order markers for both seats, then roll initiative --------
+// ---- place random order markers for every LIVING seat, then roll initiative.
+// An eliminated seat (no figures — possible mid-game with 3+ players) is skipped;
+// the engine gates initiative on living seats, not all players. ----------------
 function placeMarkersAndInit(s: HSState, rng: () => number): HSState {
   const markers: OrderMarkerValue[] = ['1', '2', '3', 'X'];
-  for (const seat of [0, 1]) {
-    const pid = seat === 0 ? 'p1' : 'p2';
+  const seatsToPlace = [...new Set(s.figures.filter(f => f.at != null).map(f => f.ownerSeat))].sort((a, b) => a - b);
+  if (seatsToPlace.length < 2) return s; // a single team left ⇒ the engine would have finished
+  for (const seat of seatsToPlace) {
     const living = s.cards.filter(
       cd => cd.ownerSeat === seat && s.figures.some(f => f.cardUid === cd.uid && f.at != null),
     );
-    if (living.length === 0) return s;
+    if (living.length === 0) continue;
     const assignments = markers.map(m => ({ marker: m, cardUid: pick(rng, living).uid }));
-    const r = applyAction(s, pid, { kind: 'place_markers', assignments });
-    if ('error' in r) return s; // already placed / out of phase — bail this round
+    const r = applyAction(s, pidOf(seat), { kind: 'place_markers', assignments });
+    if ('error' in r) return s; // out of phase — bail this round
     s = r;
   }
-  const r = applyAction(s, 'p2', { kind: 'roll_initiative', attempts: ATT(d20(rng), d20(rng)) as never });
+  const attempts = buildInitAttempts(rng, seatsToPlace);
+  const r = applyAction(s, pidOf(seatsToPlace[0]), { kind: 'roll_initiative', attempts: attempts as never });
   return 'error' in r ? s : r;
 }
 
 // ---- the server dice seam (a faithful mini-makeMoveHS) ----------------------
-function serverApply(s: HSState, pid: 'p1' | 'p2', a: HSAction, rng: () => number): HSState | { error: string } {
+function serverApply(s: HSState, pid: string, a: HSAction, rng: () => number): HSState | { error: string } {
   let e: HSAction = a;
   if (a.kind === 'attack') {
     const req = attackDiceRequirements(s, a.attackerId, a.targetId);
@@ -167,7 +213,7 @@ function legalActions(s: HSState, seat: number): HSAction[] {
 function resolvePending(s: HSState, rng: () => number): HSState | { error: string } | null {
   const pc = s.pendingChoice;
   if (!pc) return null;
-  const pid = pc.seat === 0 ? 'p1' : 'p2';
+  const pid = pidOf(pc.seat);
   if (pc.kind === 'grenade_throw') {
     const tgts = grenadeTargets(s, pc.throwers[0]);
     if (!tgts.length) return null; // engine should have skipped; bail
@@ -186,29 +232,36 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
 
 // ---- invariants -------------------------------------------------------------
 function assertValid(s: HSState): void {
+  const seats = s.players.map(p => p.seat);
+  const teamOf = (seat: number): number => s.players.find(p => p.seat === seat)?.team ?? seat;
   for (const f of s.figures) {
     expect(Number.isFinite(f.wounds)).toBe(true);
     expect(f.wounds).toBeGreaterThanOrEqual(0);
     if (f.at != null) expect(typeof f.at).toBe('string');
   }
-  if (s.phase === 'finished') expect([0, 1, null]).toContain(s.winnerSeat ?? null);
-  // ELIMINATION INVARIANT: once the battle is under way, if EITHER seat has no
-  // living figures the game MUST be finished — a death path that leaves a seat
-  // empty without ending the game is a bug (this is the kind of gap a fuzzer
-  // catches that scenario tests miss). Skipped before turns begin (off-board
-  // setup) and once finished.
+  if (s.phase === 'finished') {
+    expect([...seats, null]).toContain(s.winnerSeat ?? null);
+    // The winning side is a single team; winnerTeam names it.
+    if (s.winnerSeat != null) expect(s.winnerTeam).toBe(teamOf(s.winnerSeat));
+  }
+  // ELIMINATION INVARIANT (team-aware): once the battle is under way, MORE THAN
+  // ONE team must still have a living figure — the moment only one team remains
+  // the game MUST be finished. A death path that wipes the last rival team
+  // without ending the game is a bug (exactly the gap a fuzzer catches). Skipped
+  // before turns begin (setup) and once finished.
   if (s.phase === 'playing' && s.subPhase === 'turns') {
-    const alive = new Set(s.figures.filter(f => f.at != null).map(f => f.ownerSeat));
-    expect(alive.has(0) && alive.has(1)).toBe(true);
+    const teamsAlive = new Set(s.figures.filter(f => f.at != null).map(f => teamOf(f.ownerSeat)));
+    expect(teamsAlive.size).toBeGreaterThan(1);
   }
 }
 
 type Kinds = Record<string, number>;
-function playGame(seed: number, kinds: Kinds): { rounds: number; finished: boolean; actions: number; capped: boolean } {
+function playGame(seed: number, kinds: Kinds): { rounds: number; finished: boolean; actions: number; capped: boolean; players: number } {
   const rng = mulberry32(seed);
   let s = setupRandomBattle(rng);
+  const players = s.players.length;
   let actions = 0;
-  const CAP = 4000;
+  const CAP = 5000;
   const bump = (k: string) => { kinds[k] = (kinds[k] ?? 0) + 1; };
   while (s.phase !== 'finished' && actions < CAP) {
     actions++;
@@ -227,7 +280,7 @@ function playGame(seed: number, kinds: Kinds): { rounds: number; finished: boole
     }
     if (s.subPhase !== 'turns' || s.turnSeat == null) break;
     const seat = s.turnSeat;
-    const pid = seat === 0 ? 'p1' : 'p2';
+    const pid = pidOf(seat);
     const acts = legalActions(s, seat);
     const choice: HSAction = acts.length && rng() < 0.7 ? pick(rng, acts) : { kind: 'end_turn' };
     const r = serverApply(s, pid, choice, rng);
@@ -240,33 +293,36 @@ function playGame(seed: number, kinds: Kinds): { rounds: number; finished: boole
       s = r;
     }
   }
-  return { rounds: s.round, finished: s.phase === 'finished', actions, capped: actions >= CAP };
+  return { rounds: s.round, finished: s.phase === 'finished', actions, capped: actions >= CAP, players };
 }
 
 describe('HeroScape self-play fuzzer', () => {
-  it('plays many random games without the engine throwing or hanging', () => {
+  it('plays many random 2-6 player games without the engine throwing or hanging', () => {
     let finished = 0;
     let capped = 0;
     let totalActions = 0;
     const kinds: Kinds = {};
-    const N = 80;
+    const byPlayers: Record<number, number> = {};
+    const N = 120;
     for (let seed = 1; seed <= N; seed++) {
       const r = playGame(seed * 2654435761, kinds);
       if (r.finished) finished++;
       if (r.capped) capped++;
       totalActions += r.actions;
+      byPlayers[r.players] = (byPlayers[r.players] ?? 0) + 1;
     }
     // eslint-disable-next-line no-console
-    console.log(`[fuzz] ${N} games: ${finished} finished, ${capped} hit cap (stalemate), ${totalActions} actions; kinds=${JSON.stringify(kinds)}`);
+    console.log(`[fuzz] ${N} games: ${finished} finished, ${capped} hit cap (stalemate), ${totalActions} actions; players=${JSON.stringify(byPlayers)}; kinds=${JSON.stringify(kinds)}`);
     // The point is robustness: a crash or invalid state throws above and fails
-    // the test. A few random games stalemate (neither side lands a kill) and hit
-    // the cap — that's fine, not a hang. Most should still reach a winner.
-    expect(finished).toBeGreaterThan(N * 0.5);
-    expect(capped).toBeLessThan(N * 0.2); // very few should stalemate
+    // the test. Some random games stalemate (no side lands a finishing blow) and
+    // hit the cap — with 3-6 mutually-wary armies that is more common than 1-v-1,
+    // so the bar is looser than the 2-player fuzzer's. Most should still resolve.
+    expect(finished).toBeGreaterThan(N * 0.4);
+    expect(capped).toBeLessThan(N * 0.45);
     // The fuzzer must actually exercise the special powers (not just moves), or
     // it isn't testing much — assert each fired at least once across the batch.
     for (const k of ['attack', 'fire_line', 'grenade', 'chomp', 'mind_shackle']) {
       expect(kinds[k] ?? 0).toBeGreaterThan(0);
     }
-  }, 30_000);
+  }, 60_000);
 });

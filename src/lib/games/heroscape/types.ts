@@ -192,6 +192,12 @@ export type HSPlayer = {
   playerId: string;
   username: string;
   accent_color?: string;
+  /** Team id (multiplayer / teams). Players sharing a `team` are ALLIES: they
+   *  win/lose together, don't engage one another, and draft from a shared
+   *  budget. ABSENT ⇒ the player is their own team (free-for-all), so a 2-player
+   *  game is always 1-v-1 and every pre-teams save loads unchanged. Assigned by
+   *  the host in the lobby (by colour). See `teamOfSeat` / `teamBudgetFor`. */
+  team?: number;
 };
 
 export type HSLogEntry = {
@@ -400,9 +406,16 @@ export type HSState = {
    *  + pick procedure; 'quick' auto-fills the preset armies. Absent on pre-
    *  slice-5 saves → treated as 'quick' (the old fixed-army behaviour). */
   mode: HSMode;
-  /** Point budget for the draft (200/300/400/500). The cap a drafted army may
-   *  not exceed. Unused by quick mode. */
+  /** Point budget for the draft. The default cap a drafted army may not exceed;
+   *  a team with no `teamBudgets` entry uses this. Custom amounts allowed
+   *  (lobby free-entry). Unused by quick mode. */
   pointBudget: number;
+  /** Per-TEAM point budgets (multiplayer / teams): team id → budget. The host
+   *  may give each team a DIFFERENT total (a 3-v-2-v-1 can be balanced by hand).
+   *  A team absent here falls back to `pointBudget`. Players sharing a team
+   *  draft from this ONE shared pool (Σ their spend ≤ the team budget). Absent
+   *  ⇒ every team uses `pointBudget` (the 2-player / FFA default). */
+  teamBudgets?: Record<number, number>;
   /** Draft state — present only while phase === 'draft' (slice 5). */
   draft?: HSDraftState;
   /** Placement hands — present only while phase === 'placement' (slice 5):
@@ -455,7 +468,13 @@ export type HSState = {
    */
   turnAttacks: { attackerId: string; targetId: string }[];
   lastAttack: LastAttack | null;
+  /** Winning SEAT — a representative living seat of the winning team (for FFA /
+   *  2-player this is simply the survivor). Null until the game finishes. */
   winnerSeat: number | null;
+  /** Winning TEAM id (teams). Equals `teamOfSeat(winnerSeat)`; carried
+   *  explicitly so the end banner can name the whole allied side, not one seat.
+   *  Null until finished. */
+  winnerTeam?: number | null;
   /** Glyphs on the battlefield (slice 4). Placed from a per-map layout; a
    *  temporary glyph (Kelda) is spliced out of this array once it fires. A
    *  permanent glyph's effect is active only while a figure stands on its hex —
@@ -509,6 +528,12 @@ export type HSAction =
       mapId?: string;
       pointBudget?: number;
       mode?: HSMode;
+      /** Team assignment (teams): seat → team id. Players sharing a team id are
+       *  allies. Omitted seats fall back to their own seat (free-for-all). */
+      teams?: Record<number, number>;
+      /** Per-team budgets (teams): team id → points. Merged into state.
+       *  A team absent here uses `pointBudget`. */
+      teamBudgets?: Record<number, number>;
     }
   | {
       // SERVER-rolled draft roll-off (slice 5): both seats' d20 attempts, ties

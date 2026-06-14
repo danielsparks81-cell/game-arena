@@ -279,6 +279,15 @@ function CardArt({ cardId, className }: { cardId: string; className?: string }) 
  * billboard is clipped to a rounded card so the painted card background reads as
  * a tidy standee, hiding the crop seams — v1 accepts the painted background).
  */
+const STANDEE_BASE_HEIGHT = 5;
+/** Visual scale of a standee = card HEIGHT (cards.md) / human baseline (5),
+ *  clamped. A height-9 Mimring / height-11 Grimnak looms over a height-5 human;
+ *  a height-4 Marro sits a touch lower — the board reads true to the models.
+ *  Affects ONLY the sprite — the base footprint stays tied to the hex(es) the
+ *  figure occupies (1 or 2), so range/occupancy are unchanged. */
+function standeeScale(height: number | undefined): number {
+  return Math.max(0.78, Math.min(2.3, (height ?? STANDEE_BASE_HEIGHT) / STANDEE_BASE_HEIGHT));
+}
 function FigureStandee({
   cardId, cx, cy, hex, accent, fallbackLabel, billboard, cx2, cy2, squadIndex, facingVec,
 }: {
@@ -310,9 +319,12 @@ function FigureStandee({
   const [mode, setMode] = useState<'pngIdx' | 'png' | 'jpg' | 'disc'>(
     billboard ? (squadIndex != null ? 'pngIdx' : 'png') : 'disc',
   );
-  // Base ellipse footprint (squashed, sits flat on the iso top face).
-  const baseRx = hex * 0.46;
-  const baseRy = hex * 0.24;
+  // Base ellipse footprint (squashed, sits flat on the iso top face). Sized to
+  // FILL most of the projected hex (~0.97×0.54·hex) like the real moulded disc,
+  // so a figure clearly "owns" its hex — while staying inside it so it never
+  // bleeds into the east/west neighbours.
+  const baseRx = hex * 0.58;
+  const baseRy = hex * 0.31;
   // DOUBLE-SPACE figures pass a second hex center: the standee centres on the
   // midpoint, its base is elongated + rotated along the two-hex axis, and the
   // billboard grows so the big model reads across both spaces.
@@ -322,13 +334,25 @@ function FigureStandee({
   const span = wide ? Math.hypot(cx2! - cx, cy2! - cy) : 0;
   const baseAngle = wide ? (Math.atan2(cy2! - cy, cx2! - cx) * 180) / Math.PI : 0;
   const wideRx = wide ? baseRx + span / 2 : baseRx;
-  // Billboard: ~1.1×HEX wide / ~1.7×HEX tall (1-hex); a 2-hex figure grows by the
-  // span and stands a touch taller. Bottom rests just above the base.
+  // Billboard at BASE size: ~1.1×HEX wide / ~1.7×HEX tall (1-hex); a 2-hex figure
+  // grows by the span. Bottom rests just above the base.
   const spriteW = wide ? hex * 1.15 + span : hex * 1.15;
   const spriteH = wide ? hex * 2.0 : hex * 1.7;
   const spriteX = mx - spriteW / 2;
   const spriteY = my - spriteH + baseRy * 0.4;
   const clipId = `hs-fig-clip-${cardId}-${Math.round(mx)}-${Math.round(my)}`;
+  // HEIGHT scaling: a taller card stands taller. We put the multiple on HEIGHT,
+  // not width — a big model that also grew ~2× WIDE would shove into neighbouring
+  // hexes. So meet-fit the art at base size (never squashed), then scale the whole
+  // billboard up around its FEET: the full multiple vertically, only a gentle
+  // fraction of it horizontally. Humans (height 5 ⇒ 1.0×) are untouched.
+  const figScale = standeeScale(HS_CARDS[cardId]?.height);
+  const figWidthScale = 1 + (figScale - 1) * 0.3;
+  const footY = my + baseRy * 0.4; // the billboard's bottom edge (the figure's feet)
+  const billboardTransform =
+    Math.abs(figScale - 1) < 0.001
+      ? undefined
+      : `translate(${mx} ${footY}) scale(${figWidthScale.toFixed(3)} ${figScale.toFixed(3)}) translate(${-mx} ${-footY})`;
   return (
     <g style={{ pointerEvents: 'none' }}>
       {/* drop shadow — elongated + rotated for a double-space figure */}
@@ -344,7 +368,7 @@ function FigureStandee({
        *  top, leaving a clear colour band around it. Both rotate along the long
        *  axis for a double-space figure so the colour spans both hexes. */}
       <ellipse
-        cx={mx} cy={my} rx={wideRx + hex * 0.17} ry={baseRy + hex * 0.09}
+        cx={mx} cy={my} rx={wideRx + hex * 0.10} ry={baseRy + hex * 0.06}
         fill={accent} opacity={0.30}
         transform={wide ? `rotate(${baseAngle} ${mx} ${my})` : undefined}
       />
@@ -371,42 +395,10 @@ function FigureStandee({
           />
         );
       })()}
-      {mode === 'pngIdx' || mode === 'png' ? (
-        // Clean cut-out: no frame — the figure standing on its base, bottom-
-        // anchored (xMidYMax) and shown whole (meet). A squad member tries its own
-        // <cardId>-<index>.png, then the shared <cardId>.png, then the framed jpg.
-        <image
-          href={mode === 'pngIdx' ? `/heroscape/figures/${cardId}-${squadIndex}.png` : `/heroscape/figures/${cardId}.png`}
-          x={spriteX} y={spriteY} width={spriteW} height={spriteH}
-          preserveAspectRatio="xMidYMax meet"
-          onError={() => setMode(mode === 'pngIdx' ? 'png' : 'jpg')}
-        />
-      ) : mode === 'jpg' ? (
-        <>
-          <defs>
-            <clipPath id={clipId}>
-              <rect x={spriteX} y={spriteY} width={spriteW} height={spriteH} rx={hex * 0.16} ry={hex * 0.16} />
-            </clipPath>
-          </defs>
-          {/* card-art crop — clipped to a rounded card to hide the seams */}
-          {/* eslint-disable-next-line @next/next/no-img-element is N/A for SVG image */}
-          <image
-            href={`/heroscape/figures/${cardId}.jpg`}
-            x={spriteX} y={spriteY} width={spriteW} height={spriteH}
-            preserveAspectRatio="xMidYMid slice"
-            clipPath={`url(#${clipId})`}
-            onError={() => setMode('disc')}
-          />
-          {/* thin frame around the standee so it reads as a stand-up piece */}
-          <rect
-            x={spriteX} y={spriteY} width={spriteW} height={spriteH}
-            rx={hex * 0.16} ry={hex * 0.16}
-            fill="none" stroke={accent} strokeWidth={1.5} opacity={0.9}
-          />
-        </>
-      ) : (
-        // Fallback: the legacy colored disc + letter (sprite missing or a
-        // squad's extra figures we keep as discs).
+      {mode === 'disc' ? (
+        // Fallback: the legacy colored disc + letter (sprite missing or a squad's
+        // extra figures we keep as discs). A flat marker — NOT height-scaled (a
+        // stretched disc + letter would just look wrong).
         <>
           <circle cx={mx} cy={my - hex * 0.18} r={hex * 0.42} fill={accent} stroke="#0a0a0a" strokeWidth={1.5} />
           <text
@@ -418,6 +410,45 @@ function FigureStandee({
             {fallbackLabel}
           </text>
         </>
+      ) : (
+        // The standee billboard, grown around its feet by the card's Height
+        // (`billboardTransform`): tall multiple, gentle width — see above.
+        <g transform={billboardTransform}>
+          {mode === 'pngIdx' || mode === 'png' ? (
+            // Clean cut-out: no frame — the figure standing on its base, bottom-
+            // anchored (xMidYMax) and shown whole (meet). A squad member tries its
+            // own <cardId>-<index>.png, then <cardId>.png, then the framed jpg.
+            <image
+              href={mode === 'pngIdx' ? `/heroscape/figures/${cardId}-${squadIndex}.png` : `/heroscape/figures/${cardId}.png`}
+              x={spriteX} y={spriteY} width={spriteW} height={spriteH}
+              preserveAspectRatio="xMidYMax meet"
+              onError={() => setMode(mode === 'pngIdx' ? 'png' : 'jpg')}
+            />
+          ) : (
+            <>
+              <defs>
+                <clipPath id={clipId}>
+                  <rect x={spriteX} y={spriteY} width={spriteW} height={spriteH} rx={hex * 0.16} ry={hex * 0.16} />
+                </clipPath>
+              </defs>
+              {/* card-art crop — clipped to a rounded card to hide the seams */}
+              {/* eslint-disable-next-line @next/next/no-img-element is N/A for SVG image */}
+              <image
+                href={`/heroscape/figures/${cardId}.jpg`}
+                x={spriteX} y={spriteY} width={spriteW} height={spriteH}
+                preserveAspectRatio="xMidYMid slice"
+                clipPath={`url(#${clipId})`}
+                onError={() => setMode('disc')}
+              />
+              {/* thin frame around the standee so it reads as a stand-up piece */}
+              <rect
+                x={spriteX} y={spriteY} width={spriteW} height={spriteH}
+                rx={hex * 0.16} ry={hex * 0.16}
+                fill="none" stroke={accent} strokeWidth={1.5} opacity={0.9}
+              />
+            </>
+          )}
+        </g>
       )}
     </g>
   );
@@ -1061,10 +1092,18 @@ export default function HeroScapeBoard({
   const bounds = isoSceneBounds(cells.map(c => ({ key: flipKey(`${c.q},${c.r}`), height: c.height })));
   const minX = bounds.minX * HEX;
   const minY = bounds.minY * HEX;
-  // Standees rise ~1.7×HEX above their tile top (+ a wound pip above the head),
-  // which the tile-only scene bounds don't account for — reserve extra TOP
-  // headroom so a back-row figure is never clipped by the viewBox.
-  const STANDEE_HEADROOM = HEX * 1.9;
+  // Standees rise above their tile top (+ a wound pip above the head), which the
+  // tile-only scene bounds don't account for — reserve extra TOP headroom so a
+  // back-row figure is never clipped. Sized to the TALLEST standee actually on
+  // the board (height-scaled), so it stays tight with only humans but expands for
+  // a Grimnak/Mimring.
+  const maxStandeeRise = state.figures.reduce((m, f) => {
+    if (f.at == null) return m;
+    const c = state.cards.find(cc => cc.uid === f.cardUid);
+    const d = c ? HS_CARDS[c.cardId] : undefined;
+    return Math.max(m, (d?.baseSize === 2 ? 2.0 : 1.7) * standeeScale(d?.height));
+  }, 1.7);
+  const STANDEE_HEADROOM = HEX * (maxStandeeRise + 0.4);
   const W = (bounds.maxX - bounds.minX) * HEX + 2 * (HEX + PAD);
   const H = (bounds.maxY - bounds.minY) * HEX + 2 * (HEX + PAD) + STANDEE_HEADROOM;
   // Unit→screen: scale by HEX and translate so the scene's top-left sits at PAD,
@@ -2363,8 +2402,8 @@ export default function HeroScapeBoard({
                         figure's taller billboard), anchored to the midpoint */}
                     {fig.wounds > 0 && (
                       <g style={{ pointerEvents: 'none' }}>
-                        <circle cx={aCx + HEX * 0.34} cy={aCy - HEX * (is2 ? 1.7 : 1.45)} r={7} fill="#dc2626" stroke="#0a0a0a" strokeWidth={1.5} />
-                        <text x={aCx + HEX * 0.34} y={aCy - HEX * (is2 ? 1.7 : 1.45) + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight={800} fill="#fee2e2" style={{ userSelect: 'none' }}>
+                        <circle cx={aCx + HEX * 0.34} cy={aCy - HEX * (is2 ? 1.7 : 1.45) * standeeScale(fdef?.height)} r={7} fill="#dc2626" stroke="#0a0a0a" strokeWidth={1.5} />
+                        <text x={aCx + HEX * 0.34} y={aCy - HEX * (is2 ? 1.7 : 1.45) * standeeScale(fdef?.height) + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={9} fontWeight={800} fill="#fee2e2" style={{ userSelect: 'none' }}>
                           {fig.wounds}
                         </text>
                       </g>
