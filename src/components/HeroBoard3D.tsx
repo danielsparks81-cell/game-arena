@@ -43,8 +43,12 @@ function HexTile({ x, z, height, terrain }: { x: number; z: number; height: numb
   const isWater = terrain === 'water';
   const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1);
   return (
-    <mesh position={[x, h / 2, z]} rotation={[0, Math.PI / 6, 0]} castShadow receiveShadow>
-      <cylinderGeometry args={[SIZE, SIZE, h, 6]} />
+    // Pointy-top hexagon: THREE's 6-sided cylinder is already pointy-top (a vertex
+    // toward ±Z), which is what the axial→world spacing expects — so NO rotation.
+    // A hair of extra radius (×1.02) closes anti-aliased hairline seams between
+    // same-height tiles without visible overlap.
+    <mesh position={[x, h / 2, z]} castShadow receiveShadow>
+      <cylinderGeometry args={[SIZE * 1.02, SIZE * 1.02, h, 6]} />
       <meshStandardMaterial
         color={TERRAIN_COLOR[terrain] ?? '#666'}
         roughness={isWater ? 0.2 : 0.9}
