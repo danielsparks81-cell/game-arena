@@ -341,15 +341,124 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     power: 'live', // slice 7: Counter Strike
     counterStrike: true, // slice 7: reflect excess shields onto an adjacent normal attacker
   },
+  // ---- Big Heroes (large/huge uniques, stats AS PRINTED on the user's cards).
+  //      All double-space. Their NAMED special attacks (Ice Shard / Acid Breath /
+  //      Queglix Gun / Wild Swing / Throw / Carry) are `wip` — not yet wired — so
+  //      they draft + fight with printed stats; FLYING is already live (slice-7
+  //      flag) for the three flyers. Cut-outs pending → disc fallback until then.
+  nilfheim: {
+    id: 'nilfheim',
+    name: 'Nilfheim',
+    shortName: 'Nilfheim',
+    type: 'hero',
+    figures: 1,
+    life: 6,
+    move: 6,
+    range: 1,
+    attack: 6,
+    defense: 4,
+    height: 12,
+    size: 'huge',
+    points: 240,
+    letter: 'N',
+    species: 'Dragon',
+    unitClass: 'King',
+    power: 'wip', // Ice Shard Breath Special Attack (Range 5, Attack 4, +2 extra attacks, no repeats)
+    flying: true,
+    baseSize: 2,
+  },
+  braxas: {
+    id: 'braxas',
+    name: 'Braxas',
+    shortName: 'Braxas',
+    type: 'hero',
+    figures: 1,
+    life: 8,
+    move: 6,
+    range: 1,
+    attack: 5,
+    defense: 3,
+    height: 13,
+    size: 'huge',
+    points: 210,
+    letter: 'X',
+    species: 'Dragon',
+    unitClass: 'Queen',
+    power: 'wip', // Poisonous Acid Breath (up to 3 small/medium in 4 sight; d20 squad 8+ / hero 17+ destroy)
+    flying: true,
+    baseSize: 2,
+  },
+  theracus: {
+    id: 'theracus',
+    name: 'Theracus',
+    shortName: 'Theracus',
+    type: 'hero',
+    figures: 1,
+    life: 3,
+    move: 7,
+    range: 1,
+    attack: 3,
+    defense: 3,
+    height: 5,
+    size: 'large',
+    points: 40,
+    letter: 'T',
+    species: 'Gryphillin',
+    unitClass: 'Scout',
+    power: 'wip', // Carry (move an adjacent friendly small/medium along with him)
+    flying: true,
+    baseSize: 2,
+  },
+  major_q9: {
+    id: 'major_q9',
+    name: 'Major Q9',
+    shortName: 'Major Q9',
+    type: 'hero',
+    figures: 1,
+    life: 4,
+    move: 5,
+    range: 8,
+    attack: 4,
+    defense: 7,
+    height: 7,
+    size: 'large',
+    points: 250,
+    letter: 'Q',
+    species: 'Soulborg',
+    unitClass: 'Major',
+    power: 'wip', // Queglix Gun Special Attack (Range 6; a pool of 9 dice spent 1-3 per shot)
+    baseSize: 2,
+  },
+  jotun: {
+    id: 'jotun',
+    name: 'Jotun',
+    shortName: 'Jotun',
+    type: 'hero',
+    figures: 1,
+    life: 7,
+    move: 6,
+    range: 1,
+    attack: 8,
+    defense: 4,
+    height: 10,
+    size: 'huge',
+    points: 225,
+    letter: 'J',
+    species: 'Giant',
+    unitClass: 'Warrior',
+    power: 'wip', // Wild Swing Special Attack (splash) + Throw (d20 reposition + damage)
+    baseSize: 2,
+  },
 };
 
-/** The full draft pool: every card id in HS_CARDS, in roster (cards.md) order —
- *  General, then points. The draft removes a card from this pool when taken
- *  (all 16 are UNIQUE in this printing, so each is draftable once total). */
+/** The full draft pool: every card id in HS_CARDS, in roster order — the 16 base
+ *  uniques + the 5 Big Heroes. The draft removes a card when taken (every card is
+ *  UNIQUE in this printing, so each is draftable once total). */
 export const HS_DRAFT_POOL: readonly string[] = [
   'tarn_vikings', 'finn', 'thorgrim', 'airborne_elite', 'drake', 'raelin',
   'zettian_guards', 'ne_gok_sa', 'marro_warriors', 'deathwalker_9000', 'mimring',
   'grimnak', 'syvarris', 'agent_carr', 'krav_maga', 'izumi_samurai',
+  'theracus', 'jotun', 'braxas', 'nilfheim', 'major_q9',
 ];
 
 /** Quick-battle fixed armies by roster index (hero first):

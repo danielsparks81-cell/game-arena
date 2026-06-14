@@ -2288,13 +2288,13 @@ describe('slice 5: start_game routing (draft vs quick)', () => {
     expect(s.hand).toBeUndefined();
   });
 
-  it('draft mode enters the draft phase with a roll-off and an empty pool of 16', () => {
+  it('draft mode enters the draft phase with a roll-off and the full pool', () => {
     let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 400 }));
     expect(s.phase).toBe('draft');
     expect(s.mode).toBe('draft');
     expect(s.pointBudget).toBe(400);
     expect(s.draft).toBeDefined();
-    expect(s.draft!.pool).toHaveLength(16);
+    expect(s.draft!.pool).toHaveLength(21);
     expect(s.draft!.turnSeat).toBeNull(); // awaiting the server roll-off
     expect(getActivePlayerId(s)).toBeNull();
     // Server rolls the order; p1 wins → drafts first.
@@ -2412,13 +2412,13 @@ describe('slice 5: budget enforcement and passing', () => {
   });
 
   it('forces a pass when nothing affordable remains, and the pass completes the army', () => {
-    // Budget 200. p1 drafts Grimnak (160) leaving 40 — the cheapest pool card is
-    // 50 (Tarn) so nothing is affordable: p1 must pass on its next turn.
-    let s = inDraft('p1', 200);
-    s = draftCard(s, 'grimnak'); // p1: 160/200 → p2 double
+    // Budget 190. p1 drafts Grimnak (160) leaving 30 — the cheapest pool card is
+    // 40 (Theracus) so nothing is affordable: p1 must pass on its next turn.
+    let s = inDraft('p1', 190);
+    s = draftCard(s, 'grimnak'); // p1: 160/190 → p2 double
     s = draftCard(s, 'finn'); // p2: 80
     s = draftCard(s, 'thorgrim'); // p2: 160 → back to p1
-    // p1 has 40 left; cheapest remaining is 50 (Tarn). The forced pass is legal.
+    // p1 has 30 left; cheapest remaining is 40 (Theracus). The forced pass is legal.
     expect(s.draft!.turnSeat).toBe(0);
     s = draftPass(s);
     expect(s.draft!.passed).toContain(0);
@@ -2586,10 +2586,10 @@ describe('slice 5: placement', () => {
 
 // ---- full roster stats + power flags --------------------------------------
 
-describe('slice 5: full 16-card roster', () => {
-  it('HS_CARDS has all 16 cards with the cards.md stats', () => {
-    expect(Object.keys(HS_CARDS)).toHaveLength(16);
-    expect(HS_DRAFT_POOL).toHaveLength(16);
+describe('slice 5: full roster (16 base + 5 Big Heroes)', () => {
+  it('HS_CARDS has all 21 cards with the printed stats', () => {
+    expect(Object.keys(HS_CARDS)).toHaveLength(21);
+    expect(HS_DRAFT_POOL).toHaveLength(21);
     // Every pool id resolves to a card.
     for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
     // Spot-check stats AS PRINTED (cards.md roster table).
@@ -2606,12 +2606,18 @@ describe('slice 5: full 16-card roster', () => {
     expect(HS_CARDS.ne_gok_sa).toMatchObject({ life: 5, defense: 6, points: 90 });
     expect(HS_CARDS.drake).toMatchObject({ life: 5, attack: 6, defense: 3, points: 110 });
     expect(HS_CARDS.agent_carr).toMatchObject({ range: 6, attack: 2, defense: 4, points: 100 });
+    // Big Heroes — all double-space (baseSize 2), printed stats.
+    expect(HS_CARDS.nilfheim).toMatchObject({ life: 6, attack: 6, defense: 4, height: 12, points: 240, baseSize: 2, flying: true });
+    expect(HS_CARDS.braxas).toMatchObject({ life: 8, attack: 5, defense: 3, height: 13, points: 210, baseSize: 2, flying: true });
+    expect(HS_CARDS.theracus).toMatchObject({ life: 3, move: 7, attack: 3, height: 5, points: 40, baseSize: 2, flying: true });
+    expect(HS_CARDS.major_q9).toMatchObject({ life: 4, range: 8, attack: 4, defense: 7, height: 7, points: 250, baseSize: 2 });
+    expect(HS_CARDS.jotun).toMatchObject({ life: 7, attack: 8, defense: 4, height: 10, points: 225, baseSize: 2 });
   });
 
-  it('power flags: Mimring Fire Line + Ne-Gok-Sa Mind Shackle live; only Airborne stays wip', () => {
-    // slice 4 + slice 6/7 (13 cards) + slice 8 Mimring (Fire Line) + slice 8
-    // Ne-Gok-Sa (Mind Shackle) = 15 live. The only remaining wip is Airborne
-    // Elite (grenade special attack + The Drop).
+  it('power flags: the 15 base powers are live; Airborne + the 5 Big Heroes stay wip', () => {
+    // The 15 live base cards (slice 4/6/7 + slice 8 Mimring Fire Line & Ne-Gok-Sa
+    // Mind Shackle). Still wip: Airborne Elite (grenade + The Drop) and the five
+    // Big Heroes (their named special attacks aren't wired yet).
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
       'agent_carr', 'deathwalker_9000', 'drake', 'finn', 'grimnak', 'izumi_samurai',
@@ -2619,7 +2625,7 @@ describe('slice 5: full 16-card roster', () => {
       'tarn_vikings', 'thorgrim', 'zettian_guards',
     ]);
     const wip = Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort();
-    expect(wip).toEqual(['airborne_elite']);
+    expect(wip).toEqual(['airborne_elite', 'braxas', 'jotun', 'major_q9', 'nilfheim', 'theracus']);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {
@@ -2631,12 +2637,15 @@ describe('slice 5: full 16-card roster', () => {
     expect(HS_CARDS.drake.grappleGun).toBe(25);
     expect(HS_CARDS.krav_maga.stealthDodge).toBe(true);
     expect(HS_CARDS.izumi_samurai.counterStrike).toBe(true);
-    // No OTHER card carries a slice-7 flag (so the powers can't fire on a card
-    // they don't belong to).
+    // The Big Heroes Nilfheim/Braxas/Theracus also FLY (their other powers are
+    // wip). No card carries a slice-7 combat flag it shouldn't.
+    expect(HS_CARDS.nilfheim.flying).toBe(true);
+    expect(HS_CARDS.braxas.flying).toBe(true);
+    expect(HS_CARDS.theracus.flying).toBe(true);
     const flagged = Object.values(HS_CARDS).filter(
       c => c.flying || c.ghostWalk || c.disengage || c.thorianSpeed || c.stealthDodge || c.counterStrike || c.grappleGun,
     ).map(c => c.id).sort();
-    expect(flagged).toEqual(['agent_carr', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'raelin']);
+    expect(flagged).toEqual(['agent_carr', 'braxas', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'raelin', 'theracus']);
   });
 
   it('a wip card fights with its printed stats (no power handler)', () => {
