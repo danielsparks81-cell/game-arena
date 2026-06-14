@@ -281,6 +281,12 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onChomp={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'chomp', targetId }); })}
       onGrenade={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grenade' }); })}
       onGrenadeThrow={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grenade_throw', targetId }); })}
+      onIceShard={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'ice_shard', attackerId, targetId }); })}
+      onQueglix={(attackerId: string, targetId: string, dice: 1 | 2 | 3) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'queglix', attackerId, targetId, dice }); })}
+      onWildSwing={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'wild_swing', attackerId, targetId }); })}
+      onAcidBreath={(attackerId: string, targetIds: string[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'acid_breath', attackerId, targetIds }); })}
+      onThrow={(attackerId: string, targetId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'throw_figure', attackerId, targetId, to }); })}
+      onCarry={(figureId: string, to: HSHexKey, passengerId: string, passengerTo: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'carry_move', figureId, to, passengerId, passengerTo }); })}
       onResolveChoice={(choice: HSChoiceResolution) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'resolve_choice', choice }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
       onDraftCard={(cardId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_card', cardId }); })}

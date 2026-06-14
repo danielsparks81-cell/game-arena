@@ -35,6 +35,15 @@ import {
   chompTargets,
   canGrenade,
   grenadeTargets,
+  // Big Heroes special powers (slice 8b).
+  iceShardTargets,
+  queglixTargets,
+  queglixDiceLeft,
+  wildSwingTargets,
+  acidBreathTargets,
+  throwTargets,
+  throwLandingHexes,
+  carryPassengers,
   legalTargets,
   placeableHexes,
   placeable2Leads,
@@ -143,6 +152,13 @@ type Props = {
   onChomp: (targetId: string) => void;
   onGrenade: () => void;
   onGrenadeThrow: (targetId: string) => void;
+  // Big Heroes special powers (slice 8b).
+  onIceShard: (attackerId: string, targetId: string) => void;
+  onQueglix: (attackerId: string, targetId: string, dice: 1 | 2 | 3) => void;
+  onWildSwing: (attackerId: string, targetId: string) => void;
+  onAcidBreath: (attackerId: string, targetIds: string[]) => void;
+  onThrow: (attackerId: string, targetId: string, to: HexKey) => void;
+  onCarry: (figureId: string, to: HexKey, passengerId: string, passengerTo: HexKey) => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
   onEndTurn: () => void;
   onDraftCard: (cardId: string) => void;
@@ -769,6 +785,7 @@ export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onEndTurn,
+  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -781,6 +798,15 @@ export default function HeroScapeBoard({
   const [shackleMode, setShackleMode] = useState(false);
   // slice 8: Grimnak CHOMP targeting mode (same idea — adjacent enemy click).
   const [chompMode, setChompMode] = useState(false);
+  // slice 8b: Big-Hero special-power control panel — current dropdown selections
+  // (figure / hex ids). A single object so each power's pickers are independent
+  // without a hook per field. Defaults fill in from the first legal option.
+  const [bh, setBh] = useState<{
+    qDice?: 1 | 2 | 3; ice?: string; q?: string; wild?: string;
+    acid?: string[]; throwTgt?: string; throwTo?: string;
+    carryPass?: string; carryDest?: string; carryLand?: string;
+  }>({});
+  const patchBh = (p: Partial<typeof bh>) => setBh(s => ({ ...s, ...p }));
   // Per-seat army-row expand override (opponent rosters collapse to fit 4-6
   // players; the user can toggle any). Keyed by seat; absent → default.
   const [openSeats, setOpenSeats] = useState<Record<number, boolean>>({});
@@ -1028,6 +1054,30 @@ export default function HeroScapeBoard({
     () => (grenadeChoice ? new Set(grenadeTargets(state, grenadeChoice.throwers[0])) : new Set<string>()),
     [grenadeChoice, state],
   );
+
+  // slice 8b: Big-Hero special-power availability + target lists for the control
+  // panel. The active card's living figure IS the Big Hero (Hero cards have one
+  // figure). Each list comes from the engine's single-source helper, so the panel
+  // can never offer an illegal choice — and the engine re-validates regardless.
+  const bhHeroId =
+    canAct && activeCardUid ? state.figures.find(f => f.cardUid === activeCardUid && f.at != null)?.id : undefined;
+  const bhId = activeCardDef?.id;
+  const iceList = bhHeroId && bhId === 'nilfheim' ? iceShardTargets(state, bhHeroId) : [];
+  const qLeft = bhId === 'major_q9' ? queglixDiceLeft(state) : 0;
+  const qList = bhHeroId && bhId === 'major_q9' && qLeft > 0 ? queglixTargets(state, bhHeroId) : [];
+  const wildList = bhHeroId && bhId === 'jotun' ? wildSwingTargets(state, bhHeroId) : [];
+  const acidList = canAct && me && bhId === 'braxas' ? acidBreathTargets(state, me.seat) : [];
+  const throwList = canAct && me && bhId === 'jotun' ? throwTargets(state, me.seat) : [];
+  const carryList = canAct && me && bhId === 'theracus' ? carryPassengers(state, me.seat) : [];
+  const anyBigHeroPower =
+    iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
+  /** Readable label for a figure id (card short name + squad index + hex). */
+  const figName = (id: string): string => {
+    const f = state.figures.find(x => x.id === id);
+    if (!f) return id;
+    const cd = HS_CARDS[state.cards.find(c => c.uid === f.cardUid)?.cardId ?? ''];
+    return `${cd?.shortName ?? '?'}${cd?.type === 'squad' ? ' #' + f.index : ''} (${f.at})`;
+  };
 
   // Activation highlighting (UI only): during MY turn, classify each figure of
   // the ACTIVE card so the board can ring it —
@@ -2072,6 +2122,118 @@ export default function HeroScapeBoard({
           >
             💣 Grenade (once per game)
           </button>
+        )}
+        {/* slice 8b: Big-Hero special-power control panel — dropdown pickers +
+            a fire button per available power (the engine re-validates each). */}
+        {!!anyBigHeroPower && !disabled && (
+          <div className="w-full rounded-lg border-2 border-violet-700/70 bg-neutral-900/70 px-3 py-2">
+            <div className="mb-1 text-sm font-bold text-violet-300">⚡ {activeCardDef?.name} — Special Power</div>
+            <div className="flex flex-col gap-2 text-xs text-neutral-200">
+              {/* Nilfheim — Ice Shard Breath (up to 3 shots) */}
+              {iceList.length > 0 && bhHeroId && (() => {
+                const tgt = bh.ice && iceList.includes(bh.ice) ? bh.ice : iceList[0];
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-sky-300">❄ Ice Shard (R5 A4, ≤3×):</span>
+                    <select value={tgt} onChange={e => patchBh({ ice: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {iceList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
+                    </select>
+                    <button onClick={() => onIceShard(bhHeroId, tgt)} className="rounded border border-sky-600 px-2 py-0.5 font-semibold text-sky-300 hover:bg-sky-900/40">Fire</button>
+                  </div>
+                );
+              })()}
+              {/* Major Q9 — Queglix Gun (9-die pool, 1-3 per shot) */}
+              {qList.length > 0 && bhHeroId && (() => {
+                const tgt = bh.q && qList.includes(bh.q) ? bh.q : qList[0];
+                const maxDice = Math.min(3, qLeft) as 1 | 2 | 3;
+                const dice = (bh.qDice && bh.qDice <= maxDice ? bh.qDice : maxDice) as 1 | 2 | 3;
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-amber-300">🔫 Queglix ({qLeft} dice left):</span>
+                    <select value={dice} onChange={e => patchBh({ qDice: Number(e.target.value) as 1 | 2 | 3 })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {[1, 2, 3].filter(n => n <= maxDice).map(n => <option key={n} value={n}>{n} die{n === 1 ? '' : 'ce'}</option>)}
+                    </select>
+                    <select value={tgt} onChange={e => patchBh({ q: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {qList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
+                    </select>
+                    <button onClick={() => onQueglix(bhHeroId, tgt, dice)} className="rounded border border-amber-600 px-2 py-0.5 font-semibold text-amber-300 hover:bg-amber-900/40">Fire</button>
+                  </div>
+                );
+              })()}
+              {/* Jotun — Wild Swing (splash) */}
+              {wildList.length > 0 && bhHeroId && (() => {
+                const tgt = bh.wild && wildList.includes(bh.wild) ? bh.wild : wildList[0];
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-red-300">🪓 Wild Swing (R1 A4, splash):</span>
+                    <select value={tgt} onChange={e => patchBh({ wild: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {wildList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
+                    </select>
+                    <button onClick={() => onWildSwing(bhHeroId, tgt)} className="rounded border border-red-600 px-2 py-0.5 font-semibold text-red-300 hover:bg-red-900/40">Swing</button>
+                  </div>
+                );
+              })()}
+              {/* Braxas — Poisonous Acid Breath (up to 3 small/medium) */}
+              {acidList.length > 0 && bhHeroId && (() => {
+                const picks = (bh.acid ?? []).filter(id => acidList.includes(id));
+                const toggle = (id: string) => patchBh({ acid: picks.includes(id) ? picks.filter(x => x !== id) : picks.length < 3 ? [...picks, id] : picks });
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-lime-300">☣ Acid Breath (pick ≤3):</span>
+                    {acidList.map(id => (
+                      <button key={id} onClick={() => toggle(id)} className={'rounded border px-2 py-0.5 ' + (picks.includes(id) ? 'border-lime-400 bg-lime-900/50 text-lime-100' : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800')}>{figName(id)}</button>
+                    ))}
+                    <button disabled={picks.length === 0} onClick={() => { onAcidBreath(bhHeroId, picks); patchBh({ acid: [] }); }} className="rounded border border-lime-600 px-2 py-0.5 font-semibold text-lime-300 hover:bg-lime-900/40 disabled:opacity-40">Breathe ({picks.length})</button>
+                  </div>
+                );
+              })()}
+              {/* Jotun — Throw 14 (reposition + damage) */}
+              {throwList.length > 0 && bhHeroId && (() => {
+                const tgt = bh.throwTgt && throwList.includes(bh.throwTgt) ? bh.throwTgt : throwList[0];
+                const lands = throwLandingHexes(state, bhHeroId, tgt);
+                const to = bh.throwTo && lands.includes(bh.throwTo) ? bh.throwTo : lands[0];
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-orange-300">🤾 Throw (d20 14+):</span>
+                    <select value={tgt} onChange={e => patchBh({ throwTgt: e.target.value, throwTo: undefined })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {throwList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
+                    </select>
+                    <span className="text-neutral-500">→</span>
+                    <select value={to ?? ''} onChange={e => patchBh({ throwTo: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {lands.map(k => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                    <button disabled={!to} onClick={() => { onThrow(bhHeroId, tgt, to!); patchBh({ throwTgt: undefined, throwTo: undefined }); }} className="rounded border border-orange-600 px-2 py-0.5 font-semibold text-orange-300 hover:bg-orange-900/40 disabled:opacity-40">Throw</button>
+                  </div>
+                );
+              })()}
+              {/* Theracus — Carry (pick passenger, then his destination, then a landing) */}
+              {carryList.length > 0 && bhHeroId && (() => {
+                const pass = bh.carryPass && carryList.includes(bh.carryPass) ? bh.carryPass : carryList[0];
+                const dests = [...legalDestinations(state, bhHeroId)];
+                const dest = bh.carryDest && dests.includes(bh.carryDest) ? bh.carryDest : dests[0];
+                const occ = new Set(state.figures.flatMap(f => [f.at, f.at2].filter(Boolean) as string[]));
+                const lands = dest ? neighborKeys(dest).filter(k => MAPS[state.mapId].cells[k] && !occ.has(k) && k !== dest) : [];
+                const land = bh.carryLand && lands.includes(bh.carryLand) ? bh.carryLand : lands[0];
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-emerald-300">🪽 Carry:</span>
+                    <select value={pass} onChange={e => patchBh({ carryPass: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {carryList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
+                    </select>
+                    <span className="text-neutral-500">fly→</span>
+                    <select value={dest ?? ''} onChange={e => patchBh({ carryDest: e.target.value, carryLand: undefined })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {dests.map(k => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                    <span className="text-neutral-500">drop→</span>
+                    <select value={land ?? ''} onChange={e => patchBh({ carryLand: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                      {lands.map(k => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                    <button disabled={!dest || !land} onClick={() => { onCarry(bhHeroId, dest!, pass, land!); patchBh({ carryDest: undefined, carryLand: undefined }); }} className="rounded border border-emerald-600 px-2 py-0.5 font-semibold text-emerald-300 hover:bg-emerald-900/40 disabled:opacity-40">Carry</button>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
         )}
         {/* slice 8: Grenade throw sequence — pick a Range-5 figure per Elite. */}
         {grenadeChoice && (
