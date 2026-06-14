@@ -287,6 +287,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onAcidBreath={(attackerId: string, targetIds: string[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'acid_breath', attackerId, targetIds }); })}
       onThrow={(attackerId: string, targetId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'throw_figure', attackerId, targetId, to }); })}
       onCarry={(figureId: string, to: HSHexKey, passengerId: string, passengerTo: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'carry_move', figureId, to, passengerId, passengerTo }); })}
+      onTheDrop={(placements: HSHexKey[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'the_drop', placements }); })}
       onResolveChoice={(choice: HSChoiceResolution) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'resolve_choice', choice }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
       onDraftCard={(cardId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_card', cardId }); })}

@@ -9,7 +9,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import HeroScapeBoard from './HeroScapeBoard';
-import { initialState, addPlayer, applyAction, MAPS, neighborKeys } from '@/lib/games/heroscape';
+import { initialState, addPlayer, applyAction, MAPS, neighborKeys, theDropHexes } from '@/lib/games/heroscape';
 import type { HSResult, HSState, OrderMarkerValue } from '@/lib/games/heroscape';
 
 afterEach(cleanup);
@@ -75,7 +75,7 @@ function spies() {
     onGrappleMove: vi.fn(), onFireLine: vi.fn(), onOrient: vi.fn(), onAttack: vi.fn(),
     onBerserkerCharge: vi.fn(), onWaterClone: vi.fn(), onMindShackle: vi.fn(), onChomp: vi.fn(),
     onGrenade: vi.fn(), onGrenadeThrow: vi.fn(), onIceShard: vi.fn(), onQueglix: vi.fn(),
-    onWildSwing: vi.fn(), onAcidBreath: vi.fn(), onThrow: vi.fn(), onCarry: vi.fn(),
+    onWildSwing: vi.fn(), onAcidBreath: vi.fn(), onThrow: vi.fn(), onCarry: vi.fn(), onTheDrop: vi.fn(),
     onResolveChoice: vi.fn(), onEndTurn: vi.fn(), onDraftCard: vi.fn(), onDraftPass: vi.fn(),
     onPlaceFigure: vi.fn(), onUnplaceFigure: vi.fn(), onPlacementReady: vi.fn(),
   };
@@ -154,5 +154,53 @@ describe('Big-Hero powers — board UI panel', () => {
     const cb = spies();
     renderBoard(s, cb);
     expect(screen.queryByText(/Special Power/i)).toBeNull();
+  });
+});
+
+// A round-start (place_markers) state with seat 0 owning 4 reserve Airborne Elite.
+function dropStage(): { s: HSState; legal: string[] } {
+  let s = initialState();
+  s = addPlayer(s, 'p1', 'Alice', 0, '#10b981');
+  s = addPlayer(s, 'p2', 'Bob', 1, '#ef4444');
+  s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'quick' }));
+  s = JSON.parse(JSON.stringify(s)) as HSState; // phase=playing, subPhase=place_markers
+  for (const f of s.figures) { f.at = null; f.at2 = null; }
+  s.figures.find(f => f.id === 's1-thorgrim-1')!.at = Object.keys(MAPS[s.mapId].cells)[0]; // one enemy on board
+  s.cards.push({ uid: 's0-airborne_elite', cardId: 'airborne_elite', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+  for (let n = 1; n <= 4; n++) s.figures.push({ id: `s0-airborne_elite-${n}`, cardUid: 's0-airborne_elite', ownerSeat: 0, at: null, index: n, wounds: 0, reserve: true });
+  return { s, legal: theDropHexes(s, 0) };
+}
+
+describe('Airborne Elite — The Drop board UI', () => {
+  it('shows the Drop panel at round start; picking 4 hexes then Drop dispatches onTheDrop', () => {
+    const { s, legal } = dropStage();
+    const spots: string[] = [];
+    for (const h of legal) {
+      if (spots.length >= 4) break;
+      if (spots.every(c => !neighborKeys(c).includes(h))) spots.push(h);
+    }
+    expect(spots).toHaveLength(4);
+    const cb = spies();
+    const { container } = renderBoard(s, cb);
+    // The roll button renders for the Airborne owner (the panel control, distinct
+    // from the card's "The Drop" power-name label that also appears in the roster).
+    fireEvent.click(screen.getByRole('button', { name: /The Drop \(roll/i }));
+    // Now in drop mode — click the 4 chosen landing hexes (data-hex on the top face).
+    for (const k of spots) {
+      const poly = container.querySelector(`[data-hex="${k}"]`);
+      expect(poly).toBeTruthy();
+      fireEvent.click(poly!);
+    }
+    fireEvent.click(screen.getByRole('button', { name: /Drop!/ }));
+    expect(cb.onTheDrop).toHaveBeenCalledTimes(1);
+    expect(cb.onTheDrop.mock.calls[0][0].sort()).toEqual([...spots].sort());
+  });
+
+  it('does NOT show the Drop panel for a player with no reserve Airborne', () => {
+    const { s } = dropStage();
+    const cb = spies();
+    // Render as seat 1 (Bob) — they own no reserve Airborne.
+    render(<HeroScapeBoard state={s} currentUserId="p2" isHost={false} {...cb} />);
+    expect(screen.queryByRole('button', { name: /The Drop \(roll/i })).toBeNull();
   });
 });

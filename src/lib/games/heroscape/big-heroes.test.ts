@@ -19,6 +19,8 @@ import {
   iceShardTargets,
   queglixDiceLeft,
   throwLandingHexes,
+  canTheDrop,
+  theDropHexes,
 } from './engine';
 import { rangeDistance, neighborKeys } from './board';
 import { MAPS } from './maps';
@@ -408,5 +410,140 @@ describe('Big-Hero powers — cross-cutting fidelity', () => {
     let { s, hero } = stage('jotun');
     s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 3));
     expect(errOf(applyAction(s, 'p1', { kind: 'ice_shard', attackerId: hero, targetId: 's1-thorgrim-1', attackRoll: F('kbbb'), defenseRoll: F('bbbb') }))).toMatch(/Only Nilfheim/i);
+  });
+});
+
+// ===========================================================================
+// Airborne Elite — THE DROP: start in reserve; d20 13+ at round start deploys all
+// 4 on empty spaces not adjacent to each other or any figure, and not on glyphs.
+// ===========================================================================
+
+/** A 'place_markers' (round start) state where seat 0 owns a 4-figure Airborne
+ *  Elite card in RESERVE, plus one enemy (Thorgrim) on the board for adjacency
+ *  checks. Quick start lands in place_markers round 1; we then wipe the preset
+ *  figures and inject the reserve Airborne. */
+function dropStage(): { s: HSState; air: string[]; enemyHex: string } {
+  let s = initialState();
+  s = addPlayer(s, 'p1', 'Alice', 0, '#10b981');
+  s = addPlayer(s, 'p2', 'Bob', 1, '#ef4444');
+  s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'quick' }));
+  s = JSON.parse(JSON.stringify(s)) as HSState;
+  for (const f of s.figures) { f.at = null; f.at2 = null; }
+  const enemyHex = Object.keys(MAPS[s.mapId].cells)[0];
+  s.figures.find(f => f.id === 's1-thorgrim-1')!.at = enemyHex; // one enemy on board
+  s.cards.push({ uid: 's0-airborne_elite', cardId: 'airborne_elite', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+  const air: string[] = [];
+  for (let n = 1; n <= 4; n++) {
+    const id = `s0-airborne_elite-${n}`;
+    s.figures.push({ id, cardUid: 's0-airborne_elite', ownerSeat: 0, at: null, index: n, wounds: 0, reserve: true });
+    air.push(id);
+  }
+  return { s, air, enemyHex };
+}
+/** Pick `n` mutually non-adjacent hexes from `hexes` (greedy). */
+function pickNonAdj(hexes: string[], n: number): string[] {
+  const chosen: string[] = [];
+  for (const h of hexes) {
+    if (chosen.length >= n) break;
+    if (chosen.every(c => !neighborKeys(c).includes(h))) chosen.push(h);
+  }
+  return chosen;
+}
+const reserveOf = (s: HSState, id: string) => s.figures.find(f => f.id === id)!.reserve === true;
+
+describe('Airborne Elite — The Drop', () => {
+  it('starts in reserve; canTheDrop is offered at round start; legal hexes exclude the enemy + its neighbours', () => {
+    const { s, air, enemyHex } = dropStage();
+    expect(air.every(id => reserveOf(s, id))).toBe(true);
+    expect(canTheDrop(s, 0)).toBe(true);
+    const legal = theDropHexes(s, 0);
+    expect(legal).not.toContain(enemyHex); // occupied
+    for (const nb of neighborKeys(enemyHex)) expect(legal).not.toContain(nb); // adjacent to a figure
+    expect(legal.length).toBeGreaterThan(0);
+  });
+
+  it('a roll below 13 keeps them in reserve and spends the round’s roll', () => {
+    let { s, air } = dropStage();
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: [], d20: 12 }));
+    expect(air.every(id => reserveOf(s, id))).toBe(true); // still reserve
+    expect(s.airborneDropRound).toBe(s.round);
+    // No second roll this round.
+    expect(errOf(applyAction(s, 'p1', { kind: 'the_drop', placements: [], d20: 20 }))).toMatch(/already been rolled/i);
+  });
+
+  it('a 13+ roll deploys all 4 onto the chosen spaces (reserve cleared)', () => {
+    let { s, air } = dropStage();
+    const spots = pickNonAdj(theDropHexes(s, 0), 4);
+    expect(spots).toHaveLength(4);
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: spots, d20: 13 }));
+    air.forEach((id, i) => {
+      const f = s.figures.find(x => x.id === id)!;
+      expect(f.at).toBe(spots[i]);
+      expect(f.reserve).toBeUndefined();
+    });
+  });
+
+  it('rejects a landing adjacent to a figure, on a glyph, or adjacent to another drop', () => {
+    const base = dropStage();
+    const legal = theDropHexes(base.s, 0);
+    const spots = pickNonAdj(legal, 4);
+    // adjacent to the enemy
+    const adjEnemy = neighborKeys(base.enemyHex).find(k => MAPS[base.s.mapId].cells[k])!;
+    expect(errOf(applyAction(base.s, 'p1', { kind: 'the_drop', placements: [adjEnemy, spots[1], spots[2], spots[3]], d20: 18 }))).toMatch(/adjacent to a figure|occupied|glyph/i);
+    // two drops adjacent to EACH OTHER
+    const a = spots[0];
+    const adjA = neighborKeys(a).find(k => legal.includes(k))!;
+    expect(errOf(applyAction(base.s, 'p1', { kind: 'the_drop', placements: [a, adjA, spots[2], spots[3]], d20: 18 }))).toMatch(/adjacent to each other/i);
+    // on a glyph
+    const g = dropStage();
+    const gspots = pickNonAdj(theDropHexes(g.s, 0), 4);
+    g.s.glyphs = [{ id: 'astrid', at: gspots[0], faceUp: true }];
+    expect(errOf(applyAction(g.s, 'p1', { kind: 'the_drop', placements: gspots, d20: 18 }))).toMatch(/glyph|adjacent/i);
+  });
+
+  it('rejects the wrong number of landings and duplicates', () => {
+    const { s } = dropStage();
+    const spots = pickNonAdj(theDropHexes(s, 0), 4);
+    expect(errOf(applyAction(s, 'p1', { kind: 'the_drop', placements: spots.slice(0, 3), d20: 18 }))).toMatch(/all 4/i);
+    expect(errOf(applyAction(s, 'p1', { kind: 'the_drop', placements: [spots[0], spots[0], spots[1], spots[2]], d20: 18 }))).toMatch(/distinct/i);
+  });
+
+  it('recurs the next round after a miss', () => {
+    let { s } = dropStage();
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: [], d20: 5 })); // miss, airborneDropRound = 1
+    expect(canTheDrop(s, 0)).toBe(false); // not again this round
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.round = 2; // next round
+    expect(canTheDrop(s, 0)).toBe(true); // offered again
+    const spots = pickNonAdj(theDropHexes(s, 0), 4);
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: spots, d20: 20 }));
+    expect(s.figures.find(f => f.id === 's0-airborne_elite-1')!.at).toBe(spots[0]);
+  });
+
+  it('only the Airborne owner, only during place_markers', () => {
+    const { s } = dropStage();
+    // seat 1 has no reserve Airborne
+    expect(canTheDrop(s, 1)).toBe(false);
+    expect(errOf(applyAction(s, 'p2', { kind: 'the_drop', placements: [], d20: 20 }))).toMatch(/no Airborne Elite in reserve/i);
+    // not during the turns sub-phase
+    const turns = JSON.parse(JSON.stringify(s)) as HSState;
+    turns.subPhase = 'turns';
+    expect(errOf(applyAction(turns, 'p1', { kind: 'the_drop', placements: [], d20: 20 }))).toMatch(/start of a round/i);
+  });
+
+  it('reserve figures count as ALIVE — wiping a seat’s on-board figures does NOT end the game while it has reserve Airborne', () => {
+    let { s, hero } = stage('finn'); // seat 0 active, board wiped, Finn + park placed
+    const h = at(s, hero)!;
+    const tgtHex = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!;
+    s = put(s, 's1-marro_warriors-1', tgtHex); // seat-1's only ON-BOARD figure
+    s = put(s, 's1-marro_warriors-4', null); // remove the parked survivor
+    // give seat 1 a reserve Airborne (off-board, alive)
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.cards.push({ uid: 's1-airborne_elite', cardId: 'airborne_elite', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-airborne_elite-1', cardUid: 's1-airborne_elite', ownerSeat: 1, at: null, index: 1, wounds: 0, reserve: true });
+    // Finn kills the marro — seat 1's last ON-BOARD figure — but its reserve Airborne keeps it alive.
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: hero, targetId: 's1-marro_warriors-1', attackRoll: F('kkk'), defenseRoll: def(s, 's1-marro_warriors-1', hero) }));
+    expect(at(s, 's1-marro_warriors-1')).toBeNull(); // dead
+    expect(s.phase).toBe('playing'); // NOT finished — reserve Airborne is alive
   });
 });

@@ -106,7 +106,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'A',
     species: 'Human',
     unitClass: 'Soldiers',
-    power: 'wip', // slice 8: Grenade Special Attack + The Drop
+    power: 'live', // Grenade Special Attack + The Drop (both wired)
   },
   drake: {
     id: 'drake',

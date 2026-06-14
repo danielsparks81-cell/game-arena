@@ -25,6 +25,9 @@ export {
   canGrenade,
   grenadeTargets,
   grenadeDefenders,
+  // Airborne Elite THE DROP (slice 8) — availability + legal-landing helpers.
+  canTheDrop,
+  theDropHexes,
   // Big Heroes special powers (slice 8b) — target/availability helpers for the board.
   iceShardTargets,
   queglixTargets,

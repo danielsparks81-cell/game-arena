@@ -111,9 +111,18 @@ function teamsInPlay(state: HSState): number[] {
   return [...new Set(state.players.map(p => teamOfSeat(state, p.seat)))].sort((x, y) => x - y);
 }
 
-/** Does this seat still have any figure on the board? */
+/** A figure is ALIVE if it is ON the board OR waiting in RESERVE (Airborne Elite
+ *  before The Drop). Distinct from "on the board" (`at != null`) — a reserve
+ *  figure counts for elimination / order-marker eligibility but occupies no hex
+ *  and cannot be targeted or act until deployed. Destroyed = `at == null` AND not
+ *  reserve. */
+function figureAlive(f: Figure): boolean {
+  return f.at != null || !!f.reserve;
+}
+
+/** Does this seat still have any living figure (on board or in reserve)? */
 function seatIsAlive(state: HSState, seat: number): boolean {
-  return state.figures.some(f => f.ownerSeat === seat && f.at != null);
+  return state.figures.some(f => f.ownerSeat === seat && figureAlive(f));
 }
 
 /** Seats with at least one living figure, in seat order. The round flow keys on
@@ -350,6 +359,9 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       return doPlaceMarkers(state, me.seat, action.assignments);
     case 'roll_initiative':
       return doRollInitiative(state, action.attempts);
+    // Airborne Elite THE DROP — at round start, before this seat's order markers.
+    case 'the_drop':
+      return doTheDrop(state, me.seat, action.placements, action.d20);
     // Turn actions — only the revealed-marker player acts.
     case 'move_figure':
     case 'grapple_move':
@@ -442,8 +454,11 @@ function buildArmy(seat: number, cardIds: readonly string[]): { cards: ArmyCardI
       defenseMod: 0,
     };
     cards.push(card);
+    // Airborne Elite THE DROP: they do NOT start on the battlefield — every figure
+    // begins in RESERVE (alive, off-board) and is deployed later by The Drop.
+    const inReserve = def.id === AIRBORNE_CARD_ID;
     for (let n = 1; n <= def.figures; n++) {
-      figures.push({ id: `${card.uid}-${n}`, cardUid: card.uid, ownerSeat: seat, at: null, index: n, wounds: 0 });
+      figures.push({ id: `${card.uid}-${n}`, cardUid: card.uid, ownerSeat: seat, at: null, index: n, wounds: 0, ...(inReserve ? { reserve: true } : {}) });
     }
   }
   return { cards, figures };
@@ -713,7 +728,9 @@ function finishDraft(s: HSState): void {
     const { cards, figures } = buildArmy(seat, d.armies[seat] ?? []);
     s.cards.push(...cards);
     s.figures.push(...figures);
-    s.hand[seat] = figures.map(f => f.id); // all start in hand (unplaced)
+    // Reserve figures (Airborne Elite — The Drop) are NOT placed in the start zone;
+    // they deploy later, so they never enter the placement hand.
+    s.hand[seat] = figures.filter(f => !f.reserve).map(f => f.id);
   }
   s.placementReady = [];
   s.phase = 'placement';
@@ -1019,9 +1036,11 @@ function doPlacementReady(state: HSState, seat: number): HSResult {
   if ((state.placementReady ?? []).includes(seat)) {
     return { error: 'You have already locked in your placement' };
   }
-  // Must place at least one figure (an army can't deploy nothing).
+  // Must field at least one figure — placed in the start zone OR held in reserve
+  // (Airborne Elite, who deploy later via The Drop). An army can't be empty.
   const placed = state.figures.filter(f => f.ownerSeat === seat && f.at != null).length;
-  if (placed < 1) return { error: 'Place at least one figure before locking in' };
+  const reserve = state.figures.filter(f => f.ownerSeat === seat && f.reserve).length;
+  if (placed < 1 && reserve < 1) return { error: 'Place at least one figure before locking in' };
 
   const s = clone(state);
   // Figures left in hand are DROPPED (unused) — faithful to "excess figures are
@@ -2945,7 +2964,7 @@ function checkEliminationWin(s: HSState): void {
   // belongs to a single team — that team wins even if several of its players
   // are still alive. A solo seat is its own team, so this is "last seat
   // standing" for 1-v-1 / FFA, unchanged.
-  const livingSeats = [...new Set(s.figures.filter(f => f.at != null).map(f => f.ownerSeat))];
+  const livingSeats = [...new Set(s.figures.filter(figureAlive).map(f => f.ownerSeat))];
   const teamsAlive = new Set(livingSeats.map(seat => teamOfSeat(s, seat)));
   if (teamsAlive.size > 1) return;
   // 0 or 1 teams remain. If somehow nobody is left (a mutual wipe), the acting
@@ -3932,6 +3951,97 @@ function doCarryMove(
   return s;
 }
 
+// ---------------------------------------------------------------------------
+// Airborne Elite — THE DROP (cards.md): they start OFF the battlefield (reserve);
+// at the start of each round, before order markers, roll a d20 — on 13+ you MAY
+// deploy all reserve Airborne onto empty spaces not adjacent to each other or any
+// figure, and not on glyphs. One roll per round until it succeeds.
+// ---------------------------------------------------------------------------
+const THE_DROP_THRESHOLD = 13;
+
+/** Reserve (un-deployed) Airborne Elite figures this seat can still drop. */
+function reserveAirborne(state: HSState, seat: number): Figure[] {
+  return state.figures.filter(
+    f => f.ownerSeat === seat && f.reserve && cardDefFor(state, f).id === AIRBORNE_CARD_ID,
+  );
+}
+
+/** Is a single hex a legal Drop landing w.r.t. the board — a real cell, EMPTY, not
+ *  on a glyph, and not adjacent to any ON-BOARD figure? (Mutual non-adjacency
+ *  among the chosen landings is enforced separately, since it depends on the set.) */
+function dropHexLegal(state: HSState, key: HexKey): boolean {
+  const map = MAPS[state.mapId];
+  if (!map || !map.cells[key]) return false;
+  if (state.figures.some(f => figureHexes(f).includes(key))) return false; // occupied
+  if ((state.glyphs ?? []).some(g => g.at === key)) return false; // on a glyph
+  const adj = new Set(neighborKeys(key));
+  if (state.figures.some(f => f.at != null && figureHexes(f).some(h => adj.has(h)))) return false; // adjacent to a figure
+  return true;
+}
+
+/** Can this seat roll The Drop right now — round start (place_markers), before it
+ *  locks order markers, not already rolled this round, with reserve Airborne left? */
+export function canTheDrop(state: HSState, seat: number): boolean {
+  return (
+    state.phase === 'playing' &&
+    state.subPhase === 'place_markers' &&
+    !(state.markersReady ?? []).includes(seat) &&
+    state.airborneDropRound !== state.round &&
+    reserveAirborne(state, seat).length > 0
+  );
+}
+
+/** Every empty board hex an Airborne figure could legally land on (ignores mutual
+ *  adjacency among the drop set — the board enforces that as figures are chosen).
+ *  Empty unless `canTheDrop`. */
+export function theDropHexes(state: HSState, seat: number): HexKey[] {
+  if (!canTheDrop(state, seat)) return [];
+  return Object.keys(MAPS[state.mapId]?.cells ?? {}).filter(k => dropHexLegal(state, k));
+}
+
+function doTheDrop(state: HSState, seat: number, placements: HexKey[], d20: number): HSResult {
+  if (state.phase !== 'playing' || state.subPhase !== 'place_markers') {
+    return { error: 'The Drop happens at the start of a round, before order markers' };
+  }
+  if ((state.markersReady ?? []).includes(seat)) {
+    return { error: 'The Drop must come before you place your order markers' };
+  }
+  const reserve = reserveAirborne(state, seat);
+  if (reserve.length === 0) return { error: 'You have no Airborne Elite in reserve' };
+  if (state.airborneDropRound === state.round) return { error: 'The Drop has already been rolled this round' };
+  if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) return { error: 'The Drop requires a d20 roll (1-20)' };
+
+  const s = clone(state);
+  s.airborneDropRound = s.round; // one roll per round, hit or miss
+  if (d20 < THE_DROP_THRESHOLD) {
+    pushLog(s, 'power', `${playerName(s, seat)} rolls ${d20} for The Drop (needs ${THE_DROP_THRESHOLD}+) — the Airborne Elite stay in reserve.`);
+    return s;
+  }
+  // 13+ — validate the chosen landings against the PRE-drop board.
+  if (!Array.isArray(placements) || placements.length !== reserve.length) {
+    return { error: `The Drop must place all ${reserve.length} Airborne Elite` };
+  }
+  if (new Set(placements).size !== placements.length) return { error: 'The Drop landings must be distinct spaces' };
+  for (const k of placements) {
+    if (!dropHexLegal(state, k)) return { error: 'A landing is occupied, on a glyph, or adjacent to a figure' };
+  }
+  for (let i = 0; i < placements.length; i++) {
+    for (let j = i + 1; j < placements.length; j++) {
+      if (neighborKeys(placements[i]).includes(placements[j])) {
+        return { error: 'Airborne Elite cannot be dropped adjacent to each other' };
+      }
+    }
+  }
+  reserve.forEach((rf, i) => {
+    const f = s.figures.find(x => x.id === rf.id)!;
+    f.at = placements[i];
+    f.at2 = null;
+    delete f.reserve;
+  });
+  pushLog(s, 'power', `The Drop! ${playerName(s, seat)} rolls ${d20} and deploys ${reserve.length} Airborne Elite.`);
+  return s;
+}
+
 // ============================================================================
 // Resolve a PendingChoice (slice 4) — never auto-issued; the owning seat sends
 // the matching resolution. The engine validates the payload kind matches the
@@ -4138,7 +4248,7 @@ function cardModFor(state: HSState, fig: Figure): { attackMod: number; defenseMo
 }
 
 function cardHasLivingFigures(state: HSState, cardUid: string): boolean {
-  return state.figures.some(f => f.cardUid === cardUid && f.at != null);
+  return state.figures.some(f => f.cardUid === cardUid && figureAlive(f));
 }
 
 /** "Finn" for heroes, "Marro Warrior 3" for squad figures. */

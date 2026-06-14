@@ -209,7 +209,7 @@ function serverApply(s: HSState, pid: string, a: HSAction, rng: () => number): H
     const defs = wildSwingDefenders(s, a.attackerId, a.targetId);
     e = { ...a, attackRoll: rollN(rng, 4), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollN(rng, d.defense) })) };
   } else if (a.kind === 'acid_breath') {
-    e = { ...a, rolls: a.targetIds.map(targetId => ({ targetId, d20: d20(rng) })) };
+    e = { ...a, rolls: a.rolls.map(r => ({ targetId: r.targetId, d20: d20(rng) })) };
   } else if (a.kind === 'throw_figure') {
     e = { ...a, throwD20: d20(rng), damageD20: d20(rng) };
   } else if (a.kind === 'carry_move') {
@@ -259,7 +259,7 @@ function legalActions(s: HSState, seat: number): HSAction[] {
     }
   } else if (activeDef?.id === 'braxas' && hero && canAcidBreath(s, seat)) {
     const targs = acidBreathTargets(s, seat);
-    if (targs.length) out.push({ kind: 'acid_breath', attackerId: hero.id, targetIds: targs.slice(0, 3) } as HSAction);
+    if (targs.length) out.push({ kind: 'acid_breath', attackerId: hero.id, rolls: targs.slice(0, 3).map(targetId => ({ targetId, d20: 0 })) } as HSAction);
   } else if (activeDef?.id === 'theracus' && hero && hero.at2 != null) {
     // Carry runs a real move, so only fuzz it for a properly placed 2-hex
     // Theracus (the random setup places figures 1-hex, so this is usually

@@ -35,6 +35,9 @@ import {
   chompTargets,
   canGrenade,
   grenadeTargets,
+  // Airborne Elite THE DROP (slice 8).
+  canTheDrop,
+  theDropHexes,
   // Big Heroes special powers (slice 8b).
   iceShardTargets,
   queglixTargets,
@@ -159,6 +162,7 @@ type Props = {
   onAcidBreath: (attackerId: string, targetIds: string[]) => void;
   onThrow: (attackerId: string, targetId: string, to: HexKey) => void;
   onCarry: (figureId: string, to: HexKey, passengerId: string, passengerTo: HexKey) => void;
+  onTheDrop: (placements: HexKey[]) => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
   onEndTurn: () => void;
   onDraftCard: (cardId: string) => void;
@@ -785,7 +789,7 @@ export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onEndTurn,
-  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry,
+  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -807,6 +811,10 @@ export default function HeroScapeBoard({
     carryPass?: string; carryDest?: string; carryLand?: string;
   }>({});
   const patchBh = (p: Partial<typeof bh>) => setBh(s => ({ ...s, ...p }));
+  // slice 8: Airborne Elite THE DROP — at round start the owner enters drop mode,
+  // clicks the reserve-count legal empty hexes, then deploys (server rolls d20).
+  const [dropMode, setDropMode] = useState(false);
+  const [dropPicks, setDropPicks] = useState<HexKey[]>([]);
   // Per-seat army-row expand override (opponent rosters collapse to fit 4-6
   // players; the user can toggle any). Keyed by seat; absent → default.
   const [openSeats, setOpenSeats] = useState<Record<number, boolean>>({});
@@ -1079,6 +1087,16 @@ export default function HeroScapeBoard({
     return `${cd?.shortName ?? '?'}${cd?.type === 'squad' ? ' #' + f.index : ''} (${f.at})`;
   };
 
+  // slice 8: Airborne Elite THE DROP — offered at round start (place_markers) to
+  // the Airborne owner. In drop mode, legal empty hexes highlight; clicking picks
+  // up to `dropReserveCount` of them (mutually non-adjacent), then Deploy rolls.
+  const canDoDrop = !!(me && canTheDrop(state, me.seat));
+  const dropReserveCount = me ? state.figures.filter(f => f.ownerSeat === me.seat && f.reserve).length : 0;
+  const dropLegalSet = useMemo(
+    () => (dropMode && me ? new Set(theDropHexes(state, me.seat)) : new Set<HexKey>()),
+    [dropMode, me, state],
+  );
+
   // Activation highlighting (UI only): during MY turn, classify each figure of
   // the ACTIVE card so the board can ring it —
   //   'move'   → has not moved yet (bright green: can move)
@@ -1269,6 +1287,21 @@ export default function HeroScapeBoard({
     if (grenadeChoice && !disabled) {
       const occG = occupantAt(key);
       if (occG && grenadeTargetSet.has(occG.id)) onGrenadeThrow(occG.id);
+      return;
+    }
+    // slice 8: The Drop landing selection (round start; works outside a turn).
+    // Click a highlighted legal hex to add/remove it; reject one adjacent to an
+    // already-picked landing or once the reserve count is reached.
+    if (dropMode && !disabled) {
+      if (dropLegalSet.has(key)) {
+        setDropPicks(prev =>
+          prev.includes(key)
+            ? prev.filter(k => k !== key)
+            : prev.some(p => neighborKeys(p).includes(key)) || prev.length >= dropReserveCount
+              ? prev
+              : [...prev, key],
+        );
+      }
       return;
     }
     if (!canAct) return;
@@ -2019,6 +2052,44 @@ export default function HeroScapeBoard({
           </div>
         )}
 
+        {/* slice 8: Airborne Elite THE DROP — round start, before order markers.
+            Roll a d20 (server) — on 13+ deploy all reserve Airborne onto chosen
+            empty spaces (not adjacent to each other or any figure, not on glyphs). */}
+        {(canDoDrop || dropMode) && !disabled && (
+          <div className="rounded-lg border-2 border-orange-600 bg-neutral-900/70 px-3 py-2">
+            <div className="text-sm font-bold text-orange-300">💂 The Drop — {dropReserveCount} Airborne Elite in reserve</div>
+            {!dropMode ? (
+              <button
+                onClick={() => { setDropMode(true); setDropPicks([]); }}
+                title="At round start, before order markers: roll a d20. On 13+ deploy all reserve Airborne Elite onto empty spaces not adjacent to each other or any figure (and not on glyphs)."
+                className="mt-1 rounded-lg border-2 border-orange-600 px-3 py-1.5 text-sm font-semibold text-orange-300 transition hover:bg-orange-900/40"
+              >
+                🪂 The Drop (roll d20, 13+)
+              </button>
+            ) : (
+              <>
+                <div className="mt-0.5 text-[11px] text-neutral-400">
+                  Click {dropReserveCount} highlighted empty spaces — not adjacent to each other or any figure. ({dropPicks.length}/{dropReserveCount})
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <button
+                    disabled={dropPicks.length !== dropReserveCount}
+                    onClick={() => { onTheDrop(dropPicks); setDropMode(false); setDropPicks([]); }}
+                    className="rounded-lg border-2 border-orange-500 px-3 py-1 text-sm font-bold text-orange-200 transition hover:bg-orange-900/50 disabled:opacity-40"
+                  >
+                    🪂 Drop! ({dropPicks.length}/{dropReserveCount})
+                  </button>
+                  <button
+                    onClick={() => { setDropMode(false); setDropPicks([]); }}
+                    className="rounded-lg border border-neutral-600 px-3 py-1 text-sm font-semibold text-neutral-300 transition hover:border-neutral-400"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {/* slice 4: special-power buttons (after moving, before attacking) */}
         {canBerserk && (
           <button
@@ -2405,14 +2476,16 @@ export default function HeroScapeBoard({
             const isDest = destinations.has(key) || isPlaceHex;
             const isFireHex = fireLineMode && fireLineDirs.has(key); // slice 8 fire-line target space
             const isCloneOpt = cloneOptions.has(key);
+            const isDropPick = dropMode && dropPicks.includes(key); // slice 8 chosen Drop landing
+            const isDropLegal = dropMode && !isDropPick && dropLegalSet.has(key); // legal Drop landing
             const drawColumn = c.terrain !== 'water' && c.height > 0; // water = flat top
             const colors = isoTileColors(c.terrain, c.height, isDest);
-            const topFill = isCloneOpt ? '#0e4f6e' : colors.top;
-            const topStroke = isFireHex ? '#fb923c' : isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : colors.stroke;
+            const topFill = isDropPick ? '#7c2d12' : isCloneOpt ? '#0e4f6e' : colors.top;
+            const topStroke = isDropPick ? '#fb923c' : isDropLegal ? '#fdba74' : isFireHex ? '#fb923c' : isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : colors.stroke;
             const startZoneSeat = Object.entries(startZones).find(([, keys]) => keys.includes(key))?.[0];
             const fig = figureAt(key); // ANCHOR figure (drawn once, here)
             const occupied = !!occupantAt(key); // either hex of a 2-hex figure
-            const clickable = canAct || isCloneOpt || (canPlace && (isPlaceHex || occupied));
+            const clickable = canAct || isCloneOpt || (dropMode && (isDropLegal || isDropPick)) || (canPlace && (isPlaceHex || occupied));
 
             // --- glyph on this hex (drawn between tile top and standee) ---
             const glyph = (state.glyphs ?? []).find(g => g.at === key);
@@ -2466,12 +2539,14 @@ export default function HeroScapeBoard({
                     className={clickable ? 'cursor-pointer' : ''}
                   />
                 ))}
-                {/* TOP face — the clickable hexagon (same onClick={clickHex}). */}
+                {/* TOP face — the clickable hexagon (same onClick={clickHex}).
+                    data-hex carries the cell key for click handling / tests. */}
                 <polygon
+                  data-hex={key}
                   points={ptsStr(top)}
                   fill={topFill}
                   stroke={topStroke}
-                  strokeWidth={isCloneOpt || isDest || isFireHex ? 2 : 1}
+                  strokeWidth={isDropPick || isDropLegal || isCloneOpt || isDest || isFireHex ? 2 : 1}
                   onClick={() => clickHex(key)}
                   className={clickable ? 'cursor-pointer' : ''}
                 />

@@ -184,6 +184,13 @@ export type Figure = {
    *  orients to match; for a 1-hex figure it is purely cosmetic (HeroScape has
    *  no facing rules). Absent → 0. Set via the `orient_figure` action. */
   facing?: number;
+  /** RESERVE (Airborne Elite — THE DROP, Big Heroes slice): the figure is OFF the
+   *  battlefield but ALIVE — it has not been deployed yet (`at` is null, same as a
+   *  destroyed figure, so `reserve` is what distinguishes the two). A reserve
+   *  figure counts as living for the elimination / order-marker checks but cannot
+   *  be targeted, occupies no hex, and cannot act until The Drop places it (which
+   *  clears this flag). Absent → a normal figure (on-board if `at`, else dead). */
+  reserve?: boolean;
 };
 
 export type HSPlayer = {
@@ -508,6 +515,13 @@ export type HSState = {
    *  before-attack window). Set on the attempt regardless of result. Cleared each
    *  turn. */
   chompedThisTurn?: boolean;
+  /** Airborne Elite THE DROP (Big Heroes slice): the ROUND number in which the
+   *  Airborne owner last rolled The Drop's d20. The card allows one roll per round
+   *  (at round start, before order markers) until it succeeds; this gates a second
+   *  roll in the same round. A success deploys the figures (no reserve left), so
+   *  the action then has nothing to do. Persists across rounds (compared to
+   *  `round`); absent ⇒ never rolled. */
+  airborneDropRound?: number;
   /** Major Q9 QUEGLIX GUN (Big Heroes): attack dice spent so far this turn from
    *  his 9-die pool. Each shot spends 1-3; he may keep shooting until all 9 are
    *  rolled. Cleared each turn; absent ⇒ 0 (pool full). */
@@ -766,6 +780,17 @@ export type HSAction =
       to: HexKey;
       throwD20: number;
       damageD20: number;
+    }
+  | {
+      // Airborne Elite THE DROP (cards.md): at the start of a round, BEFORE order
+      // markers, roll a d20 — on 13+ you MAY deploy all reserve Airborne Elite onto
+      // chosen empty spaces (not adjacent to each other or any figure, not on
+      // glyphs). The SERVER rolls `d20`; `placements` are the chosen hexes (one per
+      // reserve figure). On a miss (<13) the figures stay in reserve; one roll per
+      // round. The engine re-derives the reserve set + validates every placement.
+      kind: 'the_drop';
+      placements: HexKey[];
+      d20: number;
     }
   | {
       // Theracus CARRY (Big Heroes): before moving, choose an unengaged friendly
