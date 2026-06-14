@@ -749,4 +749,51 @@ export const POWER_DESCRIPTIONS: Record<string, { name: string; text: string }[]
       text: 'When rolling defense dice against a normal attack from an adjacent attacking figure, all excess shields count as unblockable hits on the attacker. Does not work against other Samurai.',
     },
   ],
+  // ---- Big Heroes (slice 8b) ----
+  nilfheim: [
+    {
+      name: 'Ice Shard Breath Special Attack',
+      text: 'Range 5. Attack 4. When Nilfheim attacks with his Ice Shard Breath Special Attack, he may attack 2 additional times. He cannot attack the same figure more than once.',
+    },
+    {
+      name: 'Flying',
+      text: 'When counting spaces for Nilfheim’s movement, ignore elevations. He may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when he starts to fly, he takes any leaving-engagement attacks.',
+    },
+  ],
+  braxas: [
+    {
+      name: 'Poisonous Acid Breath',
+      text: 'Instead of attacking, you may choose up to 3 different small or medium figures within 4 clear sight spaces of Braxas. One at a time, roll the 20-sided die for each chosen figure. If the chosen figure is a Squad figure and you roll an 8 or higher, destroy it. If the chosen figure is a Hero figure and you roll a 17 or higher, destroy the chosen Hero.',
+    },
+    {
+      name: 'Flying',
+      text: 'When counting spaces for Braxas’s movement, ignore elevations. She may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when she starts to fly, she takes any leaving-engagement attacks.',
+    },
+  ],
+  theracus: [
+    {
+      name: 'Carry',
+      text: 'Before moving Theracus, choose an unengaged friendly small or medium figure adjacent to Theracus. After you move Theracus, place the chosen figure adjacent to Theracus.',
+    },
+    {
+      name: 'Flying',
+      text: 'When counting spaces for Theracus’s movement, ignore elevations. He may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when he starts to fly, he takes any leaving-engagement attacks.',
+    },
+  ],
+  major_q9: [
+    {
+      name: 'Queglix Gun Special Attack',
+      text: 'Range 6. Attack 1, 2 or 3. Major Q9 starts each turn with 9 attack dice. Choose any figure within range and attack by rolling 1, 2 or 3 attack dice. Major Q9 may keep making special attacks with 1, 2 or 3 attack dice until he has rolled all 9 attack dice. Major Q9 may target the same or different figures with each attack.',
+    },
+  ],
+  jotun: [
+    {
+      name: 'Wild Swing Special Attack',
+      text: 'Range 1. Attack 4. Choose a figure to attack. Any figures adjacent to the chosen figure are also affected by the Wild Swing Special Attack. Roll attack dice once for all affected figures. Each figure rolls defense dice separately. Jotun cannot be affected by his own Wild Swing Special Attack.',
+    },
+    {
+      name: 'Throw 14',
+      text: 'After moving and before attacking, choose one small or medium non-flying figure adjacent to Jotun. Roll the 20-sided die. If you roll a 14 or higher, you may throw the figure by placing it on any empty space within 4 spaces of Jotun. The figure must land within clear sight of Jotun. After the figure is placed, roll the 20-sided die for throwing damage. If you roll an 11 or higher, the thrown figure receives 2 wounds. If the figure is thrown onto a level higher than the height of Jotun or onto water, do not roll for throwing damage. The thrown figure does not take any leaving engagement attacks.',
+    },
+  ],
 };

@@ -1776,7 +1776,7 @@ export default function HeroScapeBoard({
             auto-fill / minmax(200px,1fr) track makes every card ≥200px wide and
             spreads them across the whole screen (≈6-9 per row → 2-3 rows). */}
         <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
-          Army roster — {d.pool.length} of 16 left · cheapest first
+          Army roster — {d.pool.length} of {sortedPool.length} left · cheapest first
         </div>
         <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
           {sortedPool.map(id => {
