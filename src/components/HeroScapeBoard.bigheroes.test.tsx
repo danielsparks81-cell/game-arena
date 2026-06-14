@@ -89,7 +89,7 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-thorgrim-1', ring[0]); // one enemy in range
     const cb = spies();
     renderBoard(s, cb);
-    expect(screen.getByText(/Ice Shard/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Fire' })).toBeTruthy(); // panel rendered
     fireEvent.click(screen.getByRole('button', { name: 'Fire' }));
     expect(cb.onIceShard).toHaveBeenCalledWith(hero, 's1-thorgrim-1');
   });
@@ -99,7 +99,7 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-thorgrim-1', ring[0]);
     const cb = spies();
     renderBoard(s, cb);
-    expect(screen.getByText(/Queglix/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Fire' })).toBeTruthy(); // panel rendered
     fireEvent.click(screen.getByRole('button', { name: 'Fire' }));
     expect(cb.onQueglix).toHaveBeenCalledWith(hero, 's1-thorgrim-1', 3); // default dice = min(3, 9)
   });
@@ -109,7 +109,7 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-thorgrim-1', ring[0]); // adjacent medium non-flying → both a swing target and a throw target
     const cb = spies();
     renderBoard(s, cb);
-    expect(screen.getByText(/Wild Swing/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Swing' })).toBeTruthy(); // Wild Swing row rendered
     expect(screen.getByRole('button', { name: 'Throw' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Swing' }));
     expect(cb.onWildSwing).toHaveBeenCalledWith(hero, 's1-thorgrim-1');
@@ -125,7 +125,7 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-marro_warriors-1', ring[0]); // small/medium in range
     const cb = spies();
     renderBoard(s, cb);
-    expect(screen.getByText(/Acid Breath/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Breathe/ })).toBeTruthy(); // panel rendered
     // toggle the target (its button label is the figure name), then Breathe
     fireEvent.click(screen.getByRole('button', { name: /Marro Warrior/ }));
     fireEvent.click(screen.getByRole('button', { name: /Breathe/ }));

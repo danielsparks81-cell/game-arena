@@ -9,6 +9,7 @@
 // board renders every one of them as the same face-down chip (X included).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   type HSState,
   type Figure,
@@ -64,6 +65,10 @@ import {
   isoSortByDepth,
   isoSceneBounds,
 } from '@/lib/games/heroscape';
+
+// The 3D board (React Three Fiber) is a heavy WebGL bundle — load it lazily and
+// CLIENT-ONLY, so three.js ships only when a player actually opens the 3D view.
+const HeroBoard3D = dynamic(() => import('./HeroBoard3D'), { ssr: false });
 
 const HEX = 34; // px size of a unit hex
 const PAD = 26;
@@ -815,6 +820,9 @@ export default function HeroScapeBoard({
   // clicks the reserve-count legal empty hexes, then deploys (server rolls d20).
   const [dropMode, setDropMode] = useState(false);
   const [dropPicks, setDropPicks] = useState<HexKey[]>([]);
+  // EXPERIMENTAL 3D board (React Three Fiber) — opt-in toggle; the 2D SVG board
+  // stays the default + the interactive one until the 3D port is complete.
+  const [board3D, setBoard3D] = useState(false);
   // Per-seat army-row expand override (opponent rosters collapse to fit 4-6
   // players; the user can toggle any). Keyed by seat; absent → default.
   const [openSeats, setOpenSeats] = useState<Record<number, boolean>>({});
@@ -2435,10 +2443,18 @@ export default function HeroScapeBoard({
         <div className="relative flex min-h-[60vh] w-full items-center justify-center overflow-hidden lg:min-h-0 lg:flex-1">
         {/* board zoom controls — scroll to zoom on the cursor, drag to pan */}
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
-          <button type="button" title="Zoom in (or scroll on the board)" onClick={() => zoomAtCenter(1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">+</button>
-          <button type="button" title="Zoom out" onClick={() => zoomAtCenter(1 / 1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">−</button>
-          <button type="button" title="Reset view" onClick={() => setView(null)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-xs leading-none text-neutral-200 transition hover:bg-neutral-800">⟲</button>
+          <button type="button" onClick={() => setBoard3D(v => !v)} title="Toggle the experimental 3D board — orbit (drag), pan (right-drag), zoom (scroll)" className="mb-1 rounded-md border-2 border-violet-600 bg-neutral-900/80 px-2 py-1 text-[11px] font-bold leading-none text-violet-200 transition hover:bg-violet-900/40">{board3D ? '2D board' : '3D board ✨'}</button>
+          {!board3D && (
+            <>
+              <button type="button" title="Zoom in (or scroll on the board)" onClick={() => zoomAtCenter(1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">+</button>
+              <button type="button" title="Zoom out" onClick={() => zoomAtCenter(1 / 1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">−</button>
+              <button type="button" title="Reset view" onClick={() => setView(null)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-xs leading-none text-neutral-200 transition hover:bg-neutral-800">⟲</button>
+            </>
+          )}
         </div>
+        {board3D ? (
+          <HeroBoard3D state={state} currentUserId={currentUserId} />
+        ) : (
         <svg
           ref={setSvgRef}
           viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
@@ -2661,6 +2677,7 @@ export default function HeroScapeBoard({
               camera is a fixed iso angle (no orbit/zoom) — both intentionally out
               of scope for this slice; this is where those would hook in. */}
         </svg>
+        )}
         </div>
 
         {/* slice 5: placement in-hand tray — your unplaced figures. Click one to
