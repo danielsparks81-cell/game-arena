@@ -360,6 +360,12 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'water_clone':
     case 'mind_shackle':
     case 'chomp':
+    case 'ice_shard':
+    case 'queglix':
+    case 'wild_swing':
+    case 'acid_breath':
+    case 'throw_figure':
+    case 'carry_move':
     case 'orient_figure':
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
@@ -389,6 +395,12 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
       if (action.kind === 'mind_shackle') return doMindShackle(state, me.seat, action.targetId, action.d20);
       if (action.kind === 'chomp') return doChomp(state, me.seat, action.targetId, action.d20);
+      if (action.kind === 'ice_shard') return doIceShard(state, action);
+      if (action.kind === 'queglix') return doQueglix(state, action);
+      if (action.kind === 'wild_swing') return doWildSwing(state, action);
+      if (action.kind === 'acid_breath') return doAcidBreath(state, me.seat, action.rolls);
+      if (action.kind === 'throw_figure') return doThrow(state, me.seat, action);
+      if (action.kind === 'carry_move') return doCarryMove(state, me.seat, action);
       if (action.kind === 'orient_figure') return doOrientFigure(state, me.seat, action.figureId, action.dir);
       return doEndTurn(state, me.seat);
     }
@@ -492,6 +504,8 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   delete s.berserkerSpent;
   delete s.mindShackleSpent;
   delete s.chompedThisTurn;
+  delete s.queglixDiceSpent;
+  delete s.threwThisTurn;
   delete s.draft;
   delete s.hand;
   delete s.placementReady;
@@ -1219,6 +1233,8 @@ function beginTurnOrSkip(s: HSState): void {
       delete s.berserkerSpent;
       delete s.mindShackleSpent;
       delete s.chompedThisTurn;
+  delete s.queglixDiceSpent;
+  delete s.threwThisTurn;
       pushLog(
         s,
         'info',
@@ -1265,6 +1281,8 @@ function startNextRound(s: HSState): void {
   delete s.berserkerSpent;
   delete s.mindShackleSpent;
   delete s.chompedThisTurn;
+  delete s.queglixDiceSpent;
+  delete s.threwThisTurn;
   for (const card of s.cards) card.orderMarkers = [];
   pushLog(s, 'info', `Round ${s.round} — all players place their order markers.`);
 }
@@ -3314,6 +3332,607 @@ function doWaterClone(
 }
 
 // ============================================================================
+// BIG HEROES special powers (docs/heroscape/big-heroes-powers.md) — the printed
+// card text is the spec. Nilfheim Ice Shard Breath, Braxas Poisonous Acid Breath,
+// Theracus Carry, Major Q9 Queglix Gun, Jotun Wild Swing + Throw.
+//
+// SPECIAL-ATTACK convention (matches doFireLine / doGrenadeThrow): the attack
+// rolls its FIXED printed value (no height advantage, no attack auras); each
+// defender rolls its EFFECTIVE defense (printed + defensive auras + glyphs, no
+// height). The slice-7 defender powers (Stealth Dodge / Counter Strike) are NOT
+// applied to special attacks here, exactly as the two existing splash specials
+// already omit them — kept consistent so the special-attack damage model is one
+// thing across the engine.
+// ============================================================================
+const NILFHEIM_CARD_ID = 'nilfheim';
+const BRAXAS_CARD_ID = 'braxas';
+const THERACUS_CARD_ID = 'theracus';
+const MAJOR_Q9_CARD_ID = 'major_q9';
+const JOTUN_CARD_ID = 'jotun';
+
+const ICE_SHARD_RANGE = 5;
+const ICE_SHARD_ATTACK = 4;
+const ICE_SHARD_MAX_ATTACKS = 3;
+const QUEGLIX_RANGE = 6;
+const QUEGLIX_DICE_POOL = 9;
+const WILD_SWING_ATTACK = 4;
+const ACID_RANGE = 4;
+const ACID_SQUAD_THRESHOLD = 8;
+const ACID_HERO_THRESHOLD = 17;
+const ACID_MAX_TARGETS = 3;
+const THROW_RANGE = 4;
+const THROW_THRESHOLD = 14;
+const THROW_DAMAGE_THRESHOLD = 11;
+const THROW_WOUNDS = 2;
+
+/** Small/Medium = NOT Large/Huge (cards.md size line; absent ⇒ Medium). The
+ *  same predicate Chomp uses — Carry/Acid Breath/Throw all target small/medium. */
+function isSmallOrMedium(def: HSCardDef): boolean {
+  return def.size !== 'large' && def.size !== 'huge';
+}
+
+/** Common guard for a Big-Hero special: it must be this seat's turn, the figure
+ *  must be a LIVING figure of the ACTIVE (revealed-marker) card, owned by the
+ *  turn seat. Unlike `attackReadyFigure` it does NOT apply the 1-attack budget —
+ *  the multi-shot specials (Ice Shard / Queglix) police their own limits. */
+function activeSpecialFigure(state: HSState, figureId: string): { fig: Figure } | { error: string } {
+  if (state.phase !== 'playing' || state.subPhase !== 'turns') return { error: 'The battle is not in a turn' };
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!fig || fig.at == null) return { error: 'No such figure on the battlefield' };
+  if (fig.ownerSeat !== state.turnSeat) return { error: 'You can only act with your own figures' };
+  const cardErr = activeCardError(state, fig);
+  if (cardErr) return { error: cardErr };
+  return { fig };
+}
+
+/** True if `attacker` has range+line-of-sight to `target` within `range` —
+ *  measured/traced from EITHER of a double-space figure's hexes to EITHER of the
+ *  target's (the same 3D LOS the normal attack uses, just a custom range). */
+function withinRangeLos(state: HSState, attacker: Figure, target: Figure, range: number): boolean {
+  const map = MAPS[state.mapId];
+  if (!map || target.at == null) return false;
+  const occupied: HexKey[] = [];
+  for (const f of state.figures) {
+    if (f.id === attacker.id || f.id === target.id) continue;
+    for (const k of figureHexes(f)) occupied.push(k);
+  }
+  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  for (const ak of figureHexes(attacker)) {
+    for (const tk of figureHexes(target)) {
+      const dist = rangeDistance(map.cells, ak, tk);
+      if (dist == null || dist > range) continue;
+      if (hasLineOfSight3D(map.cells, ak, tk, occupied, eye)) return true;
+    }
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Nilfheim — ICE SHARD BREATH (Range 5, Attack 4, up to 3 attacks, no repeats)
+// ---------------------------------------------------------------------------
+
+/** How many Ice Shard attacks Nilfheim has made this turn (tagged history). */
+function iceShardCount(state: HSState, attackerId: string): number {
+  return state.turnAttacks.filter(a => a.attackerId === attackerId && a.special === 'ice_shard').length;
+}
+/** Figures this Nilfheim already Ice-Sharded this turn (no repeats allowed). */
+function iceShardHitIds(state: HSState, attackerId: string): Set<string> {
+  return new Set(
+    state.turnAttacks.filter(a => a.attackerId === attackerId && a.special === 'ice_shard').map(a => a.targetId),
+  );
+}
+/** Enemy figures Nilfheim could Ice Shard right now (Range 5 + LOS, not already
+ *  hit this turn). Empty unless it is his active turn with shots left and he has
+ *  not made a NORMAL/other attack. */
+export function iceShardTargets(state: HSState, attackerId: string): string[] {
+  const r = activeSpecialFigure(state, attackerId);
+  if ('error' in r) return [];
+  const nilf = r.fig;
+  if (cardDefFor(state, nilf).id !== NILFHEIM_CARD_ID) return [];
+  // No mixing with a normal attack; cap at 3 shots.
+  if (state.turnAttacks.some(a => a.attackerId === attackerId && a.special !== 'ice_shard')) return [];
+  if (iceShardCount(state, attackerId) >= ICE_SHARD_MAX_ATTACKS) return [];
+  const hit = iceShardHitIds(state, attackerId);
+  return state.figures
+    .filter(t => t.at != null && t.ownerSeat !== nilf.ownerSeat && !hit.has(t.id) && withinRangeLos(state, nilf, t, ICE_SHARD_RANGE))
+    .map(t => t.id);
+}
+
+function doIceShard(
+  state: HSState,
+  action: { attackerId: string; targetId: string; attackRoll: CombatFace[]; defenseRoll: CombatFace[] },
+): HSResult {
+  const r = activeSpecialFigure(state, action.attackerId);
+  if ('error' in r) return r;
+  const nilf = r.fig;
+  if (cardDefFor(state, nilf).id !== NILFHEIM_CARD_ID) return { error: 'Only Nilfheim has the Ice Shard Breath Special Attack' };
+  if (state.turnAttacks.some(a => a.attackerId === nilf.id && a.special !== 'ice_shard')) {
+    return { error: 'Nilfheim has already made his attack this turn' };
+  }
+  if (iceShardCount(state, nilf.id) >= ICE_SHARD_MAX_ATTACKS) {
+    return { error: 'Ice Shard Breath may attack at most 3 times per turn' };
+  }
+  const target = state.figures.find(f => f.id === action.targetId);
+  if (!target || target.at == null) return { error: 'No such target on the battlefield' };
+  if (target.ownerSeat === nilf.ownerSeat) return { error: 'You cannot attack your own figures' };
+  if (iceShardHitIds(state, nilf.id).has(target.id)) return { error: 'Ice Shard cannot attack the same figure twice' };
+  if (!withinRangeLos(state, nilf, target, ICE_SHARD_RANGE)) return { error: `Out of range or no line of sight (Range ${ICE_SHARD_RANGE})` };
+  const defDice = Math.max(0, effectiveDefenseDice(state, target, nilf).dice);
+  if (!validFaces(action.attackRoll, ICE_SHARD_ATTACK)) return { error: 'Malformed Ice Shard attack roll' };
+  if (!validFaces(action.defenseRoll, defDice)) return { error: 'Malformed Ice Shard defense roll' };
+
+  const skulls = countFaces(action.attackRoll, 'skull');
+  const shields = countFaces(action.defenseRoll, 'shield');
+  const wounds = Math.max(0, skulls - shields);
+  const s = clone(state);
+  s.turnAttacks.push({ attackerId: nilf.id, targetId: target.id, special: 'ice_shard' });
+  const t = s.figures.find(f => f.id === target.id)!;
+  t.wounds += wounds;
+  const tDef = cardDefFor(s, t);
+  const destroyed = t.wounds >= tDef.life;
+  if (destroyed) { t.at = null; t.at2 = null; }
+  const shotNo = iceShardCount(state, nilf.id) + 1;
+  s.lastAttack = {
+    attackerId: nilf.id,
+    targetId: target.id,
+    attackerLabel: figureLabel(s, nilf),
+    targetLabel: figureLabel(s, t),
+    attackRoll: action.attackRoll,
+    defenseRoll: action.defenseRoll,
+    skulls,
+    shields,
+    wounds,
+    destroyed,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: [`Ice Shard Breath (shot ${shotNo}/${ICE_SHARD_MAX_ATTACKS})`, `Attack ${ICE_SHARD_ATTACK} (special — no height / aura)`],
+    seq: s.logSeq + 1,
+  };
+  pushLog(
+    s,
+    'attack',
+    `Ice Shard Breath ${shotNo}/${ICE_SHARD_MAX_ATTACKS} — ${figureLabel(s, nilf)} hits ${figureLabel(s, t)}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${destroyed ? 'destroyed!' : wounds > 0 ? `${wounds} wound${wounds === 1 ? '' : 's'}` : 'blocked'}.`,
+  );
+  checkEliminationWin(s);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Major Q9 — QUEGLIX GUN (Range 6, 9-die pool spent 1-3 per shot)
+// ---------------------------------------------------------------------------
+
+/** Enemy figures Major Q9 could Queglix right now (Range 6 + LOS), if he has
+ *  dice left and has not made a normal attack. */
+export function queglixTargets(state: HSState, attackerId: string): string[] {
+  const r = activeSpecialFigure(state, attackerId);
+  if ('error' in r) return [];
+  const q9 = r.fig;
+  if (cardDefFor(state, q9).id !== MAJOR_Q9_CARD_ID) return [];
+  if (state.turnAttacks.some(a => a.attackerId === attackerId && a.special !== 'queglix')) return [];
+  if ((state.queglixDiceSpent ?? 0) >= QUEGLIX_DICE_POOL) return [];
+  return state.figures
+    .filter(t => t.at != null && t.ownerSeat !== q9.ownerSeat && withinRangeLos(state, q9, t, QUEGLIX_RANGE))
+    .map(t => t.id);
+}
+/** Dice left in Major Q9's Queglix pool this turn (9 minus spent). */
+export function queglixDiceLeft(state: HSState): number {
+  return Math.max(0, QUEGLIX_DICE_POOL - (state.queglixDiceSpent ?? 0));
+}
+
+function doQueglix(
+  state: HSState,
+  action: { attackerId: string; targetId: string; dice: number; attackRoll: CombatFace[]; defenseRoll: CombatFace[] },
+): HSResult {
+  const r = activeSpecialFigure(state, action.attackerId);
+  if ('error' in r) return r;
+  const q9 = r.fig;
+  if (cardDefFor(state, q9).id !== MAJOR_Q9_CARD_ID) return { error: 'Only Major Q9 has the Queglix Gun Special Attack' };
+  if (state.turnAttacks.some(a => a.attackerId === q9.id && a.special !== 'queglix')) {
+    return { error: 'Major Q9 has already made his attack this turn' };
+  }
+  if (!Number.isInteger(action.dice) || action.dice < 1 || action.dice > 3) {
+    return { error: 'Queglix Gun fires 1, 2, or 3 attack dice per shot' };
+  }
+  const spent = state.queglixDiceSpent ?? 0;
+  if (spent + action.dice > QUEGLIX_DICE_POOL) {
+    return { error: `Queglix Gun has only ${QUEGLIX_DICE_POOL - spent} attack dice left this turn` };
+  }
+  const target = state.figures.find(f => f.id === action.targetId);
+  if (!target || target.at == null) return { error: 'No such target on the battlefield' };
+  if (target.ownerSeat === q9.ownerSeat) return { error: 'You cannot attack your own figures' };
+  if (!withinRangeLos(state, q9, target, QUEGLIX_RANGE)) return { error: `Out of range or no line of sight (Range ${QUEGLIX_RANGE})` };
+  const defDice = Math.max(0, effectiveDefenseDice(state, target, q9).dice);
+  if (!validFaces(action.attackRoll, action.dice)) return { error: 'Malformed Queglix attack roll' };
+  if (!validFaces(action.defenseRoll, defDice)) return { error: 'Malformed Queglix defense roll' };
+
+  const skulls = countFaces(action.attackRoll, 'skull');
+  const shields = countFaces(action.defenseRoll, 'shield');
+  const wounds = Math.max(0, skulls - shields);
+  const s = clone(state);
+  s.queglixDiceSpent = spent + action.dice;
+  s.turnAttacks.push({ attackerId: q9.id, targetId: target.id, special: 'queglix' });
+  const t = s.figures.find(f => f.id === target.id)!;
+  t.wounds += wounds;
+  const tDef = cardDefFor(s, t);
+  const destroyed = t.wounds >= tDef.life;
+  if (destroyed) { t.at = null; t.at2 = null; }
+  s.lastAttack = {
+    attackerId: q9.id,
+    targetId: target.id,
+    attackerLabel: figureLabel(s, q9),
+    targetLabel: figureLabel(s, t),
+    attackRoll: action.attackRoll,
+    defenseRoll: action.defenseRoll,
+    skulls,
+    shields,
+    wounds,
+    destroyed,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: [`Queglix Gun (${action.dice} of ${QUEGLIX_DICE_POOL} dice; ${QUEGLIX_DICE_POOL - s.queglixDiceSpent} left)`, 'Special — no height / aura'],
+    seq: s.logSeq + 1,
+  };
+  pushLog(
+    s,
+    'attack',
+    `Queglix Gun (${action.dice} ${action.dice === 1 ? 'die' : 'dice'}, ${QUEGLIX_DICE_POOL - s.queglixDiceSpent} left) — ${figureLabel(s, q9)} hits ${figureLabel(s, t)}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${destroyed ? 'destroyed!' : wounds > 0 ? `${wounds} wound${wounds === 1 ? '' : 's'}` : 'blocked'}.`,
+  );
+  checkEliminationWin(s);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Jotun — WILD SWING (Range 1, Attack 4; splash to figures adjacent to target)
+// ---------------------------------------------------------------------------
+
+/** Enemy figures adjacent to the active Jotun he may Wild Swing (the primary
+ *  target). Empty unless his active turn, before attacking. */
+export function wildSwingTargets(state: HSState, attackerId: string): string[] {
+  const r = activeSpecialFigure(state, attackerId);
+  if ('error' in r) return [];
+  const jotun = r.fig;
+  if (cardDefFor(state, jotun).id !== JOTUN_CARD_ID) return [];
+  if (state.turnAttacks.some(a => a.attackerId === attackerId)) return [];
+  return state.figures
+    .filter(t => t.at != null && t.ownerSeat !== jotun.ownerSeat && figuresAdjacent(state, jotun, t))
+    .map(t => t.id);
+}
+
+/** Figures a Wild Swing at `targetId` AFFECTS — the target plus every figure
+ *  adjacent to it (friend or foe), EXCEPT Jotun — with each one's defense dice. */
+export function wildSwingDefenders(state: HSState, attackerId: string, targetId: string): { figureId: string; defense: number }[] {
+  const jotun = state.figures.find(f => f.id === attackerId);
+  const target = state.figures.find(f => f.id === targetId);
+  if (!jotun || !target || target.at == null) return [];
+  const affected = new Map<string, Figure>([[target.id, target]]);
+  for (const f of state.figures) {
+    if (f.at == null || f.id === target.id || f.id === jotun.id) continue;
+    if (figuresAdjacent(state, target, f)) affected.set(f.id, f);
+  }
+  affected.delete(jotun.id); // "Jotun cannot be affected by his own Wild Swing"
+  return [...affected.values()].map(t => ({ figureId: t.id, defense: Math.max(0, effectiveDefenseDice(state, t, jotun).dice) }));
+}
+
+function doWildSwing(
+  state: HSState,
+  action: { attackerId: string; targetId: string; attackRoll: CombatFace[]; defenseRolls: { figureId: string; roll: CombatFace[] }[] },
+): HSResult {
+  const r = activeSpecialFigure(state, action.attackerId);
+  if ('error' in r) return r;
+  const jotun = r.fig;
+  if (cardDefFor(state, jotun).id !== JOTUN_CARD_ID) return { error: 'Only Jotun has the Wild Swing Special Attack' };
+  if (state.turnAttacks.some(a => a.attackerId === jotun.id)) return { error: 'Jotun has already attacked this turn' };
+  const target = state.figures.find(f => f.id === action.targetId);
+  if (!target || target.at == null) return { error: 'No such target on the battlefield' };
+  if (target.ownerSeat === jotun.ownerSeat) return { error: 'Choose an enemy figure to attack' };
+  if (!figuresAdjacent(state, jotun, target)) return { error: 'Wild Swing is Range 1 — the target must be adjacent' };
+  if (!validFaces(action.attackRoll, WILD_SWING_ATTACK)) return { error: 'Malformed Wild Swing attack roll' };
+  const defenders = wildSwingDefenders(state, jotun.id, target.id);
+  const got = new Map(action.defenseRolls.map(d => [d.figureId, d.roll] as const));
+  if (got.size !== action.defenseRolls.length) return { error: 'Duplicate Wild Swing defender' };
+  if (defenders.length !== action.defenseRolls.length) return { error: 'Wild Swing defender set mismatch' };
+  for (const d of defenders) {
+    const roll = got.get(d.figureId);
+    if (!roll || !validFaces(roll, d.defense)) return { error: 'Malformed Wild Swing defense roll' };
+  }
+
+  const skulls = countFaces(action.attackRoll, 'skull');
+  const s = clone(state);
+  s.turnAttacks.push({ attackerId: jotun.id, targetId: target.id, special: 'wild_swing' });
+  const results: string[] = [];
+  let totalWounds = 0;
+  for (const d of defenders) {
+    const shields = countFaces(got.get(d.figureId)!, 'shield');
+    const w = Math.max(0, skulls - shields);
+    const t = s.figures.find(f => f.id === d.figureId);
+    if (!t) continue;
+    t.wounds += w;
+    totalWounds += w;
+    const destroyed = t.wounds >= cardDefFor(s, t).life;
+    if (destroyed) { t.at = null; t.at2 = null; }
+    results.push(`${figureLabel(s, t)} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
+  }
+  s.lastAttack = {
+    attackerId: jotun.id,
+    targetId: target.id,
+    attackerLabel: figureLabel(s, jotun),
+    targetLabel: `Wild Swing — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
+    attackRoll: action.attackRoll,
+    defenseRoll: [],
+    skulls,
+    shields: 0,
+    wounds: totalWounds,
+    destroyed: false,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: ['Wild Swing Special Attack', `Attack ${WILD_SWING_ATTACK} (special — no height / aura); splash to figures adjacent to the target`],
+    seq: s.logSeq + 1,
+  };
+  pushLog(
+    s,
+    'attack',
+    `${figureLabel(s, jotun)} makes a Wild Swing (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.join('; ')}.`,
+  );
+  checkEliminationWin(s);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Braxas — POISONOUS ACID BREATH (up to 3 small/medium in Range 4 + sight; d20
+// destroy: Squad 8+, Hero 17+). INSTEAD of attacking.
+// ---------------------------------------------------------------------------
+
+/** Figures Braxas could Acid Breath right now — small/medium, within Range 4 +
+ *  clear sight, any owner but Braxas. (Friendly fire is allowed in this engine;
+ *  the card says "figures", not "enemy figures".) Empty after Braxas attacks. */
+export function acidBreathTargets(state: HSState, seat: number): string[] {
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
+  if (!active || active.cardId !== BRAXAS_CARD_ID || state.turnAttacks.length > 0) return [];
+  const braxas = state.figures.find(f => f.cardUid === activeUid && f.at != null);
+  if (!braxas) return [];
+  return state.figures
+    .filter(t => t.at != null && t.id !== braxas.id && isSmallOrMedium(cardDefFor(state, t)) && withinRangeLos(state, braxas, t, ACID_RANGE))
+    .map(t => t.id);
+}
+export function canAcidBreath(state: HSState, seat: number): boolean {
+  return acidBreathTargets(state, seat).length > 0;
+}
+
+function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d20: number }[]): HSResult {
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (!active || active.cardId !== BRAXAS_CARD_ID) return { error: 'Only Braxas has Poisonous Acid Breath' };
+  if (state.turnAttacks.length > 0) return { error: 'Poisonous Acid Breath is instead of attacking — you have already attacked' };
+  const braxas = state.figures.find(f => f.cardUid === activeUid && f.at != null);
+  if (!braxas) return { error: 'Braxas is not on the battlefield' };
+  if (!Array.isArray(rolls) || rolls.length < 1 || rolls.length > ACID_MAX_TARGETS) {
+    return { error: `Choose 1 to ${ACID_MAX_TARGETS} figures for Acid Breath` };
+  }
+  if (new Set(rolls.map(r => r.targetId)).size !== rolls.length) return { error: 'Acid Breath must choose different figures' };
+  const legal = new Set(acidBreathTargets(state, seat));
+  for (const roll of rolls) {
+    if (!legal.has(roll.targetId)) return { error: 'A chosen figure is not a small/medium figure within 4 clear-sight spaces' };
+    if (!Number.isInteger(roll.d20) || roll.d20 < 1 || roll.d20 > 20) return { error: 'Acid Breath needs a d20 (1-20) per chosen figure' };
+  }
+
+  const s = clone(state);
+  // "Instead of attacking" — spend Braxas's attack for the turn (one entry).
+  s.turnAttacks.push({ attackerId: braxas.id, targetId: rolls[0].targetId, special: 'acid_breath' });
+  const results: string[] = [];
+  for (const roll of rolls) {
+    const t = s.figures.find(f => f.id === roll.targetId);
+    if (!t || t.at == null) continue;
+    const tdef = cardDefFor(s, t);
+    const threshold = tdef.type === 'squad' ? ACID_SQUAD_THRESHOLD : ACID_HERO_THRESHOLD;
+    const destroyed = roll.d20 >= threshold;
+    if (destroyed) { t.at = null; t.at2 = null; }
+    results.push(`${figureLabel(s, t)} — rolled ${roll.d20} (needs ${threshold}+) ${destroyed ? '→ destroyed!' : '→ survives'}`);
+  }
+  s.lastAttack = {
+    attackerId: braxas.id,
+    targetId: rolls[0].targetId,
+    attackerLabel: figureLabel(s, braxas),
+    targetLabel: `Acid Breath — ${rolls.length} figure${rolls.length === 1 ? '' : 's'}`,
+    attackRoll: [],
+    defenseRoll: [],
+    skulls: 0,
+    shields: 0,
+    wounds: 0,
+    destroyed: false,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: ['Poisonous Acid Breath (instead of attacking)', `d20: Squad ${ACID_SQUAD_THRESHOLD}+, Hero ${ACID_HERO_THRESHOLD}+ → destroyed`],
+    seq: s.logSeq + 1,
+  };
+  pushLog(s, 'power', `${figureLabel(s, braxas)} exhales Poisonous Acid: ${results.join('; ')}.`);
+  checkEliminationWin(s);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Jotun — THROW 14 (after move, before attack: d20 14+ throw a small/medium
+// non-flying adjacent figure within 4 + sight; d20 11+ → 2 wounds). Not an attack.
+// ---------------------------------------------------------------------------
+
+/** Small/medium non-flying figures adjacent to the active Jotun he may Throw
+ *  (any owner). Empty unless his active turn, before attacking, throw unspent. */
+export function throwTargets(state: HSState, seat: number): string[] {
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
+  if (!active || active.cardId !== JOTUN_CARD_ID || state.turnAttacks.length > 0 || state.threwThisTurn) return [];
+  const jotun = state.figures.find(f => f.cardUid === activeUid && f.at != null);
+  if (!jotun) return [];
+  return state.figures
+    .filter(
+      t =>
+        t.at != null &&
+        t.id !== jotun.id &&
+        isSmallOrMedium(cardDefFor(state, t)) &&
+        !cardDefFor(state, t).flying &&
+        figuresAdjacent(state, jotun, t),
+    )
+    .map(t => t.id);
+}
+export function canThrow(state: HSState, seat: number): boolean {
+  return throwTargets(state, seat).length > 0;
+}
+/** Empty hexes Jotun may throw a figure onto: within Range 4 of Jotun + clear
+ *  sight from Jotun. (The thrown figure is small/medium = 1 hex.) */
+export function throwLandingHexes(state: HSState, attackerId: string, targetId: string): HexKey[] {
+  const map = MAPS[state.mapId];
+  const jotun = state.figures.find(f => f.id === attackerId);
+  const target = state.figures.find(f => f.id === targetId);
+  if (!map || !jotun || jotun.at == null || !target) return [];
+  const occupied: HexKey[] = [];
+  for (const f of state.figures) {
+    if (f.id === jotun.id || f.id === target.id) continue;
+    for (const k of figureHexes(f)) occupied.push(k);
+  }
+  const occSet = new Set(occupied);
+  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  const out: HexKey[] = [];
+  for (const key of Object.keys(map.cells)) {
+    if (occSet.has(key)) continue; // must be empty
+    const within = figureHexes(jotun).some(jk => {
+      const d = rangeDistance(map.cells, jk, key);
+      return d != null && d <= THROW_RANGE;
+    });
+    if (!within) continue;
+    if (figureHexes(jotun).some(jk => hasLineOfSight3D(map.cells, jk, key, occupied, eye))) out.push(key);
+  }
+  return out;
+}
+
+function doThrow(
+  state: HSState,
+  seat: number,
+  action: { attackerId: string; targetId: string; to: HexKey; throwD20: number; damageD20: number },
+): HSResult {
+  const r = activeSpecialFigure(state, action.attackerId);
+  if ('error' in r) return r;
+  const jotun = r.fig;
+  if (cardDefFor(state, jotun).id !== JOTUN_CARD_ID) return { error: 'Only Jotun may Throw' };
+  if (state.turnAttacks.length > 0) return { error: 'Throw happens after moving and before attacking' };
+  if (state.threwThisTurn) return { error: 'Jotun has already used Throw this turn' };
+  if (!Number.isInteger(action.throwD20) || action.throwD20 < 1 || action.throwD20 > 20) return { error: 'Throw needs a d20 (1-20)' };
+  if (!Number.isInteger(action.damageD20) || action.damageD20 < 1 || action.damageD20 > 20) return { error: 'Throw needs a damage d20 (1-20)' };
+  const target = state.figures.find(f => f.id === action.targetId);
+  if (!target || target.at == null) return { error: 'No such figure to Throw' };
+  if (target.id === jotun.id) return { error: 'Jotun cannot Throw himself' };
+  const tdef = cardDefFor(state, target);
+  if (!isSmallOrMedium(tdef)) return { error: `${tdef.name} is too large to Throw (small or medium figures only)` };
+  if (tdef.flying) return { error: 'A flying figure cannot be Thrown' };
+  if (!figuresAdjacent(state, jotun, target)) return { error: 'The figure must be adjacent to Jotun' };
+
+  const s = clone(state);
+  s.threwThisTurn = true; // the attempt is spent regardless of the roll
+  if (action.throwD20 < THROW_THRESHOLD) {
+    pushLog(s, 'power', `${figureLabel(s, jotun)} tries to Throw ${figureLabel(s, target)} but rolls ${action.throwD20} (needs ${THROW_THRESHOLD}+) — it stays put.`);
+    return s;
+  }
+  // 14+ — validate the landing and place the figure.
+  if (!throwLandingHexes(state, jotun.id, target.id).includes(action.to)) {
+    return { error: 'Throw target space must be empty, within 4 spaces, and in clear sight of Jotun' };
+  }
+  const map = MAPS[state.mapId];
+  const landCell = map?.cells[action.to];
+  const t = s.figures.find(f => f.id === target.id)!;
+  t.at = action.to;
+  t.at2 = null; // small/medium = single hex
+  // Throwing damage — UNLESS the landing is higher than Jotun's Height, or water.
+  const jotunHeight = cardDefFor(s, jotun).height;
+  const noDamage = (landCell && landCell.height > jotunHeight) || landCell?.terrain === 'water';
+  let woundLine = '';
+  if (noDamage) {
+    woundLine = landCell?.terrain === 'water' ? ' (landed in water — no throwing damage)' : ' (landed above Jotun’s height — no throwing damage)';
+  } else if (action.damageD20 >= THROW_DAMAGE_THRESHOLD) {
+    t.wounds += THROW_WOUNDS;
+    const destroyed = t.wounds >= tdef.life;
+    if (destroyed) { t.at = null; t.at2 = null; }
+    woundLine = ` and takes ${THROW_WOUNDS} wounds (rolled ${action.damageD20} ≥ ${THROW_DAMAGE_THRESHOLD})${destroyed ? ' — destroyed!' : ''}`;
+  } else {
+    woundLine = ` and is unharmed (rolled ${action.damageD20} < ${THROW_DAMAGE_THRESHOLD})`;
+  }
+  pushLog(s, 'power', `${figureLabel(s, jotun)} Throws ${figureLabel(s, t)} (rolled ${action.throwD20}) onto ${action.to}${woundLine}.`);
+  checkEliminationWin(s);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Theracus — CARRY (before move: pick an unengaged friendly small/medium adjacent
+// figure; after Theracus flies, place it adjacent to his new position).
+// ---------------------------------------------------------------------------
+
+/** Unengaged friendly (allied) small/medium figures adjacent to the active
+ *  Theracus he may Carry. Empty unless his active turn, before he has moved. */
+export function carryPassengers(state: HSState, seat: number): string[] {
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
+  if (!active || active.cardId !== THERACUS_CARD_ID) return [];
+  const theracus = state.figures.find(f => f.cardUid === activeUid && f.at != null);
+  if (!theracus) return [];
+  if (state.movedFigureIds.includes(theracus.id) || state.turnAttacks.length > 0) return [];
+  return state.figures
+    .filter(
+      p =>
+        p.at != null &&
+        p.id !== theracus.id &&
+        teamOfSeat(state, p.ownerSeat) === teamOfSeat(state, theracus.ownerSeat) &&
+        isSmallOrMedium(cardDefFor(state, p)) &&
+        figuresAdjacent(state, theracus, p) &&
+        enemiesEngagedWith(state, p).length === 0,
+    )
+    .map(p => p.id);
+}
+
+function doCarryMove(
+  state: HSState,
+  seat: number,
+  action: {
+    figureId: string;
+    to: HexKey;
+    passengerId: string;
+    passengerTo: HexKey;
+    fallRoll?: CombatFace[];
+    extremeFallD20?: number;
+    leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+  },
+): HSResult {
+  const r = activeSpecialFigure(state, action.figureId);
+  if ('error' in r) return r;
+  const theracus = r.fig;
+  if (cardDefFor(state, theracus).id !== THERACUS_CARD_ID) return { error: 'Only Theracus has Carry' };
+  // The passenger must be a legal Carry choice BEFORE the move.
+  if (!carryPassengers(state, seat).includes(action.passengerId)) {
+    return { error: 'Choose an unengaged friendly small/medium figure adjacent to Theracus' };
+  }
+  // Theracus's move validates and resolves exactly like a normal flying move
+  // (movement budget, takeoff leaving-engagement swipes — the SERVER rolled them).
+  const moved = doMove(state, theracus.id, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
+  if ('error' in moved) return moved;
+  if (moved.phase !== 'playing') return moved; // a takeoff swipe ended the game — no carry
+  const s = moved; // doMove returns a fresh clone we own
+  const carrier = s.figures.find(f => f.id === theracus.id)!;
+  const passenger = s.figures.find(f => f.id === action.passengerId);
+  if (!passenger || passenger.at == null) return { error: 'The carried figure is no longer on the battlefield' };
+  // Landing must be an empty real cell adjacent to Theracus's NEW position.
+  const map = MAPS[s.mapId];
+  if (!map || !map.cells[action.passengerTo]) return { error: 'Invalid landing space for the carried figure' };
+  const occupied = new Set(s.figures.filter(f => f.id !== passenger.id && f.at != null).flatMap(f => figureHexes(f)));
+  if (occupied.has(action.passengerTo)) return { error: 'The carried figure’s landing space is occupied' };
+  const carrierHexes = new Set(figureHexes(carrier).flatMap(k => neighborKeys(k)));
+  if (!carrierHexes.has(action.passengerTo)) return { error: 'Place the carried figure adjacent to Theracus’s new position' };
+  passenger.at = action.passengerTo;
+  passenger.at2 = null;
+  pushLog(s, 'power', `${figureLabel(s, carrier)} carries ${figureLabel(s, passenger)} along, setting it down at ${action.passengerTo}.`);
+  return s;
+}
+
+// ============================================================================
 // Resolve a PendingChoice (slice 4) — never auto-issued; the owning seat sends
 // the matching resolution. The engine validates the payload kind matches the
 // open choice and that the chosen option is legal.
@@ -3413,6 +4032,8 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   delete s.berserkerSpent;
   delete s.mindShackleSpent;
   delete s.chompedThisTurn;
+  delete s.queglixDiceSpent;
+  delete s.threwThisTurn;
   if (advanceSlot(s)) beginTurnOrSkip(s);
   return s;
 }

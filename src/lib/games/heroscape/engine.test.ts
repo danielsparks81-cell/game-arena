@@ -2614,18 +2614,19 @@ describe('slice 5: full roster (16 base + 5 Big Heroes)', () => {
     expect(HS_CARDS.jotun).toMatchObject({ life: 7, attack: 8, defense: 4, height: 10, points: 225, baseSize: 2 });
   });
 
-  it('power flags: the 15 base powers are live; Airborne + the 5 Big Heroes stay wip', () => {
+  it('power flags: 20 of 21 powers are live; only Airborne Elite (The Drop) stays wip', () => {
     // The 15 live base cards (slice 4/6/7 + slice 8 Mimring Fire Line & Ne-Gok-Sa
-    // Mind Shackle). Still wip: Airborne Elite (grenade + The Drop) and the five
-    // Big Heroes (their named special attacks aren't wired yet).
+    // Mind Shackle) PLUS the 5 Big Heroes (slice 8b — Ice Shard Breath, Acid
+    // Breath, Carry, Queglix Gun, Wild Swing + Throw). Still wip: only Airborne
+    // Elite, whose Grenade works but whose The Drop deployment isn't wired yet.
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
-      'agent_carr', 'deathwalker_9000', 'drake', 'finn', 'grimnak', 'izumi_samurai',
-      'krav_maga', 'marro_warriors', 'mimring', 'ne_gok_sa', 'raelin', 'syvarris',
-      'tarn_vikings', 'thorgrim', 'zettian_guards',
+      'agent_carr', 'braxas', 'deathwalker_9000', 'drake', 'finn', 'grimnak', 'izumi_samurai',
+      'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa', 'nilfheim',
+      'raelin', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);
     const wip = Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort();
-    expect(wip).toEqual(['airborne_elite', 'braxas', 'jotun', 'major_q9', 'nilfheim', 'theracus']);
+    expect(wip).toEqual(['airborne_elite']);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {

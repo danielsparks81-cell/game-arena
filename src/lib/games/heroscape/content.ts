@@ -363,7 +363,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'N',
     species: 'Dragon',
     unitClass: 'King',
-    power: 'wip', // Ice Shard Breath Special Attack (Range 5, Attack 4, +2 extra attacks, no repeats)
+    power: 'live', // Ice Shard Breath Special Attack (Range 5, Attack 4, +2 extra attacks, no repeats)
     flying: true,
     baseSize: 2,
   },
@@ -384,7 +384,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'X',
     species: 'Dragon',
     unitClass: 'Queen',
-    power: 'wip', // Poisonous Acid Breath (up to 3 small/medium in 4 sight; d20 squad 8+ / hero 17+ destroy)
+    power: 'live', // Poisonous Acid Breath (up to 3 small/medium in 4 sight; d20 squad 8+ / hero 17+ destroy)
     flying: true,
     baseSize: 2,
   },
@@ -405,7 +405,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'T',
     species: 'Gryphillin',
     unitClass: 'Scout',
-    power: 'wip', // Carry (move an adjacent friendly small/medium along with him)
+    power: 'live', // Carry (move an adjacent friendly small/medium along with him)
     flying: true,
     baseSize: 2,
   },
@@ -426,7 +426,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'Q',
     species: 'Soulborg',
     unitClass: 'Major',
-    power: 'wip', // Queglix Gun Special Attack (Range 6; a pool of 9 dice spent 1-3 per shot)
+    power: 'live', // Queglix Gun Special Attack (Range 6; a pool of 9 dice spent 1-3 per shot)
     baseSize: 2,
   },
   jotun: {
@@ -446,7 +446,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'J',
     species: 'Giant',
     unitClass: 'Warrior',
-    power: 'wip', // Wild Swing Special Attack (splash) + Throw (d20 reposition + damage)
+    power: 'live', // Wild Swing Special Attack (splash) + Throw (d20 reposition + damage)
     baseSize: 2,
   },
 };

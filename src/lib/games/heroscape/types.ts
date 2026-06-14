@@ -466,7 +466,16 @@ export type HSState = {
    * (Replaces the slice-2 `attackedFigureIds` boolean array — the redundancy is
    * removed; this carries strictly more information.)
    */
-  turnAttacks: { attackerId: string; targetId: string }[];
+  turnAttacks: {
+    attackerId: string;
+    targetId: string;
+    /** Which SPECIAL ATTACK produced this entry (Big Heroes, slice 8b): tags
+     *  multi-attack specials so their per-turn limits and "no mixing with the
+     *  normal attack" gates can read the history. Absent ⇒ a normal attack (or a
+     *  pre-Big-Heroes save). Ice Shard caps at 3 + distinct targets; Queglix
+     *  reads it alongside `queglixDiceSpent`. */
+    special?: 'ice_shard' | 'queglix' | 'wild_swing' | 'acid_breath';
+  }[];
   lastAttack: LastAttack | null;
   /** Winning SEAT — a representative living seat of the winning team (for FFA /
    *  2-player this is simply the survivor). Null until the game finishes. */
@@ -499,6 +508,14 @@ export type HSState = {
    *  before-attack window). Set on the attempt regardless of result. Cleared each
    *  turn. */
   chompedThisTurn?: boolean;
+  /** Major Q9 QUEGLIX GUN (Big Heroes): attack dice spent so far this turn from
+   *  his 9-die pool. Each shot spends 1-3; he may keep shooting until all 9 are
+   *  rolled. Cleared each turn; absent ⇒ 0 (pool full). */
+  queglixDiceSpent?: number;
+  /** Whether Jotun has used his THROW (Big Heroes) this turn — one attempt in the
+   *  after-move/before-attack window, regardless of the d20 result. Does NOT
+   *  consume his attack. Cleared each turn. */
+  threwThisTurn?: boolean;
   log: HSLogEntry[];
   logSeq: number;
 };
@@ -692,6 +709,78 @@ export type HSAction =
       targetId: string;
       attackRoll: CombatFace[];
       defenseRolls: { figureId: string; roll: CombatFace[] }[];
+    }
+  | {
+      // Nilfheim ICE SHARD BREATH SPECIAL ATTACK (Big Heroes): Range 5, Attack 4,
+      // up to THREE attacks per turn, each at a DIFFERENT figure. One shot per
+      // action; the engine caps at 3 and forbids repeating a target. Like a normal
+      // single-target attack the SERVER rolls 4 attack dice + the defender's
+      // defense; special attack → no height / aura on the attack.
+      kind: 'ice_shard';
+      attackerId: string;
+      targetId: string;
+      attackRoll: CombatFace[];
+      defenseRoll: CombatFace[];
+    }
+  | {
+      // Major Q9 QUEGLIX GUN SPECIAL ATTACK (Big Heroes): Range 6, a 9-die pool
+      // for the turn spent 1-3 per shot. One shot per action (`dice` of them);
+      // repeat until all 9 are spent, same or different targets. SERVER rolls
+      // `dice` attack dice + the defender's defense.
+      kind: 'queglix';
+      attackerId: string;
+      targetId: string;
+      dice: 1 | 2 | 3;
+      attackRoll: CombatFace[];
+      defenseRoll: CombatFace[];
+    }
+  | {
+      // Jotun WILD SWING SPECIAL ATTACK (Big Heroes): Range 1, Attack 4. The
+      // chosen target AND every figure adjacent to it (friend or foe) are hit —
+      // except Jotun himself. The SERVER rolls 4 attack dice ONCE and each affected
+      // figure's defense SEPARATELY; the engine re-derives the affected set.
+      kind: 'wild_swing';
+      attackerId: string;
+      targetId: string;
+      attackRoll: CombatFace[];
+      defenseRolls: { figureId: string; roll: CombatFace[] }[];
+    }
+  | {
+      // Braxas POISONOUS ACID BREATH (Big Heroes): INSTEAD of attacking, choose up
+      // to 3 different small/medium figures within 4 clear-sight spaces. The SERVER
+      // rolls one d20 per chosen figure; Squad ≥ 8 / Hero ≥ 17 → destroyed (no
+      // defense roll). The engine re-derives the legal target set + thresholds.
+      kind: 'acid_breath';
+      attackerId: string;
+      rolls: { targetId: string; d20: number }[];
+    }
+  | {
+      // Jotun THROW 14 (Big Heroes): after moving, before attacking, choose a
+      // small/medium non-flying figure adjacent to Jotun. SERVER rolls `throwD20`;
+      // on 14+ the figure is placed at `to` (empty, within 4 + clear sight of
+      // Jotun) and `damageD20` (11+ → 2 wounds) is applied unless it lands higher
+      // than Jotun or on water. Does NOT consume Jotun's attack.
+      kind: 'throw_figure';
+      attackerId: string;
+      targetId: string;
+      to: HexKey;
+      throwD20: number;
+      damageD20: number;
+    }
+  | {
+      // Theracus CARRY (Big Heroes): before moving, choose an unengaged friendly
+      // small/medium figure adjacent to Theracus; after Theracus flies to `to`,
+      // the passenger is placed at `passengerTo` (empty, adjacent to Theracus's new
+      // position). Theracus's own move validates exactly like move_figure (flyer →
+      // SERVER rolls any takeoff leaving-engagement swipes; no fall).
+      kind: 'carry_move';
+      figureId: string;
+      to: HexKey;
+      passengerId: string;
+      passengerTo: HexKey;
+      fallRoll?: CombatFace[];
+      extremeFallD20?: number;
+      leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
     }
   | {
       // Resolve the open pendingChoice. Only the owning seat may send it and the

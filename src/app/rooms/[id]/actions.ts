@@ -85,6 +85,8 @@ import {
   attackDiceRequirements as hsAttackDiceRequirements,
   fireLineDefenders as hsFireLineDefenders,
   grenadeDefenders as hsGrenadeDefenders,
+  wildSwingDefenders as hsWildSwingDefenders,
+  effectiveDefenseDice as hsEffectiveDefenseDice,
   moveConsequences as hsMoveConsequences,
   getActiveCardUid as hsGetActiveCardUid,
   HS_GLYPHS,
@@ -746,6 +748,13 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'grenade_throw'; targetId: string }
   | { game: 'heroscape'; kind: 'berserker_charge' }
   | { game: 'heroscape'; kind: 'water_clone' }
+  // Big Heroes special powers (slice 8b) — the server rolls every die.
+  | { game: 'heroscape'; kind: 'ice_shard'; attackerId: string; targetId: string }
+  | { game: 'heroscape'; kind: 'queglix'; attackerId: string; targetId: string; dice: 1 | 2 | 3 }
+  | { game: 'heroscape'; kind: 'wild_swing'; attackerId: string; targetId: string }
+  | { game: 'heroscape'; kind: 'acid_breath'; attackerId: string; targetIds: string[] }
+  | { game: 'heroscape'; kind: 'throw_figure'; attackerId: string; targetId: string; to: string }
+  | { game: 'heroscape'; kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
   | { game: 'heroscape'; kind: 'end_turn' }
   // Draft + placement (slice 5).
@@ -1202,6 +1211,16 @@ type HSWireAction =
   // them server-side and injects the values into the engine action.
   | { kind: 'berserker_charge' }
   | { kind: 'water_clone' }
+  // Big Heroes special powers (slice 8b): the dice are NOT on the wire — the
+  // server rolls the attack/defense combat dice (Ice Shard / Queglix / Wild
+  // Swing), the d20s (Acid Breath per target; Throw's reposition + damage), and
+  // Carry's move-consequence dice. The board sends only the player's choices.
+  | { kind: 'ice_shard'; attackerId: string; targetId: string }
+  | { kind: 'queglix'; attackerId: string; targetId: string; dice: 1 | 2 | 3 }
+  | { kind: 'wild_swing'; attackerId: string; targetId: string }
+  | { kind: 'acid_breath'; attackerId: string; targetIds: string[] }
+  | { kind: 'throw_figure'; attackerId: string; targetId: string; to: string }
+  | { kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
   | { kind: 'resolve_choice'; choice: HSChoiceResolution }
   | { kind: 'end_turn' }
   // Draft + placement (slice 5). No draft_roll on the wire — the server rolls the
@@ -1371,6 +1390,87 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     engineAction = {
       kind: 'water_clone',
       rolls: livingMarro.map(f => ({ marroFigureId: f.id, d20: d20() })),
+    };
+  } else if (action.kind === 'ice_shard') {
+    // Nilfheim ICE SHARD BREATH — one of up to 3 shots. Roll 4 attack dice + the
+    // target's effective defense (printed + auras, no height — a special attack).
+    const tgt = state.figures?.find(f => f.id === action.targetId);
+    const atk = state.figures?.find(f => f.id === action.attackerId);
+    const defDice = tgt && atk ? Math.max(0, hsEffectiveDefenseDice(state, tgt, atk).dice) : 0;
+    engineAction = {
+      kind: 'ice_shard',
+      attackerId: action.attackerId,
+      targetId: action.targetId,
+      attackRoll: rollDice(4),
+      defenseRoll: rollDice(defDice),
+    };
+  } else if (action.kind === 'queglix') {
+    // Major Q9 QUEGLIX GUN — a `dice`-die shot from the 9-die pool. Roll `dice`
+    // attack dice + the target's effective defense.
+    const tgt = state.figures?.find(f => f.id === action.targetId);
+    const atk = state.figures?.find(f => f.id === action.attackerId);
+    const defDice = tgt && atk ? Math.max(0, hsEffectiveDefenseDice(state, tgt, atk).dice) : 0;
+    engineAction = {
+      kind: 'queglix',
+      attackerId: action.attackerId,
+      targetId: action.targetId,
+      dice: action.dice,
+      attackRoll: rollDice(action.dice),
+      defenseRoll: rollDice(defDice),
+    };
+  } else if (action.kind === 'wild_swing') {
+    // Jotun WILD SWING — roll 4 attack dice ONCE + each affected figure's defense
+    // SEPARATELY (target + figures adjacent to it, minus Jotun). The engine
+    // re-derives the affected set and validates the shapes.
+    const defenders = hsWildSwingDefenders(state, action.attackerId, action.targetId);
+    engineAction = {
+      kind: 'wild_swing',
+      attackerId: action.attackerId,
+      targetId: action.targetId,
+      attackRoll: rollDice(4),
+      defenseRolls: defenders.map(d => ({ figureId: d.figureId, roll: rollDice(d.defense) })),
+    };
+  } else if (action.kind === 'acid_breath') {
+    // Braxas POISONOUS ACID BREATH — one d20 per chosen figure (Squad 8+, Hero
+    // 17+ destroy). The engine re-validates the legal target set + thresholds.
+    engineAction = {
+      kind: 'acid_breath',
+      attackerId: action.attackerId,
+      rolls: action.targetIds.map(targetId => ({ targetId, d20: d20() })),
+    };
+  } else if (action.kind === 'throw_figure') {
+    // Jotun THROW — the server rolls the throw d20 (14+ succeeds) and the damage
+    // d20 (11+ → 2 wounds). The engine applies the landing/level/water rules.
+    engineAction = {
+      kind: 'throw_figure',
+      attackerId: action.attackerId,
+      targetId: action.targetId,
+      to: action.to,
+      throwD20: d20(),
+      damageD20: d20(),
+    };
+  } else if (action.kind === 'carry_move') {
+    // Theracus CARRY — his flight uses the SAME move-consequence seam as
+    // move_figure (a flyer never falls, but a takeoff-while-engaged can be swiped);
+    // the passenger is then placed adjacent to his new position (no dice).
+    const mover: HSFigure | undefined = state.figures?.find(f => f.id === action.figureId);
+    const cons = mover
+      ? hsMoveConsequences(state, mover, action.to)
+      : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+    engineAction = {
+      kind: 'carry_move',
+      figureId: action.figureId,
+      to: action.to,
+      passengerId: action.passengerId,
+      passengerTo: action.passengerTo,
+      ...(cons.tier === 'extreme'
+        ? { extremeFallD20: d20() }
+        : cons.fallDice > 0
+          ? { fallRoll: rollDice(cons.fallDice) }
+          : {}),
+      ...(cons.abandonedEnemyIds.length > 0
+        ? { leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollDie() })) }
+        : {}),
     };
   } else if (action.kind === 'resolve_choice') {
     engineAction = { kind: 'resolve_choice', choice: action.choice };
