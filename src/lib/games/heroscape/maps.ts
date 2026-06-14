@@ -10,7 +10,7 @@
 // CONTENT, not state (state stores only `mapId`), keeping the room JSONB lean.
 
 import type { HexKey, HexCell, Terrain, HSGlyphId, HSGlyph } from './types';
-import { hexKey, offsetToAxial } from './board';
+import { hexKey, offsetToAxial, axialToOffset } from './board';
 
 /** A glyph placed on a map: its identity and the hex it sits on. The runtime
  *  `HSGlyph` (with `faceUp`) is materialized from this at game start. */
@@ -24,6 +24,11 @@ export type HSMap = {
   cells: Record<HexKey, HexCell>;
   /** Start-zone hexes per roster index (0-based; `@1` → 0), in column order. */
   startZones: Record<number, HexKey[]>;
+  /** Multiplayer maps (the 6-point star): the per-PLAYER-COUNT seat→zone map.
+   *  A star has six point-zones; with N players the engine uses the spread-out
+   *  subset for that count (`zonesByCount[N][seat]`). Absent on the 2-player
+   *  rectangles — they fall back to `startZones`. See `effectiveStartZones`. */
+  zonesByCount?: Record<number, Record<number, HexKey[]>>;
   /** Glyph spots (`*` tokens) — parsed for forward-compat, unused in slice 1. */
   glyphSpots: HexKey[];
   /** Slice-4 glyph layout: which glyph sits on which hex. Deterministic per
@@ -179,8 +184,90 @@ export const FORD_CROSSING: HSMap = parseMap(
   ],
 );
 
+// ============================================================================
+// Multiplayer battlefield — the 6-POINT STAR (hexagram). GENERATED, not parsed.
+// A true hexagram's points TOUCH at the centre, so each start zone is only the
+// outer TIP of its point (the inner point + central hexagon stay neutral), and
+// the board is sized so even the longest-range figure (Range 9) cannot hit a
+// rival deployment without first moving. The six tips ARE the start zones; with
+// N players the engine uses the spread-out subset (`zonesByCount`).
+// ============================================================================
+
+/** seat → point index, per player count — spread to maximise the gap between
+ *  occupied points (2-3 avoid adjacency entirely; 4-6 must take adjacent points,
+ *  which is why the board has to be large). */
+const STAR_POINTS_BY_COUNT: Record<number, number[]> = {
+  3: [0, 2, 4],
+  4: [0, 1, 3, 4],
+  5: [0, 1, 2, 3, 4],
+  6: [0, 1, 2, 3, 4, 5],
+};
+
+/** Build a hexagram battlefield: `R` sizes the star (cells = the union of two
+ *  cube-coord triangles); `tipCut` is the centre-distance beyond which a point
+ *  cell becomes a start zone (the tip), keeping deployments far apart. All grass
+ *  height 1 for now. */
+function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap {
+  const inStar = (q: number, r: number): boolean => {
+    const s = -q - r;
+    return (q >= -R && r >= -R && s >= -R) || (q <= R && r <= R && s <= R);
+  };
+  const centerDist = (q: number, r: number): number => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
+  const px = (q: number, r: number) => ({ x: Math.sqrt(3) * (q + r / 2), y: 1.5 * r });
+  const cells: Record<HexKey, HexCell> = {};
+  const all: { q: number; r: number }[] = [];
+  for (let q = -2 * R; q <= 2 * R; q++) {
+    for (let r = -2 * R; r <= 2 * R; r++) {
+      if (!inStar(q, r)) continue;
+      cells[hexKey(q, r)] = { q, r, height: 1, terrain: 'grass' };
+      all.push({ q, r });
+    }
+  }
+  // The 6 tips, ordered by screen angle so point indices run round the star.
+  const tips = ([[2 * R, -R], [-R, -R], [-R, 2 * R], [R, -2 * R], [R, R], [-2 * R, R]] as const)
+    .map(([q, r]) => ({ q, r, a: Math.atan2(px(q, r).y, px(q, r).x) }))
+    .sort((p, n) => p.a - n.a);
+  const pointZones: HexKey[][] = [[], [], [], [], [], []];
+  for (const c of all) {
+    if (centerDist(c.q, c.r) <= tipCut) continue; // central + inner point = neutral
+    const p = px(c.q, c.r);
+    let best = 0, bd = Infinity;
+    tips.forEach((t, i) => {
+      const tp = px(t.q, t.r);
+      const d = Math.hypot(tp.x - p.x, tp.y - p.y);
+      if (d < bd) { bd = d; best = i; }
+    });
+    pointZones[best].push(hexKey(c.q, c.r));
+  }
+  const zonesByCount: Record<number, Record<number, HexKey[]>> = {};
+  for (const [n, picks] of Object.entries(STAR_POINTS_BY_COUNT)) {
+    zonesByCount[Number(n)] = Object.fromEntries(picks.map((pi, seat) => [seat, pointZones[pi]]));
+  }
+  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  for (const key of Object.keys(cells)) {
+    const { col, row } = axialToOffset(key);
+    minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col);
+    minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
+  }
+  return {
+    id, name,
+    cols: maxCol - minCol + 1,
+    rows: maxRow - minRow + 1,
+    cells,
+    startZones: Object.fromEntries(pointZones.map((z, i) => [i, z])),
+    zonesByCount,
+    glyphSpots: [],
+    glyphs: [],
+  };
+}
+
+/** The grand 6-point star for 3-6 player battles (R=10): 661 hexes, 21-hex tip
+ *  zones ~10 apart — beyond Range 9, so no turn-one cross-map sniping. */
+export const STAR_FIELD: HSMap = makeStarMap('star_field', 'Star Field', 10, 14);
+
 export const MAPS: Record<string, HSMap> = {
   [TRAINING_FIELD.id]: TRAINING_FIELD,
   [THE_KNOLL.id]: THE_KNOLL,
   [FORD_CROSSING.id]: FORD_CROSSING,
+  [STAR_FIELD.id]: STAR_FIELD,
 };

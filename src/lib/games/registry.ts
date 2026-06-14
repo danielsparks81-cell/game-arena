@@ -681,7 +681,7 @@ export const GAMES: Record<string, GameDef> = {
     name: 'HeroScape',
     description: 'Hex-battlefield skirmish on 3-D terrain. Draft an army from the 16-card roster (or quick-battle), arrange your figures, then climb for height advantage, roll skulls, and destroy the enemy army.',
     minPlayers: 2,
-    maxPlayers: 2,
+    maxPlayers: 6,
     addedOn: '2026-06-10',
     beta: true,
     categories: ['strategy', 'dice'],

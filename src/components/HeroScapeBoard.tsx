@@ -858,6 +858,12 @@ export default function HeroScapeBoard({
   }, [state.lastAttack]);
 
   const map = MAPS[state.mapId];
+  // The effective per-seat start zones: the multiplayer STAR assigns its six
+  // points to seats by player count (`zonesByCount`); the 2-player rectangles
+  // fall back to their authored zones. Used for the per-viewer flip + the
+  // placement tint (mirrors the engine's `startZoneFor`).
+  const startZones: Record<number, HexKey[]> =
+    (map?.zonesByCount?.[state.players.length] ?? map?.startZones) ?? {};
   const me = state.players.find(p => p.playerId === currentUserId);
   const turnPlayer = state.players.find(p => p.seat === state.turnSeat);
   const placing = state.phase === 'playing' && state.subPhase === 'place_markers';
@@ -1070,7 +1076,7 @@ export default function HeroScapeBoard({
   // Orient so the VIEWER's own start zone is at the bottom-front. Decision is
   // based on the static start zones, fixed for the whole game (seat 0 starts at
   // the top → flips; seat 1 already sits at the bottom).
-  const myZone = me ? (map?.startZones[me.seat] ?? []) : [];
+  const myZone = me ? (startZones[me.seat] ?? []) : [];
   const myAvgRow = myZone.length
     ? myZone.reduce((s, k) => s + axialToOffset(k).row, 0) / myZone.length
     : 0;
@@ -1457,9 +1463,10 @@ export default function HeroScapeBoard({
   if (state.phase === 'lobby') {
     const mapList = Object.values(MAPS);
     const mapBlurb: Record<string, string> = {
-      training_field: 'Flat grass — learn the ropes.',
-      the_knoll: 'A 3-tier rock hill — climb for height advantage.',
-      ford_crossing: 'A water river split by a narrow ford.',
+      training_field: 'Flat grass — learn the ropes. (2 players)',
+      the_knoll: 'A 3-tier rock hill — climb for height advantage. (2 players)',
+      ford_crossing: 'A water river split by a narrow ford. (2 players)',
+      star_field: 'A giant 6-point star — a deploy zone per point. (3-6 players)',
     };
     return (
       <div className="flex flex-col items-center gap-4 p-6">
@@ -1471,7 +1478,7 @@ export default function HeroScapeBoard({
           to wipe out the enemy army wins.
         </p>
         <div className="text-sm text-neutral-300">
-          {state.players.length}/2 players seated{state.players.length < 2 ? ' — waiting…' : ''}
+          {state.players.length} player{state.players.length === 1 ? '' : 's'} seated (2-6){state.players.length < 2 ? ' — waiting for one more…' : ''}
         </div>
 
         {/* Mode toggle: Draft armies vs Quick battle (host chooses) */}
@@ -2240,7 +2247,7 @@ export default function HeroScapeBoard({
             const colors = isoTileColors(c.terrain, c.height, isDest);
             const topFill = isCloneOpt ? '#0e4f6e' : colors.top;
             const topStroke = isFireHex ? '#fb923c' : isCloneOpt ? '#22d3ee' : isDest ? '#34d399' : colors.stroke;
-            const startZoneSeat = Object.entries(map.startZones).find(([, keys]) => keys.includes(key))?.[0];
+            const startZoneSeat = Object.entries(startZones).find(([, keys]) => keys.includes(key))?.[0];
             const fig = figureAt(key); // ANCHOR figure (drawn once, here)
             const occupied = !!occupantAt(key); // either hex of a 2-hex figure
             const clickable = canAct || isCloneOpt || (canPlace && (isPlaceHex || occupied));

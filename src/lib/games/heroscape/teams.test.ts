@@ -14,6 +14,8 @@ import {
   applyAction,
   attackDiceRequirements,
   moveConsequences,
+  mapSupportsCount,
+  placeableHexes,
 } from './engine';
 import { hexKey, offsetToAxial, neighborKeys } from './board';
 import { MAPS } from './maps';
@@ -106,7 +108,7 @@ describe('multiplayer: seating, teams, custom budget', () => {
   it('seats up to 6 players and starts a draft', () => {
     let s = lobbyN(6);
     expect(s.players).toHaveLength(6);
-    s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 400 }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 400, mapId: 'star_field' }));
     expect(s.phase).toBe('draft');
   });
 
@@ -115,7 +117,7 @@ describe('multiplayer: seating, teams, custom budget', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'set_lobby_config', teams: { 0: 0, 1: 0, 2: 0 } }));
     expect(errOf(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft' }))).toMatch(/at least two teams/i);
     s = unwrap(applyAction(s, 'p1', { kind: 'set_lobby_config', teams: { 0: 0, 1: 0, 2: 1 } }));
-    expect(unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft' })).phase).toBe('draft');
+    expect(unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', mapId: 'star_field' })).phase).toBe('draft');
   });
 
   it('quick (fixed-army) mode stays 2-player only', () => {
@@ -209,7 +211,7 @@ describe('multiplayer: team-mates share one draft budget', () => {
         teamBudgets: { 0: teamBudget, 1: 500 },
       }),
     );
-    s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 200 }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 200, mapId: 'star_field' }));
     s = unwrap(
       applyAction(s, 'p1', {
         kind: 'draft_roll',
@@ -220,5 +222,61 @@ describe('multiplayer: team-mates share one draft budget', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'draft_card', cardId: c1 }));
     expect(s.draft!.turnSeat).toBe(1); // the team-mate is next in the cycle
     expect(errOf(applyAction(s, 'p2', { kind: 'draft_card', cardId: c2 }))).toMatch(/points left/i);
+  });
+});
+
+describe('multiplayer: the 6-point star battlefield', () => {
+  const star = MAPS['star_field'];
+  const hexDist = (a: string, b: string): number => {
+    const [q1, r1] = a.split(',').map(Number);
+    const [q2, r2] = b.split(',').map(Number);
+    const dq = q1 - q2, dr = r1 - r2;
+    return (Math.abs(dq) + Math.abs(dr) + Math.abs(dq + dr)) / 2;
+  };
+
+  it('exists with a roomy zone per seat for 3-6 players', () => {
+    expect(star).toBeTruthy();
+    for (const n of [3, 4, 5, 6]) {
+      const z = star.zonesByCount![n];
+      expect(Object.keys(z)).toHaveLength(n); // one start zone per seat
+      for (let s = 0; s < n; s++) expect(z[s].length).toBeGreaterThan(12); // army room
+    }
+  });
+
+  it('mapSupportsCount: the star is 3-6, the rectangles are 2', () => {
+    expect(mapSupportsCount(star, 2)).toBe(false);
+    for (const n of [3, 4, 5, 6]) expect(mapSupportsCount(star, n)).toBe(true);
+    expect(mapSupportsCount(MAPS['training_field'], 2)).toBe(true);
+    expect(mapSupportsCount(MAPS['training_field'], 4)).toBe(false);
+  });
+
+  it('start zones are ≥10 apart at 6 players — beyond Range 9, no turn-one sniping', () => {
+    const z = star.zonesByCount![6];
+    let min = Infinity;
+    for (let i = 0; i < 6; i++) {
+      for (let j = i + 1; j < 6; j++) {
+        for (const a of z[i]) for (const b of z[j]) min = Math.min(min, hexDist(a, b));
+      }
+    }
+    expect(min).toBeGreaterThanOrEqual(10);
+  });
+
+  it('a 3-player game places onto three distinct, non-empty star zones', () => {
+    const s = {
+      version: 8,
+      phase: 'placement',
+      mapId: 'star_field',
+      players: [
+        { seat: 0, playerId: 'p1', username: 'A' },
+        { seat: 1, playerId: 'p2', username: 'B' },
+        { seat: 2, playerId: 'p3', username: 'C' },
+      ],
+      figures: [],
+    } as unknown as HSState;
+    const z0 = placeableHexes(s, 0), z1 = placeableHexes(s, 1), z2 = placeableHexes(s, 2);
+    expect(z0.size).toBeGreaterThan(12);
+    expect(z1.size).toBeGreaterThan(12);
+    expect(z2.size).toBeGreaterThan(12);
+    for (const k of z0) expect(z1.has(k) || z2.has(k)).toBe(false); // disjoint
   });
 });

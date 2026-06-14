@@ -268,7 +268,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       isHost={isHost}
       disabled={pending}
       onStart={(mapId?: string, pointBudget?: number, mode?: HSMode) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game', mapId, pointBudget, mode }); })}
-      onSetLobbyConfig={(cfg: { mapId?: string; pointBudget?: number; mode?: HSMode }) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'set_lobby_config', ...cfg }); })}
+      onSetLobbyConfig={(cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'set_lobby_config', ...cfg }); })}
       onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
       onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
       onGrappleMove={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grapple_move', figureId, to }); })}

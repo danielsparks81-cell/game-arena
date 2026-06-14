@@ -733,7 +733,7 @@ export type GameAction =
   // attack/defense dice, falling dice, leaving-engagement swipes) and injects
   // the values into the pure engine. The host picks the battlefield at start.
   | { game: 'heroscape'; kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
-  | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode }
+  | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
@@ -1173,7 +1173,7 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
  *  the final player locks in their order markers. */
 type HSWireAction =
   | { kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
-  | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode }
+  | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   // Sgt. Drake GRAPPLE GUN (slice 7): a one-space replacement move. Like

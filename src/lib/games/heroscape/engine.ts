@@ -47,7 +47,7 @@ import type {
   InitiativeAttempt,
   OrderMarkerValue,
 } from './types';
-import { MAPS } from './maps';
+import { MAPS, type HSMap } from './maps';
 import { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, HS_GLYPHS } from './content';
 import {
   areEngaged,
@@ -562,6 +562,13 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
   if (chosenMode === 'quick' && state.players.length !== QUICK_SEATS) {
     return { error: 'Quick battle is 2 players only — choose Draft for 3+ players' };
   }
+  // The battlefield must have a start zone for every seat: the rectangles are
+  // 2-player; the Star Field carries 3-6 player zones (`zonesByCount`).
+  if (chosenMode === 'draft' && !mapSupportsCount(map, state.players.length)) {
+    return {
+      error: `${map.name} is for ${map.zonesByCount ? '3-6' : '2'} players — pick ${map.zonesByCount ? 'a 2-player battlefield' : 'the Star Field'} for ${state.players.length}.`,
+    };
+  }
 
   const s = clone(state);
   s.mapId = chosenMapId;
@@ -814,12 +821,30 @@ function doDraftPass(state: HSState, seat: number): HSResult {
 // simultaneous + ready-gated. Both ready → playing, round 1 place_markers.
 // ============================================================================
 
+/** Does this battlefield have a start zone for every one of `n` seats? The
+ *  rectangles author seats 0-1 (2 players only); the Star Field carries 3-6 via
+ *  `zonesByCount`. */
+export function mapSupportsCount(map: HSMap, n: number): boolean {
+  if (map.zonesByCount) return map.zonesByCount[n] != null;
+  return n === 2 && map.startZones[0] != null && map.startZones[1] != null;
+}
+
+/** A seat's start-zone hexes, honouring the multiplayer STAR's per-PLAYER-COUNT
+ *  point assignment (`zonesByCount`). The 2-player rectangles have none, so they
+ *  fall back to their authored `startZones`. Single source of truth for "whose
+ *  hexes are these" — placement validation, the UI highlight, and the board tint
+ *  all read it. */
+export function startZoneFor(state: HSState, seat: number): HexKey[] {
+  const map = MAPS[state.mapId];
+  if (!map) return [];
+  return map.zonesByCount?.[state.players.length]?.[seat] ?? map.startZones[seat] ?? [];
+}
+
 /** Empty start-zone hexes of `seat` a figure may be placed on right now. The
  *  board calls this to highlight legal placement squares (single source of
  *  truth with the engine's validation). */
 export function placeableHexes(state: HSState, seat: number): Set<HexKey> {
-  const map = MAPS[state.mapId];
-  const zone = map?.startZones[seat] ?? [];
+  const zone = startZoneFor(state, seat);
   const occupied = new Set<HexKey>();
   for (const f of state.figures) for (const k of figureHexes(f)) occupied.add(k);
   return new Set(zone.filter(k => !occupied.has(k)));
