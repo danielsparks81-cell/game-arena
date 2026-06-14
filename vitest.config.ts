@@ -9,9 +9,10 @@ export default defineConfig({
   },
   test: {
     // Engines are pure TypeScript — no DOM, no React. Node env is faster and
-    // surfaces any accidental browser-only dependencies.
+    // surfaces any accidental browser-only dependencies. Component tests (.test.tsx)
+    // opt INTO jsdom per-file with a `// @vitest-environment jsdom` pragma.
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     // Keep CI runs reproducible.
     pool: 'forks',
   },
