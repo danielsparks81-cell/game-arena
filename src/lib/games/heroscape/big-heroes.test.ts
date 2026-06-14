@@ -70,6 +70,12 @@ function put(s: HSState, id: string, key: string | null): HSState {
   f.at2 = null;
   return c;
 }
+/** Stage prior-round damage on a figure. */
+function wound(s: HSState, id: string, n: number): HSState {
+  const c = JSON.parse(JSON.stringify(s)) as HSState;
+  c.figures.find(x => x.id === id)!.wounds = n;
+  return c;
+}
 /** The exact blank defense roll the engine expects for `targetId` defending vs
  *  `attackerId` — so a test never has to hard-code a defender's die count. */
 const def = (s: HSState, targetId: string, attackerId: string): CombatFace[] =>
@@ -307,5 +313,100 @@ describe('Theracus — Carry', () => {
     const enemyHex = neighborKeys(passHex).find(k => MAPS[s.mapId].cells[k] && k !== h)!;
     s = put(s, 's1-marro_warriors-1', enemyHex); // ...engaged by an enemy
     expect(carryPassengers(s, 0)).not.toContain('s0-tarn_vikings-1');
+  });
+
+  it('cannot Carry a Large/Huge passenger', () => {
+    let { s, hero } = stage('theracus');
+    const passHex = neighborKeys(at(s, hero)!).find(k => MAPS[s.mapId].cells[k])!;
+    s.cards.find(c => c.uid === 's0-finn')!.cardId = 'theracus'; // (hero card already theracus)
+    s.cards.find(c => c.uid === 's0-tarn_vikings')!.cardId = 'jotun'; // a Huge friendly
+    s = put(s, 's0-tarn_vikings-1', passHex);
+    expect(carryPassengers(s, 0)).not.toContain('s0-tarn_vikings-1');
+  });
+});
+
+// ===========================================================================
+// Cross-cutting clauses — friendly fire, elimination, per-turn resets, wrong hero
+// ===========================================================================
+describe('Big-Hero powers — cross-cutting fidelity', () => {
+  it('Wild Swing splashes an ADJACENT ALLY (friendly fire) but never Jotun', () => {
+    let { s, hero } = stage('jotun');
+    const interior = Object.keys(MAPS[s.mapId].cells).find(k => neighborKeys(k).filter(n => MAPS[s.mapId].cells[n]).length >= 3)!;
+    s = put(s, hero, interior);
+    const tgtHex = neighborKeys(interior).find(k => MAPS[s.mapId].cells[k])!;
+    // An ALLY (seat 0) adjacent to the target but not on Jotun's hex.
+    const allyHex = neighborKeys(tgtHex).find(k => MAPS[s.mapId].cells[k] && k !== interior)!;
+    s = put(s, 's1-marro_warriors-1', tgtHex); // enemy target
+    s = put(s, 's0-tarn_vikings-1', allyHex); // friendly, adjacent to target → splashed
+    const defs = [
+      { figureId: 's1-marro_warriors-1', roll: def(s, 's1-marro_warriors-1', hero) },
+      { figureId: 's0-tarn_vikings-1', roll: def(s, 's0-tarn_vikings-1', hero) },
+    ];
+    s = unwrap(applyAction(s, 'p1', { kind: 'wild_swing', attackerId: hero, targetId: 's1-marro_warriors-1', attackRoll: F('kbbb'), defenseRolls: defs }));
+    expect(at(s, 's1-marro_warriors-1')).toBeNull(); // enemy target dead
+    expect(s.figures.find(f => f.id === 's0-tarn_vikings-1')!.wounds).toBeGreaterThan(0); // ally took the splash
+    expect(at(s, hero)).toBe(interior); // Jotun never hit by his own swing
+  });
+
+  it('a power that destroys the last enemy figure ends the game (winner set)', () => {
+    let { s, hero } = stage('nilfheim');
+    s = put(s, s.figures.find(f => f.id === 's1-marro_warriors-4')!.id, null); // remove the parked survivor
+    s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 5));
+    s = wound(s, 's1-thorgrim-1', 3); // Thorgrim Life 4 — one more wound kills him
+    s = unwrap(applyAction(s, 'p1', { kind: 'ice_shard', attackerId: hero, targetId: 's1-thorgrim-1', attackRoll: F('kbbb'), defenseRoll: def(s, 's1-thorgrim-1', hero) }));
+    expect(at(s, 's1-thorgrim-1')).toBeNull();
+    expect(s.phase).toBe('finished');
+    expect(s.winnerSeat).toBe(0);
+    expect(s.winnerTeam).toBe(0); // FFA: team === seat
+  });
+
+  it('Queglix Gun’s 9-die pool RESETS at end of turn', () => {
+    let { s, hero } = stage('major_q9');
+    s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 6));
+    s = unwrap(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-thorgrim-1', dice: 3, attackRoll: F('bbb'), defenseRoll: def(s, 's1-thorgrim-1', hero) }));
+    expect(queglixDiceLeft(s)).toBe(6);
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    expect(queglixDiceLeft(s)).toBe(9); // pool refilled
+  });
+
+  it('Acid Breath rejects more than 3 targets and a duplicate target', () => {
+    let { s, hero } = stage('braxas');
+    const ring = neighborKeys(at(s, hero)!).filter(k => MAPS[s.mapId].cells[k]);
+    s = put(s, 's1-marro_warriors-1', ring[0]);
+    s = put(s, 's1-marro_warriors-2', ring[1]);
+    // duplicate
+    expect(errOf(applyAction(s, 'p1', { kind: 'acid_breath', attackerId: hero, rolls: [
+      { targetId: 's1-marro_warriors-1', d20: 10 }, { targetId: 's1-marro_warriors-1', d20: 10 },
+    ] }))).toMatch(/different figures/i);
+    // four targets (need 4 in range — reuse three marros + thorgrim around Braxas)
+    s = put(s, 's1-marro_warriors-3', ring[2]);
+    s = put(s, 's1-thorgrim-1', ring[3]);
+    expect(errOf(applyAction(s, 'p1', { kind: 'acid_breath', attackerId: hero, rolls: [
+      { targetId: 's1-marro_warriors-1', d20: 10 }, { targetId: 's1-marro_warriors-2', d20: 10 },
+      { targetId: 's1-marro_warriors-3', d20: 10 }, { targetId: 's1-thorgrim-1', d20: 20 },
+    ] }))).toMatch(/1 to 3/i);
+  });
+
+  it('Throw does NOT consume the attack — Jotun may still attack after a throw; damage <11 leaves no wound', () => {
+    let { s, hero } = stage('jotun');
+    const interior = Object.keys(MAPS[s.mapId].cells).find(k => neighborKeys(k).filter(n => MAPS[s.mapId].cells[n]).length >= 3)!;
+    s = put(s, hero, interior);
+    const ring = neighborKeys(interior).filter(k => MAPS[s.mapId].cells[k]);
+    s = put(s, 's1-thorgrim-1', ring[0]); // the thrown figure
+    s = put(s, 's1-marro_warriors-1', ring[1]); // a second enemy to attack after
+    const land = throwLandingHexes(s, hero, 's1-thorgrim-1').find(k => !ring.includes(k))!;
+    s = unwrap(applyAction(s, 'p1', { kind: 'throw_figure', attackerId: hero, targetId: 's1-thorgrim-1', to: land, throwD20: 20, damageD20: 5 }));
+    expect(at(s, 's1-thorgrim-1')).toBe(land); // thrown
+    expect(s.figures.find(f => f.id === 's1-thorgrim-1')!.wounds).toBe(0); // damage 5 < 11 → unharmed
+    expect(s.turnAttacks.length).toBe(0);
+    // Jotun can now make his normal attack on the adjacent Marro.
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: hero, targetId: 's1-marro_warriors-1', attackRoll: F('kbbbbbbb'), defenseRoll: def(s, 's1-marro_warriors-1', hero) }));
+    expect(at(s, 's1-marro_warriors-1')).toBeNull(); // Jotun's A8 normal attack lands
+  });
+
+  it('a Big-Hero special rejects the wrong active hero (Ice Shard needs Nilfheim)', () => {
+    let { s, hero } = stage('jotun');
+    s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 3));
+    expect(errOf(applyAction(s, 'p1', { kind: 'ice_shard', attackerId: hero, targetId: 's1-thorgrim-1', attackRoll: F('kbbb'), defenseRoll: F('bbbb') }))).toMatch(/Only Nilfheim/i);
   });
 });

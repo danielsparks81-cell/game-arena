@@ -33,9 +33,21 @@ import {
   grenadeDefenders,
   attackDiceRequirements,
   moveConsequences,
+  effectiveDefenseDice,
+  iceShardTargets,
+  queglixTargets,
+  queglixDiceLeft,
+  wildSwingTargets,
+  wildSwingDefenders,
+  acidBreathTargets,
+  canAcidBreath,
+  throwTargets,
+  throwLandingHexes,
+  carryPassengers,
 } from './engine';
 import { HS_CARDS } from './content';
 import { MAPS } from './maps';
+import { neighborKeys } from './board';
 import type { HSState, HSAction, Figure, CombatFace, OrderMarkerValue, InitiativeAttempt } from './types';
 
 // ---- seeded RNG ------------------------------------------------------------
@@ -185,6 +197,29 @@ function serverApply(s: HSState, pid: string, a: HSAction, rng: () => number): H
     const uid = getActiveCardUid(s);
     const marro = s.figures.filter(f => f.cardUid === uid && f.at != null);
     e = { kind: 'water_clone', rolls: marro.map(f => ({ marroFigureId: f.id, d20: d20(rng) })) };
+  } else if (a.kind === 'ice_shard' || a.kind === 'queglix') {
+    // Single-target special attack: roll the fixed/chosen attack dice + the
+    // target's effective defense (printed + auras, no height).
+    const tgt = s.figures.find(f => f.id === a.targetId);
+    const atk = s.figures.find(f => f.id === a.attackerId);
+    const dd = tgt && atk ? Math.max(0, effectiveDefenseDice(s, tgt, atk).dice) : 0;
+    const aDice = a.kind === 'queglix' ? a.dice : 4;
+    e = { ...a, attackRoll: rollN(rng, aDice), defenseRoll: rollN(rng, dd) };
+  } else if (a.kind === 'wild_swing') {
+    const defs = wildSwingDefenders(s, a.attackerId, a.targetId);
+    e = { ...a, attackRoll: rollN(rng, 4), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollN(rng, d.defense) })) };
+  } else if (a.kind === 'acid_breath') {
+    e = { ...a, rolls: a.targetIds.map(targetId => ({ targetId, d20: d20(rng) })) };
+  } else if (a.kind === 'throw_figure') {
+    e = { ...a, throwD20: d20(rng), damageD20: d20(rng) };
+  } else if (a.kind === 'carry_move') {
+    const mover = s.figures.find(f => f.id === a.figureId);
+    const cons = mover ? moveConsequences(s, mover, a.to) : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+    e = {
+      ...a,
+      ...(cons.tier === 'extreme' ? { extremeFallD20: d20(rng) } : cons.fallDice > 0 ? { fallRoll: rollN(rng, cons.fallDice) } : {}),
+      ...(cons.abandonedEnemyIds.length ? { leaveRolls: cons.abandonedEnemyIds.map(id => ({ enemyFigureId: id, roll: rollFace(rng) })) } : {}),
+    };
   }
   return applyAction(s, pid, e);
 }
@@ -206,6 +241,37 @@ function legalActions(s: HSState, seat: number): HSAction[] {
   if (canMindShackle(s, seat)) for (const t of mindShackleTargets(s, seat)) out.push({ kind: 'mind_shackle', targetId: t, d20: 0 } as HSAction);
   if (canChomp(s, seat)) for (const t of chompTargets(s, seat)) out.push({ kind: 'chomp', targetId: t, d20: 0 } as HSAction);
   if (canGrenade(s, seat)) out.push({ kind: 'grenade' } as HSAction);
+  // Big Heroes special powers (slice 8b) — enumerate legal instances of whichever
+  // power the ACTIVE Big Hero card has; serverApply fills the dice. The hero is a
+  // 1-figure card, so mine[0] is it (if alive).
+  const activeDef = HS_CARDS[s.cards.find(c => c.uid === uid)?.cardId ?? ''];
+  const hero = mine[0];
+  if (activeDef?.id === 'nilfheim' && hero) {
+    for (const t of iceShardTargets(s, hero.id)) out.push({ kind: 'ice_shard', attackerId: hero.id, targetId: t } as HSAction);
+  } else if (activeDef?.id === 'major_q9' && hero) {
+    const left = queglixDiceLeft(s);
+    for (const t of queglixTargets(s, hero.id)) for (const dice of [1, 2, 3]) if (dice <= left) out.push({ kind: 'queglix', attackerId: hero.id, targetId: t, dice } as HSAction);
+  } else if (activeDef?.id === 'jotun' && hero) {
+    for (const t of wildSwingTargets(s, hero.id)) out.push({ kind: 'wild_swing', attackerId: hero.id, targetId: t } as HSAction);
+    for (const t of throwTargets(s, seat)) {
+      const lands = throwLandingHexes(s, hero.id, t);
+      if (lands.length) out.push({ kind: 'throw_figure', attackerId: hero.id, targetId: t, to: lands[0] } as HSAction);
+    }
+  } else if (activeDef?.id === 'braxas' && hero && canAcidBreath(s, seat)) {
+    const targs = acidBreathTargets(s, seat);
+    if (targs.length) out.push({ kind: 'acid_breath', attackerId: hero.id, targetIds: targs.slice(0, 3) } as HSAction);
+  } else if (activeDef?.id === 'theracus' && hero && hero.at2 != null) {
+    // Carry runs a real move, so only fuzz it for a properly placed 2-hex
+    // Theracus (the random setup places figures 1-hex, so this is usually
+    // skipped — Carry's move path is covered by the scenario tests).
+    const passengers = carryPassengers(s, seat);
+    const dests = [...legalDestinations(s, hero.id)];
+    if (passengers.length && dests.length) {
+      const occ = new Set(s.figures.flatMap(f => [f.at, f.at2].filter(Boolean) as string[]));
+      const land = neighborKeys(dests[0]).find(k => MAPS[s.mapId].cells[k] && !occ.has(k) && k !== dests[0]);
+      if (land) out.push({ kind: 'carry_move', figureId: hero.id, to: dests[0], passengerId: passengers[0], passengerTo: land } as HSAction);
+    }
+  }
   return out;
 }
 
@@ -321,7 +387,13 @@ describe('HeroScape self-play fuzzer', () => {
     expect(capped).toBeLessThan(N * 0.45);
     // The fuzzer must actually exercise the special powers (not just moves), or
     // it isn't testing much — assert each fired at least once across the batch.
-    for (const k of ['attack', 'fire_line', 'grenade', 'chomp', 'mind_shackle']) {
+    // Includes the 5 Big-Hero powers it drives (slice 8b). Carry is omitted: the
+    // random setup places figures 1-hex, so a 2-hex Theracus's move-based Carry is
+    // guarded off here and is covered by big-heroes.test.ts instead.
+    for (const k of [
+      'attack', 'fire_line', 'grenade', 'chomp', 'mind_shackle',
+      'ice_shard', 'queglix', 'wild_swing', 'acid_breath', 'throw_figure',
+    ]) {
       expect(kinds[k] ?? 0).toBeGreaterThan(0);
     }
   }, 60_000);
