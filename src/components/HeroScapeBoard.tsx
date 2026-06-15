@@ -63,6 +63,9 @@ import {
   parseHexKey,
   neighborKeys,
   mapSupportsCount,
+  teamBudgetForSeat,
+  teamSpentInDraft,
+  teamRemainingInDraft,
   isoTopCenter,
   isoTopHexCorners,
   isoSideFaces,
@@ -1916,11 +1919,10 @@ export default function HeroScapeBoard({
     const myDraftSeat = me?.seat ?? null;
     const myTurnToPick = myDraftSeat != null && d.turnSeat === myDraftSeat;
     const takenBy: Record<string, number> = {};
-    for (const seat of [0, 1]) for (const id of d.armies[seat] ?? []) takenBy[id] = seat;
+    for (const seat of state.players.map(p => p.seat)) for (const id of d.armies[seat] ?? []) takenBy[id] = seat;
     const drafterName = state.players.find(p => p.seat === d.turnSeat)?.username;
-    const budget = state.pointBudget;
-    const mySpent = myDraftSeat != null ? (d.spent[myDraftSeat] ?? 0) : 0;
-    const myRemaining = budget - mySpent;
+    // Budget is shared per TEAM (allies draw from one pool); free-for-all = per seat.
+    const myRemaining = myDraftSeat != null ? teamRemainingInDraft(state, myDraftSeat) : 0;
     // Forced-pass detection (mirrors the engine): no remaining pool card fits my
     // remaining budget. An EMPTY army can't pass while something is affordable.
     const myArmyEmpty = myDraftSeat != null && (d.armies[myDraftSeat] ?? []).length === 0;
@@ -1937,7 +1939,8 @@ export default function HeroScapeBoard({
       const ids = d.armies[seat] ?? [];
       const isMe = !!me && seat === me.seat;
       const isTurn = d.turnSeat === seat;
-      const remaining = budget - (d.spent[seat] ?? 0);
+      const remaining = teamRemainingInDraft(state, seat);
+      const seatBudget = teamBudgetForSeat(state, seat);
       return (
         <div
           key={seat}
@@ -1955,7 +1958,7 @@ export default function HeroScapeBoard({
             <span className="shrink-0 text-right leading-none">
               <span className="text-xl font-extrabold tabular-nums text-amber-300">{remaining}</span>
               <span className="text-[11px] text-neutral-400"> left</span>
-              <span className="block text-[10px] text-neutral-500">of {budget} pts</span>
+              <span className="block text-[10px] text-neutral-500">of {seatBudget} pts</span>
             </span>
           </div>
           <div className="mt-1.5 flex flex-wrap gap-1">

@@ -138,7 +138,7 @@ function livingSeats(state: HSState): number[] {
 /** The point budget a SEAT's team drafts within: its team's override, else the
  *  global `pointBudget`. Team-mates share one pool, so callers sum a team's
  *  spend against this single value. */
-function teamBudgetForSeat(state: HSState, seat: number): number {
+export function teamBudgetForSeat(state: HSState, seat: number): number {
   return state.teamBudgets?.[teamOfSeat(state, seat)] ?? state.pointBudget;
 }
 
@@ -660,7 +660,7 @@ function cardPoints(cardId: string): number {
 /** Points a seat's TEAM has spent so far (Σ team-mates' spend) — the shared
  *  pool is team-wide, so a 3-player team's picks all draw on one budget. For a
  *  solo seat (FFA) this is just its own spend. */
-function teamSpentInDraft(state: HSState, seat: number): number {
+export function teamSpentInDraft(state: HSState, seat: number): number {
   const d = state.draft!;
   const team = teamOfSeat(state, seat);
   return state.players
@@ -669,7 +669,7 @@ function teamSpentInDraft(state: HSState, seat: number): number {
 }
 
 /** Points still available to a seat: its TEAM budget minus the team's spend. */
-function teamRemainingInDraft(state: HSState, seat: number): number {
+export function teamRemainingInDraft(state: HSState, seat: number): number {
   return teamBudgetForSeat(state, seat) - teamSpentInDraft(state, seat);
 }
 
