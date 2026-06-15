@@ -12,8 +12,8 @@
 // Coordinate model: pointy-top axial (q,r) → world (x,z); elevation → y. Board
 // recentered on the origin so camera/orbit target sit at (0,0,0).
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Billboard, Edges, useTexture } from '@react-three/drei';
-import { Suspense, useMemo } from 'react';
+import { OrbitControls, Billboard, Edges } from '@react-three/drei';
+import { Suspense, useMemo, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
@@ -68,14 +68,39 @@ function HexTile({ x, z, height, terrain, highlight, onClick }: {
   );
 }
 
+/** Loads a figure's standee texture. Each SQUAD member has its own pose cut-out
+ *  (`<cardId>-<index>.png`) so a 3-trooper squad (e.g. Krav Maga) shows three
+ *  DISTINCT figures, not one model cloned; heroes use the single `<cardId>.png`.
+ *  If a squad has fewer cut-outs than figures (e.g. Izumi: 3 figures, 2 poses) the
+ *  missing variant falls back to the base art — mirroring the 2D board's onError
+ *  chain — so a 404 can never crash the WebGL canvas. */
+function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | null {
+  const base = `/heroscape/figures/${cardId}.png`;
+  const primary = HS_CARDS[cardId]?.type === 'squad' ? `/heroscape/figures/${cardId}-${figIndex}.png` : base;
+  const [tex, setTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const loader = new THREE.TextureLoader();
+    const apply = (t: THREE.Texture) => {
+      t.colorSpace = THREE.SRGBColorSpace;
+      if (alive) setTex(t); else t.dispose();
+    };
+    loader.load(primary, apply, undefined, () => {
+      if (primary !== base) loader.load(base, apply, undefined, () => {}); // variant missing → base art
+    });
+    return () => { alive = false; };
+  }, [primary, base]);
+  return tex;
+}
+
 /** A height-scaled photo standee on an owner base (oval across both hexes for a
  *  double-space figure). Base glows amber when selected, red when an attack target. */
-function Standee({ lead, trail, topY, cardId, color, selected, target, onClick }: {
-  lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; color: string;
+function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, onClick }: {
+  lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
   selected: boolean; target: boolean; onClick?: () => void;
 }) {
-  const tex = useTexture(`/heroscape/figures/${cardId}.png`);
-  const img = tex.image as HTMLImageElement | undefined;
+  const tex = useStandeeTexture(cardId, figIndex);
+  const img = tex?.image as HTMLImageElement | undefined;
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
   const w = h * aspect;
@@ -95,12 +120,18 @@ function Standee({ lead, trail, topY, cardId, color, selected, target, onClick }
         <cylinderGeometry args={[r, r * 1.08, BASE_H, 28]} />
         <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.7 : 0} roughness={0.5} metalness={0.2} />
       </mesh>
-      <Billboard position={[0, BASE_H + h / 2, 0]}>
-        <mesh castShadow>
-          <planeGeometry args={[w, h]} />
-          <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
-        </mesh>
-      </Billboard>
+      {/* Lock tilt (X) and roll (Z) so the standee stays UPRIGHT and only yaws to
+          face the camera. A full billboard tips backward when you angle the camera
+          down, lifting the figure's feet off the hex — that's the "floaty" look.
+          Y-only keeps every figure planted on its base. */}
+      {tex && (
+        <Billboard follow lockX lockZ position={[0, BASE_H + h / 2, 0]}>
+          <mesh castShadow>
+            <planeGeometry args={[w, h]} />
+            <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
+          </mesh>
+        </Billboard>
+      )}
     </group>
   );
 }
@@ -150,7 +181,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           if (!cardId) return null;
           return (
             <Standee
-              key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} color={seatColor(f.ownerSeat)}
+              key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
             />
