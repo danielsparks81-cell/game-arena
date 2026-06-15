@@ -39,7 +39,11 @@ enforcement.
 
 ```ts
 {
-  phase: 'heroes' | 'zargon' | 'finished';
+  // 'spell_draft' = pre-quest wizard/elf school draft opened by start_game (before
+  //   the first heroes' turn — resolve via pick_spell_school).
+  // 'intermission' = heroes WON; Armory stop before the campaign advances (a hero
+  //   victory routes here, NOT straight to 'finished'). See the win flow below.
+  phase: 'heroes' | 'zargon' | 'spell_draft' | 'intermission' | 'finished';
   turnIndex: number;           // index into heroes[] — whose turn it is
   heroes: Hero[];
   monsters: Monster[];
@@ -81,7 +85,7 @@ enforcement.
   phaseWalls: boolean;    // true while Pass Through Rock spell is active
   attackBonus: number;    // Courage spell bonus dice (cleared after attack)
   potionAtkBonus: number; // Potion of Strength bonus (cleared at turn end)
-  defenseBonus: number;   // Rock Skin bonus (cleared at hero's next turn start)
+  defenseBonus: number;   // Rock Skin spell +1 (cleared the first time the hero takes ≥1 BP of damage, NOT at turn end)
   potionDefBonus: number; // Potion of Defense bonus (cleared on first hit)
   extraAttack: boolean;   // Courage grants one bonus attack after hasActed
 }
@@ -193,7 +197,7 @@ Same rules: **Manhattan 1**, **no wall edge**. Monsters cannot attack diagonally
 
 | Source | Field | Cleared when |
 |---|---|---|
-| Rock Skin spell | `defenseBonus` | Hero's next turn starts |
+| Rock Skin spell (+1) | `defenseBonus` | First time the hero takes ≥1 BP of damage (NOT at turn end) |
 | Potion of Defense | `potionDefBonus` | First time hero is hit |
 
 Both stack. `Math.max(1, hero.defense + defenseBonus + potionDefBonus − (inPit ? 1 : 0))`.
@@ -256,6 +260,27 @@ Each monster acts once per Zargon turn (monsters are stepped one at a time on a 
 `beginZargonTurn` → `doZargonStep` (called once per monster on a timer) → `endZargonTurn` → back to heroes.
 
 `state.phase` cycles: `'heroes'` → `'zargon'` → `'heroes'`.
+
+### Win flow (two-step exit, → intermission)
+
+Reaching the exit is NOT an instant win. A hero who **steps onto a `stairs` tile**
+raises a `pendingPrompt: { kind: 'exit_dungeon' }` — for `kill_and_exit` quests only
+when `state.objectiveDefeated` is set (`maybeFinishOnExit`). The player resolves it
+with `{ kind: 'exit_dungeon', confirm }`: `confirm: true` marks that hero `escaped`
+and removes them from the turn order; the quest continues for the rest. `maybeEndQuest`
+ends it **only when every hero is escaped-or-dead** — then `heroesWin` sets
+`phase = 'intermission'` (Armory stop; `winner = 'heroes'`), NOT `'finished'`.
+`'finished'` is the dead-party loss (`winner = 'zargon'`) or a campaign end. So a
+test/flow that "wins by reaching the stairs" must drive move → exit-prompt → confirm,
+with the other heroes already `escaped`, and assert `intermission` + `winner` heroes.
+
+### Pre-quest spell draft
+
+`start_game` from a lobby loads `CAMPAIGN[0]` (currently the tutorial `quest_zero`,
+"The Vault") and, if an elf/wizard is present, opens `phase: 'spell_draft'` before
+the first heroes' turn — resolve with `pick_spell_school` (wizard picks, then elf).
+To start a SPECIFIC quest (e.g. `the_trial`) use the `finished`-retry path, which
+honours `state.questId` (set `phase='finished'` + `questId` before `start_game`).
 
 ---
 
