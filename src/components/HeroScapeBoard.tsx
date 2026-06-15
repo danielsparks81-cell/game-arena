@@ -151,7 +151,7 @@ type Props = {
   isHost: boolean;
   disabled?: boolean;
   onStart: (mapId?: string, pointBudget?: number, mode?: HSMode) => void;
-  onSetLobbyConfig: (cfg: { mapId?: string; pointBudget?: number; mode?: HSMode }) => void;
+  onSetLobbyConfig: (cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
@@ -1630,15 +1630,42 @@ export default function HeroScapeBoard({
     // we mirror them here so unusable options are visibly disabled, not error toasts.
     const quickOk = count === 2;
     const selectedMapOk = mapSupportsCount(MAPS[lobbyMapId], count);
+    // --- Teams (3+ players). The host groups players into sides by colour; an
+    // unassigned player is their OWN side. A team game needs ≥2 distinct sides —
+    // all-on-one-team has no enemy and could never end, so Start is blocked on it.
+    // The engine merges `teams` (seat→team id) + `teamBudgets` (team→points). ---
+    const showTeams = lobbyMode === 'draft' && count >= 3;
+    const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80']; // Team A / B / C
+    const teamsInUse = state.players.some(p => p.team !== undefined);
+    const distinctSides = new Set(state.players.map(p => p.team ?? -1 - p.seat)).size;
+    const teamsValid = distinctSides >= 2;
+    const activeTeams = [...new Set(state.players.map(p => p.team).filter((t): t is number => t !== undefined))].sort((a, b) => a - b);
+    // The engine clears any seat OMITTED from a sent `teams` map, so we always
+    // rebuild the full assignment from state before applying one edit.
+    const sendTeam = (seat: number, team: number | null) => {
+      if (!isHost) return;
+      const t: Record<number, number> = {};
+      for (const p of state.players) if (p.team !== undefined) t[p.seat] = p.team;
+      if (team === null) delete t[seat]; else t[seat] = team;
+      onSetLobbyConfig({ teams: t });
+    };
+    const teamBudgetOf = (team: number) => state.teamBudgets?.[team] ?? lobbyBudget;
+    const sendTeamBudget = (team: number, raw: number) => {
+      if (!isHost || !Number.isFinite(raw)) return;
+      const clamped = Math.max(MIN_POINT_BUDGET, Math.min(MAX_POINT_BUDGET, Math.round(raw)));
+      onSetLobbyConfig({ teamBudgets: { ...(state.teamBudgets ?? {}), [team]: clamped } });
+    };
     const startBlocked =
       count < 2 ||
       (lobbyMode === 'quick' && !quickOk) ||
-      (lobbyMode === 'draft' && !selectedMapOk);
+      (lobbyMode === 'draft' && !selectedMapOk) ||
+      (teamsInUse && !teamsValid);
     const startHint =
       count < 2 ? 'Waiting for at least 2 players…'
         : lobbyMode === 'quick' && !quickOk ? 'Quick battle is a 2-player preset — switch to Draft for 3-6 players.'
           : lobbyMode === 'draft' && !selectedMapOk ? `${MAPS[lobbyMapId].name} doesn't fit ${count} players — pick the Star Field (3-6).`
-            : '';
+            : teamsInUse && !teamsValid ? 'All players are on one team — assign at least two sides.'
+              : '';
     const mapBlurb: Record<string, string> = {
       training_field: 'Flat grass — learn the ropes. (2 players)',
       the_knoll: 'A 3-tier rock hill — climb for height advantage. (2 players)',
@@ -1733,6 +1760,76 @@ export default function HeroScapeBoard({
                 className="w-24 rounded-lg border-2 border-neutral-700 bg-neutral-900 px-2 py-1 text-center text-sm font-bold tabular-nums text-amber-200 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
               <span className="text-[10px] text-neutral-500">{MIN_POINT_BUDGET}–{MAX_POINT_BUDGET}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Teams (3+ players) — host groups players into sides + per-team budgets */}
+        {showTeams && (
+          <div className="flex w-full max-w-md flex-col items-center gap-1.5">
+            <div className="flex items-center gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Teams</div>
+              <button
+                onClick={() => isHost && onSetLobbyConfig({ teams: {} })}
+                disabled={!isHost || disabled || !teamsInUse}
+                title="Clear all teams — back to free-for-all"
+                className="rounded border border-neutral-700 px-2 py-0.5 text-[10px] text-neutral-300 transition hover:border-neutral-500 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Free-for-all
+              </button>
+            </div>
+            <div className="flex w-full flex-col gap-1">
+              {[...state.players].sort((a, b) => a.seat - b.seat).map(p => (
+                <div key={p.seat} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 px-2 py-1">
+                  <span className="flex min-w-0 items-center gap-1.5 text-xs">
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: seatColor(p.seat) }} />
+                    <span className="truncate text-neutral-200">{p.username}</span>
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    {TEAM_COLORS.map((c, idx) => {
+                      const team = idx + 1;
+                      const on = p.team === team;
+                      return (
+                        <button
+                          key={team}
+                          onClick={() => sendTeam(p.seat, on ? null : team)}
+                          disabled={!isHost || disabled}
+                          title={`Team ${String.fromCharCode(65 + idx)}`}
+                          className={'flex h-6 w-6 items-center justify-center rounded-md border-2 text-[10px] font-bold transition ' + (on ? 'text-neutral-900' : 'text-neutral-400 hover:border-neutral-500') + (isHost ? '' : ' cursor-default')}
+                          style={{ borderColor: c, background: on ? c : 'transparent' }}
+                        >
+                          {String.fromCharCode(65 + idx)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            {activeTeams.length > 0 && (
+              <div className="mt-0.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+                {activeTeams.map(team => (
+                  <label key={team} className="flex items-center gap-1 text-[11px] text-neutral-400">
+                    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: TEAM_COLORS[(team - 1) % TEAM_COLORS.length] }} />
+                    Team {String.fromCharCode(64 + team)}
+                    <input
+                      type="number" min={MIN_POINT_BUDGET} max={MAX_POINT_BUDGET} step={10}
+                      key={teamBudgetOf(team)} defaultValue={teamBudgetOf(team)}
+                      disabled={!isHost || disabled}
+                      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                      onBlur={e => {
+                        const n = Math.round(Number(e.currentTarget.value));
+                        if (e.currentTarget.value.trim() === '' || !Number.isFinite(n)) { e.currentTarget.value = String(teamBudgetOf(team)); return; }
+                        sendTeamBudget(team, n);
+                      }}
+                      className="w-16 rounded border border-neutral-700 bg-neutral-900 px-1 py-0.5 text-center tabular-nums text-amber-200 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+            <div className="text-[10px] text-neutral-500">
+              {!isHost ? 'The host sets the teams.' : teamsInUse ? 'Unassigned players fight solo. Empty team budgets use the points above.' : 'Tap a colour to put players on the same side (allies). Leave empty for free-for-all.'}
             </div>
           </div>
         )}
