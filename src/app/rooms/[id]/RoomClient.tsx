@@ -190,6 +190,19 @@ export default function RoomClient({
   const gameName = gameDisplayName(GAMES[room.game_type], room.game_type);
   const finished = room.status === 'finished';
 
+  // Hold the "Rematch?" prompt back for a grace period after a FRESH finish, so a
+  // final dice-roll / win animation can play out first instead of being spoiled by
+  // the prompt popping up mid-roll. (Loading into an already-finished room shows it
+  // promptly — there's no animation to wait for.)
+  const [showRematch, setShowRematch] = useState(finished);
+  const wasFinishedOnMount = useRef(finished);
+  useEffect(() => {
+    if (!finished) { setShowRematch(false); return; }
+    if (wasFinishedOnMount.current) { setShowRematch(true); return; }
+    const t = setTimeout(() => setShowRematch(true), 2800);
+    return () => clearTimeout(t);
+  }, [finished]);
+
   // Ping the player when the turn cycles back to them (and the tab is in the
   // background). No-op if they haven't granted browser-notification permission.
   const activeIdNow = getTurnInfo(room.game_type, room.state).activeId;
@@ -375,7 +388,7 @@ export default function RoomClient({
     </main>
     <RematchToast
       roomId={roomId}
-      finished={finished}
+      finished={showRematch}
       imSeated={imSeated}
       iVoted={iVoted}
       voteTally={(room.rematch_votes ?? []).filter(id =>

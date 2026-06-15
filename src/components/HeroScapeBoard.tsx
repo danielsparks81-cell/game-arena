@@ -2478,7 +2478,7 @@ export default function HeroScapeBoard({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-amber-300">🔫 Queglix ({qLeft} dice left):</span>
                     <select value={dice} onChange={e => patchBh({ qDice: Number(e.target.value) as 1 | 2 | 3 })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {[1, 2, 3].filter(n => n <= maxDice).map(n => <option key={n} value={n}>{n} die{n === 1 ? '' : 'ce'}</option>)}
+                      {[1, 2, 3].filter(n => n <= maxDice).map(n => <option key={n} value={n}>{n} {n === 1 ? 'die' : 'dice'}</option>)}
                     </select>
                     <select value={tgt} onChange={e => patchBh({ q: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
                       {qList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
