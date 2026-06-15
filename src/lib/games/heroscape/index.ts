@@ -46,6 +46,8 @@ export {
   mapSupportsCount,
   POINT_BUDGETS,
   DEFAULT_POINT_BUDGET,
+  MIN_POINT_BUDGET,
+  MAX_POINT_BUDGET,
   attackDiceRequirements,
   heightAdvantage,
   effectiveAttackDice,

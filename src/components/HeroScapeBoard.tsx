@@ -26,6 +26,8 @@ import {
   HS_GLYPHS,
   POWER_DESCRIPTIONS,
   POINT_BUDGETS,
+  MIN_POINT_BUDGET,
+  MAX_POINT_BUDGET,
   legalDestinations,
   grappleDestinations,
   canFireLine,
@@ -821,9 +823,18 @@ export default function HeroScapeBoard({
   // clicks the reserve-count legal empty hexes, then deploys (server rolls d20).
   const [dropMode, setDropMode] = useState(false);
   const [dropPicks, setDropPicks] = useState<HexKey[]>([]);
-  // EXPERIMENTAL 3D board (React Three Fiber) — opt-in toggle; the 2D SVG board
-  // stays the default + the interactive one until the 3D port is complete.
-  const [board3D, setBoard3D] = useState(false);
+  // The 3D board (React Three Fiber) is THE board — there is no user-facing 2D
+  // toggle. The 2D SVG remains ONLY as an automatic fallback for environments
+  // without WebGL (older devices, and jsdom in tests). `can3D` starts false so
+  // SSR + the first client paint render the SVG (no hydration mismatch); a
+  // mount-time WebGL probe flips it on, after which 3D takes over.
+  const [can3D, setCan3D] = useState(false);
+  useEffect(() => {
+    try {
+      const c = document.createElement('canvas');
+      setCan3D(!!(c.getContext('webgl2') || c.getContext('webgl')));
+    } catch { /* no WebGL → stay on the 2D fallback */ }
+  }, []);
   // Per-seat army-row expand override (opponent rosters collapse to fit 4-6
   // players; the user can toggle any). Keyed by seat; absent → default.
   const [openSeats, setOpenSeats] = useState<Record<number, boolean>>({});
@@ -1638,6 +1649,33 @@ export default function HeroScapeBoard({
                   </button>
                 );
               })}
+            </div>
+            {/* …or type ANY custom amount (committed on Enter / blur). The engine
+                accepts MIN..MAX; out-of-range input is clamped. */}
+            <div className="mt-1 flex items-center gap-2">
+              <label htmlFor="hs-custom-budget" className="text-[11px] text-neutral-400">Custom</label>
+              <input
+                id="hs-custom-budget"
+                type="number"
+                inputMode="numeric"
+                min={MIN_POINT_BUDGET}
+                max={MAX_POINT_BUDGET}
+                step={10}
+                key={lobbyBudget}
+                defaultValue={lobbyBudget}
+                disabled={!isHost || disabled}
+                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                onBlur={e => {
+                  const raw = e.currentTarget.value.trim();
+                  const n = Math.round(Number(raw));
+                  if (raw === '' || !Number.isFinite(n)) { e.currentTarget.value = String(lobbyBudget); return; }
+                  const clamped = Math.max(MIN_POINT_BUDGET, Math.min(MAX_POINT_BUDGET, n));
+                  e.currentTarget.value = String(clamped);
+                  if (isHost && clamped !== lobbyBudget) onSetLobbyConfig({ pointBudget: clamped });
+                }}
+                className="w-24 rounded-lg border-2 border-neutral-700 bg-neutral-900 px-2 py-1 text-center text-sm font-bold tabular-nums text-amber-200 focus:border-amber-400 focus:outline-none disabled:opacity-60"
+              />
+              <span className="text-[10px] text-neutral-500">{MIN_POINT_BUDGET}–{MAX_POINT_BUDGET}</span>
             </div>
           </div>
         )}
@@ -2471,8 +2509,9 @@ export default function HeroScapeBoard({
         <div className="relative flex min-h-[60vh] w-full items-center justify-center overflow-hidden lg:min-h-0 lg:flex-1">
         {/* board zoom controls — scroll to zoom on the cursor, drag to pan */}
         <div className="absolute right-2 top-2 z-10 flex flex-col gap-1">
-          <button type="button" onClick={() => setBoard3D(v => !v)} title="Toggle the experimental 3D board — orbit (drag), pan (right-drag), zoom (scroll)" className="mb-1 rounded-md border-2 border-violet-600 bg-neutral-900/80 px-2 py-1 text-[11px] font-bold leading-none text-violet-200 transition hover:bg-violet-900/40">{board3D ? '2D board' : '3D board ✨'}</button>
-          {!board3D && (
+          {/* Zoom controls apply only to the 2D SVG fallback; the 3D board zooms
+              with the scroll wheel via OrbitControls. */}
+          {!can3D && (
             <>
               <button type="button" title="Zoom in (or scroll on the board)" onClick={() => zoomAtCenter(1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">+</button>
               <button type="button" title="Zoom out" onClick={() => zoomAtCenter(1 / 1.4)} className="h-7 w-7 rounded-md border border-neutral-600 bg-neutral-900/80 text-base font-bold leading-none text-neutral-200 transition hover:bg-neutral-800">−</button>
@@ -2480,7 +2519,7 @@ export default function HeroScapeBoard({
             </>
           )}
         </div>
-        {board3D ? (
+        {can3D ? (
           <HeroBoard3D
             state={state}
             onHexClick={clickHex}
