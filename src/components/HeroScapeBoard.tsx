@@ -2453,7 +2453,16 @@ export default function HeroScapeBoard({
           )}
         </div>
         {board3D ? (
-          <HeroBoard3D state={state} currentUserId={currentUserId} />
+          <HeroBoard3D
+            state={state}
+            onHexClick={clickHex}
+            selectedId={selectedId}
+            moveHexes={destinations}
+            targetIds={targets}
+            placeHexes={placeHexes}
+            dropHexes={dropLegalSet}
+            dropPicks={new Set(dropPicks)}
+          />
         ) : (
         <svg
           ref={setSvgRef}
