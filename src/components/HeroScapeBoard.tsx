@@ -91,6 +91,9 @@ const SEAT_COLORS = [
   '#f97316', // 7 orange
   '#84cc16', // 8 lime
 ];
+// Team colours (allies share one) — index = team id − 1 (lobby assigns ids 1/2/3).
+const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80']; // Team A / B / C
+const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
 const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
 type Assignment = { marker: OrderMarkerValue; cardUid: string };
@@ -977,6 +980,17 @@ export default function HeroScapeBoard({
     (map?.zonesByCount?.[state.players.length] ?? map?.startZones) ?? {};
   const me = state.players.find(p => p.playerId === currentUserId);
   const turnPlayer = state.players.find(p => p.seat === state.turnSeat);
+  // The winning SIDE (for the end banner): everyone sharing the winner's effective
+  // team (an unassigned winner = a side of one). Names the team in a team game.
+  const effTeam = (p: { team?: number; seat: number }) => p.team ?? -1 - p.seat;
+  const winners = state.winnerSeat != null
+    ? state.players.filter(p => effTeam(p) === effTeam(state.players.find(q => q.seat === state.winnerSeat)!))
+    : [];
+  const winnerLabel = winners.length === 0
+    ? '—'
+    : winners.length === 1
+      ? winners[0].username
+      : `Team ${String.fromCharCode(64 + (winners[0].team ?? 1))} — ${winners.map(w => w.username).join(' & ')}`;
   const placing = state.phase === 'playing' && state.subPhase === 'place_markers';
   const myTurn =
     state.phase === 'playing' && state.subPhase === 'turns' && !!me && state.turnSeat === me.seat;
@@ -1039,6 +1053,10 @@ export default function HeroScapeBoard({
 
   const seatColor = (seat: number) => {
     const idx = state.players.findIndex(p => p.seat === seat);
+    // In a team game, ALLIES share their team colour so sides read at a glance;
+    // free-for-all keeps each seat's own colour.
+    const team = state.players[idx]?.team;
+    if (team !== undefined) return teamColorById(team);
     return state.players[idx]?.accent_color || SEAT_COLORS[idx] || '#a3a3a3';
   };
 
@@ -1635,7 +1653,6 @@ export default function HeroScapeBoard({
     // all-on-one-team has no enemy and could never end, so Start is blocked on it.
     // The engine merges `teams` (seat→team id) + `teamBudgets` (team→points). ---
     const showTeams = lobbyMode === 'draft' && count >= 3;
-    const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80']; // Team A / B / C
     const teamsInUse = state.players.some(p => p.team !== undefined);
     const distinctSides = new Set(state.players.map(p => p.team ?? -1 - p.seat)).size;
     const teamsValid = distinctSides >= 2;
@@ -2166,7 +2183,7 @@ export default function HeroScapeBoard({
             }}
           >
             {state.phase === 'finished'
-              ? `🏆 ${state.players.find(p => p.seat === state.winnerSeat)?.username ?? '—'} wins the battle!`
+              ? `🏆 ${winnerLabel} wins the battle!`
               : myTurn
                 ? '⚔ Your turn'
                 : `${turnPlayer?.username ?? '…'}'s turn`}

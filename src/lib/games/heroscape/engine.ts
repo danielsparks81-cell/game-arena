@@ -93,10 +93,13 @@ const DEFAULT_MODE: HSMode = 'draft';
 // seat) a 2-player or free-for-all game is unchanged. See HSPlayer.team.
 // ============================================================================
 
-/** The team a seat belongs to. Absent `team` ⇒ the seat is its own team, so
- *  free-for-all falls out for free and pre-teams saves load identically. */
+/** The team a seat belongs to. Absent `team` ⇒ the seat is its OWN team, encoded
+ *  as `-1 - seat` so a solo seat can NEVER collide with an explicit (non-negative)
+ *  team id — e.g. an unassigned player on seat 1 must not be read as "team 1".
+ *  Free-for-all still falls out for free (every seat a distinct negative id), and
+ *  callers only ever compare/group these ids, never use them as seat indices. */
 function teamOfSeat(state: HSState, seat: number): number {
-  return state.players.find(p => p.seat === seat)?.team ?? seat;
+  return state.players.find(p => p.seat === seat)?.team ?? -1 - seat;
 }
 
 /** Do two seats share a team (are they allies)? A seat is always its own ally. */

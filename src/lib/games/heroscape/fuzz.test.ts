@@ -299,7 +299,8 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
 // ---- invariants -------------------------------------------------------------
 function assertValid(s: HSState): void {
   const seats = s.players.map(p => p.seat);
-  const teamOf = (seat: number): number => s.players.find(p => p.seat === seat)?.team ?? seat;
+  // Mirror the engine's encoding: an unassigned (solo) seat is its own team, id -1-seat.
+  const teamOf = (seat: number): number => s.players.find(p => p.seat === seat)?.team ?? -1 - seat;
   for (const f of s.figures) {
     expect(Number.isFinite(f.wounds)).toBe(true);
     expect(f.wounds).toBeGreaterThanOrEqual(0);

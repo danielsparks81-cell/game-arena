@@ -359,7 +359,7 @@ describe('Big-Hero powers — cross-cutting fidelity', () => {
     expect(at(s, 's1-thorgrim-1')).toBeNull();
     expect(s.phase).toBe('finished');
     expect(s.winnerSeat).toBe(0);
-    expect(s.winnerTeam).toBe(0); // FFA: team === seat
+    expect(s.winnerTeam).toBe(-1 - s.winnerSeat!); // FFA: a solo seat's team id is encoded -1 - seat
   });
 
   it('Queglix Gun’s 9-die pool RESETS at end of turn', () => {

@@ -25,6 +25,8 @@ const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
 const SEAT_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
+// Team colours (allies share one); index = team id − 1 (lobby assigns ids 1/2/3).
+const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80'];
 
 const parseQR = (key: string): [number, number] => { const [q, r] = key.split(',').map(Number); return [q, r]; };
 const worldXZ = (q: number, r: number): [number, number] => [SIZE * Math.sqrt(3) * (q + r / 2), SIZE * 1.5 * r];
@@ -184,6 +186,9 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   const cardOf = (uid: string) => state.cards.find(c => c.uid === uid)?.cardId ?? '';
   const seatColor = (seat: number) => {
     const idx = state.players.findIndex(p => p.seat === seat);
+    // Team games: allies share their team colour; free-for-all keeps seat colours.
+    const team = state.players[idx]?.team;
+    if (team !== undefined) return TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
     return state.players[idx]?.accent_color || SEAT_COLORS[idx] || '#a3a3a3';
   };
   const tileHighlight = (key: HexKey): string | null =>

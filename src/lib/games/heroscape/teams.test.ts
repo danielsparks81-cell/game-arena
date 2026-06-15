@@ -120,6 +120,16 @@ describe('multiplayer: seating, teams, custom budget', () => {
     expect(unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', mapId: 'star_field' })).phase).toBe('draft');
   });
 
+  it('an UNASSIGNED (solo) player is a distinct side even when a team id equals their seat', () => {
+    // Seats 0 & 2 → team id 1; seat 1 LEFT UNASSIGNED (a solo side). The solo seat
+    // must NOT be read as "team 1" just because its seat number is 1 — that would
+    // make a 3-way alliance with no enemy and wrongly block the start. It's a valid
+    // 2-v-1, so the draft must begin. (Regression: teamOfSeat's solo fallback.)
+    let s = lobbyN(3);
+    s = unwrap(applyAction(s, 'p1', { kind: 'set_lobby_config', teams: { 0: 1, 2: 1 } }));
+    expect(unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', mapId: 'star_field' })).phase).toBe('draft');
+  });
+
   it('quick (fixed-army) mode stays 2-player only', () => {
     expect(errOf(applyAction(lobbyN(3), 'p1', { kind: 'start_game', mode: 'quick' }))).toMatch(/2 players only/i);
   });
