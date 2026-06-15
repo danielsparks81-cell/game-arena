@@ -2709,6 +2709,7 @@ export default function HeroScapeBoard({
             moveHexes={destinations}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet])}
+            viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
             dropHexes={dropLegalSet}
             dropPicks={new Set(dropPicks)}

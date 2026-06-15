@@ -45,6 +45,10 @@ type Interact = {
   placeHexes?: Set<HexKey>;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
+  /** The viewing player's own start-zone hexes. The board auto-rotates so this
+   *  zone faces the camera (near/bottom), so a player never has to spin the board
+   *  to deploy or fight from their own side. */
+  viewerStartHexes?: HexKey[];
 };
 
 /** One hexagonal-prism terrain tile + thin seam edges; tinted (emissive) when it
@@ -183,6 +187,18 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     return [sx / cells.length, sz / cells.length];
   }, [cells]);
 
+  // Auto-rotate the whole board so the VIEWING player's start zone faces the
+  // camera (the near/bottom edge) — so a player never has to spin the board to
+  // deploy or fight from their own side. Angle brings the zone's centroid to +Z.
+  const faceAngle = useMemo(() => {
+    const zone = it.viewerStartHexes;
+    if (!zone || zone.length === 0) return 0;
+    let sx = 0, sz = 0;
+    for (const k of zone) { const [x, z] = worldXZ(...parseQR(k)); sx += x; sz += z; }
+    const vx = sx / zone.length - cx, vz = sz / zone.length - cz;
+    return Math.abs(vx) < 1e-4 && Math.abs(vz) < 1e-4 ? 0 : Math.atan2(-vx, vz);
+  }, [it.viewerStartHexes, cx, cz]);
+
   const cardOf = (uid: string) => state.cards.find(c => c.uid === uid)?.cardId ?? '';
   const seatColor = (seat: number) => {
     const idx = state.players.findIndex(p => p.seat === seat);
@@ -199,6 +215,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             : null;
 
   return (
+    <group rotation={[0, faceAngle, 0]}>
     <group position={[-cx, 0, -cz]}>
       {cells.map(c => {
         const [x, z] = worldXZ(c.q, c.r);
@@ -238,12 +255,13 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         })}
       </Suspense>
     </group>
+    </group>
   );
 }
 
 export default function HeroBoard3D({ state, ...it }: { state: HSState } & Interact) {
   return (
-    <div className="h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950">
+    <div className="h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950">
       <Canvas shadows camera={{ position: [0, 13, 16], fov: 45 }} dpr={[1, 2]}>
         <hemisphereLight args={['#cfe3ff', '#3a3320', 0.7]} />
         <ambientLight intensity={0.25} />
