@@ -14,9 +14,20 @@ function unwrap(r: ReturnType<typeof applyAction>): HQState {
 }
 
 function startedGame(): HQState {
-  let s = initialState();
+  // These tests assert QUEST1 ("the_trial") geometry — Verag, the entrance
+  // staircase and its doors. start_game from a fresh lobby loads CAMPAIGN[0] (the
+  // tutorial "The Vault"), so we use the 'finished'-retry path, which honours
+  // state.questId, to load the_trial directly. p1 then owns all four heroes.
+  let s = initialState('the_trial');
   s = addPlayer(s, 'p1', 'Player One', 0);
+  s = JSON.parse(JSON.stringify(s));
+  s.phase = 'finished';
+  s.questId = 'the_trial';
   s = unwrap(applyAction(s, 'p1', { kind: 'start_game' }));
+  // start_game then opens a pre-quest spell draft (Wizard then Elf pick a school);
+  // resolve it to reach the heroes' turn. Schools don't matter for movement tests.
+  if (s.phase === 'spell_draft') s = unwrap(applyAction(s, 'p1', { kind: 'pick_spell_school', school: 'air' }));
+  if (s.phase === 'spell_draft') s = unwrap(applyAction(s, 'p1', { kind: 'pick_spell_school', school: 'water' }));
   return s;
 }
 
@@ -494,22 +505,26 @@ describe('heroquest Quest 1 content fidelity (vs the Quest Book)', () => {
 });
 
 describe('heroquest win condition: escape (all heroes reach the stairs)', () => {
-  it('wins the moment the last living hero steps onto the stairway', () => {
+  it('wins once the LAST hero leaves via the stairway (two-step exit)', () => {
     let s = startedGame();
     s = JSON.parse(JSON.stringify(s));
     s.quest.winCondition = { kind: 'escape' };
-    // Three heroes already on stair tiles; hero 0 just off, about to step on.
-    s.heroes[1].at = { x: 2, y: 17 };
-    s.heroes[2].at = { x: 2, y: 18 };
-    s.heroes[3].at = { x: 3, y: 18 };
-    s.heroes[0].at = { x: 4, y: 17 }; // in the entrance room next to the stairs
+    // The other three heroes have already escaped and left the board; hero 0 is
+    // the last, standing in the entrance room next to the stairs.
+    for (const i of [1, 2, 3]) { s.heroes[i].at = { x: 29, y: i }; s.heroes[i].escaped = true; }
+    s.heroes[0].at = { x: 4, y: 17 };
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;
-    expect(s.phase).not.toBe('finished');         // not all on the stairs yet
-    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 17 } }));
-    expect(out.phase).toBe('finished');
+    // Stepping onto the stairway raises the exit prompt — NOT an instant win.
+    let out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 17 } }));
+    expect(out.pendingPrompt?.kind).toBe('exit_dungeon');
+    expect(out.phase).toBe('heroes');
+    // Confirming sends the last hero out → every hero is clear → quest won. The win
+    // routes through the Armory intermission before the campaign advances.
+    out = unwrap(applyAction(out, 'p1', { kind: 'exit_dungeon', confirm: true }));
     expect(out.winner).toBe('heroes');
+    expect(out.phase).toBe('intermission');
   });
 
   it('does NOT win while a living hero is still off the stairs', () => {
@@ -533,17 +548,16 @@ describe('heroquest win condition: escape (all heroes reach the stairs)', () => 
     s = JSON.parse(JSON.stringify(s));
     s.quest.winCondition = { kind: 'escape' };
     s.quest.reward = { kind: 'gold', amount: 240, split: 'divided' };
-    const before = s.heroes.map(h => h.gold);
-    s.heroes[1].at = { x: 2, y: 17 };
-    s.heroes[2].at = { x: 2, y: 18 };
-    s.heroes[3].at = { x: 3, y: 18 };
+    for (const i of [1, 2, 3]) { s.heroes[i].at = { x: 29, y: i }; s.heroes[i].escaped = true; }
     s.heroes[0].at = { x: 4, y: 17 };
     s.heroes[0].hasRolled = true;
     s.heroes[0].moveLeft = 6;
     s.turnIndex = 0;
-    const out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 17 } }));
-    expect(out.phase).toBe('finished');
-    out.heroes.forEach((h, i) => expect(h.gold).toBe(before[i] + 60)); // 240 / 4
+    const before = s.heroes.map(h => h.gold);
+    let out = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { x: 3, y: 17 } }));
+    out = unwrap(applyAction(out, 'p1', { kind: 'exit_dungeon', confirm: true }));
+    expect(out.winner).toBe('heroes');
+    out.heroes.forEach((h, i) => expect(h.gold).toBe(before[i] + 60)); // 240 / 4 living
   });
 });
 
@@ -577,11 +591,17 @@ describe('heroquest win condition: kill-and-exit gating', () => {
     expect(next.winner).toBeNull();
   });
 
-  it('wins once the objective is defeated and a hero reaches the stairs', () => {
+  it('wins once the objective is defeated and the LAST hero exits the stairs', () => {
     const s = soloOnStairs(true);
-    const next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { ...STAIR_B } }));
-    expect(next.phase).toBe('finished');
+    // The other three have already escaped; hero 0 is the last to leave.
+    for (const i of [1, 2, 3]) s.heroes[i].escaped = true;
+    // Moving within the stairway (objective defeated) raises the exit prompt.
+    let next = unwrap(applyAction(s, 'p1', { kind: 'move_to', at: { ...STAIR_B } }));
+    expect(next.pendingPrompt?.kind).toBe('exit_dungeon');
+    // Confirming leaves the dungeon → all heroes out → quest won.
+    next = unwrap(applyAction(next, 'p1', { kind: 'exit_dungeon', confirm: true }));
     expect(next.winner).toBe('heroes');
+    expect(next.phase).toBe('intermission');
   });
 });
 

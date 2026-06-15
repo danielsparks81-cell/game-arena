@@ -15,11 +15,16 @@ function unwrap(r: ReturnType<typeof applyAction>): HQState {
   return r.state;
 }
 
-/** A started 1-player quest: 'p1' owns all four heroes, phase === 'heroes'. */
+/** A started 1-player quest: 'p1' owns all four heroes, phase === 'heroes'.
+ *  start_game opens a pre-quest spell draft (Wizard picks a school, then the Elf);
+ *  p1 owns every hero, so we resolve it here to reach the heroes' turn. The chosen
+ *  schools are irrelevant — these tests arm heroes with explicit spells. */
 function startedGame(): HQState {
   let s = initialState();
   s = addPlayer(s, 'p1', 'Player One', 0);
   s = unwrap(applyAction(s, 'p1', { kind: 'start_game' }));
+  if (s.phase === 'spell_draft') s = unwrap(applyAction(s, 'p1', { kind: 'pick_spell_school', school: 'air' }));
+  if (s.phase === 'spell_draft') s = unwrap(applyAction(s, 'p1', { kind: 'pick_spell_school', school: 'water' }));
   return s;
 }
 
@@ -56,18 +61,17 @@ function makeMonster(id: string, at: { x: number; y: number }, over: Partial<Mon
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe('heroquest spells: Tempest', () => {
-  it('stuns up to two monsters adjacent to the caster', () => {
+  it('makes the CHOSEN monster miss its next turn (needs line of sight)', () => {
     const s = armActiveHeroWith(startedGame(), 'tempest');
     const h = s.heroes[s.turnIndex];
     h.at = { x: 5, y: 5 };
+    paintFloor(s, [{ x: 5, y: 5 }, { x: 6, y: 5 }, { x: 7, y: 5 }]); // clear sight east
     s.monsters = [
-      makeMonster('m1', { x: 6, y: 5 }),
-      makeMonster('m2', { x: 5, y: 6 }),
-      makeMonster('m3', { x: 9, y: 9 }), // far away — unaffected
+      makeMonster('m1', { x: 6, y: 5 }), // in sight — the target
+      makeMonster('m3', { x: 9, y: 9 }), // not targeted — unaffected
     ];
-    const out = unwrap(applyAction(s, 'p1', { kind: 'cast_spell', spellId: 'tempest' }));
+    const out = unwrap(applyAction(s, 'p1', { kind: 'cast_spell', spellId: 'tempest', targetMonsterId: 'm1' }));
     expect(out.monsters.find(m => m.id === 'm1')!.stunned).toBe(true);
-    expect(out.monsters.find(m => m.id === 'm2')!.stunned).toBe(true);
     expect(out.monsters.find(m => m.id === 'm3')!.stunned).toBeFalsy();
   });
 });
@@ -98,59 +102,46 @@ describe('heroquest spells: Swift Wind', () => {
 });
 
 describe('heroquest spells: Veil of Mist', () => {
-  it('grants +10 movement to slip away', () => {
+  it('lets the hero move THROUGH monster-occupied squares (no bonus movement)', () => {
     const s = armActiveHeroWith(startedGame(), 'veil_of_mist');
     const h = s.heroes[s.turnIndex];
-    h.hasRolled = false;
-    h.moveLeft = 0;
+    h.hasRolled = true;
+    h.moveRolled = 4;
+    h.moveLeft = 4;
     const out = unwrap(applyAction(s, 'p1', { kind: 'cast_spell', spellId: 'veil_of_mist', targetHeroIdx: s.turnIndex }));
     const t = out.heroes[out.turnIndex];
-    expect(t.hasRolled).toBe(true);
-    expect(t.moveLeft).toBe(10);
+    expect(t.phaseMonsters).toBe(true);
+    expect(t.moveLeft).toBe(4); // unchanged — the spell phases past monsters, it doesn't add movement
   });
 });
 
 describe('heroquest spells: Courage', () => {
-  it('grants +2 attack dice and a bonus attack even after acting', () => {
+  it('grants +2 attack dice on the next attack and spends the caster’s action', () => {
+    // Cast on a TEAM-MATE so we can watch the buff apply to THEIR attack (the
+    // caster's own action is spent by the cast). Courage = +2 dice only; the
+    // reworked spell no longer grants a bonus attack.
     vi.spyOn(Math, 'random').mockReturnValue(0); // all skulls
     const s = armActiveHeroWith(startedGame(), 'courage');
-    const out = unwrap(applyAction(s, 'p1', { kind: 'cast_spell', spellId: 'courage', targetHeroIdx: s.turnIndex }));
-    const h = out.heroes[out.turnIndex];
-    expect(h.attackBonus).toBe(2);
-    expect(h.extraAttack).toBe(true);
-    expect(h.hasActed).toBe(true); // the cast itself was the action
-
-    // The buffed bonus attack lands despite hasActed.
-    h.at = { x: 2, y: 2 };
-    paintFloor(out, [{ x: 2, y: 2 }, { x: 3, y: 2 }]);
-    out.monsters = [makeMonster('z1', { x: 3, y: 2 }, { body: 6, bodyMax: 6, defense: 1 })];
-    const after = unwrap(applyAction(out, 'p1', { kind: 'attack', monsterId: 'z1' }));
-    const mon = after.monsters.find(m => m.id === 'z1')!;
-    expect(mon.body).toBeLessThan(6);                 // damage landed
-    expect(after.heroes[after.turnIndex].extraAttack).toBe(false); // consumed
-    expect(after.heroes[after.turnIndex].attackBonus).toBe(0);     // consumed
+    const ally = (s.turnIndex + 1) % s.heroes.length;
+    const out = unwrap(applyAction(s, 'p1', { kind: 'cast_spell', spellId: 'courage', targetHeroIdx: ally }));
+    expect(out.heroes[out.turnIndex].hasActed).toBe(true); // the cast itself was the action
+    expect(out.heroes[ally].attackBonus).toBe(2);          // +2 dice buff sits on the target
+    expect(out.heroes[ally].extraAttack).toBeFalsy();      // no bonus attack any more
   });
 });
 
 describe('heroquest spells: Rock Skin', () => {
-  it('grants +2 defense that survives the turn end and clears next turn', () => {
+  it('grants +1 defense that survives the turn end (breaks only when the hero takes damage)', () => {
     let s = armActiveHeroWith(startedGame(), 'rock_skin');
     s.monsters = []; // no monsters → Zargon turns are no-ops
     const caster = s.turnIndex; // hero 0
     s = unwrap(applyAction(s, 'p1', { kind: 'cast_spell', spellId: 'rock_skin', targetHeroIdx: caster }));
-    expect(s.heroes[caster].defenseBonus).toBe(2);
+    expect(s.heroes[caster].defenseBonus).toBe(1);
 
-    // Ending the caster's turn must NOT strip the buff (it guards the Zargon turn).
+    // Ending the caster's turn must NOT strip the buff — it persists until the hero
+    // actually suffers a Body Point of damage (the reworked rule, per the card text).
     s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
-    expect(s.heroes[caster].defenseBonus).toBe(2);
-
-    // Cycle back around to the caster — the buff clears as their next turn begins.
-    let guard = 0;
-    while (s.turnIndex !== caster && guard++ < 12) {
-      s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
-    }
-    expect(s.turnIndex).toBe(caster);
-    expect(s.heroes[caster].defenseBonus).toBe(0);
+    expect(s.heroes[caster].defenseBonus).toBe(1);
   });
 });
 
