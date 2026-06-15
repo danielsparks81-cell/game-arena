@@ -37,6 +37,9 @@ type Interact = {
   selectedId?: string | null;
   moveHexes?: Set<HexKey>;
   targetIds?: Set<string>;
+  /** Figures targetable by an active special power (Chomp / Grenade / Mind
+   *  Shackle) — glow fuchsia, distinct from the red normal-attack target. */
+  powerTargetIds?: Set<string>;
   placeHexes?: Set<HexKey>;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
@@ -94,10 +97,12 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
 }
 
 /** A height-scaled photo standee on an owner base (oval across both hexes for a
- *  double-space figure). Base glows amber when selected, red when an attack target. */
-function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, onClick }: {
+ *  double-space figure). The base glows: amber = selected, red = attack target,
+ *  fuchsia = special-power target (Chomp / Grenade / Mind Shackle). Red pips float
+ *  above the head, one per wound taken. */
+function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, wounds, onClick }: {
   lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; onClick?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; wounds: number; onClick?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
@@ -113,7 +118,8 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
     baseRotY = -Math.atan2(dz, dx);
     baseScaleX = (Math.hypot(dx, dz) / 2 + r) / r;
   }
-  const ring = selected ? '#fbbf24' : target ? '#ef4444' : null;
+  const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
+  const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
       <mesh position={[0, BASE_H / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} castShadow receiveShadow>
@@ -131,6 +137,17 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
             <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
           </mesh>
         </Billboard>
+      )}
+      {/* Wound markers — a row of red pips floating above the figure's head. */}
+      {pips > 0 && (
+        <group position={[0, BASE_H + h + 0.22, 0]}>
+          {Array.from({ length: pips }, (_, i) => (
+            <mesh key={i} position={[(i - (pips - 1) / 2) * 0.2, 0, 0]}>
+              <sphereGeometry args={[0.08, 12, 12]} />
+              <meshStandardMaterial color="#ef4444" emissive="#7f1d1d" emissiveIntensity={0.5} roughness={0.4} />
+            </mesh>
+          ))}
+        </group>
       )}
     </group>
   );
@@ -209,6 +226,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             <Standee
               key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
+              powerTarget={!!it.powerTargetIds?.has(f.id)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
             />
           );

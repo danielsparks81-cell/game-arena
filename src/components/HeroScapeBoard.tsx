@@ -2591,6 +2591,7 @@ export default function HeroScapeBoard({
             selectedId={selectedId}
             moveHexes={destinations}
             targetIds={targets}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet])}
             placeHexes={placeHexes}
             dropHexes={dropLegalSet}
             dropPicks={new Set(dropPicks)}
