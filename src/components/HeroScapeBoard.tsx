@@ -59,6 +59,7 @@ import {
   hexKey,
   parseHexKey,
   neighborKeys,
+  mapSupportsCount,
   isoTopCenter,
   isoTopHexCorners,
   isoSideFaces,
@@ -1553,6 +1554,23 @@ export default function HeroScapeBoard({
   // ---------- lobby ----------
   if (state.phase === 'lobby') {
     const mapList = Object.values(MAPS);
+    const count = state.players.length;
+    // Quick battle auto-fills the fixed Vikings-vs-Marro 1-v-1, so it only fits 2
+    // seats. Draft works for 2-6, but the chosen battlefield must carry enough
+    // start zones for the seated count (mapSupportsCount = 2-player rectangles or
+    // the Star Field's per-count zones). The engine enforces both on start_game;
+    // we mirror them here so unusable options are visibly disabled, not error toasts.
+    const quickOk = count === 2;
+    const selectedMapOk = mapSupportsCount(MAPS[lobbyMapId], count);
+    const startBlocked =
+      count < 2 ||
+      (lobbyMode === 'quick' && !quickOk) ||
+      (lobbyMode === 'draft' && !selectedMapOk);
+    const startHint =
+      count < 2 ? 'Waiting for at least 2 players…'
+        : lobbyMode === 'quick' && !quickOk ? 'Quick battle is a 2-player preset — switch to Draft for 3-6 players.'
+          : lobbyMode === 'draft' && !selectedMapOk ? `${MAPS[lobbyMapId].name} doesn't fit ${count} players — pick the Star Field (3-6).`
+            : '';
     const mapBlurb: Record<string, string> = {
       training_field: 'Flat grass — learn the ropes. (2 players)',
       the_knoll: 'A 3-tier rock hill — climb for height advantage. (2 players)',
@@ -1578,15 +1596,17 @@ export default function HeroScapeBoard({
           <div className="flex gap-2">
             {([['draft', 'Draft armies'], ['quick', 'Quick battle']] as const).map(([m, label]) => {
               const active = lobbyMode === m;
+              const modeBlocked = m === 'quick' && !quickOk; // 1-v-1 preset only
               return (
                 <button
                   key={m}
-                  onClick={() => isHost && onSetLobbyConfig({ mode: m })}
-                  disabled={!isHost || disabled}
+                  onClick={() => isHost && !modeBlocked && onSetLobbyConfig({ mode: m })}
+                  disabled={!isHost || disabled || modeBlocked}
+                  title={modeBlocked ? 'Quick battle is a fixed 2-player game' : undefined}
                   className={
                     'rounded-lg border-2 px-4 py-1.5 text-sm font-semibold transition ' +
                     (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
-                    (isHost ? '' : ' cursor-default opacity-90')
+                    (modeBlocked ? ' cursor-not-allowed opacity-40' : isHost ? '' : ' cursor-default opacity-90')
                   }
                 >
                   {label}
@@ -1630,18 +1650,20 @@ export default function HeroScapeBoard({
           <div className="flex flex-wrap justify-center gap-2">
             {mapList.map(m => {
               const active = lobbyMapId === m.id;
+              const fits = mapSupportsCount(m, count); // enough start zones for the seated count
+              const mapDisabled = !isHost || disabled || !fits;
               return (
                 <button
                   key={m.id}
-                  onClick={() => isHost && onSetLobbyConfig({ mapId: m.id })}
-                  disabled={!isHost || disabled}
-                  title={mapBlurb[m.id]}
+                  onClick={() => isHost && fits && onSetLobbyConfig({ mapId: m.id })}
+                  disabled={mapDisabled}
+                  title={!fits ? `${m.name} doesn't fit ${count} player${count === 1 ? '' : 's'}` : mapBlurb[m.id]}
                   className={
                     'flex w-40 flex-col items-start rounded-lg border-2 px-3 py-2 text-left transition ' +
                     (active
                       ? 'border-amber-400 bg-amber-900/30'
                       : 'border-neutral-700 hover:border-neutral-500') +
-                    (isHost ? '' : ' cursor-default opacity-90')
+                    (!fits ? ' cursor-not-allowed opacity-40' : isHost ? '' : ' cursor-default opacity-90')
                   }
                 >
                   <span className={'text-sm font-bold ' + (active ? 'text-amber-200' : 'text-neutral-200')}>
@@ -1660,13 +1682,19 @@ export default function HeroScapeBoard({
         </div>
 
         {isHost && (
-          <button
-            onClick={() => onStart(lobbyMapId, lobbyMode === 'draft' ? lobbyBudget : undefined, lobbyMode)}
-            disabled={disabled || state.players.length < 2}
-            className="rounded-lg border-2 border-emerald-600 px-6 py-2 font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {lobbyMode === 'draft' ? '⚔ Start the draft' : '⚔ Start the battle'}
-          </button>
+          <div className="flex flex-col items-center gap-1">
+            <button
+              onClick={() => onStart(lobbyMapId, lobbyMode === 'draft' ? lobbyBudget : undefined, lobbyMode)}
+              disabled={disabled || startBlocked}
+              title={startBlocked ? startHint : undefined}
+              className="rounded-lg border-2 border-emerald-600 px-6 py-2 font-semibold text-emerald-300 transition hover:bg-emerald-900/40 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {lobbyMode === 'draft' ? '⚔ Start the draft' : '⚔ Start the battle'}
+            </button>
+            {startBlocked && startHint && (
+              <div className="max-w-xs text-center text-[11px] text-amber-300/80">{startHint}</div>
+            )}
+          </div>
         )}
         {!isHost && <div className="text-xs text-neutral-500">Waiting for the host to start.</div>}
       </div>

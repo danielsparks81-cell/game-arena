@@ -85,9 +85,6 @@ export function isValidBudget(n: number): boolean {
   return Number.isInteger(n) && n >= MIN_POINT_BUDGET && n <= MAX_POINT_BUDGET;
 }
 const DEFAULT_MODE: HSMode = 'draft';
-/** The second player's opening turn is a DOUBLE pick (1,2,…); every later turn
- *  is a single pick (resolutions.md). 2-player only. */
-const DRAFT_OPENER_PICKS = 2;
 
 // ============================================================================
 // Teams (multiplayer) — players sharing a `team` are allies. The whole engine
@@ -631,6 +628,7 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
   s.draft = {
     pool: [...HS_DRAFT_POOL],
     order: [],
+    dir: 1,
     rollOff: [],
     turnSeat: null,
     remainingPicks: 0,
@@ -678,41 +676,33 @@ function hasAffordableCard(state: HSState, seat: number): boolean {
   return d.pool.some(id => cardPoints(id) <= remaining);
 }
 
-/** The next un-passed seat in `order` AFTER `current` (cyclic). With one active
- *  seat left it returns that seat — it keeps taking single picks until it passes
- *  too. */
-function nextActiveSeat(order: number[], passed: number[], current: number | null): number {
-  const start = current == null ? -1 : order.indexOf(current);
-  for (let i = 1; i <= order.length; i++) {
-    const seat = order[(start + i) % order.length];
-    if (!passed.includes(seat)) return seat;
-  }
-  return order[0]; // unreachable: callers guard on ≥1 active seat
-}
-
-/** Hand the draft to the next active (un-passed) seat. Two-player (resolutions.md):
- *  the high roller opens with 1 pick, the OTHER seat then takes 2 (its first turn
- *  only), thereafter single picks back-and-forth. With 3+ players it is a plain
- *  cyclic single-pick draft in roll order (no official N-player double-pick rule
- *  exists, so we don't invent one). All passed → draft over. */
+/** Hand the draft to the next active (un-passed) seat following a TRUE SNAKE:
+ *  forward through the roll order, then reverse, bouncing at each end — the seat at
+ *  an end picks twice in a row at the turnaround — repeating every round, for ANY
+ *  player count (2-6). This balances going late every pass (no one-time opener
+ *  bonus). Passed seats are skipped; all passed → draft over. */
 function advanceDraftTurn(s: HSState): void {
   const d = s.draft!;
-  const anyActive = d.order.some(seat => !d.passed.includes(seat));
-  if (!anyActive) {
+  if (!d.order.some(seat => !d.passed.includes(seat))) {
     finishDraft(s);
     return;
   }
-  const next = nextActiveSeat(d.order, d.passed, d.turnSeat);
-  // The DOUBLE pick is the SECOND drafter's (order[1]) very first turn — only in
-  // the classic 1-v-1 (its purpose is to offset going second when picks strictly
-  // alternate; an N-player cycle spreads that out).
-  const isSecondDrafterOpener =
-    s.players.length === 2 &&
-    next === d.order[1] &&
-    (d.armies[next] ?? []).length === 0 &&
-    d.passed.length === 0;
-  d.turnSeat = next;
-  d.remainingPicks = isSecondDrafterOpener ? DRAFT_OPENER_PICKS : 1;
+  const n = d.order.length;
+  let i = Math.max(0, d.order.indexOf(d.turnSeat ?? d.order[0]));
+  let dir: 1 | -1 = d.dir ?? 1;
+  // Walk the bounce sequence (0,1,…,n-1, n-1,…,1,0, 0,1,…) until a non-passed seat.
+  for (let guard = 0; guard <= 2 * n + 2; guard++) {
+    const ni = i + dir;
+    if (ni < 0 || ni >= n) dir = dir === 1 ? -1 : 1; // turnaround: keep i, flip dir
+    else i = ni;
+    if (!d.passed.includes(d.order[i])) {
+      d.turnSeat = d.order[i];
+      d.dir = dir;
+      d.remainingPicks = 1;
+      return;
+    }
+  }
+  finishDraft(s); // unreachable (guarded above), but safe
 }
 
 /** When EVERY seat has passed: build each seat's army cards + figures and the
@@ -774,10 +764,11 @@ function doDraftRoll(state: HSState, attempts: InitiativeAttempt[]): HSResult {
   const dd = s.draft!;
   dd.rollOff = attempts;
   dd.order = order;
-  // High roller drafts FIRST, picking ONE card; in 1-v-1 the other then picks
-  // TWO (its opener), then single picks alternate (resolutions.md). With 3+
-  // players it is a plain cyclic single-pick draft in this order.
+  // High roller drafts FIRST; the draft then SNAKES forward through `order` and
+  // back — the seat at each end picks twice at the turnaround — repeating every
+  // round, for ANY player count (see advanceDraftTurn).
   dd.turnSeat = highSeat;
+  dd.dir = 1;
   dd.remainingPicks = 1;
   attempts.forEach((attempt, i) => {
     const parts = attempt.map(a => `${playerName(s, a.seat)} ${a.roll}`).join(' — ');

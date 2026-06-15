@@ -420,16 +420,14 @@ function Seats({
   const labels = SEAT_LABELS[room.game_type];
   const seated = [...room.room_players].sort((a, b) => a.seat - b.seat);
   const slots = Array.from({ length: room.max_players }, (_, i) => seated.find(p => p.seat === i));
-  // Always a single row of up to 8 seats.
-  const grid = room.max_players > 2
-    ? 'grid gap-2 grid-cols-8'
-    : 'flex gap-2';
+  // A centered row of seats (wraps if there are many). 2-player rooms split the
+  // width; 3+ use fixed-width tiles centered as a group.
   return (
-    <div className={`mb-4 ${grid}`}>
+    <div className="mb-4 flex flex-wrap justify-center gap-2">
       {slots.map((p, i) => {
         const canKick = !!onKick && !!p && p.player_id !== currentUserId;
         return (
-          <div key={i} className={`relative rounded-lg border px-3 py-2 text-sm ${room.max_players <= 2 ? 'flex-1' : ''} ${
+          <div key={i} className={`relative rounded-lg border px-3 py-2 text-sm ${room.max_players <= 2 ? 'flex-1' : 'w-40'} ${
             p ? 'border-neutral-700 bg-neutral-900' : 'border-dashed border-neutral-800 text-neutral-500'
           }`}>
             <div className="text-xs text-neutral-500">

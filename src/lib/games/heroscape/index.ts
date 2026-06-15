@@ -43,6 +43,7 @@ export {
   placeableHexes,
   placeable2Leads,
   orientationOptions,
+  mapSupportsCount,
   POINT_BUDGETS,
   DEFAULT_POINT_BUDGET,
   attackDiceRequirements,

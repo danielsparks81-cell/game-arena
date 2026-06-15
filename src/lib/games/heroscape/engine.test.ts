@@ -2259,7 +2259,7 @@ function inDraft(first: 'p1' | 'p2' = 'p1', pointBudget = 500): HSState {
   return s;
 }
 
-const pidOf = (seat: number) => (seat === 0 ? 'p1' : 'p2');
+const pidOf = (seat: number) => `p${seat + 1}`;
 
 /** Apply a draft_card by the seat whose pick it currently is. */
 function draftCard(s: HSState, cardId: string): HSState {
@@ -2347,13 +2347,15 @@ describe('slice 5: draft order roll-off', () => {
   });
 });
 
-// ---- the pick sequence (1, 2, then alternate 1) ---------------------------
+// ---- the pick sequence (true serpentine snake) ----------------------------
 
-describe('slice 5: draft pick sequence (A, B, B, A, B, A…)', () => {
-  // THE draft-sequence test: the high roller opens with ONE pick, the other
-  // takes TWO, then the draft alternates single picks starting back with the
-  // high roller (resolutions.md, verified).
-  it('enforces 1 (high), 2 (other), then alternating single picks', () => {
+describe('slice 5: draft pick sequence (true snake: A, B, B, A, A, B, B…)', () => {
+  // THE draft-sequence test: a TRUE serpentine snake — forward through the roll
+  // order, then reverse, the seat at each end picking twice in a row at the
+  // turnaround, repeating EVERY round (not a one-time opener). For 2 players
+  // that is A, B, B, A, A, B, B, A…  Note round 1 (A,B,B,A) matches the old
+  // opener rule; the snake only diverges from pick 5 onward (A,A vs B,A).
+  it('drafts as a true snake (A, B, B, A, A, B, B, A)', () => {
     let s = inDraft('p1'); // p1 (seat 0) is the high roller
     const order: number[] = [];
     // Draft 8 cards total, recording whose turn each pick was.
@@ -2362,8 +2364,32 @@ describe('slice 5: draft pick sequence (A, B, B, A, B, A…)', () => {
       order.push(s.draft!.turnSeat!);
       s = draftCard(s, id);
     }
-    // A, B, B, A, B, A, B, A — the 1/2/alternate sequence.
-    expect(order).toEqual([0, 1, 1, 0, 1, 0, 1, 0]);
+    expect(order).toEqual([0, 1, 1, 0, 0, 1, 1, 0]);
+  });
+
+  it('snakes for 3 players over multiple rounds (A,B,C,C,B,A,A,B,C…)', () => {
+    // The snake is N-player general: forward 0→1→2, bounce, back 2→1→0, bounce,
+    // forward again — the end seat doubling at each turnaround, every round.
+    let s = addPlayer(initialState(), 'p1', 'Alice', 0, '#10b981');
+    s = addPlayer(s, 'p2', 'Bob', 1, '#ef4444');
+    s = addPlayer(s, 'p3', 'Carol', 2, '#3b82f6');
+    // 3 players need a 3-6 player battlefield (the Star Field) — the engine now
+    // enforces this on start_game, mirroring the lobby's map gating.
+    s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 500, mapId: 'star_field' }));
+    // Server roll-off: p1 18 > p2 12 > p3 6 ⇒ order [0,1,2].
+    s = unwrap(applyAction(s, 'p1', {
+      kind: 'draft_roll',
+      attempts: [[{ seat: 0, roll: 18 }, { seat: 1, roll: 12 }, { seat: 2, roll: 6 }]],
+    }));
+    expect(s.draft!.order).toEqual([0, 1, 2]);
+    const order: number[] = [];
+    // 9 picks = three full passes; every card is cheap enough for a 500 budget.
+    const seq = ['finn', 'thorgrim', 'tarn_vikings', 'drake', 'raelin', 'syvarris', 'agent_carr', 'izumi_samurai', 'krav_maga'];
+    for (const id of seq) {
+      order.push(s.draft!.turnSeat!);
+      s = draftCard(s, id);
+    }
+    expect(order).toEqual([0, 1, 2, 2, 1, 0, 0, 1, 2]);
   });
 
   it('rejects a pick from the seat whose turn it is NOT', () => {
@@ -2375,7 +2401,7 @@ describe('slice 5: draft pick sequence (A, B, B, A, B, A…)', () => {
   it('getActivePlayerId follows the current drafter', () => {
     let s = inDraft('p2'); // p2 high roller, drafts first
     expect(getActivePlayerId(s)).toBe('p2');
-    s = draftCard(s, 'finn'); // p2 opener (1) → p1's double turn
+    s = draftCard(s, 'finn'); // p2 picks first; snake hands to p1
     expect(getActivePlayerId(s)).toBe('p1');
   });
 });
@@ -2651,8 +2677,8 @@ describe('slice 5: full roster (16 base + 5 Big Heroes)', () => {
     // Draft Ne-Gok-Sa (still wip in slice 6, Attack 3) for p1; it attacks as
     // printed (its Mind Shackle power is unimplemented — slice 7).
     let s = inDraft('p1', 500);
-    s = draftCard(s, 'ne_gok_sa'); // p1 opener (1) → p2's double turn
-    s = draftCard(s, 'marro_warriors'); // p2 pick 1 of 2 (still p2's turn)
+    s = draftCard(s, 'ne_gok_sa'); // p1 picks first; snake hands to p2
+    s = draftCard(s, 'marro_warriors'); // p2 pick 1 of its turnaround double (still p2)
     s = draftPass(s); // p2 passes its 2nd pick voluntarily (1 card) → back to p1
     s = draftPass(s); // p1 passes (Ne-Gok-Sa) → both passed → placement
     expect(s.phase).toBe('placement');

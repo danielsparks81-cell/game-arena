@@ -378,14 +378,18 @@ export type HSPhase = 'lobby' | 'draft' | 'placement' | 'playing' | 'finished';
 export type HSDraftState = {
   /** Remaining (un-drafted) card ids. A taken card is spliced out. */
   pool: string[];
-  /** [highRoller, other] seats — the pick order from the roll-off. */
+  /** All seats in pick order, highest roll first — the SNAKE's forward direction. */
   order: number[];
+  /** Current snake direction: +1 = forward through `order`, -1 = reverse. Flips at
+   *  each end so the draft serpentines EVERY round (the end seat picks twice in a
+   *  row at the turnaround), for any player count. Absent ⇒ +1 (forward). */
+  dir?: 1 | -1;
   /** Every d20 roll-off attempt (ties re-rolled), for the board's display. */
   rollOff: InitiativeAttempt[];
-  /** Whose pick it is now; null once BOTH seats have passed (draft over). */
+  /** Whose pick it is now; null once every seat has passed (draft over). */
   turnSeat: number | null;
-  /** Picks left in the current seat's turn (2 for the second player's opener,
-   *  else 1). Decrements per pick; at 0 the turn passes to the other seat. */
+  /** Picks left in the current seat's turn (always 1 now — the snake balances
+   *  going-late via the turnaround). Decrements per pick; at 0 the turn advances. */
   remainingPicks: number;
   /** Seats that have completed their army (passed). They leave the rotation. */
   passed: number[];
