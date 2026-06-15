@@ -136,6 +136,24 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   );
 }
 
+/** A power GLYPH on the board — a glowing gold rune-ring lying flat on the hex
+ *  top (under any figure standing on it), so glyphs read clearly in 3D the way
+ *  they do on the 2D board. */
+function GlyphMarker({ x, z, topY }: { x: number; z: number; topY: number }) {
+  return (
+    <group position={[x, topY + 0.03, z]} rotation={[-Math.PI / 2, 0, 0]}>
+      <mesh>
+        <ringGeometry args={[SIZE * 0.3, SIZE * 0.62, 28]} />
+        <meshStandardMaterial color="#fcd34d" emissive="#f59e0b" emissiveIntensity={0.9} side={THREE.DoubleSide} transparent opacity={0.92} metalness={0.3} roughness={0.4} />
+      </mesh>
+      <mesh position={[0, 0, -0.01]}>
+        <circleGeometry args={[SIZE * 0.3, 28]} />
+        <meshStandardMaterial color="#1c1407" emissive="#a16207" emissiveIntensity={0.35} side={THREE.DoubleSide} transparent opacity={0.6} />
+      </mesh>
+    </group>
+  );
+}
+
 function Scene({ state, it }: { state: HSState; it: Interact }) {
   const map = MAPS[state.mapId];
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
@@ -170,6 +188,14 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             onClick={it.onHexClick ? () => it.onHexClick!(key) : undefined}
           />
         );
+      })}
+      {/* Power glyphs sit on the ground (rendered after tiles, before figures). */}
+      {(state.glyphs ?? []).map(g => {
+        const gc = map?.cells[g.at];
+        if (!gc) return null;
+        const [gx, gz] = worldXZ(...parseQR(g.at));
+        const gTop = Math.max(0.2, gc.height * LEVEL) * (gc.terrain === 'water' ? 0.6 : 1);
+        return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} />;
       })}
       <Suspense fallback={null}>
         {state.figures.filter(f => f.at != null).map(f => {
