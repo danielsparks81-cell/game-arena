@@ -61,26 +61,45 @@ function HexTile({ x, z, height, terrain }: { x: number; z: number; height: numb
   );
 }
 
-/** A figure: a camera-facing photo standee on an owner-colored base disc. The
+/** Figure size multiple from the card's printed HEIGHT (Medium = 5 ⇒ ×1). So a
+ *  dragon (Height 9-13) towers over a soldier (Height 5), like the real minis. */
+const figScale = (height: number): number => Math.min(2.7, Math.max(0.8, height / 5));
+
+/** A figure: a camera-facing photo standee on an owner-colored base. Scaled by
+ *  card height, and DOUBLE-SPACE figures (Mimring, the Big Heroes) get an oval
+ *  base spanning both hexes with the model centered on the footprint. The
  *  billboard casts a SILHOUETTE shadow (alpha-tested depth), so it reads as a
  *  standing model rather than a flat sticker. */
-function Standee({ x, topY, z, cardId, color }: { x: number; topY: number; z: number; cardId: string; color: string }) {
+function Standee({
+  lead, trail, topY, cardId, color,
+}: { lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; color: string }) {
   const tex = useTexture(`/heroscape/figures/${cardId}.png`);
-  // Keep the figure's aspect ratio (textures are portrait-ish); width from height.
   const img = tex.image as HTMLImageElement | undefined;
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
-  const w = STANDEE_H * aspect;
+  const scale = figScale(HS_CARDS[cardId]?.height ?? 5);
+  const h = STANDEE_H * scale;
+  const w = h * aspect;
+  // Centre on the footprint: midpoint of the two hexes for a double-space figure.
+  const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
+  const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
+  // Base: a round disc, stretched into an oval along the lead→trail axis when the
+  // figure occupies two hexes so it visibly covers both.
+  const r = SIZE * 0.58;
+  let baseScaleX = 1, baseRotY = 0;
+  if (trail) {
+    const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
+    baseRotY = -Math.atan2(dz, dx);
+    baseScaleX = (Math.hypot(dx, dz) / 2 + r) / r;
+  }
   return (
-    <group position={[x, topY, z]}>
-      {/* base disc — ownership color, casts a round contact shadow */}
-      <mesh position={[0, BASE_H / 2, 0]} castShadow receiveShadow>
-        <cylinderGeometry args={[SIZE * 0.55, SIZE * 0.6, BASE_H, 24]} />
+    <group position={[cx, topY, cz]}>
+      <mesh position={[0, BASE_H / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} castShadow receiveShadow>
+        <cylinderGeometry args={[r, r * 1.08, BASE_H, 28]} />
         <meshStandardMaterial color={color} roughness={0.5} metalness={0.2} />
       </mesh>
-      {/* photo billboard, bottom-anchored on the base, always facing the camera */}
-      <Billboard position={[0, BASE_H + STANDEE_H / 2, 0]}>
+      <Billboard position={[0, BASE_H + h / 2, 0]}>
         <mesh castShadow>
-          <planeGeometry args={[w, STANDEE_H]} />
+          <planeGeometry args={[w, h]} />
           <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
         </mesh>
       </Billboard>
@@ -117,13 +136,16 @@ function Scene({ state }: { state: HSState }) {
         {state.figures
           .filter(f => f.at != null)
           .map(f => {
-            const [q, r] = parseQR(f.at!);
-            const [x, z] = worldXZ(q, r);
+            const [lq, lr] = parseQR(f.at!);
+            const lead = worldXZ(lq, lr);
+            // Double-space figures also occupy a trailing hex (at2) — render one
+            // standee centred across both, with an oval base covering the pair.
+            const trail = f.at2 ? worldXZ(...parseQR(f.at2)) : null;
             const cell = map?.cells[f.at!];
             const topY = Math.max(0.2, (cell?.height ?? 1) * LEVEL) * (cell?.terrain === 'water' ? 0.6 : 1);
             const cardId = cardOf(f.cardUid);
             if (!cardId) return null;
-            return <Standee key={f.id} x={x} topY={topY} z={z} cardId={cardId} color={seatColor(f.ownerSeat)} />;
+            return <Standee key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} color={seatColor(f.ownerSeat)} />;
           })}
       </Suspense>
     </group>
