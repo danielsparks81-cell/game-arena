@@ -1853,6 +1853,25 @@ function applyValidatedMove(
       pushLog(s, 'fall', `${enemyLabel} swipes at ${moverLabel} as it leaves — miss.`);
     }
   }
+  // Surface the swipe(s) in the dice overlay — they resolve mid-move and otherwise
+  // only show in the log, so the player never SEES the roll.
+  if (gotSwipe.length > 0) {
+    const swipeDice = gotSwipe.map(lr => lr.roll);
+    const sk = swipeDice.filter(f => f === 'skull').length;
+    s.lastAttack = {
+      attackerId: gotSwipe[0].enemyFigureId,
+      targetId: fig.id,
+      attackerLabel: 'Leaving-engagement swipe',
+      targetLabel: moverLabel,
+      attackRoll: swipeDice,
+      defenseRoll: [],
+      skulls: sk,
+      shields: 0,
+      wounds: sk,
+      destroyed: fig.at == null,
+      seq: (s.lastAttack?.seq ?? 0) + 1,
+    };
+  }
 
   // --- falling resolves after landing (skipped if a swipe already killed the
   // mover, since it never landed). ---
@@ -2730,6 +2749,7 @@ function doGrenadeThrow(
   const s = clone(state);
   const results: string[] = [];
   let totalWounds = 0;
+  let totalShields = 0;
   for (const d of defenders) {
     const shields = countFaces(got.get(d.figureId)!, 'shield');
     const w = Math.max(0, skulls - shields);
@@ -2737,6 +2757,7 @@ function doGrenadeThrow(
     if (!t) continue;
     t.wounds += w;
     totalWounds += w;
+    totalShields += shields;
     const destroyed = t.wounds >= cardDefFor(s, t).life;
     if (destroyed) { t.at = null; t.at2 = null; }
     results.push(`${figureLabel(s, t)} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
@@ -2747,14 +2768,16 @@ function doGrenadeThrow(
     attackerLabel: figureLabel(s, s.figures.find(f => f.id === throwerId)!),
     targetLabel: `Grenade — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
     attackRoll: action.attackRoll,
-    defenseRoll: [],
+    // Show every affected figure's defense dice together (each rolled separately
+    // against the one shared attack), so the splash's defense rolls are visible.
+    defenseRoll: action.defenseRolls.flatMap(d => d.roll),
     skulls,
-    shields: 0,
+    shields: totalShields,
     wounds: totalWounds,
     destroyed: false,
     heightBonusAttacker: 0,
     heightBonusDefender: 0,
-    breakdown: ['Grenade Special Attack', `Attack ${GRENADE_ATTACK} (special — no height / aura / LOS)`],
+    breakdown: ['Grenade Special Attack', `Attack ${GRENADE_ATTACK} (special — no height / aura / LOS) · each figure defends separately`],
     seq: s.logSeq + 1,
   };
   pushLog(s, 'attack', `Grenade (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no effect'}.`);
@@ -3426,6 +3449,12 @@ function activeSpecialFigure(state: HSState, figureId: string): { fig: Figure } 
 function withinRangeLos(state: HSState, attacker: Figure, target: Figure, range: number): boolean {
   const map = MAPS[state.mapId];
   if (!map || target.at == null) return false;
+  // Engaged figures can't shoot past their engagement (04-combat p.13): if the
+  // attacker is engaged with any enemy, it may attack ONLY an enemy it is engaged
+  // with. This applies to RANGED SPECIAL attacks too (Queglix, Ice Shard, Acid
+  // Breath), which all gate on this helper — not just normal attacks.
+  const engaged = enemiesEngagedWith(state, attacker);
+  if (engaged.length > 0 && !engaged.some(e => e.id === target.id)) return false;
   const occupied: HexKey[] = [];
   for (const f of state.figures) {
     if (f.id === attacker.id || f.id === target.id) continue;

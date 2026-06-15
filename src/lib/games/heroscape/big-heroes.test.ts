@@ -179,6 +179,20 @@ describe('Major Q9 — Queglix Gun', () => {
     s = put(s, 's1-thorgrim-1', cellAtDist(s, h, 7));
     expect(errOf(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-thorgrim-1', dice: 1, attackRoll: F('b'), defenseRoll: F('bbbb') }))).toMatch(/range|sight/i);
   });
+
+  it('an ENGAGED Major Q9 may only Queglix a figure he is engaged with (no shooting past engagement)', () => {
+    let { s, hero } = stage('major_q9');
+    const h = at(s, hero)!;
+    const adj = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!; // adjacent cell
+    s = put(s, 's1-thorgrim-1', adj);                              // adjacent → engages Q9
+    s = put(s, 's1-marro_warriors-1', cellAtDist(s, h, 4));        // in Range 6 but NOT engaged
+    // 04-combat p.13: an engaged figure can't shoot past its engagement, even with
+    // a ranged SPECIAL attack — the far, non-engaged enemy is rejected.
+    expect(errOf(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-marro_warriors-1', dice: 1, attackRoll: F('s'), defenseRoll: F('b') }))).toMatch(/range|sight|engage/i);
+    // …but Q9 may still Queglix the enemy he IS engaged with.
+    s = unwrap(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-thorgrim-1', dice: 1, attackRoll: F('s'), defenseRoll: def(s, 's1-thorgrim-1', hero) }));
+    expect(s.turnAttacks.some(a => a.special === 'queglix')).toBe(true);
+  });
 });
 
 // ===========================================================================
