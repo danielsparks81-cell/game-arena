@@ -115,6 +115,7 @@ export type {
   HSLogEntry,
   InitiativeAttempt,
   LastAttack,
+  LastRoll,
   HSPhase,
   HSSubPhase,
   HSState,

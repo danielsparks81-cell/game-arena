@@ -15,6 +15,7 @@ import {
   type Figure,
   type CombatFace,
   type LastAttack,
+  type LastRoll,
   type HexKey,
   type OrderMarker,
   type OrderMarkerValue,
@@ -793,6 +794,51 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
   );
 }
 
+/** Centered overlay for a non-combat d20 roll (initiative + every d20 special
+ *  power), so these are as VISIBLE as attack rolls. Mounted (by the parent, keyed
+ *  on lastRoll.seq) when a fresh roll resolves: the dice tumble in one at a time,
+ *  then the outcome caption lands. Natural 20 glows gold, a 1 glows red. Auto-
+ *  dismisses; backdrop / "Skip ▸" closes it. Driven by shared state ⇒ both see it. */
+function D20RollOverlay({ roll, onDismiss }: { roll: LastRoll; onDismiss: () => void }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    let t = 200;
+    for (let i = 1; i <= roll.dice.length; i++) { timers.push(setTimeout(() => setShown(i), t)); t += 350; }
+    t += 1800;
+    timers.push(setTimeout(onDismiss, t));
+    return () => { for (const id of timers) clearTimeout(id); };
+    // roll is fixed for this mount (parent re-keys on seq); run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const allShown = shown >= roll.dice.length;
+  const resultColor = roll.success === true ? 'text-emerald-300' : roll.success === false ? 'text-rose-300' : 'text-amber-200';
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" onClick={onDismiss} role="dialog" aria-label={`${roll.title} roll`}>
+      <style>{`@keyframes hsD20In { 0% { transform: scale(0.2) rotate(-120deg); opacity: 0; } 70% { transform: scale(1.12) rotate(8deg); opacity: 1; } 100% { transform: scale(1) rotate(0deg); } }`}</style>
+      <div className="relative w-full max-w-md rounded-2xl border-2 border-violet-700/80 bg-neutral-950/95 px-6 py-6 text-center shadow-2xl shadow-black/70" onClick={e => e.stopPropagation()}>
+        <button onClick={onDismiss} className="absolute right-2 top-2 rounded-md px-2 py-0.5 text-[11px] font-bold text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-300">Skip ▸</button>
+        <div className="text-xs font-bold uppercase tracking-widest text-violet-300/90">{roll.title}</div>
+        <div className="mt-4 flex min-h-[72px] flex-wrap items-end justify-center gap-3">
+          {roll.dice.map((d, i) => (
+            <div key={i} className="flex flex-col items-center gap-1" style={{ visibility: i < shown ? 'visible' : 'hidden' }}>
+              <div
+                className={'flex h-16 w-16 items-center justify-center rounded-xl border-2 bg-neutral-900 text-3xl font-black tabular-nums ' +
+                  (d === 20 ? 'border-amber-400 text-amber-300' : d === 1 ? 'border-rose-700 text-rose-400' : 'border-neutral-700 text-neutral-100')}
+                style={{ animation: i < shown ? 'hsD20In 350ms ease-out' : undefined }}
+              >
+                {d}
+              </div>
+              {roll.labels?.[i] && <div className="max-w-[5rem] truncate text-[10px] text-neutral-400">{roll.labels[i]}</div>}
+            </div>
+          ))}
+        </div>
+        {allShown && <div className={'mt-4 border-t border-neutral-800 pt-3 text-sm font-semibold ' + resultColor}>{roll.detail}</div>}
+      </div>
+    </div>
+  );
+}
+
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
@@ -882,6 +928,9 @@ export default function HeroScapeBoard({
   // shared state.lastAttack ⇒ both players see the same overlay.
   const [rollAttack, setRollAttack] = useState<LastAttack | null>(null);
   const lastSeenSeqRef = useRef<number>(state.lastAttack?.seq ?? 0);
+  // Same freshness mechanism for non-combat d20 rolls (initiative + d20 powers).
+  const [rollD20, setRollD20] = useState<LastRoll | null>(null);
+  const lastSeenRollSeqRef = useRef<number>(state.lastRoll?.seq ?? 0);
 
   // --- board ZOOM / PAN: scroll-wheel zooms toward the cursor, drag pans, the
   // overlay buttons zoom on the center / reset. The view is a sub-rectangle of
@@ -910,6 +959,14 @@ export default function HeroScapeBoard({
       if (la.attackRoll.length > 0 || la.defenseRoll.length > 0) setRollAttack(la);
     }
   }, [state.lastAttack]);
+  useEffect(() => {
+    const lr = state.lastRoll;
+    if (!lr) return;
+    if (lr.seq > lastSeenRollSeqRef.current) {
+      lastSeenRollSeqRef.current = lr.seq;
+      if (lr.dice.length > 0) setRollD20(lr);
+    }
+  }, [state.lastRoll]);
 
   const map = MAPS[state.mapId];
   // The effective per-seat start zones: the multiplayer STAR assigns its six
@@ -1926,6 +1983,14 @@ export default function HeroScapeBoard({
           key={rollAttack.seq}
           attack={rollAttack}
           onDismiss={() => setRollAttack(null)}
+        />
+      )}
+      {/* d20 overlay for initiative + special powers (same freshness mechanism). */}
+      {rollD20 && (
+        <D20RollOverlay
+          key={`r${rollD20.seq}`}
+          roll={rollD20}
+          onDismiss={() => setRollD20(null)}
         />
       )}
       {/* RIGHT RAIL — banner/status, initiative, last attack, choices, end turn.

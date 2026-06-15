@@ -264,6 +264,27 @@ export type LastAttack = {
   seq: number;
 };
 
+/** The last NON-combat d20 roll (initiative + every d20 special power: Mind
+ *  Shackle, Chomp, Berserker Charge, The Drop, Marro resurrection, Throw…). Drives
+ *  a centered dice overlay so these rolls are as VISIBLE as attack rolls — they
+ *  used to only appear as a log line. Shared state ⇒ both players see it. */
+export type LastRoll = {
+  /** Short headline, e.g. "Initiative", "Mind Shackle". */
+  title: string;
+  /** The d20 value(s), in display order (initiative = one per seat in roll
+   *  order; single-die powers have one; Marro resurrect = one per Warrior). */
+  dice: number[];
+  /** Optional caption per die, aligned with `dice` (initiative: player names). */
+  labels?: string[];
+  /** Outcome caption, e.g. "Natural 20 — seizes the Izumi Samurai!". */
+  detail: string;
+  /** Result styling: true = success (green), false = fail (red), undefined =
+   *  neutral (e.g. an initiative report just states the order). */
+  success?: boolean;
+  /** Monotonic counter so the UI can detect a fresh roll. */
+  seq: number;
+};
+
 // ============================================================================
 // Glyphs (slice 4 — docs/heroscape/05-glyphs-special-powers.md)
 // ============================================================================
@@ -488,6 +509,9 @@ export type HSState = {
     special?: 'ice_shard' | 'queglix' | 'wild_swing' | 'acid_breath';
   }[];
   lastAttack: LastAttack | null;
+  /** The last non-combat d20 roll (initiative + d20 special powers), for the
+   *  dice overlay. Absent on pre-existing saves ⇒ treat as null. */
+  lastRoll?: LastRoll | null;
   /** Winning SEAT — a representative living seat of the winning team (for FFA /
    *  2-player this is simply the survivor). Null until the game finishes. */
   winnerSeat: number | null;

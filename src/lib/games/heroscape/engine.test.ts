@@ -406,6 +406,10 @@ describe('roll_initiative', () => {
     expect(a.initiative).toEqual([0, 1]);
     expect(a.turnSeat).toBe(0);
     expect(getActivePlayerId(a)).toBe('p1');
+    // The roll surfaces a dice overlay (lastRoll) — one d20 per seat, labelled.
+    expect(a.lastRoll?.title).toBe('Initiative');
+    expect(a.lastRoll?.dice).toHaveLength(2);
+    expect(a.lastRoll?.labels).toHaveLength(2);
     const b = inTurns('p2');
     expect(b.initiative).toEqual([1, 0]);
     expect(b.turnSeat).toBe(1);
@@ -3979,6 +3983,8 @@ describe('Mind Shackle 20 (Ne-Gok-Sa)', () => {
       expect(f.ownerSeat).toBe(0); // ALL figures on the card transferred
     }
     expect(s.phase).toBe('playing'); // p2 still has Thorgrim
+    // The roll surfaces a dice overlay (lastRoll) so players SEE the natural 20.
+    expect(s.lastRoll).toMatchObject({ title: 'Mind Shackle', dice: [20], success: true });
   });
 
   it('below 20 transfers nothing and spends the one attempt for the turn', () => {
@@ -3986,6 +3992,7 @@ describe('Mind Shackle 20 (Ne-Gok-Sa)', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 19 }));
     expect(s.cards.find(c => c.cardId === 'marro_warriors')!.ownerSeat).toBe(1);
     expect(s.mindShackleSpent).toBe(true);
+    expect(s.lastRoll).toMatchObject({ title: 'Mind Shackle', dice: [19], success: false });
     expect(errOf(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: MW(1), d20: 20 })))
       .toMatch(/already been attempted/);
   });

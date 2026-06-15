@@ -45,6 +45,7 @@ import type {
   HSResult,
   HSState,
   InitiativeAttempt,
+  LastRoll,
   OrderMarkerValue,
 } from './types';
 import { MAPS, type HSMap } from './maps';
@@ -228,6 +229,7 @@ export function initialState(): HSState {
     movedFigureIds: [],
     turnAttacks: [],
     lastAttack: null,
+    lastRoll: null,
     winnerSeat: null,
     glyphs: [],
     log: [],
@@ -1202,6 +1204,13 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
       .join(' — ');
     const tie = i < attempts.length - 1 ? ' Tie — re-roll!' : '';
     pushLog(s, 'roll', `Initiative d20: ${parts}.${tie}`);
+  });
+  // Pop the dice overlay for the DECIDING attempt (one d20 per seat).
+  setLastRoll(s, {
+    title: 'Initiative',
+    dice: last.map(a => a.roll),
+    labels: last.map(a => playerName(s, a.seat)),
+    detail: `${playerName(s, winnerSeat)} wins initiative — takes the first turn.`,
   });
   pushLog(s, 'info', `${playerName(s, winnerSeat)} wins initiative.`);
 
@@ -3032,6 +3041,7 @@ function doBerserkerCharge(state: HSState, seat: number, d20: number): HSResult 
       'power',
       `Berserker Charge — ${playerName(s, seat)} rolls ${d20} (≥${BERSERKER_THRESHOLD})! They may move all Tarn Viking Warriors again.`,
     );
+    setLastRoll(s, { title: 'Berserker Charge', dice: [d20], success: true, detail: `${d20} (≥${BERSERKER_THRESHOLD}) — move the Vikings again!` });
   } else {
     s.berserkerSpent = true;
     pushLog(
@@ -3039,6 +3049,7 @@ function doBerserkerCharge(state: HSState, seat: number, d20: number): HSResult 
       'power',
       `Berserker Charge — ${playerName(s, seat)} rolls ${d20} (<${BERSERKER_THRESHOLD}). No extra move.`,
     );
+    setLastRoll(s, { title: 'Berserker Charge', dice: [d20], success: false, detail: `${d20} (<${BERSERKER_THRESHOLD}) — no extra move.` });
   }
   return s;
 }
@@ -3133,6 +3144,7 @@ function doMindShackle(state: HSState, seat: number, targetId: string, d20: numb
       'power',
       `Mind Shackle! ${playerName(s, seat)} rolls 20 and seizes ${tdef.name} — ${playerName(s, formerSeat)}'s whole Army Card (${moved} figure${moved === 1 ? '' : 's'}).`,
     );
+    setLastRoll(s, { title: 'Mind Shackle', dice: [d20], success: true, detail: `Natural 20 — seizes ${tdef.name}!` });
     checkEliminationWin(s); // seizing a seat's last figures eliminates them
   } else {
     pushLog(
@@ -3140,6 +3152,7 @@ function doMindShackle(state: HSState, seat: number, targetId: string, d20: numb
       'power',
       `${playerName(s, seat)} attempts Mind Shackle on ${tdef.name} but rolls ${d20} (needs a natural 20).`,
     );
+    setLastRoll(s, { title: 'Mind Shackle', dice: [d20], success: false, detail: `Rolled ${d20} — needs a natural 20.` });
   }
   return s;
 }
@@ -3215,6 +3228,8 @@ function doChomp(state: HSState, seat: number, targetId: string, d20: number): H
         ? `Chomp! Grimnak devours ${figureLabel(s, target)} (a Squad figure — automatic).`
         : `Chomp! Grimnak rolls ${d20} (≥${CHOMP_HERO_THRESHOLD}) and devours ${figureLabel(s, target)}.`,
     );
+    // Only a HERO chomp actually rolled the d20 (squads are auto-devoured).
+    if (!isSquad) setLastRoll(s, { title: 'Chomp', dice: [d20], success: true, detail: `${d20} (≥${CHOMP_HERO_THRESHOLD}) — devours ${tdef.name}!` });
     checkEliminationWin(s); // chomping a seat's last figure ends the game
   } else {
     pushLog(
@@ -3222,6 +3237,7 @@ function doChomp(state: HSState, seat: number, targetId: string, d20: number): H
       'power',
       `Grimnak snaps at ${figureLabel(s, target)} but rolls ${d20} (<${CHOMP_HERO_THRESHOLD}) — it survives.`,
     );
+    setLastRoll(s, { title: 'Chomp', dice: [d20], success: false, detail: `${d20} (<${CHOMP_HERO_THRESHOLD}) — ${tdef.name} survives.` });
   }
   return s;
 }
@@ -3331,6 +3347,12 @@ function doWaterClone(
       skippedNoSpace > 0 ? `, ${skippedNoSpace} with no landing/clone (skipped)` : ''
     }. (Instead of attacking.)`,
   );
+  setLastRoll(s, {
+    title: 'Water Clone',
+    dice: rolls.map(r => r.d20),
+    success: successes > 0,
+    detail: `${successes}/${livingMarro.length} cloned (${WATER_CLONE_THRESHOLD}+, or ${WATER_CLONE_WATER_THRESHOLD}+ on water).`,
+  });
 
   if (placements.length > 0) {
     // Prompt the owner to choose each landing (never auto-placed).
@@ -3841,6 +3863,7 @@ function doThrow(
   s.threwThisTurn = true; // the attempt is spent regardless of the roll
   if (action.throwD20 < THROW_THRESHOLD) {
     pushLog(s, 'power', `${figureLabel(s, jotun)} tries to Throw ${figureLabel(s, target)} but rolls ${action.throwD20} (needs ${THROW_THRESHOLD}+) — it stays put.`);
+    setLastRoll(s, { title: 'Throw', dice: [action.throwD20], success: false, detail: `${action.throwD20} (needs ${THROW_THRESHOLD}+) — ${tdef.name} stays put.` });
     return s;
   }
   // 14+ — validate the landing and place the figure.
@@ -3867,6 +3890,7 @@ function doThrow(
     woundLine = ` and is unharmed (rolled ${action.damageD20} < ${THROW_DAMAGE_THRESHOLD})`;
   }
   pushLog(s, 'power', `${figureLabel(s, jotun)} Throws ${figureLabel(s, t)} (rolled ${action.throwD20}) onto ${action.to}${woundLine}.`);
+  setLastRoll(s, { title: 'Throw', dice: [action.throwD20], success: true, detail: `${action.throwD20} (≥${THROW_THRESHOLD}) — Jotun hurls ${tdef.name}!` });
   checkEliminationWin(s);
   return s;
 }
@@ -4006,6 +4030,7 @@ function doTheDrop(state: HSState, seat: number, placements: HexKey[], d20: numb
   s.airborneDropRound = s.round; // one roll per round, hit or miss
   if (d20 < THE_DROP_THRESHOLD) {
     pushLog(s, 'power', `${playerName(s, seat)} rolls ${d20} for The Drop (needs ${THE_DROP_THRESHOLD}+) — the Airborne Elite stay in reserve.`);
+    setLastRoll(s, { title: 'The Drop', dice: [d20], success: false, detail: `${d20} (needs ${THE_DROP_THRESHOLD}+) — stays in reserve.` });
     return s;
   }
   // 13+ — validate the chosen landings against the PRE-drop board.
@@ -4030,6 +4055,7 @@ function doTheDrop(state: HSState, seat: number, placements: HexKey[], d20: numb
     delete f.reserve;
   });
   pushLog(s, 'power', `The Drop! ${playerName(s, seat)} rolls ${d20} and deploys ${reserve.length} Airborne Elite.`);
+  setLastRoll(s, { title: 'The Drop', dice: [d20], success: true, detail: `${d20} (≥${THE_DROP_THRESHOLD}) — deploys ${reserve.length} Airborne Elite!` });
   return s;
 }
 
@@ -4220,6 +4246,14 @@ function pushLog(s: HSState, tag: HSLogEntry['tag'], text: string): void {
   s.logSeq += 1;
   s.log.push({ seq: s.logSeq, text, tag });
   if (s.log.length > LOG_MAX) s.log = s.log.slice(-LOG_MAX);
+}
+
+/** Record a non-combat d20 roll (initiative + every d20 special power) so the UI
+ *  can pop a dice overlay for it — the same prominence attacks get. Additive: the
+ *  caller still pushes its own log line; this only sets the shared `lastRoll` with
+ *  a fresh monotonic `seq` the UI watches. */
+function setLastRoll(s: HSState, roll: Omit<LastRoll, 'seq'>): void {
+  s.lastRoll = { ...roll, seq: (s.lastRoll?.seq ?? 0) + 1 };
 }
 
 export function cardDef(cardId: string): HSCardDef {
