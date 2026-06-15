@@ -605,7 +605,7 @@ function CardHoverPanel({ cardId, placement = 'above' }: { cardId: string; place
   return (
     <div
       className={
-        'pointer-events-none absolute left-1/2 z-30 hidden max-h-[80vh] w-60 -translate-x-1/2 overflow-y-auto rounded-lg border-2 border-amber-700 bg-neutral-950/95 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block ' +
+        'pointer-events-none absolute left-1/2 z-30 hidden max-h-[80vh] w-72 -translate-x-1/2 overflow-y-auto rounded-lg border-2 border-amber-700 bg-neutral-950/97 px-3 py-2.5 text-left shadow-xl shadow-black/60 group-hover:block ' +
         (placement === 'below' ? 'top-full mt-2' : 'bottom-full mb-2')
       }
     >
