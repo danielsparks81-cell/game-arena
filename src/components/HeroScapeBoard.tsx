@@ -3020,16 +3020,18 @@ export default function HeroScapeBoard({
           On lg+ this is a flex COLUMN whose middle (the board) flexes to fill all
           the space the two compact card strips leave — and the board does NOT
           scroll (the strips are shrink-0; only the board box flexes). */}
-      <div className="flex min-w-0 flex-1 flex-col items-stretch gap-2 lg:order-2 lg:min-h-0">
-        {/* Opponent army rosters — above the board. Each is collapsible so 4-6
-            players fit; the active player's row auto-expands. */}
+      <div className="relative flex min-w-0 flex-1 flex-col gap-2 lg:order-2 lg:min-h-0">
+        {/* Opponent army rosters. On lg they OVERLAY the top of the board (out of
+            the column flow) so the board owns the whole centre — the wrapper is
+            click-through except over the panels themselves. On mobile they stack
+            above the board as before. */}
         {state.players.some(p => !me || p.seat !== me.seat) && (
-          <div className="flex shrink-0 flex-col gap-1">
+          <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:inset-x-0 lg:top-0 lg:z-20 lg:p-1.5">
             {state.players
               .filter(p => !me || p.seat !== me.seat)
               .sort((a, b) => a.seat - b.seat)
               .map(p => (
-                <div key={p.seat}>{renderArmyRow(p.seat)}</div>
+                <div key={p.seat} className="lg:pointer-events-auto">{renderArmyRow(p.seat)}</div>
               ))}
           </div>
         )}
@@ -3369,7 +3371,13 @@ export default function HeroScapeBoard({
             per-viewer flip puts my start zone). Markers above each card; during
             placement my strip is interactive. Compact + shrink-0 so the board
             stays the biggest element. */}
-        {me && <div className="shrink-0">{renderArmyRow(me.seat)}</div>}
+        {/* My army strip — on lg it OVERLAYS the bottom of the board; on mobile it
+            sits below as before. */}
+        {me && (
+          <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:inset-x-0 lg:bottom-0 lg:z-20 lg:p-1.5">
+            <div className="lg:pointer-events-auto">{renderArmyRow(me.seat)}</div>
+          </div>
+        )}
       </div>
 
       {/* (Battle log moved into the right rail, under End turn.) */}
