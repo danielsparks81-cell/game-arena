@@ -3452,16 +3452,21 @@ function activeSpecialFigure(state: HSState, figureId: string): { fig: Figure } 
 
 /** True if `attacker` has range+line-of-sight to `target` within `range` —
  *  measured/traced from EITHER of a double-space figure's hexes to EITHER of the
- *  target's (the same 3D LOS the normal attack uses, just a custom range). */
-function withinRangeLos(state: HSState, attacker: Figure, target: Figure, range: number): boolean {
+ *  target's (the same 3D LOS the normal attack uses, just a custom range).
+ *  `ignoreEngagement` lifts the can't-shoot-past-engagement rule for powers that
+ *  are NOT attacks (Acid Breath is "instead of attacking", so it has no such
+ *  restriction — the card just says "within 4 clear sight spaces"). */
+function withinRangeLos(state: HSState, attacker: Figure, target: Figure, range: number, ignoreEngagement = false): boolean {
   const map = MAPS[state.mapId];
   if (!map || target.at == null) return false;
   // Engaged figures can't shoot past their engagement (04-combat p.13): if the
-  // attacker is engaged with any enemy, it may attack ONLY an enemy it is engaged
-  // with. This applies to RANGED SPECIAL attacks too (Queglix, Ice Shard, Acid
-  // Breath), which all gate on this helper — not just normal attacks.
-  const engaged = enemiesEngagedWith(state, attacker);
-  if (engaged.length > 0 && !engaged.some(e => e.id === target.id)) return false;
+  // attacker is engaged with any enemy, it may ATTACK ONLY an enemy it is engaged
+  // with. This applies to the ranged special ATTACKS (Queglix, Ice Shard) that
+  // roll attack dice — but NOT to Acid Breath, which is "instead of attacking".
+  if (!ignoreEngagement) {
+    const engaged = enemiesEngagedWith(state, attacker);
+    if (engaged.length > 0 && !engaged.some(e => e.id === target.id)) return false;
+  }
   // Figures do NOT block line of sight — only terrain does (on-map obstacles may
   // come later) — so the tracer is given no figure blockers.
   const eye = (k: HexKey) => eyeHeightOfKey(state, k);
@@ -3766,7 +3771,7 @@ export function acidBreathTargets(state: HSState, seat: number): string[] {
   const braxas = state.figures.find(f => f.cardUid === activeUid && f.at != null);
   if (!braxas) return [];
   return state.figures
-    .filter(t => t.at != null && t.id !== braxas.id && isSmallOrMedium(cardDefFor(state, t)) && withinRangeLos(state, braxas, t, ACID_RANGE))
+    .filter(t => t.at != null && t.id !== braxas.id && isSmallOrMedium(cardDefFor(state, t)) && withinRangeLos(state, braxas, t, ACID_RANGE, true /* not an attack — engagement doesn't gate it */))
     .map(t => t.id);
 }
 export function canAcidBreath(state: HSState, seat: number): boolean {

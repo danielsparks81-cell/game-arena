@@ -88,15 +88,21 @@ export default function RoomClient({
   const [messages, setMessages] = useState<ChatMsg[]>(initialMessages);
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState('');
-  // Sidebar collapse state — persisted across reloads so the player's
-  // preference sticks. Default expanded so newcomers see chat + members.
+  // Sidebar collapse state — persisted PER GAME so the player's preference sticks
+  // independently for each game. With no saved preference, HeroScape defaults
+  // COLLAPSED (its board wants the full width); every other game defaults expanded
+  // so newcomers see chat + members.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   useEffect(() => {
-    try { setSidebarCollapsed(localStorage.getItem('roomSidebarCollapsed') === '1'); } catch {}
+    try {
+      const saved = localStorage.getItem(`roomSidebarCollapsed:${room.game_type}`);
+      setSidebarCollapsed(saved === null ? room.game_type === 'heroscape' : saved === '1');
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
-    try { localStorage.setItem('roomSidebarCollapsed', sidebarCollapsed ? '1' : '0'); } catch {}
-  }, [sidebarCollapsed]);
+    try { localStorage.setItem(`roomSidebarCollapsed:${room.game_type}`, sidebarCollapsed ? '1' : '0'); } catch {}
+  }, [sidebarCollapsed, room.game_type]);
 
   const imSeated = room.room_players.some(p => p.player_id === currentUserId);
 

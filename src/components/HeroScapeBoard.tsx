@@ -708,16 +708,16 @@ function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (powe
   );
 }
 
-/** The draft card, enlarged and framed in a fixed PORTRAIT aspect. On its own a
- *  one-power hybrid card collapses to a short, squat box (in the draft grid it
- *  only looks tall because `items-stretch` matches it to the tallest sibling);
- *  the 2:3 frame restores the draft tile's shape at any size. `h-full` lets the
- *  card's parchment fill the frame exactly as it does in the grid. Shared by the
- *  draft hover popover and the play-view "now acting" panel. */
-function BigCardPreview({ cardId, className = '' }: { cardId: string; className?: string }) {
+/** The draft card, genuinely ENLARGED: rendered at a base width then scaled up
+ *  with CSS `zoom` so the figure art, stat pills, and power text ALL grow together
+ *  — a real bigger card at its natural height, not an empty taller frame (the
+ *  earlier aspect-ratio version just padded the parchment, which read as "the panel
+ *  got bigger, the card didn't"). `zoom` also scales the layout box, so the
+ *  measured footprint is correct and nothing below it overlaps. */
+function BigCardPreview({ cardId, scale = 1.4, baseWidth = 256 }: { cardId: string; scale?: number; baseWidth?: number }) {
   if (!HS_CARDS[cardId]) return null;
   return (
-    <div className={'aspect-[2/3] w-full overflow-hidden rounded-lg shadow-2xl shadow-black/80 ' + className}>
+    <div style={{ zoom: scale, width: baseWidth }} className="overflow-hidden rounded-lg shadow-2xl shadow-black/80">
       <HybridCard cardId={cardId} />
     </div>
   );
@@ -742,7 +742,7 @@ function CardHoverPanel({ cardId, placement = 'above', big = false, side = 'righ
     return (
       <div
         className={
-          'pointer-events-none fixed top-1/2 z-50 hidden w-[min(384px,42vw)] max-h-[96vh] -translate-y-1/2 group-hover:block ' +
+          'pointer-events-none fixed top-1/2 z-50 hidden max-h-[96vh] w-auto -translate-y-1/2 group-hover:block ' +
           (side === 'left' ? 'left-4' : 'right-4')
         }
       >
@@ -1408,6 +1408,18 @@ export default function HeroScapeBoard({
   const carryList = canAct && me && bhId === 'theracus' ? carryPassengers(state, me.seat) : [];
   const anyBigHeroPower =
     iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
+
+  // Tap a power on the "Now acting" card → reveal + briefly flash its controls in
+  // the Special Power panel below (where the activation entry point lives).
+  const powerPanelRef = useRef<HTMLDivElement>(null);
+  const [powerFlash, setPowerFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const revealPowerPanel = useCallback(() => {
+    powerPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    setPowerFlash(true);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setPowerFlash(false), 1400);
+  }, []);
   /** Readable label for a figure id (card short name + squad index + hex). */
   const figName = (id: string): string => {
     const f = state.figures.find(x => x.id === id);
@@ -2453,7 +2465,10 @@ export default function HeroScapeBoard({
                 {turnPlayer?.username ?? ''}
               </span>
             </div>
-            <BigCardPreview cardId={activeCard.cardId} />
+            <HybridCard cardId={activeCard.cardId} onPowerTap={anyBigHeroPower ? revealPowerPanel : undefined} />
+            {!!anyBigHeroPower && (
+              <div className="mt-1 text-center text-[10px] text-violet-300/80">tap a power to use it ↓</div>
+            )}
           </div>
         )}
 
@@ -2712,7 +2727,13 @@ export default function HeroScapeBoard({
         {/* slice 8b: Big-Hero special-power control panel — dropdown pickers +
             a fire button per available power (the engine re-validates each). */}
         {!!anyBigHeroPower && !disabled && (
-          <div className="w-full rounded-lg border-2 border-violet-700/70 bg-neutral-900/70 px-3 py-2">
+          <div
+            ref={powerPanelRef}
+            className={
+              'w-full scroll-mt-2 rounded-lg border-2 bg-neutral-900/70 px-3 py-2 transition ' +
+              (powerFlash ? 'border-violet-300 ring-2 ring-violet-400/70' : 'border-violet-700/70')
+            }
+          >
             <div className="mb-1 text-sm font-bold text-violet-300">⚡ {activeCardDef?.name} — Special Power</div>
             <div className="flex flex-col gap-2 text-xs text-neutral-200">
               {/* Nilfheim — Ice Shard Breath (up to 3 shots) */}

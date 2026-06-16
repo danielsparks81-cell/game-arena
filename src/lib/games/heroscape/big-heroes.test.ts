@@ -276,6 +276,24 @@ describe('Braxas — Poisonous Acid Breath', () => {
     expect(errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: hero, targetId: 's1-marro_warriors-2', attackRoll: F('k'), defenseRoll: F('bbb') }))).toMatch(/already/i);
   });
 
+  it('engaged Braxas can still Acid Breath a figure it is NOT engaged with (it is not an attack)', () => {
+    // Braxas adjacent to enemy A (so Braxas is ENGAGED) and a 2nd enemy B three
+    // spaces away (within Range 4, NOT engaged). Acid Breath is "instead of
+    // attacking", so the can't-attack-past-engagement rule does NOT apply — the
+    // non-engaged figure must still be targetable (the bug that hid the 3rd enemy).
+    let { s, hero } = stage('braxas');
+    const h = at(s, hero)!;
+    const adj = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!; // adjacent → engages Braxas
+    const far = cellAtDist(s, h, 3, [adj]); // 3 away, within Range 4, not engaged
+    s = put(s, 's1-marro_warriors-1', adj);
+    s = put(s, 's1-marro_warriors-2', far);
+    // The non-engaged figure is destroyed on 8+ — proving it was a legal target.
+    s = unwrap(applyAction(s, 'p1', { kind: 'acid_breath', attackerId: hero, rolls: [
+      { targetId: 's1-marro_warriors-2', d20: 8 },
+    ] }));
+    expect(at(s, 's1-marro_warriors-2')).toBeNull();
+  });
+
   it('destroys a Hero only on 17+ (16 spares)', () => {
     const base = stage('braxas');
     const tgt = neighborKeys(at(base.s, base.hero)!).find(k => MAPS[base.s.mapId].cells[k])!;
