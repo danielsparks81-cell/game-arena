@@ -597,203 +597,102 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
 };
 
 // ============================================================================
-// Special-power descriptions — keyed by card id, for the PLAY-screen hover
-// popover (the small roster cards show the full card on hover). Text is the
-// faithful printed power text from docs/heroscape/cards.md (terse — one line
-// per power, numbers and conditions preserved). All 16 cards are listed; a
-// card with no special power gets an empty array.
 // ============================================================================
-export const POWER_DESCRIPTIONS: Record<string, { name: string; text: string }[]> = {
-  // ---- Jandar ----
-  tarn_vikings: [
-    {
-      name: 'Berserker Charge',
-      text: 'After moving and before attacking, roll the 20-sided die. If you roll a 15 or higher, you may move all Tarn Viking Warriors again.',
-    },
-  ],
-  finn: [
-    {
-      name: 'Attack Aura 1',
-      text: 'All friendly figures adjacent to Finn with a range of 1 add 1 die to their normal attack.',
-    },
-    {
-      name: "Warrior's Attack Spirit 1",
-      text: 'When destroyed, place this figure on any unique Army Card. Adds 1 to the normal attack number on that card.',
-    },
-  ],
-  thorgrim: [
-    {
-      name: 'Defensive Aura 1',
-      text: 'All friendly figures adjacent to Thorgrim add 1 die to their defense.',
-    },
-    {
-      name: "Warrior's Armor Spirit 1",
-      text: "When Thorgrim is destroyed, place this figure on any unique Army Card. Thorgrim's Spirit adds 1 to the defense number on that card.",
-    },
-  ],
-  airborne_elite: [
-    {
-      name: 'Grenade Special Attack',
-      text: 'Range 5. Lob 12. Attack 2. Once per game, throw grenades one at a time with each Airborne Elite: choose a figure to attack (no clear line of sight needed). Figures adjacent to the chosen figure are also affected. Roll 2 attack dice once for all affected figures; each figure rolls defense separately.',
-    },
-    {
-      name: 'The Drop',
-      text: 'Airborne Elite do not start on the battlefield. At the start of each round, before placing Order Markers, roll the 20-sided die. On a 13 or higher you may place all 4 figures on any empty spaces. You cannot place them adjacent to each other or other figures, or on glyphs.',
-    },
-  ],
-  drake: [
-    {
-      name: 'Thorian Speed',
-      text: 'Opponents’ figures must be adjacent to Sgt. Drake Alexander to attack him with a normal attack.',
-    },
-    {
-      name: 'Grapple Gun 25',
-      text: "Instead of Sgt. Drake Alexander's normal move, he may move only one space. This space may be up to 25 levels higher. All engagement rules still apply.",
-    },
-  ],
-  raelin: [
-    {
-      name: 'Whirlwind Assault',
-      text: 'Raelin may attack any or all figures adjacent to her. Roll each attack separately.',
-    },
-    {
-      name: 'Extended Defensive Aura',
-      text: 'All figures you control within 6 clear sight spaces of Raelin add 1 to their defense dice. Does not affect Raelin.',
-    },
-    {
-      name: 'Flying',
-      text: 'When counting spaces for Raelin’s movement, ignore elevations. She may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when she starts to fly, she takes any leaving-engagement attacks.',
-    },
-  ],
-  // ---- Utgar ----
-  zettian_guards: [
-    {
-      name: 'Zettian Targeting',
-      text: 'When attacking, if your second Zettian Guard attacks the same figure as the first Zettian Guard, add one attack die to the second Guard’s attack.',
-    },
-  ],
-  ne_gok_sa: [
-    {
-      name: 'Mind Shackle 20',
-      text: 'After moving and before attacking, you may choose any unique figure adjacent to Ne-Gok-Sa. Roll the 20-sided die. On a 20, take control of that figure and its Army Card (and all figures on it); remove any Order Markers on that card. Control is retained even if Ne-Gok-Sa is destroyed.',
-    },
-  ],
-  marro_warriors: [
-    {
-      name: 'Water Clone',
-      text: 'Instead of attacking, roll the 20-sided die for each Marro Warrior in play. On a 15 or higher, place a previously destroyed Marro Warrior on a same-level space adjacent to that Warrior. A Warrior on a water space needs a 10 or higher. You may only Water Clone after you move.',
-    },
-  ],
-  deathwalker_9000: [
-    {
-      name: 'Explosion Special Attack',
-      text: 'Range 7. Attack 3. Choose a figure to attack; figures adjacent to it are also affected. Needs only a clear sight shot at the chosen figure. Roll 3 attack dice once for all affected figures; each rolls defense separately. Deathwalker can be affected by his own explosion.',
-    },
-    {
-      name: 'Range Enhancement',
-      text: 'Any Soulborg Guards adjacent to Deathwalker add 2 spaces to their range.',
-    },
-  ],
-  mimring: [
-    {
-      name: 'Fire Line Special Attack',
-      text: 'Range Special. Attack 4. Choose 8 spaces in a straight line from Mimring. All figures on those spaces who are in line of sight are affected. Roll 4 attack dice once for all affected figures; each rolls defense separately.',
-    },
-    {
-      name: 'Flying',
-      text: 'When counting spaces for Mimring’s movement, ignore elevations. He may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when he starts to fly, he takes any leaving-engagement attacks.',
-    },
-  ],
-  grimnak: [
-    {
-      name: 'Chomp',
-      text: 'Before attacking, choose one medium or small figure adjacent to Grimnak. A Squad figure is destroyed. For a Hero figure, roll the 20-sided die; on a 16 or higher, destroy the chosen Hero.',
-    },
-    {
-      name: 'Orc Warrior Enhancement',
-      text: 'All friendly Orc Warriors adjacent to Grimnak roll an additional attack die and an additional defense die.',
-    },
-  ],
-  // ---- Ullar ----
-  syvarris: [
-    {
-      name: 'Double Attack',
-      text: 'When Syvarris attacks, he may attack one additional time.',
-    },
-  ],
-  // ---- Vydar ----
-  agent_carr: [
-    {
-      name: 'Ghost Walk',
-      text: 'Agent Carr can move through all figures.',
-    },
-    {
-      name: 'Sword of Reckoning 4',
-      text: 'If Agent Carr is attacking an adjacent figure, add 4 dice to his attack.',
-    },
-    {
-      name: 'Disengage',
-      text: 'Agent Carr is never attacked when leaving an engagement.',
-    },
-  ],
-  krav_maga: [
-    {
-      name: 'Stealth Dodge',
-      text: 'When a Krav Maga Agent rolls defense dice against an attacking figure who is not adjacent, one shield will block all damage.',
-    },
-  ],
-  // ---- Einar ----
-  izumi_samurai: [
-    {
-      name: 'Counter Strike',
-      text: 'When rolling defense dice against a normal attack from an adjacent attacking figure, all excess shields count as unblockable hits on the attacker. Does not work against other Samurai.',
-    },
-  ],
-  // ---- Big Heroes (slice 8b) ----
-  nilfheim: [
-    {
-      name: 'Ice Shard Breath Special Attack',
-      text: 'Range 5. Attack 4. When Nilfheim attacks with his Ice Shard Breath Special Attack, he may attack 2 additional times. He cannot attack the same figure more than once.',
-    },
-    {
-      name: 'Flying',
-      text: 'When counting spaces for Nilfheim’s movement, ignore elevations. He may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when he starts to fly, he takes any leaving-engagement attacks.',
-    },
-  ],
-  braxas: [
-    {
-      name: 'Poisonous Acid Breath',
-      text: 'Instead of attacking, you may choose up to 3 different small or medium figures within 4 clear sight spaces of Braxas. One at a time, roll the 20-sided die for each chosen figure. If the chosen figure is a Squad figure and you roll an 8 or higher, destroy it. If the chosen figure is a Hero figure and you roll a 17 or higher, destroy the chosen Hero.',
-    },
-    {
-      name: 'Flying',
-      text: 'When counting spaces for Braxas’s movement, ignore elevations. She may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when she starts to fly, she takes any leaving-engagement attacks.',
-    },
-  ],
-  theracus: [
-    {
-      name: 'Carry',
-      text: 'Before moving Theracus, choose an unengaged friendly small or medium figure adjacent to Theracus. After you move Theracus, place the chosen figure adjacent to Theracus.',
-    },
-    {
-      name: 'Flying',
-      text: 'When counting spaces for Theracus’s movement, ignore elevations. He may fly over water without stopping and pass over figures and obstacles without becoming engaged. If engaged when he starts to fly, he takes any leaving-engagement attacks.',
-    },
-  ],
-  major_q9: [
-    {
-      name: 'Queglix Gun Special Attack',
-      text: 'Range 6. Attack 1, 2 or 3. Major Q9 starts each turn with 9 attack dice. Choose any figure within range and attack by rolling 1, 2 or 3 attack dice. Major Q9 may keep making special attacks with 1, 2 or 3 attack dice until he has rolled all 9 attack dice. Major Q9 may target the same or different figures with each attack.',
-    },
-  ],
-  jotun: [
-    {
-      name: 'Wild Swing Special Attack',
-      text: 'Range 1. Attack 4. Choose a figure to attack. Any figures adjacent to the chosen figure are also affected by the Wild Swing Special Attack. Roll attack dice once for all affected figures. Each figure rolls defense dice separately. Jotun cannot be affected by his own Wild Swing Special Attack.',
-    },
-    {
-      name: 'Throw 14',
-      text: 'After moving and before attacking, choose one small or medium non-flying figure adjacent to Jotun. Roll the 20-sided die. If you roll a 14 or higher, you may throw the figure by placing it on any empty space within 4 spaces of Jotun. The figure must land within clear sight of Jotun. After the figure is placed, roll the 20-sided die for throwing damage. If you roll an 11 or higher, the thrown figure receives 2 wounds. If the figure is thrown onto a level higher than the height of Jotun or onto water, do not roll for throwing damage. The thrown figure does not take any leaving engagement attacks.',
-    },
-  ],
+// SPECIAL-ABILITY GLOSSARY — every distinct ability defined ONCE and character-
+// neutral, so a shared keyword (Flying, ...) is never duplicated across the cards
+// that have it. Cards list their abilities by NAME in CARD_ABILITIES; the per-card
+// POWER_DESCRIPTIONS used by the card/hover display is DERIVED from the two below.
+//
+// Fidelity notes:
+//  - Text is the printed power text with the figure's OWN name swapped for a
+//    generic reference ("this figure" / "this card's figures"); every number,
+//    range and condition is preserved, and rule-relevant GROUP names (Orc
+//    Warriors, Soulborg Guards, Samurai...) are kept because they scope the rule.
+//  - kind: 'active' = a power the player initiates on their turn (the tap target
+//    for the activation panel); 'passive' = automatic / always-on / triggered.
+//  - Flying =/= Stealth Flying: Stealth Flying does NOT take leaving-engagement
+//    attacks, so it must be a SEPARATE entry if ever added -- never merge them.
+//  - A parameterized keyword keeps its number in the name for now (Mind Shackle
+//    20, Attack Aura 1, ...); split it into a value param only once two cards
+//    share one base keyword with different numbers.
+// ============================================================================
+export interface Ability { text: string; kind: 'active' | 'passive'; }
+
+export const ABILITIES: Record<string, Ability> = {
+  // ---- shared keywords (defined once) ----
+  'Flying': { kind: 'passive', text: "When counting spaces for movement, ignore elevations. This figure may fly over water without stopping and pass over figures and obstacles without becoming engaged. If it is engaged when it starts to fly, it takes any leaving-engagement attacks." },
+  'Disengage': { kind: 'passive', text: "This figure is never attacked when leaving an engagement." },
+
+  // ---- unique abilities ----
+  'Berserker Charge': { kind: 'active', text: "After moving and before attacking, roll the 20-sided die. If you roll a 15 or higher, you may move all of this card's figures again." },
+  'Attack Aura 1': { kind: 'passive', text: "All friendly figures adjacent to this figure with a range of 1 add 1 die to their normal attack." },
+  "Warrior's Attack Spirit 1": { kind: 'passive', text: "When destroyed, place this figure on any unique Army Card. Adds 1 to the normal attack number on that card." },
+  'Defensive Aura 1': { kind: 'passive', text: "All friendly figures adjacent to this figure add 1 die to their defense." },
+  "Warrior's Armor Spirit 1": { kind: 'passive', text: "When destroyed, place this figure on any unique Army Card. Adds 1 to the defense number on that card." },
+  'Grenade Special Attack': { kind: 'active', text: "Range 5. Lob 12. Attack 2. Once per game, throw grenades one at a time with each of this card's figures: choose a figure to attack (no clear line of sight needed). Figures adjacent to the chosen figure are also affected. Roll 2 attack dice once for all affected figures; each figure rolls defense separately." },
+  'The Drop': { kind: 'active', text: "These figures do not start on the battlefield. At the start of each round, before placing Order Markers, roll the 20-sided die. On a 13 or higher you may place all 4 figures on any empty spaces. You cannot place them adjacent to each other or other figures, or on glyphs." },
+  'Thorian Speed': { kind: 'passive', text: "Opponents' figures must be adjacent to this figure to attack it with a normal attack." },
+  'Grapple Gun 25': { kind: 'active', text: "Instead of its normal move, this figure may move only one space. This space may be up to 25 levels higher. All engagement rules still apply." },
+  'Whirlwind Assault': { kind: 'active', text: "This figure may attack any or all figures adjacent to it. Roll each attack separately." },
+  'Extended Defensive Aura': { kind: 'passive', text: "All figures you control within 6 clear sight spaces of this figure add 1 to their defense dice. Does not affect this figure." },
+  'Zettian Targeting': { kind: 'passive', text: "When attacking, if your second figure from this card attacks the same figure as the first, add one attack die to the second's attack." },
+  'Mind Shackle 20': { kind: 'active', text: "After moving and before attacking, you may choose any unique figure adjacent to this figure. Roll the 20-sided die. On a 20, take control of that figure and its Army Card (and all figures on it); remove any Order Markers on that card. Control is retained even if this figure is destroyed." },
+  'Water Clone': { kind: 'active', text: "Instead of attacking, roll the 20-sided die for each of this card's figures in play. On a 15 or higher, place a previously destroyed figure from this card on a same-level space adjacent to that figure. A figure on a water space needs a 10 or higher. You may only Water Clone after you move." },
+  'Explosion Special Attack': { kind: 'active', text: "Range 7. Attack 3. Choose a figure to attack; figures adjacent to it are also affected. Needs only a clear sight shot at the chosen figure. Roll 3 attack dice once for all affected figures; each rolls defense separately. This figure can be affected by its own explosion." },
+  'Range Enhancement': { kind: 'passive', text: "Any Soulborg Guards adjacent to this figure add 2 spaces to their range." },
+  'Fire Line Special Attack': { kind: 'active', text: "Range Special. Attack 4. Choose 8 spaces in a straight line from this figure. All figures on those spaces who are in line of sight are affected. Roll 4 attack dice once for all affected figures; each rolls defense separately." },
+  'Chomp': { kind: 'active', text: "Before attacking, choose one medium or small figure adjacent to this figure. A Squad figure is destroyed. For a Hero figure, roll the 20-sided die; on a 16 or higher, destroy the chosen Hero." },
+  'Orc Warrior Enhancement': { kind: 'passive', text: "All friendly Orc Warriors adjacent to this figure roll an additional attack die and an additional defense die." },
+  'Double Attack': { kind: 'passive', text: "When this figure attacks, it may attack one additional time." },
+  'Ghost Walk': { kind: 'passive', text: "This figure can move through all figures." },
+  'Sword of Reckoning 4': { kind: 'passive', text: "If this figure is attacking an adjacent figure, add 4 dice to its attack." },
+  'Stealth Dodge': { kind: 'passive', text: "When this figure rolls defense dice against an attacking figure who is not adjacent, one shield will block all damage." },
+  'Counter Strike': { kind: 'passive', text: "When rolling defense dice against a normal attack from an adjacent attacking figure, all excess shields count as unblockable hits on the attacker. Does not work against other Samurai." },
+  'Ice Shard Breath Special Attack': { kind: 'active', text: "Range 5. Attack 4. When attacking with the Ice Shard Breath Special Attack, this figure may attack 2 additional times. It cannot attack the same figure more than once." },
+  'Poisonous Acid Breath': { kind: 'active', text: "Instead of attacking, you may choose up to 3 different small or medium figures within 4 clear sight spaces of this figure. One at a time, roll the 20-sided die for each chosen figure. If the chosen figure is a Squad figure and you roll an 8 or higher, destroy it. If the chosen figure is a Hero figure and you roll a 17 or higher, destroy the chosen Hero." },
+  'Carry': { kind: 'active', text: "Before moving, choose an unengaged friendly small or medium figure adjacent to this figure. After moving, place the chosen figure adjacent to this figure." },
+  'Queglix Gun Special Attack': { kind: 'active', text: "Range 6. Attack 1, 2 or 3. This figure starts each turn with 9 attack dice. Choose any figure within range and attack by rolling 1, 2 or 3 attack dice. This figure may keep making special attacks with 1, 2 or 3 attack dice until it has rolled all 9 attack dice. It may target the same or different figures with each attack." },
+  'Wild Swing Special Attack': { kind: 'active', text: "Range 1. Attack 4. Choose a figure to attack. Any figures adjacent to the chosen figure are also affected by the Wild Swing Special Attack. Roll attack dice once for all affected figures. Each figure rolls defense dice separately. This figure cannot be affected by its own Wild Swing Special Attack." },
+  'Throw 14': { kind: 'active', text: "After moving and before attacking, choose one small or medium non-flying figure adjacent to this figure. Roll the 20-sided die. If you roll a 14 or higher, you may throw the figure by placing it on any empty space within 4 spaces of this figure. The figure must land within clear sight of this figure. After the figure is placed, roll the 20-sided die for throwing damage. If you roll an 11 or higher, the thrown figure receives 2 wounds. If the figure is thrown onto a level higher than the height of this figure or onto water, do not roll for throwing damage. The thrown figure does not take any leaving-engagement attacks." },
 };
+
+// Which abilities each card has, in printed order. References the glossary keys.
+export const CARD_ABILITIES: Record<string, string[]> = {
+  // Jandar
+  tarn_vikings: ['Berserker Charge'],
+  finn: ['Attack Aura 1', "Warrior's Attack Spirit 1"],
+  thorgrim: ['Defensive Aura 1', "Warrior's Armor Spirit 1"],
+  airborne_elite: ['Grenade Special Attack', 'The Drop'],
+  drake: ['Thorian Speed', 'Grapple Gun 25'],
+  raelin: ['Whirlwind Assault', 'Extended Defensive Aura', 'Flying'],
+  // Utgar
+  zettian_guards: ['Zettian Targeting'],
+  ne_gok_sa: ['Mind Shackle 20'],
+  marro_warriors: ['Water Clone'],
+  deathwalker_9000: ['Explosion Special Attack', 'Range Enhancement'],
+  mimring: ['Fire Line Special Attack', 'Flying'],
+  grimnak: ['Chomp', 'Orc Warrior Enhancement'],
+  // Ullar
+  syvarris: ['Double Attack'],
+  // Vydar
+  agent_carr: ['Ghost Walk', 'Sword of Reckoning 4', 'Disengage'],
+  krav_maga: ['Stealth Dodge'],
+  // Einar
+  izumi_samurai: ['Counter Strike'],
+  // Big Heroes
+  nilfheim: ['Ice Shard Breath Special Attack', 'Flying'],
+  braxas: ['Poisonous Acid Breath', 'Flying'],
+  theracus: ['Carry', 'Flying'],
+  major_q9: ['Queglix Gun Special Attack'],
+  jotun: ['Wild Swing Special Attack', 'Throw 14'],
+};
+
+// Per-card power list for the card/hover display — DERIVED from the glossary, so
+// the card text and the glossary can never drift apart.
+export const POWER_DESCRIPTIONS: Record<string, { name: string; text: string }[]> =
+  Object.fromEntries(
+    Object.entries(CARD_ABILITIES).map(([id, names]) => [
+      id,
+      names.map((name) => ({ name, text: ABILITIES[name]?.text ?? '' })),
+    ]),
+  );
