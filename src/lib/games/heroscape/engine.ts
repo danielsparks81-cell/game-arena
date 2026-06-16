@@ -362,8 +362,9 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'roll_initiative':
       return doRollInitiative(state, action.attempts);
     // Airborne Elite THE DROP — at round start, before this seat's order markers.
+    // ROLL ONLY: on 13+ it opens an `airborne_drop` pending choice (placement).
     case 'the_drop':
-      return doTheDrop(state, me.seat, action.placements, action.d20);
+      return doTheDrop(state, me.seat, action.d20);
     // Turn actions — only the revealed-marker player acts.
     case 'move_figure':
     case 'grapple_move':
@@ -4076,15 +4077,21 @@ export function canTheDrop(state: HSState, seat: number): boolean {
   );
 }
 
-/** Every empty board hex an Airborne figure could legally land on (ignores mutual
- *  adjacency among the drop set — the board enforces that as figures are chosen).
- *  Empty unless `canTheDrop`. */
+/** Every empty board hex an Airborne figure may land on during the DROP
+ *  PLACEMENT step — i.e. while this seat has an `airborne_drop` pending choice
+ *  (opened by a 13+ roll). Ignores mutual adjacency among the drop set (the board
+ *  enforces that as figures are chosen). Empty when no placement is pending. */
 export function theDropHexes(state: HSState, seat: number): HexKey[] {
-  if (!canTheDrop(state, seat)) return [];
+  const pc = state.pendingChoice;
+  if (!pc || pc.kind !== 'airborne_drop' || pc.seat !== seat) return [];
   return Object.keys(MAPS[state.mapId]?.cells ?? {}).filter(k => dropHexLegal(state, k));
 }
 
-function doTheDrop(state: HSState, seat: number, placements: HexKey[], d20: number): HSResult {
+/** The Drop — ROLL step (cards.md). At round start, before order markers, roll a
+ *  d20. The roll is GLOBAL (setLastRoll → every player's dice overlay). On a miss
+ *  (<13) the Airborne stay in reserve; on 13+ open an `airborne_drop` pending
+ *  choice so the LANDING is offered only AFTER the roll is seen. One roll/round. */
+function doTheDrop(state: HSState, seat: number, d20: number): HSResult {
   if (state.phase !== 'playing' || state.subPhase !== 'place_markers') {
     return { error: 'The Drop happens at the start of a round, before order markers' };
   }
@@ -4103,7 +4110,22 @@ function doTheDrop(state: HSState, seat: number, placements: HexKey[], d20: numb
     setLastRoll(s, { title: 'The Drop', dice: [d20], success: false, detail: `${d20} (needs ${THE_DROP_THRESHOLD}+) — stays in reserve.` });
     return s;
   }
-  // 13+ — validate the chosen landings against the PRE-drop board.
+  // 13+ — DEFER placement to a pending choice so the GLOBAL roll is seen before any
+  // landing is chosen. The pendingChoice gate then forces this seat to deploy
+  // before placing order markers (The Drop resolves before markers).
+  s.pendingChoice = { kind: 'airborne_drop', seat, cardUid: reserve[0].cardUid, count: reserve.length };
+  pushLog(s, 'power', `The Drop! ${playerName(s, seat)} rolls ${d20} (≥${THE_DROP_THRESHOLD}) — deploy ${reserve.length} Airborne Elite.`);
+  setLastRoll(s, { title: 'The Drop', dice: [d20], success: true, detail: `${d20} (≥${THE_DROP_THRESHOLD}) — place ${reserve.length} Airborne Elite!` });
+  return s;
+}
+
+/** The Drop — PLACEMENT step: resolve the `airborne_drop` pending choice by
+ *  deploying all reserve Airborne onto the chosen empty spaces (each legal — not
+ *  occupied / on a glyph / adjacent to a figure — and mutually non-adjacent),
+ *  validated against the pre-drop board. */
+function doAirborneDropPlace(state: HSState, seat: number, placements: HexKey[]): HSResult {
+  const reserve = reserveAirborne(state, seat);
+  if (reserve.length === 0) return { error: 'You have no Airborne Elite in reserve' };
   if (!Array.isArray(placements) || placements.length !== reserve.length) {
     return { error: `The Drop must place all ${reserve.length} Airborne Elite` };
   }
@@ -4118,14 +4140,15 @@ function doTheDrop(state: HSState, seat: number, placements: HexKey[], d20: numb
       }
     }
   }
-  reserve.forEach((rf, i) => {
+  const s = clone(state);
+  reserveAirborne(s, seat).forEach((rf, i) => {
     const f = s.figures.find(x => x.id === rf.id)!;
     f.at = placements[i];
     f.at2 = null;
     delete f.reserve;
   });
-  pushLog(s, 'power', `The Drop! ${playerName(s, seat)} rolls ${d20} and deploys ${reserve.length} Airborne Elite.`);
-  setLastRoll(s, { title: 'The Drop', dice: [d20], success: true, detail: `${d20} (≥${THE_DROP_THRESHOLD}) — deploys ${reserve.length} Airborne Elite!` });
+  delete s.pendingChoice;
+  pushLog(s, 'power', `${playerName(s, seat)} deploys ${reserve.length} Airborne Elite.`);
   return s;
 }
 
@@ -4139,6 +4162,11 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
   const pc = state.pendingChoice!;
   if (pc.kind !== choice.kind) {
     return { error: `Expected a ${pc.kind} resolution` };
+  }
+
+  // --- Airborne Elite THE DROP placement (the landing step after a 13+ roll) ---
+  if (pc.kind === 'airborne_drop' && choice.kind === 'airborne_drop') {
+    return doAirborneDropPlace(state, seat, choice.placements);
   }
 
   // --- Spirit placement (Finn/Thorgrim on destroy) ---

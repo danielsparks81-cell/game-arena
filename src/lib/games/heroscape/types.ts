@@ -377,13 +377,25 @@ export type HSPendingChoice =
       seat: number;
       cardUid: string;
       throwers: string[];
+    }
+  | {
+      // Airborne Elite THE DROP placement (cards.md) — opened when the d20 roll
+      // (the_drop action) lands 13+, BEFORE order markers, so the global roll is
+      // seen first. The owner then deploys all `count` reserve Airborne onto chosen
+      // empty spaces (not adjacent to each other or any figure, not on glyphs). The
+      // pendingChoice gate forces this to resolve before markers/anything else.
+      kind: 'airborne_drop';
+      seat: number;
+      cardUid: string;
+      count: number;
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
 export type HSChoiceResolution =
   | { kind: 'berserker_charge'; remove: boolean } // true = re-move (re-grant), false = decline
   | { kind: 'water_clone_place'; hex: HexKey } // landing for the NEXT pending placement
-  | { kind: 'spirit_placement'; cardUid: string }; // unique card to receive the Spirit
+  | { kind: 'spirit_placement'; cardUid: string } // unique card to receive the Spirit
+  | { kind: 'airborne_drop'; placements: HexKey[] }; // landings for all reserve Airborne Elite
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`
@@ -823,13 +835,12 @@ export type HSAction =
     }
   | {
       // Airborne Elite THE DROP (cards.md): at the start of a round, BEFORE order
-      // markers, roll a d20 — on 13+ you MAY deploy all reserve Airborne Elite onto
-      // chosen empty spaces (not adjacent to each other or any figure, not on
-      // glyphs). The SERVER rolls `d20`; `placements` are the chosen hexes (one per
-      // reserve figure). On a miss (<13) the figures stay in reserve; one roll per
-      // round. The engine re-derives the reserve set + validates every placement.
+      // markers, roll a d20. The SERVER rolls `d20`; this action is the ROLL ONLY,
+      // so every player sees the global dice overlay before any landing is chosen.
+      // On 13+ the engine opens an `airborne_drop` pending choice (the owner then
+      // places all reserve Airborne); on a miss (<13) they stay in reserve. One
+      // roll per round.
       kind: 'the_drop';
-      placements: HexKey[];
       d20: number;
     }
   | {

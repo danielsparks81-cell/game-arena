@@ -500,30 +500,47 @@ function pickNonAdj(hexes: string[], n: number): string[] {
 const reserveOf = (s: HSState, id: string) => s.figures.find(f => f.id === id)!.reserve === true;
 
 describe('Airborne Elite — The Drop', () => {
-  it('starts in reserve; canTheDrop is offered at round start; legal hexes exclude the enemy + its neighbours', () => {
-    const { s, air, enemyHex } = dropStage();
-    expect(air.every(id => reserveOf(s, id))).toBe(true);
-    expect(canTheDrop(s, 0)).toBe(true);
+  // The Drop is now a TWO-STEP power: `the_drop` ROLLS the d20 (global); a 13+
+  // opens an `airborne_drop` pending choice, and the landings arrive as a separate
+  // resolve_choice — so the placement is offered only AFTER the roll. Legal hexes
+  // (`theDropHexes`) are therefore empty until that choice is open.
+  const rollDrop = (s: HSState, pid: 'p1' | 'p2', d20: number) =>
+    applyAction(s, pid, { kind: 'the_drop', d20 });
+  const placeDrop = (s: HSState, pid: 'p1' | 'p2', placements: string[]) =>
+    applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements } });
+
+  it('starts in reserve; canTheDrop is offered at round start; after a hit the landings exclude the enemy + its neighbours', () => {
+    const { s: s0, air, enemyHex } = dropStage();
+    expect(air.every(id => reserveOf(s0, id))).toBe(true);
+    expect(canTheDrop(s0, 0)).toBe(true);
+    expect(theDropHexes(s0, 0)).toEqual([]); // nothing to place until a 13+ roll opens the choice
+    const s = unwrap(rollDrop(s0, 'p1', 18)); // hit → placement pending
+    expect(s.pendingChoice?.kind).toBe('airborne_drop');
     const legal = theDropHexes(s, 0);
     expect(legal).not.toContain(enemyHex); // occupied
     for (const nb of neighborKeys(enemyHex)) expect(legal).not.toContain(nb); // adjacent to a figure
     expect(legal.length).toBeGreaterThan(0);
   });
 
-  it('a roll below 13 keeps them in reserve and spends the round’s roll', () => {
+  it('a roll below 13 keeps them in reserve, opens NO choice, and spends the round’s roll', () => {
     let { s, air } = dropStage();
-    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: [], d20: 12 }));
+    s = unwrap(rollDrop(s, 'p1', 12));
+    expect(s.pendingChoice).toBeUndefined(); // miss → no placement step
     expect(air.every(id => reserveOf(s, id))).toBe(true); // still reserve
     expect(s.airborneDropRound).toBe(s.round);
     // No second roll this round.
-    expect(errOf(applyAction(s, 'p1', { kind: 'the_drop', placements: [], d20: 20 }))).toMatch(/already been rolled/i);
+    expect(errOf(rollDrop(s, 'p1', 20))).toMatch(/already been rolled/i);
   });
 
-  it('a 13+ roll deploys all 4 onto the chosen spaces (reserve cleared)', () => {
+  it('a 13+ roll opens the placement choice; deploying lands all 4 (reserve cleared)', () => {
     let { s, air } = dropStage();
+    s = unwrap(rollDrop(s, 'p1', 13));
+    expect(s.pendingChoice?.kind).toBe('airborne_drop');
+    expect(air.every(id => reserveOf(s, id))).toBe(true); // STILL reserve until placement resolves
     const spots = pickNonAdj(theDropHexes(s, 0), 4);
     expect(spots).toHaveLength(4);
-    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: spots, d20: 13 }));
+    s = unwrap(placeDrop(s, 'p1', spots));
+    expect(s.pendingChoice).toBeUndefined();
     air.forEach((id, i) => {
       const f = s.figures.find(x => x.id === id)!;
       expect(f.at).toBe(spots[i]);
@@ -531,40 +548,51 @@ describe('Airborne Elite — The Drop', () => {
     });
   });
 
+  it('the placement choice must resolve BEFORE order markers (the pending gate)', () => {
+    let { s } = dropStage();
+    s = unwrap(rollDrop(s, 'p1', 18)); // hit → airborne_drop pending
+    // The owner cannot place order markers while the Drop placement is open.
+    expect(errOf(applyAction(s, 'p1', { kind: 'place_markers', assignments: allOn('s0-airborne_elite') })))
+      .toMatch(/pending choice/i);
+  });
+
   it('rejects a landing adjacent to a figure, on a glyph, or adjacent to another drop', () => {
     const base = dropStage();
-    const legal = theDropHexes(base.s, 0);
+    const s = unwrap(rollDrop(base.s, 'p1', 18)); // hit → placement pending
+    const legal = theDropHexes(s, 0);
     const spots = pickNonAdj(legal, 4);
     // adjacent to the enemy
-    const adjEnemy = neighborKeys(base.enemyHex).find(k => MAPS[base.s.mapId].cells[k])!;
-    expect(errOf(applyAction(base.s, 'p1', { kind: 'the_drop', placements: [adjEnemy, spots[1], spots[2], spots[3]], d20: 18 }))).toMatch(/adjacent to a figure|occupied|glyph/i);
+    const adjEnemy = neighborKeys(base.enemyHex).find(k => MAPS[s.mapId].cells[k])!;
+    expect(errOf(placeDrop(s, 'p1', [adjEnemy, spots[1], spots[2], spots[3]]))).toMatch(/adjacent to a figure|occupied|glyph/i);
     // two drops adjacent to EACH OTHER
     const a = spots[0];
     const adjA = neighborKeys(a).find(k => legal.includes(k))!;
-    expect(errOf(applyAction(base.s, 'p1', { kind: 'the_drop', placements: [a, adjA, spots[2], spots[3]], d20: 18 }))).toMatch(/adjacent to each other/i);
+    expect(errOf(placeDrop(s, 'p1', [a, adjA, spots[2], spots[3]]))).toMatch(/adjacent to each other/i);
     // on a glyph
-    const g = dropStage();
-    const gspots = pickNonAdj(theDropHexes(g.s, 0), 4);
-    g.s.glyphs = [{ id: 'astrid', at: gspots[0], faceUp: true }];
-    expect(errOf(applyAction(g.s, 'p1', { kind: 'the_drop', placements: gspots, d20: 18 }))).toMatch(/glyph|adjacent/i);
+    const gs = unwrap(rollDrop(dropStage().s, 'p1', 18));
+    const gspots = pickNonAdj(theDropHexes(gs, 0), 4);
+    gs.glyphs = [{ id: 'astrid', at: gspots[0], faceUp: true }];
+    expect(errOf(placeDrop(gs, 'p1', gspots))).toMatch(/glyph|adjacent/i);
   });
 
   it('rejects the wrong number of landings and duplicates', () => {
-    const { s } = dropStage();
+    let { s } = dropStage();
+    s = unwrap(rollDrop(s, 'p1', 18)); // hit → placement pending
     const spots = pickNonAdj(theDropHexes(s, 0), 4);
-    expect(errOf(applyAction(s, 'p1', { kind: 'the_drop', placements: spots.slice(0, 3), d20: 18 }))).toMatch(/all 4/i);
-    expect(errOf(applyAction(s, 'p1', { kind: 'the_drop', placements: [spots[0], spots[0], spots[1], spots[2]], d20: 18 }))).toMatch(/distinct/i);
+    expect(errOf(placeDrop(s, 'p1', spots.slice(0, 3)))).toMatch(/all 4/i);
+    expect(errOf(placeDrop(s, 'p1', [spots[0], spots[0], spots[1], spots[2]]))).toMatch(/distinct/i);
   });
 
   it('recurs the next round after a miss', () => {
     let { s } = dropStage();
-    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: [], d20: 5 })); // miss, airborneDropRound = 1
+    s = unwrap(rollDrop(s, 'p1', 5)); // miss, airborneDropRound = 1
     expect(canTheDrop(s, 0)).toBe(false); // not again this round
     s = JSON.parse(JSON.stringify(s)) as HSState;
     s.round = 2; // next round
     expect(canTheDrop(s, 0)).toBe(true); // offered again
+    s = unwrap(rollDrop(s, 'p1', 20)); // hit → pending
     const spots = pickNonAdj(theDropHexes(s, 0), 4);
-    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', placements: spots, d20: 20 }));
+    s = unwrap(placeDrop(s, 'p1', spots));
     expect(s.figures.find(f => f.id === 's0-airborne_elite-1')!.at).toBe(spots[0]);
   });
 
@@ -572,11 +600,11 @@ describe('Airborne Elite — The Drop', () => {
     const { s } = dropStage();
     // seat 1 has no reserve Airborne
     expect(canTheDrop(s, 1)).toBe(false);
-    expect(errOf(applyAction(s, 'p2', { kind: 'the_drop', placements: [], d20: 20 }))).toMatch(/no Airborne Elite in reserve/i);
+    expect(errOf(rollDrop(s, 'p2', 20))).toMatch(/no Airborne Elite in reserve/i);
     // not during the turns sub-phase
     const turns = JSON.parse(JSON.stringify(s)) as HSState;
     turns.subPhase = 'turns';
-    expect(errOf(applyAction(turns, 'p1', { kind: 'the_drop', placements: [], d20: 20 }))).toMatch(/start of a round/i);
+    expect(errOf(rollDrop(turns, 'p1', 20))).toMatch(/start of a round/i);
   });
 
   it('reserve figures count as ALIVE — wiping a seat’s on-board figures does NOT end the game while it has reserve Airborne', () => {

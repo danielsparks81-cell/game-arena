@@ -755,7 +755,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'acid_breath'; attackerId: string; targetIds: string[] }
   | { game: 'heroscape'; kind: 'throw_figure'; attackerId: string; targetId: string; to: string }
   | { game: 'heroscape'; kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
-  | { game: 'heroscape'; kind: 'the_drop'; placements: string[] }
+  | { game: 'heroscape'; kind: 'the_drop' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
   | { game: 'heroscape'; kind: 'end_turn' }
   // Draft + placement (slice 5).
@@ -1224,7 +1224,7 @@ type HSWireAction =
   | { kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
   // Airborne Elite THE DROP (slice 8): the d20 is rolled server-side; the board
   // sends only the chosen landing hexes (one per reserve Airborne figure).
-  | { kind: 'the_drop'; placements: string[] }
+  | { kind: 'the_drop' }
   | { kind: 'resolve_choice'; choice: HSChoiceResolution }
   | { kind: 'end_turn' }
   // Draft + placement (slice 5). No draft_roll on the wire — the server rolls the
@@ -1477,9 +1477,10 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
         : {}),
     };
   } else if (action.kind === 'the_drop') {
-    // Airborne Elite THE DROP — the server rolls the d20; the engine deploys on
-    // 13+ at the chosen landings (re-validating empty / non-adjacent / no glyph).
-    engineAction = { kind: 'the_drop', placements: action.placements, d20: d20() };
+    // Airborne Elite THE DROP — ROLL only: the server rolls the d20 (global). On
+    // 13+ the engine opens an `airborne_drop` pending choice; the landings then
+    // arrive as a separate resolve_choice once the player has seen the roll.
+    engineAction = { kind: 'the_drop', d20: d20() };
   } else if (action.kind === 'resolve_choice') {
     engineAction = { kind: 'resolve_choice', choice: action.choice };
   } else if (action.kind === 'start_game') {

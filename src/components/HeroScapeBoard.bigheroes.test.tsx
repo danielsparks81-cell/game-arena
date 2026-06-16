@@ -172,8 +172,24 @@ function dropStage(): { s: HSState; legal: string[] } {
 }
 
 describe('Airborne Elite — The Drop board UI', () => {
-  it('shows the Drop panel at round start; picking 4 hexes then Drop dispatches onTheDrop', () => {
-    const { s, legal } = dropStage();
+  it('shows a "Roll The Drop" button for the Airborne owner; clicking it rolls (no placement yet)', () => {
+    const { s } = dropStage();
+    const cb = spies();
+    renderBoard(s, cb);
+    // The roll button renders for the Airborne owner (distinct from the card's
+    // "The Drop" power-name label that also appears in the roster).
+    expect(theDropHexes(s, 0)).toEqual([]); // no landings highlighted until the roll hits
+    fireEvent.click(screen.getByRole('button', { name: /Roll The Drop/i }));
+    expect(cb.onTheDrop).toHaveBeenCalledTimes(1);
+    expect(cb.onTheDrop.mock.calls[0]).toHaveLength(0); // ROLL only — no placements committed
+  });
+
+  it('after a 13+ roll opens the placement choice, picking 4 hexes then Deploy dispatches onResolveChoice', () => {
+    const { s } = dropStage();
+    // The engine's post-13+ state: the placement choice is open (the roll is done).
+    s.airborneDropRound = s.round;
+    s.pendingChoice = { kind: 'airborne_drop', seat: 0, cardUid: 's0-airborne_elite', count: 4 };
+    const legal = theDropHexes(s, 0);
     const spots: string[] = [];
     for (const h of legal) {
       if (spots.length >= 4) break;
@@ -182,18 +198,16 @@ describe('Airborne Elite — The Drop board UI', () => {
     expect(spots).toHaveLength(4);
     const cb = spies();
     const { container } = renderBoard(s, cb);
-    // The roll button renders for the Airborne owner (the panel control, distinct
-    // from the card's "The Drop" power-name label that also appears in the roster).
-    fireEvent.click(screen.getByRole('button', { name: /The Drop \(roll/i }));
-    // Now in drop mode — click the 4 chosen landing hexes (data-hex on the top face).
+    // Now in placement mode — click the 4 chosen landing hexes (data-hex on the top face).
     for (const k of spots) {
       const poly = container.querySelector(`[data-hex="${k}"]`);
       expect(poly).toBeTruthy();
       fireEvent.click(poly!);
     }
-    fireEvent.click(screen.getByRole('button', { name: /Drop!/ }));
-    expect(cb.onTheDrop).toHaveBeenCalledTimes(1);
-    expect(cb.onTheDrop.mock.calls[0][0].sort()).toEqual([...spots].sort());
+    fireEvent.click(screen.getByRole('button', { name: /Deploy!/ }));
+    expect(cb.onResolveChoice).toHaveBeenCalledTimes(1);
+    expect(cb.onResolveChoice.mock.calls[0][0].kind).toBe('airborne_drop');
+    expect(cb.onResolveChoice.mock.calls[0][0].placements.sort()).toEqual([...spots].sort());
   });
 
   it('does NOT show the Drop panel for a player with no reserve Airborne', () => {
