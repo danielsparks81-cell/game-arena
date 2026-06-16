@@ -237,6 +237,13 @@ export type LastAttack = {
   targetLabel: string;
   attackRoll: CombatFace[];
   defenseRoll: CombatFace[];
+  /** SPECIAL ATTACKS that splash multiple figures (Fire Line / Grenade / Wild
+   *  Swing) roll ONE shared attack, then each affected figure rolls defense
+   *  SEPARATELY. This carries one entry per affected figure so the dice overlay
+   *  can reveal each figure's own defense roll in turn (the player asked to
+   *  "see each roll of defense"). Absent for normal single-target attacks — the
+   *  overlay then falls back to the single `defenseRoll`. */
+  defenseGroups?: { label: string; roll: CombatFace[]; shields: number; wounds: number; destroyed: boolean }[];
   skulls: number;
   shields: number;
   /** Unblocked skulls = wounds inflicted (skulls − shields, min 0). */

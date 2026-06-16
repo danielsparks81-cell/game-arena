@@ -2583,9 +2583,11 @@ function doFireLine(
   s.turnAttacks.push({ attackerId: attacker.id, targetId: defenders[0]?.figureId ?? attacker.id });
 
   const results: string[] = [];
+  const defenseGroups: NonNullable<HSState['lastAttack']>['defenseGroups'] = [];
   let totalWounds = 0;
   for (const d of defenders) {
-    const shields = countFaces(got.get(d.figureId)!, 'shield');
+    const roll = got.get(d.figureId)!;
+    const shields = countFaces(roll, 'shield');
     const w = Math.max(0, skulls - shields);
     const t = s.figures.find(f => f.id === d.figureId);
     if (!t) continue;
@@ -2594,8 +2596,10 @@ function doFireLine(
     const tDef = cardDefFor(s, t);
     const destroyed = t.wounds >= tDef.life;
     if (destroyed) { t.at = null; t.at2 = null; }
+    const label = figureLabel(s, t);
+    defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
     results.push(
-      `${figureLabel(s, t)} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`,
+      `${label} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`,
     );
   }
 
@@ -2606,6 +2610,7 @@ function doFireLine(
     targetLabel: `Fire Line — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
     attackRoll: action.attackRoll,
     defenseRoll: [],
+    defenseGroups,
     skulls,
     shields: 0,
     wounds: totalWounds,
@@ -2748,10 +2753,12 @@ function doGrenadeThrow(
   const skulls = countFaces(action.attackRoll, 'skull');
   const s = clone(state);
   const results: string[] = [];
+  const defenseGroups: NonNullable<HSState['lastAttack']>['defenseGroups'] = [];
   let totalWounds = 0;
   let totalShields = 0;
   for (const d of defenders) {
-    const shields = countFaces(got.get(d.figureId)!, 'shield');
+    const roll = got.get(d.figureId)!;
+    const shields = countFaces(roll, 'shield');
     const w = Math.max(0, skulls - shields);
     const t = s.figures.find(f => f.id === d.figureId);
     if (!t) continue;
@@ -2760,7 +2767,9 @@ function doGrenadeThrow(
     totalShields += shields;
     const destroyed = t.wounds >= cardDefFor(s, t).life;
     if (destroyed) { t.at = null; t.at2 = null; }
-    results.push(`${figureLabel(s, t)} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
+    const label = figureLabel(s, t);
+    defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
+    results.push(`${label} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
   }
   s.lastAttack = {
     attackerId: throwerId,
@@ -2768,9 +2777,11 @@ function doGrenadeThrow(
     attackerLabel: figureLabel(s, s.figures.find(f => f.id === throwerId)!),
     targetLabel: `Grenade — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
     attackRoll: action.attackRoll,
-    // Show every affected figure's defense dice together (each rolled separately
-    // against the one shared attack), so the splash's defense rolls are visible.
+    // Each affected figure rolled defense separately against the one shared
+    // attack — the overlay reveals each figure's roll in turn via defenseGroups.
+    // The flattened defenseRoll remains for the compact side-panel summary.
     defenseRoll: action.defenseRolls.flatMap(d => d.roll),
+    defenseGroups,
     skulls,
     shields: totalShields,
     wounds: totalWounds,
@@ -3704,9 +3715,11 @@ function doWildSwing(
   const s = clone(state);
   s.turnAttacks.push({ attackerId: jotun.id, targetId: target.id, special: 'wild_swing' });
   const results: string[] = [];
+  const defenseGroups: NonNullable<HSState['lastAttack']>['defenseGroups'] = [];
   let totalWounds = 0;
   for (const d of defenders) {
-    const shields = countFaces(got.get(d.figureId)!, 'shield');
+    const roll = got.get(d.figureId)!;
+    const shields = countFaces(roll, 'shield');
     const w = Math.max(0, skulls - shields);
     const t = s.figures.find(f => f.id === d.figureId);
     if (!t) continue;
@@ -3714,7 +3727,9 @@ function doWildSwing(
     totalWounds += w;
     const destroyed = t.wounds >= cardDefFor(s, t).life;
     if (destroyed) { t.at = null; t.at2 = null; }
-    results.push(`${figureLabel(s, t)} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
+    const label = figureLabel(s, t);
+    defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
+    results.push(`${label} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
   }
   s.lastAttack = {
     attackerId: jotun.id,
@@ -3723,6 +3738,7 @@ function doWildSwing(
     targetLabel: `Wild Swing — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
     attackRoll: action.attackRoll,
     defenseRoll: [],
+    defenseGroups,
     skulls,
     shields: 0,
     wounds: totalWounds,

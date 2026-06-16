@@ -789,7 +789,7 @@ function BigDie({ face, landed }: { face: CombatFace; landed: boolean }) {
         height: size,
         fontSize: size * 0.5,
         background: fill,
-        animation: landed ? 'hsDieIn 320ms cubic-bezier(0.34,1.56,0.64,1)' : undefined,
+        animation: landed ? 'hsDieIn 380ms cubic-bezier(0.34,1.56,0.64,1)' : undefined,
       }}
       title={face}
     >
@@ -807,35 +807,55 @@ function BigDie({ face, landed }: { face: CombatFace; landed: boolean }) {
  *  which remounts this via a new key — cancels the old sequence). Driven purely
  *  by the shared lastAttack, so BOTH players see it. */
 function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss: () => void }) {
-  const PER_DIE = 450; // ms between dice
+  type DefenseGroup = NonNullable<LastAttack['defenseGroups']>[number];
+  const PER_DIE = 520; // ms between dice (slowed slightly so each roll reads clearly)
   const attackN = attack.attackRoll.length;
-  const defenseN = attack.defenseRoll.length;
-  // 'attack' (revealing attack dice) → 'defense' (revealing defense dice) →
-  // 'result'. shownA / shownD = how many dice of each are currently face-up.
+  // Normalize defense into GROUPS. A normal attack is one group (the lone
+  // defender). A multi-figure SPECIAL attack (Fire Line / Grenade / Wild Swing)
+  // carries one group per affected figure (defenseGroups) so each figure's
+  // defense roll is revealed — and seen — separately.
+  const grouped = !!(attack.defenseGroups && attack.defenseGroups.length > 0);
+  const groups: DefenseGroup[] = grouped
+    ? attack.defenseGroups!
+    : [{ label: attack.targetLabel, roll: attack.defenseRoll, shields: attack.shields, wounds: attack.wounds, destroyed: attack.destroyed }];
+
+  // 'attack' (reveal the shared attack dice) → 'defense' (reveal each figure's
+  // group in turn) → 'result'. shownA = attack dice up; groupIdx = which defense
+  // group is rolling; shownD = its dice up; resolved = groups whose outcome shows.
   const [stage, setStage] = useState<'attack' | 'defense' | 'result'>('attack');
   const [shownA, setShownA] = useState(0);
+  const [groupIdx, setGroupIdx] = useState(-1);
   const [shownD, setShownD] = useState(0);
+  const [resolved, setResolved] = useState(0);
 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
-    let t = 250; // small beat before the first die lands
-    // 1) ATTACK dice, one at a time.
+    let t = 300; // small beat before the first die lands
+    // 1) ATTACK dice, one at a time (rolled ONCE; shared by every affected figure).
     for (let i = 1; i <= attackN; i++) {
       timers.push(setTimeout(() => setShownA(i), t));
       t += PER_DIE;
     }
-    // 2) DEFENSE phase, then its dice one at a time.
-    t += 300;
+    // 2) DEFENSE — reveal each figure's group in turn so every roll is seen.
+    t += 400;
     timers.push(setTimeout(() => setStage('defense'), t));
-    for (let i = 1; i <= defenseN; i++) {
-      t += PER_DIE;
-      timers.push(setTimeout(() => setShownD(i), t));
+    for (let gi = 0; gi < groups.length; gi++) {
+      const g = groups[gi];
+      timers.push(setTimeout(() => { setGroupIdx(gi); setShownD(0); }, t));
+      t += 280; // beat to read whose defense this is
+      for (let i = 1; i <= g.roll.length; i++) {
+        t += PER_DIE;
+        timers.push(setTimeout(() => setShownD(i), t));
+      }
+      t += 260;
+      timers.push(setTimeout(() => setResolved(gi + 1), t)); // this figure's outcome lands
+      t += 820; // hold so the per-figure result is readable
     }
     // 3) RESULT.
-    t += 350;
+    t += 250;
     timers.push(setTimeout(() => setStage('result'), t));
-    // 4) Auto-dismiss ~1.6s after the result lands.
-    t += 1600;
+    // 4) Auto-dismiss after the result settles.
+    t += 1700;
     timers.push(setTimeout(onDismiss, t));
     return () => { for (const id of timers) clearTimeout(id); };
     // attack is fixed for this mount (parent re-keys on seq); run once.
@@ -843,8 +863,15 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
   }, []);
 
   const runningSkulls = attack.attackRoll.slice(0, shownA).filter(f => f === 'skull').length;
-  const runningShields = attack.defenseRoll.slice(0, shownD).filter(f => f === 'shield').length;
+  const curGroup = groupIdx >= 0 ? groups[groupIdx] : null;
+  const runningShields = curGroup ? curGroup.roll.slice(0, shownD).filter(f => f === 'shield').length : 0;
+  const curResolved = curGroup != null && resolved > groupIdx;
   const showDefense = stage === 'defense' || stage === 'result';
+  // The figure currently rolling stays visible into the RESULT stage for a single
+  // attack; for a splash the result stage instead shows the full per-figure tally.
+  const showCurrent = curGroup != null && (stage === 'defense' || (stage === 'result' && !grouped));
+  const destroyedCount = groups.filter(g => g.destroyed).length;
+  const totalWounds = groups.reduce((a, g) => a + g.wounds, 0);
 
   return (
     <div
@@ -889,43 +916,92 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
           </div>
         </div>
 
-        {/* DEFENSE row (revealed after the attack dice) */}
+        {/* DEFENSE — one roll, or each figure's roll in turn for a splash */}
         {showDefense && (
           <div className="mt-5 border-t border-neutral-800 pt-4">
-            <div className="text-xs font-bold uppercase tracking-wider text-sky-300/90">Defense</div>
-            <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
-              {attack.defenseRoll.slice(0, shownD).map((f, i) => (
-                <BigDie key={i} face={f} landed />
-              ))}
+            <div className="text-xs font-bold uppercase tracking-wider text-sky-300/90">
+              Defense{grouped ? ` — ${groups.length} figures roll separately` : ''}
             </div>
-            <div className="mt-2 text-3xl font-black tabular-nums text-sky-300">
-              🛡 {runningShields}
-              {stage === 'result' && (
-                <span className="ml-2 text-base font-bold text-neutral-400">shields</span>
-              )}
-            </div>
+
+            {/* Figures already resolved collapse into a compact tally (splash only). */}
+            {grouped && (
+              <div className="mt-2 space-y-0.5">
+                {groups.slice(0, stage === 'result' ? groups.length : groupIdx).map((g, i) => (
+                  <div key={i} className="flex items-center justify-center gap-2 text-sm">
+                    <span className="text-neutral-300">{g.label}</span>
+                    <span className="tabular-nums text-sky-300/80">🛡{g.shields}</span>
+                    <span className={g.destroyed ? 'font-bold text-red-400' : g.wounds > 0 ? 'font-bold text-orange-300' : 'text-neutral-500'}>
+                      {g.destroyed ? 'destroyed!' : g.wounds > 0 ? `${g.wounds} wound${g.wounds === 1 ? '' : 's'}` : 'blocked'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* The figure currently rolling (big dice). */}
+            {showCurrent && curGroup && (
+              <div className="mt-2">
+                {grouped && <div className="text-sm font-semibold text-neutral-200">{curGroup.label}</div>}
+                <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
+                  {curGroup.roll.slice(0, shownD).map((f, i) => (
+                    <BigDie key={i} face={f} landed />
+                  ))}
+                  {curGroup.roll.length === 0 && (
+                    <span className="text-sm text-neutral-500">no defense dice</span>
+                  )}
+                </div>
+                <div className="mt-2 text-3xl font-black tabular-nums text-sky-300">
+                  🛡 {runningShields}
+                  {!grouped && stage === 'result' && (
+                    <span className="ml-2 text-base font-bold text-neutral-400">shields</span>
+                  )}
+                </div>
+                {grouped && curResolved && (
+                  <div className={'mt-1 text-lg font-bold ' + (curGroup.destroyed ? 'text-red-400' : curGroup.wounds > 0 ? 'text-orange-300' : 'text-neutral-400')}>
+                    {curGroup.destroyed ? 'destroyed!' : curGroup.wounds > 0 ? `${curGroup.wounds} wound${curGroup.wounds === 1 ? '' : 's'}!` : 'blocked'}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* RESULT */}
         {stage === 'result' && (
           <div className="mt-5 border-t border-neutral-800 pt-4">
-            <div
-              className={
-                'text-2xl font-black ' +
-                (attack.destroyed ? 'text-red-400' : attack.wounds > 0 ? 'text-orange-300' : 'text-neutral-300')
-              }
-            >
-              {attack.destroyed
-                ? `${attack.targetLabel} is destroyed!`
-                : attack.wounds > 0
-                  ? `${attack.wounds} wound${attack.wounds === 1 ? '' : 's'}!`
-                  : 'Blocked!'}
-            </div>
-            {attack.counterWounds != null && attack.counterWounds > 0 && (
-              <div className="mt-1.5 text-lg font-bold text-fuchsia-300">
-                ⚔ Counter Strike: {attack.counterWounds} back!
+            {grouped ? (
+              <div
+                className={
+                  'text-2xl font-black ' +
+                  (destroyedCount > 0 ? 'text-red-400' : totalWounds > 0 ? 'text-orange-300' : 'text-neutral-300')
+                }
+              >
+                {destroyedCount > 0
+                  ? `${destroyedCount} figure${destroyedCount === 1 ? '' : 's'} destroyed!`
+                  : totalWounds > 0
+                    ? `${totalWounds} wound${totalWounds === 1 ? '' : 's'} dealt!`
+                    : 'All blocked!'}
               </div>
+            ) : (
+              <>
+                <div
+                  className={
+                    'text-2xl font-black ' +
+                    (attack.destroyed ? 'text-red-400' : attack.wounds > 0 ? 'text-orange-300' : 'text-neutral-300')
+                  }
+                >
+                  {attack.destroyed
+                    ? `${attack.targetLabel} is destroyed!`
+                    : attack.wounds > 0
+                      ? `${attack.wounds} wound${attack.wounds === 1 ? '' : 's'}!`
+                      : 'Blocked!'}
+                </div>
+                {attack.counterWounds != null && attack.counterWounds > 0 && (
+                  <div className="mt-1.5 text-lg font-bold text-fuchsia-300">
+                    ⚔ Counter Strike: {attack.counterWounds} back!
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -944,7 +1020,7 @@ function D20RollOverlay({ roll, onDismiss }: { roll: LastRoll; onDismiss: () => 
   useEffect(() => {
     const timers: ReturnType<typeof setTimeout>[] = [];
     let t = 200;
-    for (let i = 1; i <= roll.dice.length; i++) { timers.push(setTimeout(() => setShown(i), t)); t += 350; }
+    for (let i = 1; i <= roll.dice.length; i++) { timers.push(setTimeout(() => setShown(i), t)); t += 420; }
     t += 1800;
     timers.push(setTimeout(onDismiss, t));
     return () => { for (const id of timers) clearTimeout(id); };
@@ -965,7 +1041,7 @@ function D20RollOverlay({ roll, onDismiss }: { roll: LastRoll; onDismiss: () => 
               <div
                 className={'flex h-16 w-16 items-center justify-center rounded-xl border-2 bg-neutral-900 text-3xl font-black tabular-nums ' +
                   (d === 20 ? 'border-amber-400 text-amber-300' : d === 1 ? 'border-rose-700 text-rose-400' : 'border-neutral-700 text-neutral-100')}
-                style={{ animation: i < shown ? 'hsD20In 350ms ease-out' : undefined }}
+                style={{ animation: i < shown ? 'hsD20In 420ms ease-out' : undefined }}
               >
                 {d}
               </div>
@@ -1095,8 +1171,9 @@ export default function HeroScapeBoard({
     if (la.seq > lastSeenSeqRef.current) {
       lastSeenSeqRef.current = la.seq;
       // Only animate when there are dice to show (defensive — a real attack
-      // always rolls ≥1 attack die).
-      if (la.attackRoll.length > 0 || la.defenseRoll.length > 0) setRollAttack(la);
+      // always rolls ≥1 attack die; a splash special carries per-figure groups
+      // even when the flat defenseRoll is empty).
+      if (la.attackRoll.length > 0 || la.defenseRoll.length > 0 || (la.defenseGroups?.length ?? 0) > 0) setRollAttack(la);
     }
   }, [state.lastAttack]);
   useEffect(() => {

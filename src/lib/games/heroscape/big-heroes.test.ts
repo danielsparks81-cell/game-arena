@@ -217,6 +217,40 @@ describe('Jotun — Wild Swing', () => {
     expect(at(s, hero)).toBe(h); // Jotun untouched
   });
 
+  it('captures EACH affected figure’s own defense roll in lastAttack.defenseGroups', () => {
+    // The overlay reveals every splash victim's defense separately, so the engine
+    // must keep each figure's roll/shields/outcome distinct — never flattened or
+    // dropped. Two victims roll DIFFERENT defense: one whiffs (dies), one fully
+    // blocks (survives). The groups must reflect both, independently.
+    let { s, hero } = stage('jotun');
+    const h = at(s, hero)!;
+    const tgtHex = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!;
+    const splashHex = neighborKeys(tgtHex).find(k => MAPS[s.mapId].cells[k] && k !== h && !neighborKeys(h).includes(k))
+      ?? neighborKeys(tgtHex).find(k => MAPS[s.mapId].cells[k] && k !== h)!;
+    s = put(s, 's1-marro_warriors-1', tgtHex);
+    s = put(s, 's1-marro_warriors-2', splashHex);
+    const whiff = def(s, 's1-marro_warriors-1', hero);                       // all blanks → 0 shields
+    const block = def(s, 's1-marro_warriors-2', hero).map(() => 'shield' as CombatFace); // all shields → blocks
+    s = unwrap(applyAction(s, 'p1', { kind: 'wild_swing', attackerId: hero, targetId: 's1-marro_warriors-1', attackRoll: F('kbbb'), defenseRolls: [
+      { figureId: 's1-marro_warriors-1', roll: whiff },
+      { figureId: 's1-marro_warriors-2', roll: block },
+    ] }));
+    const groups = s.lastAttack?.defenseGroups;
+    expect(groups).toBeDefined();
+    expect(groups!.length).toBe(2); // one entry per affected figure, not flattened
+    const dead = groups!.find(g => g.destroyed)!;
+    const lived = groups!.find(g => !g.destroyed)!;
+    // The whiffer: its OWN roll (all blanks), 0 shields, destroyed.
+    expect(dead.shields).toBe(0);
+    expect(dead.roll).toEqual(whiff);
+    expect(dead.wounds).toBeGreaterThan(0);
+    // The blocker: its OWN (all-shield) roll, shields = its die count, no wound.
+    expect(lived.shields).toBe(block.length);
+    expect(lived.roll).toEqual(block);
+    expect(lived.wounds).toBe(0);
+    expect(at(s, 's1-marro_warriors-2')).not.toBeNull(); // fully blocked → survives
+  });
+
   it('Range 1 — a non-adjacent target is rejected', () => {
     let { s, hero } = stage('jotun');
     s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 2));
