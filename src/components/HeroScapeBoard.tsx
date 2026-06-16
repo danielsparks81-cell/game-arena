@@ -524,76 +524,61 @@ function DraftCard({
   // instantly — a guard against a misclicked, irreversible pick in a snake draft.
   const [confirming, setConfirming] = useState(false);
   return (
-    <div className="group relative aspect-[886/1432] w-full">
-    <button
-      onClick={() => { if (clickable) setConfirming(true); }}
-      disabled={!clickable}
-      title={
-        taken
-          ? `Drafted by ${takenByLabel ?? 'a player'}`
-          : !affordable
-            ? 'Over your remaining budget'
-            : `Draft ${def.name} (${def.points} pts)`
-      }
-      className={
-        'absolute inset-0 overflow-hidden rounded-lg border-2 text-left transition ' +
-        (taken
-          ? 'border-neutral-800 bg-neutral-900/40 opacity-50'
-          : clickable
-            ? 'border-amber-700 bg-neutral-900/60 hover:border-amber-400 hover:bg-amber-900/20'
-            : 'border-neutral-800 bg-neutral-900/40 ' + (dim ? 'opacity-50' : ''))
-      }
-    >
-      {/* Text/stat fallback — layered BEHIND the art. Shows through only if the
-          scanned image fails to load (CardArt hides itself on error). */}
-      <div className="absolute inset-0 flex flex-col items-stretch px-2 py-2">
-        <div className="flex items-baseline justify-between gap-1">
-          <span className={'text-sm font-bold leading-tight ' + (taken ? 'text-neutral-500 line-through' : 'text-neutral-100')}>
-            {def.name}
+    <div className="group relative w-full">
+      <button
+        onClick={() => { if (clickable) setConfirming(true); }}
+        disabled={!clickable}
+        title={
+          taken
+            ? `Drafted by ${takenByLabel ?? 'a player'}`
+            : !affordable
+              ? 'Over your remaining budget'
+              : clickable
+                ? `Draft ${def.name} (${def.points} pts)`
+                : `${def.name} — ${def.points} pts`
+        }
+        className={
+          'relative block w-full overflow-hidden rounded-lg text-left transition ' +
+          (taken
+            ? 'opacity-50'
+            : clickable
+              ? 'ring-2 ring-amber-600 hover:ring-amber-300'
+              : (dim ? 'opacity-50' : ''))
+        }
+      >
+        {/* The card itself — scanned header (art + stats) + reconstructed, always
+            legible powers. Same component the hover enlarges. */}
+        <HybridCard cardId={cardId} />
+
+        {/* Points badge — quick budget scan, over the parchment corner. */}
+        <span className="absolute bottom-1.5 right-1.5 rounded-md bg-neutral-950/90 px-1.5 py-0.5 text-sm font-extrabold tabular-nums text-amber-300 shadow-md">
+          {def.points}
+        </span>
+
+        {wip && !taken && (
+          <span
+            className="absolute left-1.5 top-1.5 rounded bg-neutral-950/80 px-1 py-0.5 text-[9px] font-semibold text-purple-300"
+            title="Special power not yet implemented — fights with printed stats"
+          >
+            ⚡ WIP
           </span>
-          <span className="shrink-0 text-base font-extrabold tabular-nums text-amber-300">{def.points}</span>
-        </div>
-        <div className="mt-1 text-[11px] text-neutral-400 tabular-nums">
-          {def.type === 'hero' ? '1 hero' : `${def.figures} figures`} · Mv {def.move} · Rg {def.range} · ⚔{def.attack} · 🛡{def.defense} · H{def.height}
-        </div>
-      </div>
+        )}
 
-      {/* Scanned card art — FILLS the panel edge-to-edge (object-cover). */}
-      <CardArt cardId={cardId} className="object-cover" />
-
-      {/* ⚡ powers WIP — corner badge over the art. */}
-      {wip && !taken && (
-        <span
-          className="absolute right-1 top-1 rounded bg-neutral-950/80 px-1 py-0.5 text-[9px] font-semibold text-purple-300"
-          title="Special power not yet implemented — fights with printed stats"
-        >
-          ⚡ WIP
-        </span>
-      )}
-
-      {/* Translucent bottom bar — name + points, readable over the art. */}
-      <div className="absolute inset-x-0 bottom-0 flex items-baseline justify-between gap-1 bg-gradient-to-t from-black/90 via-black/70 to-transparent px-1.5 pb-1 pt-3">
-        <span className={'truncate text-[11px] font-bold leading-tight ' + (taken ? 'text-neutral-400 line-through' : 'text-neutral-50')}>
-          {def.name}
-        </span>
-        <span className="shrink-0 text-sm font-extrabold tabular-nums text-amber-300">{def.points}</span>
-      </div>
-
-      {/* "✓ taken by X" — dim overlay with struck name when drafted. */}
-      {taken && (
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/55 px-1 text-center">
-          <span className="text-[10px] font-semibold text-neutral-200">✓ taken{takenByLabel ? ` by ${takenByLabel}` : ''}</span>
-        </div>
-      )}
-    </button>
+        {taken && (
+          <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/60 px-1 text-center">
+            <span className="rounded bg-neutral-950/85 px-2 py-1 text-[11px] font-semibold text-neutral-100">
+              ✓ taken{takenByLabel ? ` by ${takenByLabel}` : ''}
+            </span>
+          </div>
+        )}
+      </button>
 
       {/* Confirm step — covers the card after you click it so a pick is always
-          deliberate (no accidental, unrecoverable draft). Shown only while it's
-          still your clickable turn; if the turn passes it auto-dismisses. */}
+          deliberate. Shown only while it's still your clickable turn. */}
       {confirming && clickable && (
-        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-neutral-950/90 p-2 text-center">
-          <div className="text-[12px] font-bold leading-tight text-amber-100">Draft {def.name}?</div>
-          <div className="text-[11px] font-semibold text-amber-300">{def.points} pts</div>
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-neutral-950/92 p-2 text-center">
+          <div className="text-[13px] font-bold leading-tight text-amber-100">Draft {def.name}?</div>
+          <div className="text-xs font-semibold text-amber-300">{def.points} pts</div>
           <div className="mt-1 flex gap-2">
             <button onClick={() => { onPick(); setConfirming(false); }} className="rounded-md border-2 border-emerald-500 bg-emerald-900/50 px-3 py-1.5 text-xs font-bold text-emerald-200 transition hover:bg-emerald-700/60">✓ Draft</button>
             <button onClick={() => setConfirming(false)} className="rounded-md border-2 border-neutral-600 px-3 py-1.5 text-xs font-bold text-neutral-300 transition hover:border-neutral-400">✕ Cancel</button>
@@ -601,7 +586,7 @@ function DraftCard({
         </div>
       )}
 
-      {/* Hover → the large scanned card (the "enlarge"), pinned to the side. */}
+      {/* Hover → the same card, enlarged and pinned to the side. */}
       <CardHoverPanel cardId={cardId} big />
     </div>
   );
@@ -623,7 +608,7 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
  *  printed power text turns to mush when small — and (2) with `onPowerTap` each
  *  power becomes a tappable button, so the play-view activation panel can let a
  *  player fire a power straight off the card. */
-const CARD_HEADER_FRAC = 0.48; // top fraction of the scan kept (cuts just above the power text)
+const CARD_HEADER_FRAC = 0.455; // top fraction of the scan kept — cuts just below the stat block (size line + points), tight above the power text
 function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (power: { name: string; text: string }, index: number) => void }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
@@ -1715,7 +1700,7 @@ export default function HeroScapeBoard({
                 )}
                 {/* My cards sit at the BOTTOM (popover above); the opponent's at
                     the TOP (popover below) — so it never runs off-screen. */}
-                <CardHoverPanel cardId={def.id} placement={isMe ? 'above' : 'below'} />
+                <CardHoverPanel cardId={def.id} big />
               </div>
             );
           })}
@@ -2111,7 +2096,7 @@ export default function HeroScapeBoard({
         <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Army roster — {d.pool.length} of {sortedPool.length} left · cheapest first
         </div>
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+        <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
           {sortedPool.map(id => {
             const taken = !d.pool.includes(id);
             const affordable = HS_CARDS[id].points <= myRemaining;
