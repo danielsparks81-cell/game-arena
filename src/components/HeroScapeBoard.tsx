@@ -2453,24 +2453,8 @@ export default function HeroScapeBoard({
           </div>
         )}
 
-        {/* NOW ACTING — the active unit's card, shown to everyone (it's shared
-            state, not viewer-specific) so the whole table can see which character
-            is taking its turn. Same hybrid card as the draft, enlarged into the
-            portrait preview frame. */}
-        {state.phase === 'playing' && state.subPhase === 'turns' && activeCard && activeCardDef && (
-          <div className="overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
-            <div className="mb-1.5 flex items-center justify-between px-0.5">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Now acting</span>
-              <span className="text-[11px] font-semibold" style={{ color: seatColor(state.turnSeat ?? 0) }}>
-                {turnPlayer?.username ?? ''}
-              </span>
-            </div>
-            <HybridCard cardId={activeCard.cardId} onPowerTap={anyBigHeroPower ? revealPowerPanel : undefined} />
-            {!!anyBigHeroPower && (
-              <div className="mt-1 text-center text-[10px] text-violet-300/80">tap a power to use it ↓</div>
-            )}
-          </div>
-        )}
+        {/* (NOW ACTING card + its action controls are grouped together below —
+            see the "special-power buttons" block, wrapped in one panel.) */}
 
         {/* This round's d20 initiative (every attempt, ties marked) */}
         {state.subPhase === 'turns' && state.initiativeRolls.length > 0 && (
@@ -2578,6 +2562,23 @@ export default function HeroScapeBoard({
             )}
           </div>
         )}
+        {/* NOW ACTING — the active unit's card AND its action controls in ONE
+            panel, so its powers (Mind Shackle, Acid Breath, …) live ON the card
+            instead of as separate panels below. */}
+        {state.phase === 'playing' && state.subPhase === 'turns' && activeCard && activeCardDef && (
+          <div className="overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
+            <div className="mb-1.5 flex items-center justify-between px-0.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Now acting</span>
+              <span className="text-[11px] font-semibold" style={{ color: seatColor(state.turnSeat ?? 0) }}>
+                {turnPlayer?.username ?? ''}
+              </span>
+            </div>
+            <HybridCard cardId={activeCard.cardId} onPowerTap={anyBigHeroPower ? revealPowerPanel : undefined} />
+            {!!anyBigHeroPower && (
+              <div className="mt-1 text-center text-[10px] text-violet-300/80">tap a power to use it ↓</div>
+            )}
+            {/* the active unit's action controls — its powers live here, on the card */}
+            <div className="mt-2 flex flex-col gap-2">
         {/* slice 4: special-power buttons (after moving, before attacking) */}
         {canBerserk && (
           <button
@@ -2817,6 +2818,9 @@ export default function HeroScapeBoard({
             <div className="text-sm font-bold text-emerald-300">🏹 Double Attack</div>
             <div className="mt-0.5 text-[11px] text-neutral-400">
               Syvarris may attack again or end his turn.
+            </div>
+          </div>
+        )}
             </div>
           </div>
         )}
