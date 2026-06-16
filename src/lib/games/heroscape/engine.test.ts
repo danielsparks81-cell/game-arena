@@ -545,11 +545,11 @@ describe('reveal flow (turns 1→2→3, then the next round)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Lost turns (destroyed card, marker never revealed)
+// 4. Lost turns (destroyed card — the marker IS revealed, then the turn forfeited)
 // ---------------------------------------------------------------------------
 
 describe('lost turns (p. 14)', () => {
-  it('skips the turn of a destroyed card without revealing the marker or naming the card', () => {
+  it('reveals the marker and names the dead card, then forfeits the turn', () => {
     let s = started();
     s = placed(s, 'p1', [
       { marker: '1', cardUid: 's0-finn' },
@@ -565,26 +565,28 @@ describe('lost turns (p. 14)', () => {
     s = unwrap(applyAction(s, 'p2', { kind: 'end_turn' })); // p1 turn 2 LOST → p2 turn 2
     expect([s.turnSeat, s.turnNumber]).toEqual([1, 2]);
 
-    const lost = s.log.find(e => /loses turn 2/.test(e.text));
+    // p1's turn-2 marker is on the destroyed Tarn → the rule is REVEAL then lose,
+    // so the marker is flipped face-up and the log names the card + the marker.
+    const lost = s.log.find(e => /reveals order marker 2.*Tarn.*out of play/.test(e.text));
     expect(lost).toBeDefined();
-    expect(lost!.text).not.toMatch(/Tarn/); // never names the dead card…
-    expect(lost!.text).not.toMatch(/marker [123X]/); // …or any marker value
+    expect(lost!.text).toMatch(/forfeit/i);
 
-    // The dead card's markers stay where they were and stay face-down.
+    // The dead card's markers stay where they were; the turn-2 marker is now
+    // revealed (face-up), the turn-3 marker not yet.
     const tarn = s.cards.find(c => c.uid === 's0-tarn_vikings')!;
     expect(tarn.orderMarkers.map(m => m.marker).sort()).toEqual(['2', '3']);
-    expect(tarn.orderMarkers.every(m => !m.revealed)).toBe(true);
-    // The opponent's projection still shows only hidden chips on it.
+    expect(tarn.orderMarkers.find(m => m.marker === '2')!.revealed).toBe(true);
+    expect(tarn.orderMarkers.find(m => m.marker === '3')!.revealed).toBe(false);
+    // The opponent's projection now decodes the revealed 2 but still hides the 3.
     const seen = projectStateForViewer(s, 'p2').cards.find(c => c.uid === 's0-tarn_vikings')!;
-    expect(seen.orderMarkers).toEqual([
-      { marker: 'hidden', revealed: false },
-      { marker: 'hidden', revealed: false },
-    ]);
+    expect(seen.orderMarkers).toContainEqual({ marker: '2', revealed: true });
+    expect(seen.orderMarkers).toContainEqual({ marker: 'hidden', revealed: false });
 
-    // p1's turn 3 is lost the same way, then the round rolls over normally.
+    // p1's turn 3 is forfeited the same way (its marker revealed too), then the
+    // round rolls over normally.
     s = unwrap(applyAction(s, 'p2', { kind: 'end_turn' }));
     expect([s.turnSeat, s.turnNumber]).toEqual([1, 3]);
-    expect(s.log.some(e => /loses turn 3/.test(e.text))).toBe(true);
+    expect(s.log.some(e => /reveals order marker 3.*Tarn.*out of play/.test(e.text))).toBe(true);
     s = unwrap(applyAction(s, 'p2', { kind: 'end_turn' }));
     expect(s.round).toBe(2);
     expect(s.subPhase).toBe('place_markers');

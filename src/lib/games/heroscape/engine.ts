@@ -1234,12 +1234,12 @@ function tiedForHighest(attempt: InitiativeAttempt): boolean {
 /**
  * Start the turn at the current (initiative[turnPointer], turnNumber) slot:
  * automatically REVEAL that player's marker (Action 1 of the turn anatomy —
- * the placement was the choice; the reveal is not). LOST TURN (pp. 9, 14): if
- * the card holding the marker has no living figures, the turn is skipped
- * entirely — no substitution, no move, no attack — and the marker stays
- * UNREVEALED. The log names neither the card nor the marker, so opponents
- * learn only that the turn was lost. Keeps skipping forward until a turn
- * starts or the round rolls over to the next marker placement.
+ * the placement was the choice; the reveal is not). LOST TURN (pp. 9, 14): the
+ * rule is "REVEAL the Order Marker, THEN lose the turn" — so if the card holding
+ * the marker has no living figures we STILL flip the marker face-up (the opponent
+ * sees which card and which marker it was) and the log names both, then the turn
+ * is forfeited: no move, no attack. Keeps skipping forward until a turn starts or
+ * the round rolls over to the next marker placement.
  */
 function beginTurnOrSkip(s: HSState): void {
   for (;;) {
@@ -1265,7 +1265,19 @@ function beginTurnOrSkip(s: HSState): void {
       );
       return;
     }
-    pushLog(s, 'info', `${playerName(s, seat)} loses turn ${s.turnNumber} — the card holding that marker is out of play.`);
+    if (holder) {
+      // The marker's card is out of play (all figures destroyed). You STILL
+      // reveal the marker — flip it face-up so the opponent sees which card and
+      // marker it was — then forfeit the turn.
+      holder.orderMarkers.find(m => m.marker === String(s.turnNumber))!.revealed = true;
+      pushLog(
+        s,
+        'info',
+        `Round ${s.round}, turn ${s.turnNumber}: ${playerName(s, seat)} reveals order marker ${s.turnNumber} — ${HS_CARDS[holder.cardId].name} is out of play, turn forfeited.`,
+      );
+    } else {
+      pushLog(s, 'info', `${playerName(s, seat)} has no order marker ${s.turnNumber} — turn skipped.`);
+    }
     if (!advanceSlot(s)) return; // the round just rolled over to place_markers
   }
 }
