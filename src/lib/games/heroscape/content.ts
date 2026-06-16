@@ -387,7 +387,6 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     power: 'live', // Poisonous Acid Breath (up to 3 small/medium in 4 sight; d20 squad 8+ / hero 17+ destroy)
     flying: true,
     baseSize: 2,
-    slender: true, // snake-like dragon — a shot passes it; does not block line of sight
   },
   theracus: {
     id: 'theracus',

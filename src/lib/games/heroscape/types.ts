@@ -61,11 +61,6 @@ export type HSCardDef = {
   /** BASE SIZE in hexes: a DOUBLE-SPACE figure (Mimring, Grimnak) occupies TWO
    *  adjacent same-level hexes; every other figure occupies one. Absent → 1. */
   baseSize?: 1 | 2;
-  /** SLENDER model: a figure whose sculpt is thin/serpentine enough that a shot
-   *  passes it — a snake-like dragon such as Braxas. Slender figures do NOT block
-   *  LINE OF SIGHT (movement is unaffected — they still occupy their hex). Absent
-   *  ⇒ blocks sight like a normal figure. */
-  slender?: boolean;
   points: number;
   /** Single letter shown on the figure's disc. */
   letter: string;

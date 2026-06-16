@@ -737,48 +737,19 @@ describe('attack eligibility', () => {
     ).toMatch(/Out of range/);
   });
 
-  it('LOS: a figure squarely between attacker and target blocks the shot', () => {
-    // Spread the three figures so the blocker is NOT adjacent to the shooter
-    // (otherwise the engagement rule, not LOS, would gate the attack): Marro at
-    // offset (0,3), Finn at (4,3), blocker dead-center at (2,3) — two hexes
-    // from each, squarely on the line.
+  it('LOS: a figure between attacker and target does NOT block the shot (only terrain blocks)', () => {
+    // Marro at (0,3), Finn at (4,3), a figure dead-center at (2,3) squarely on the
+    // line. FIGURES DO NOT BLOCK line of sight (the house rule — on-map obstacles
+    // come later), so a body on the line is irrelevant: Finn is a legal target
+    // whether or not the figure sits on it. (Terrain still blocks — see the
+    // rock-hill test below.) `legalTargets` lists only in-range, in-SIGHT enemies.
     let s = inTurns('p2', { p2: 's1-marro_warriors' });
     s = place(s, MARRO(1), at(0, 3));
     s = place(s, FINN, at(4, 3)); // 4 spaces away, within Range 6
-    const blocked = place(s, TARN(1), at(2, 3)); // midpoint, on the line
-    expect(
-      errOf(
-        applyAction(blocked, 'p2', {
-          kind: 'attack',
-          attackerId: MARRO(1),
-          targetId: FINN,
-          attackRoll: F('kk'),
-          defenseRoll: F('bbbb'),
-        }),
-      ),
-    ).toMatch(/line of sight/i);
-    expect(legalTargets(blocked, MARRO(1))).not.toContain(FINN);
-    // Slide the blocker one row off the line: shot is clear again.
-    const clear = place(s, TARN(1), at(2, 2));
-    expect(legalTargets(clear, MARRO(1))).toContain(FINN);
-  });
-
-  it('LOS: a SLENDER figure on the line does NOT block (a shot passes a snake-like dragon)', () => {
-    // Same collinear setup as the blocker test (Marro 0,3 — mid 2,3 — Finn 4,3).
-    // A normal body on the line blocks; flagging its card `slender` (as Braxas is)
-    // lets the shot pass it. Movement is unaffected — the figure still occupies
-    // its hex. We mutate + restore the shared card so the assertion is exact.
-    let s = inTurns('p2', { p2: 's1-marro_warriors' });
-    s = place(s, MARRO(1), at(0, 3));
-    s = place(s, FINN, at(4, 3));
-    const mid = place(s, TARN(1), at(2, 3)); // squarely on the line
-    expect(legalTargets(mid, MARRO(1))).not.toContain(FINN); // a normal body blocks
-    HS_CARDS['tarn_vikings'].slender = true;
-    try {
-      expect(legalTargets(mid, MARRO(1))).toContain(FINN); // slender → the shot passes
-    } finally {
-      delete HS_CARDS['tarn_vikings'].slender;
-    }
+    const onLine = place(s, TARN(1), at(2, 3)); // squarely on the line
+    const offLine = place(s, TARN(1), at(2, 2)); // off the line
+    expect(legalTargets(onLine, MARRO(1))).toContain(FINN); // body on the line — still targetable
+    expect(legalTargets(offLine, MARRO(1))).toContain(FINN); // and off the line — same
   });
 
   it('cannot target friends, dead figures, or attack twice with one figure', () => {
@@ -2883,19 +2854,17 @@ describe('slice 6: Raelin Extended Defensive Aura', () => {
     expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).breakdown).not.toContain('+1 Raelin aura');
   });
 
-  it('does NOT apply when line of sight to Raelin is blocked', () => {
-    // A blocker squarely between Raelin and the Guard breaks "clear sight".
-    // Use a HORIZONTAL row (offset row 3) so the midpoint figure is truly on the
-    // interior of the center-to-center line (mirrors the slice-3 LOS test).
+  it('is NOT broken by a figure between Raelin and the unit (figures do not block sight)', () => {
+    // A friendly body squarely between Raelin and the Guard does NOT break "clear
+    // sight" — figures don't block line of sight (only terrain does; on-map
+    // obstacles come later), so the aura still reaches the Guard. HORIZONTAL row
+    // (offset row 3) so the midpoint figure is truly on the interior of the line.
     let s = aura();
     s = place(s, RAELIN, at(1, 3));
     s = place(s, ZG(1), at(5, 3)); // 4 spaces away, in range
     s = place(s, ZG(2), at(3, 3)); // a friendly body dead-center on the line
     s = place(s, ENEMY, at(1, 6)); // attacker arg — off the Raelin↔Guard line
-    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(7); // LOS blocked → no aura
-    // Slide the blocker one row off the line → clear sight, aura returns.
-    s = place(s, ZG(2), at(3, 2));
-    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(8);
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(8); // aura reaches through the body
   });
 
   it('does NOT affect Raelin herself', () => {
