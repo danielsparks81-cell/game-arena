@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import {
   type HSState,
   type Figure,
@@ -290,16 +291,21 @@ function StatPill({ label, value, tone }: { label: string; value: string | numbe
 // stale cached copy (e.g. an old low-res scan); the version forces a fresh fetch.
 const CARD_ART_VERSION = '20260615-3';
 function CardArt({ cardId, className }: { cardId: string; className?: string }) {
+  // next/image serves a thumbnail-sized variant matched to the ~280px draft slot
+  // (and a bigger one on retina / when the browser is zoomed in to read a card),
+  // so the card stays crisp at 100% instead of a 1404px scan being crushed down
+  // by the browser's weak downscaler. Hides itself on a 404 so the text/stat card
+  // layered behind it shows through. `fill` => the positioned panel sets the size.
+  const [failed, setFailed] = useState(false);
+  if (failed) return null;
   return (
-    // Plain <img> (not next/image) avoids image config; the art is a static,
-    // already-sized local asset that falls back to text on error.
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
+    <Image
       src={`/heroscape/cards/${cardId}.jpg?v=${CARD_ART_VERSION}`}
       alt=""
-      loading="lazy"
-      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      fill
+      sizes="(max-width: 640px) 50vw, 340px"
       className={className}
+      onError={() => setFailed(true)}
     />
   );
 }
@@ -550,7 +556,7 @@ function DraftCard({
       </div>
 
       {/* Scanned card art — FILLS the panel edge-to-edge (object-cover). */}
-      <CardArt cardId={cardId} className="absolute inset-0 h-full w-full object-cover" />
+      <CardArt cardId={cardId} className="object-cover" />
 
       {/* ⚡ powers WIP — corner badge over the art. */}
       {wip && !taken && (
