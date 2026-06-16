@@ -129,14 +129,25 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // the V range [BASE_CROP, 1]; the plane shrinks to match so the figure isn't
   // stretched, and its feet land at the disc top (y = BASE_H).
   const crop = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
-  const croppedTex = useMemo(() => {
+  // Recolour the moulded BASE (bottom `crop` of the cut-out) to the owner's colour
+  // so it merges with the colour disc beneath it — the tan base no longer reads as
+  // a separate piece floating on the disc. The figure above the threshold is
+  // untouched; the base keeps its own shading (tinted) and its alpha silhouette.
+  const figMat = useMemo(() => {
     if (!tex) return null;
-    const t = tex.clone();
-    t.offset.set(0, crop);
-    t.repeat.set(1, 1 - crop);
-    return t;
-  }, [tex, crop]);
-  const h2 = h * (1 - crop);
+    return new THREE.ShaderMaterial({
+      uniforms: { map: { value: tex }, uColor: { value: new THREE.Color(color) }, uThresh: { value: crop } },
+      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
+      fragmentShader:
+        'uniform sampler2D map; uniform vec3 uColor; uniform float uThresh; varying vec2 vUv;' +
+        'void main(){ vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard; vec3 rgb = t.rgb;' +
+        'if (vUv.y < uThresh){ float l = dot(t.rgb, vec3(0.299,0.587,0.114)); rgb = uColor * (0.5 + 0.6 * l); }' +
+        'gl_FragColor = vec4(rgb, 1.0); }',
+      transparent: true,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+  }, [tex, color, crop]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = SIZE * 0.58;
@@ -158,17 +169,17 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           face the camera. A full billboard tips backward when you angle the camera
           down, lifting the figure's feet off the hex — that's the "floaty" look.
           Y-only keeps every figure planted on its base. */}
-      {croppedTex && (
-        <Billboard follow lockX lockZ position={[0, BASE_H + h2 / 2, 0]}>
-          <mesh castShadow>
-            <planeGeometry args={[w, h2]} />
-            <meshBasicMaterial map={croppedTex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
+      {figMat && (
+        <Billboard follow lockX lockZ position={[0, BASE_H + h / 2, 0]}>
+          <mesh>
+            <planeGeometry args={[w, h]} />
+            <primitive object={figMat} attach="material" />
           </mesh>
         </Billboard>
       )}
       {/* Wound markers — a row of red pips floating above the figure's head. */}
       {pips > 0 && (
-        <group position={[0, BASE_H + h2 + 0.22, 0]}>
+        <group position={[0, BASE_H + h + 0.22, 0]}>
           {Array.from({ length: pips }, (_, i) => (
             <mesh key={i} position={[(i - (pips - 1) / 2) * 0.2, 0, 0]}>
               <sphereGeometry args={[0.08, 12, 12]} />
