@@ -2429,9 +2429,10 @@ export default function HeroScapeBoard({
             </div>
           </div>
         ) : (
-          /* Turn / result banner */
+          /* Turn / result banner — pinned to the top of the rail (the Now-acting
+             card sits right under it via order; both come before initiative etc). */
           <div
-            className="rounded-lg border-2 px-3 py-2 text-center text-sm font-bold"
+            className="[order:-2] rounded-lg border-2 px-3 py-2 text-center text-sm font-bold"
             style={{
               borderColor: state.phase === 'finished'
                 ? '#fbbf24'
@@ -2566,7 +2567,7 @@ export default function HeroScapeBoard({
             panel, so its powers (Mind Shackle, Acid Breath, …) live ON the card
             instead of as separate panels below. */}
         {state.phase === 'playing' && state.subPhase === 'turns' && activeCard && activeCardDef && (
-          <div className="overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
+          <div className="[order:-1] overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
             <div className="mb-1.5 flex items-center justify-between px-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Now acting</span>
               <span className="text-[11px] font-semibold" style={{ color: seatColor(state.turnSeat ?? 0) }}>
