@@ -523,8 +523,19 @@ function DraftCard({
   // Click SELECTS the card and shows a Confirm/Cancel overlay rather than drafting
   // instantly — a guard against a misclicked, irreversible pick in a snake draft.
   const [confirming, setConfirming] = useState(false);
+  // Show the hover preview on the screen edge OPPOSITE this card so it never
+  // covers the card (measured on enter from the card's horizontal centre).
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [previewSide, setPreviewSide] = useState<'left' | 'right'>('right');
   return (
-    <div className="group relative w-full">
+    <div
+      ref={wrapRef}
+      className="group relative w-full"
+      onMouseEnter={() => {
+        const r = wrapRef.current?.getBoundingClientRect();
+        if (r) setPreviewSide(r.left + r.width / 2 < window.innerWidth / 2 ? 'right' : 'left');
+      }}
+    >
       <button
         onClick={() => { if (clickable) setConfirming(true); }}
         disabled={!clickable}
@@ -538,7 +549,7 @@ function DraftCard({
                 : `${def.name} — ${def.points} pts`
         }
         className={
-          'relative block w-full overflow-hidden rounded-lg text-left transition ' +
+          'relative block h-full w-full overflow-hidden rounded-lg text-left transition ' +
           (taken
             ? 'opacity-50'
             : clickable
@@ -586,8 +597,8 @@ function DraftCard({
         </div>
       )}
 
-      {/* Hover → the same card, enlarged and pinned to the side. */}
-      <CardHoverPanel cardId={cardId} big />
+      {/* Hover → the same card, enlarged and pinned to the opposite edge. */}
+      <CardHoverPanel cardId={cardId} big side={previewSide} />
     </div>
   );
 }
@@ -614,15 +625,16 @@ function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (powe
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
   return (
-    <div className="overflow-hidden rounded-lg border-2 border-amber-900/80 bg-[#c6c2ba] shadow-lg">
+    <div className="flex h-full flex-col overflow-hidden rounded-lg border-2 border-amber-900/80 bg-[#c6c2ba] shadow-lg">
       {/* Scanned header — object-top in a header-height box reveals just the top
           (title + art + stats); everything below the stat block is cropped off. */}
-      <div className="relative w-full overflow-hidden" style={{ aspectRatio: `886 / ${Math.round(1432 * CARD_HEADER_FRAC)}` }}>
+      <div className="relative w-full shrink-0 overflow-hidden" style={{ aspectRatio: `886 / ${Math.round(1432 * CARD_HEADER_FRAC)}` }}>
         <CardArt cardId={cardId} className="object-cover object-top" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5 bg-gradient-to-t from-[#c6c2ba] to-transparent" />
       </div>
-      {/* Reconstructed powers — crisp HTML; each is a tap target when onPowerTap. */}
-      <div className="flex flex-col gap-1.5 px-2.5 pb-2.5 pt-1.5 text-stone-900">
+      {/* Reconstructed powers — crisp HTML; each is a tap target when onPowerTap.
+          A hard divider line gives a clean break from the scanned header; flex-1
+          lets the parchment fill to the card's height when cards are equalized. */}
+      <div className="flex flex-1 flex-col gap-1.5 border-t-2 border-neutral-900 px-2.5 pb-2.5 pt-1.5 text-stone-900">
         {powers.length > 0 ? powers.map((p, i) => {
           const inner = (
             <>
@@ -657,16 +669,22 @@ function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (powe
  *  panel — the parent roster card carries the `group` class, this sits
  *  absolutely over the board (pointer-events-none so it never eats clicks),
  *  appearing above the card. */
-function CardHoverPanel({ cardId, placement = 'above', big = false }: { cardId: string; placement?: 'above' | 'below'; big?: boolean }) {
+function CardHoverPanel({ cardId, placement = 'above', big = false, side = 'right' }: { cardId: string; placement?: 'above' | 'below'; big?: boolean; side?: 'left' | 'right' }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
 
   // Draft pool: the hybrid card (scanned header + reconstructed legible powers),
-  // pinned to the side so it never clips at the grid edges.
+  // pinned to the screen edge OPPOSITE the hovered card so it never covers the
+  // card (or its Confirm box) you're interacting with.
   if (big) {
     return (
-      <div className="pointer-events-none fixed right-4 top-1/2 z-50 hidden w-[min(340px,42vw)] max-h-[92vh] -translate-y-1/2 overflow-y-auto rounded-lg shadow-2xl shadow-black/80 group-hover:block">
+      <div
+        className={
+          'pointer-events-none fixed top-1/2 z-50 hidden w-[min(410px,48vw)] max-h-[94vh] -translate-y-1/2 overflow-y-auto rounded-lg shadow-2xl shadow-black/80 group-hover:block ' +
+          (side === 'left' ? 'left-4' : 'right-4')
+        }
+      >
         <HybridCard cardId={cardId} />
       </div>
     );
@@ -2096,7 +2114,7 @@ export default function HeroScapeBoard({
         <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Army roster — {d.pool.length} of {sortedPool.length} left · cheapest first
         </div>
-        <div className="grid items-start gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+        <div className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
           {sortedPool.map(id => {
             const taken = !d.pool.includes(id);
             const affordable = HS_CARDS[id].points <= myRemaining;
