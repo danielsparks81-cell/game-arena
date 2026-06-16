@@ -10,7 +10,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
-import Image from 'next/image';
 import {
   type HSState,
   type Figure,
@@ -283,33 +282,6 @@ function StatPill({ label, value, tone }: { label: string; value: string | numbe
   );
 }
 
-/** Scanned army-card art, served from /public/heroscape/cards/<cardId>.png. The
- *  path is derived purely from the card id (no per-card config). If the image is
- *  missing or fails to load, it hides itself (onError) so the surrounding text /
- *  stat layout shows through as a graceful fallback. */
-function CardArt({ cardId, className }: { cardId: string; className?: string }) {
-  // next/image serves a thumbnail-sized variant matched to the ~280px draft slot
-  // (and a bigger one on retina / when the browser is zoomed in to read a card),
-  // so the card stays crisp at 100% instead of a 1404px scan being crushed down by
-  // the browser's weak downscaler. NO ?v= cache-bust query: Vercel's image
-  // optimizer 400s on a query string for local files (-> the card would 404 to the
-  // text fallback). Unlike the long-cached static jpg, the optimized variants carry
-  // a short TTL and revalidate on their own when a card file is replaced (a
-  // hard-refresh forces it immediately). Hides on error so the text/stat card
-  // behind it shows through. `fill` => the positioned panel sets the size.
-  const [failed, setFailed] = useState(false);
-  if (failed) return null;
-  return (
-    <Image
-      src={`/heroscape/cards/${cardId}.jpg`}
-      alt=""
-      fill
-      sizes="(max-width: 640px) 50vw, 340px"
-      className={className}
-      onError={() => setFailed(true)}
-    />
-  );
-}
 
 /**
  * A figure STANDEE for the 2.5D iso board (slice-iso-spec §Figures). Anchored at
@@ -667,9 +639,15 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
         <span className="flex-1 truncate text-sm font-extrabold uppercase tracking-wide text-white">{def.name}</span>
       </div>
       <div className={'flex ' + theme.band}>
-        <div className="relative w-2/5 shrink-0 overflow-hidden">
-          <CardArt cardId={cardId} className="object-cover object-[25%_28%]" />
-        </div>
+        <div
+          aria-hidden
+          className="w-2/5 shrink-0 self-stretch bg-neutral-950 bg-no-repeat"
+          style={{
+            backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=384&q=75')`,
+            backgroundSize: '195% auto',
+            backgroundPosition: '8% 24%',
+          }}
+        />
         <div className="flex flex-1 items-stretch gap-1 p-1">
           <div className="flex flex-1 flex-col justify-center gap-px">
             {rows.map((r, i) => (
