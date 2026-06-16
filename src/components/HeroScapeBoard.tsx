@@ -1076,6 +1076,51 @@ function D20RollOverlay({ roll, onDismiss }: { roll: LastRoll; onDismiss: () => 
   );
 }
 
+/** The round's TURN ORDER as a snake: players sorted by initiative roll (highest
+ *  first), the active player ringed in their seat colour, roll shown in parens.
+ *  For 4-6 players it wraps boustrophedon — row 1 left→right, row 2 right→left
+ *  (right-aligned) — like a draft snake, so the flow reads continuously. Falls
+ *  back to seat order before initiative is rolled. */
+function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat: number) => string }) {
+  const order = state.initiative.length > 0
+    ? state.initiative
+    : [...state.players].map(p => p.seat).sort((a, b) => a - b);
+  const last = state.initiativeRolls[state.initiativeRolls.length - 1];
+  const rollOf = (seat: number) => last?.find(a => a.seat === seat)?.roll;
+  const nameOf = (seat: number) => state.players.find(p => p.seat === seat)?.username ?? '?';
+  const cols = Math.min(3, Math.max(1, order.length));
+  const rows: number[][] = [];
+  for (let i = 0; i < order.length; i += cols) rows.push(order.slice(i, i + cols));
+  return (
+    <div className="mt-1.5 flex flex-col gap-1 text-[11px]">
+      {rows.map((chunk, ri) => {
+        const odd = ri % 2 === 1;
+        const display = odd ? [...chunk].reverse() : chunk; // row 2 reads right→left
+        const arrow = odd ? '←' : '→';
+        return (
+          <div key={ri} className={'flex flex-wrap items-center gap-1 ' + (odd ? 'self-end' : 'self-start')}>
+            {display.map((seat, ci) => {
+              const active = seat === state.turnSeat;
+              const r = rollOf(seat);
+              return (
+                <span key={seat} className="flex items-center gap-1">
+                  {ci > 0 && <span className="text-neutral-600">{arrow}</span>}
+                  <span
+                    className={'rounded px-1.5 py-0.5 font-semibold tabular-nums ' + (active ? 'bg-emerald-900/40 ring-2 ring-emerald-400' : 'bg-neutral-800/60')}
+                    style={{ color: seatColor(seat) }}
+                  >
+                    {active ? '⚔ ' : ''}{nameOf(seat)}{r != null ? ` (${r})` : ''}
+                  </span>
+                </span>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
@@ -2428,63 +2473,30 @@ export default function HeroScapeBoard({
               ))}
             </div>
           </div>
+        ) : state.phase === 'finished' ? (
+          <div className="[order:-2] rounded-lg border-2 border-amber-400 bg-neutral-900/70 px-3 py-2 text-center text-sm font-bold text-amber-200">
+            🏆 {winnerLabel} wins the battle!
+          </div>
         ) : (
-          /* Turn / result banner — pinned to the top of the rail (the Now-acting
-             card sits right under it via order; both come before initiative etc). */
+          /* TURN ORDER — pinned to the top of the rail. Replaces the old separate
+             "X's turn" banner AND initiative panel with ONE: a round/turn header
+             plus the players ordered by initiative roll, the active one ringed
+             (the border tints to the active seat's colour). */
           <div
-            className="[order:-2] rounded-lg border-2 px-3 py-2 text-center text-sm font-bold"
-            style={{
-              borderColor: state.phase === 'finished'
-                ? '#fbbf24'
-                : seatColor(state.turnSeat ?? 0),
-              color: state.phase === 'finished' ? '#fde68a' : seatColor(state.turnSeat ?? 0),
-            }}
+            className="[order:-2] rounded-lg border-2 px-3 py-2"
+            style={{ borderColor: seatColor(state.turnSeat ?? 0) }}
           >
-            {state.phase === 'finished'
-              ? `🏆 ${winnerLabel} wins the battle!`
-              : myTurn
-                ? '⚔ Your turn'
-                : `${turnPlayer?.username ?? '…'}'s turn`}
-            {state.phase === 'playing' && (
-              <div className="mt-0.5 text-[11px] font-normal opacity-80">
-                {map?.name ? `${map.name} · ` : ''}Round {state.round} · Turn {state.turnNumber}/3
-                {activeCardDef ? ` · ${activeCardDef.name}` : ''}
-              </div>
-            )}
+            <div className="text-center text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
+              {myTurn ? 'Your turn' : `${turnPlayer?.username ?? '…'}'s turn`} · Round {state.round} · Turn {state.turnNumber}/3{map?.name ? ` · ${map.name}` : ''}
+            </div>
+            <TurnOrderSnake state={state} seatColor={seatColor} />
           </div>
         )}
 
         {/* (NOW ACTING card + its action controls are grouped together below —
             see the "special-power buttons" block, wrapped in one panel.) */}
 
-        {/* This round's d20 initiative (every attempt, ties marked) */}
-        {state.subPhase === 'turns' && state.initiativeRolls.length > 0 && (
-          <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-[11px] text-neutral-300">
-            <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">
-              Round {state.round} initiative
-            </div>
-            {state.initiativeRolls.map((attempt, i) => {
-              const isLast = i === state.initiativeRolls.length - 1;
-              return (
-                <div key={i} className="flex items-center gap-1.5">
-                  {attempt.map(a => (
-                    <span key={a.seat}>
-                      <span style={{ color: seatColor(a.seat) }}>
-                        {state.players.find(p => p.seat === a.seat)?.username}
-                      </span>{' '}
-                      <span className="font-bold tabular-nums">{a.roll}</span>
-                    </span>
-                  ))}
-                  <span className={isLast ? 'text-amber-300' : 'text-neutral-500'}>
-                    {isLast
-                      ? `→ ${state.players.find(p => p.seat === state.initiative[0])?.username} first`
-                      : '— tie, re-roll'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* (Initiative order moved into the turn-order panel at the top.) */}
 
         {/* (Last-attack dice moved into the LOG, under End turn.) */}
 
