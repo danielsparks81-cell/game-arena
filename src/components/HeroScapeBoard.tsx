@@ -520,10 +520,13 @@ function DraftCard({
   const def = HS_CARDS[cardId];
   const wip = def.power === 'wip';
   const dim = taken || !affordable;
+  // Click SELECTS the card and shows a Confirm/Cancel overlay rather than drafting
+  // instantly — a guard against a misclicked, irreversible pick in a snake draft.
+  const [confirming, setConfirming] = useState(false);
   return (
     <div className="group relative aspect-[886/1432] w-full">
     <button
-      onClick={() => clickable && onPick()}
+      onClick={() => { if (clickable) setConfirming(true); }}
       disabled={!clickable}
       title={
         taken
@@ -583,10 +586,23 @@ function DraftCard({
         </div>
       )}
     </button>
-      {/* Clean text card on hover (not clipped — the group wrapper has no
-          overflow-hidden, unlike the art button). Below the card so the top
-          row's popover stays on-screen. */}
-      <CardHoverPanel cardId={cardId} placement="below" />
+
+      {/* Confirm step — covers the card after you click it so a pick is always
+          deliberate (no accidental, unrecoverable draft). Shown only while it's
+          still your clickable turn; if the turn passes it auto-dismisses. */}
+      {confirming && clickable && (
+        <div className="absolute inset-0 z-40 flex flex-col items-center justify-center gap-1.5 rounded-lg bg-neutral-950/90 p-2 text-center">
+          <div className="text-[12px] font-bold leading-tight text-amber-100">Draft {def.name}?</div>
+          <div className="text-[11px] font-semibold text-amber-300">{def.points} pts</div>
+          <div className="mt-1 flex gap-2">
+            <button onClick={() => { onPick(); setConfirming(false); }} className="rounded-md border-2 border-emerald-500 bg-emerald-900/50 px-3 py-1.5 text-xs font-bold text-emerald-200 transition hover:bg-emerald-700/60">✓ Draft</button>
+            <button onClick={() => setConfirming(false)} className="rounded-md border-2 border-neutral-600 px-3 py-1.5 text-xs font-bold text-neutral-300 transition hover:border-neutral-400">✕ Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Hover → the large scanned card (the "enlarge"), pinned to the side. */}
+      <CardHoverPanel cardId={cardId} big />
     </div>
   );
 }
@@ -608,17 +624,28 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
  *  panel — the parent roster card carries the `group` class, this sits
  *  absolutely over the board (pointer-events-none so it never eats clicks),
  *  appearing above the card. */
-function CardHoverPanel({ cardId, placement = 'above' }: { cardId: string; placement?: 'above' | 'below' }) {
+function CardHoverPanel({ cardId, placement = 'above', big = false }: { cardId: string; placement?: 'above' | 'below'; big?: boolean }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
   return (
     <div
       className={
-        'pointer-events-none absolute left-1/2 z-30 hidden max-h-[80vh] w-72 -translate-x-1/2 overflow-y-auto rounded-lg border-2 border-amber-700 bg-neutral-950/97 px-3 py-2.5 text-left shadow-xl shadow-black/60 group-hover:block ' +
-        (placement === 'below' ? 'top-full mt-2' : 'bottom-full mb-2')
+        'pointer-events-none z-50 hidden overflow-y-auto rounded-lg border-2 border-amber-700 bg-neutral-950/98 px-3 py-2.5 text-left shadow-2xl shadow-black/80 group-hover:block ' +
+        (big
+          // Draft pool: a big scanned card pinned to the side, so it stays fully
+          // on-screen no matter which card you hover (no edge clipping).
+          ? 'fixed right-4 top-1/2 max-h-[92vh] w-[min(340px,40vw)] -translate-y-1/2'
+          : 'absolute left-1/2 max-h-[80vh] w-72 -translate-x-1/2 ' +
+            (placement === 'below' ? 'top-full mt-2' : 'bottom-full mb-2'))
       }
     >
+      {big && (
+        // The actual scanned card, large — the hover-to-enlarge view.
+        <div className="relative mb-2 aspect-[886/1432] w-full overflow-hidden rounded">
+          <CardArt cardId={cardId} className="object-contain" />
+        </div>
+      )}
       <div className="text-sm font-bold leading-tight text-amber-100">{def.name}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
         {def.unitClass ?? (def.type === 'hero' ? 'Hero' : 'Squad')}
