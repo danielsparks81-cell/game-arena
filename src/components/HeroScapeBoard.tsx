@@ -708,6 +708,21 @@ function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (powe
   );
 }
 
+/** The draft card, enlarged and framed in a fixed PORTRAIT aspect. On its own a
+ *  one-power hybrid card collapses to a short, squat box (in the draft grid it
+ *  only looks tall because `items-stretch` matches it to the tallest sibling);
+ *  the 2:3 frame restores the draft tile's shape at any size. `h-full` lets the
+ *  card's parchment fill the frame exactly as it does in the grid. Shared by the
+ *  draft hover popover and the play-view "now acting" panel. */
+function BigCardPreview({ cardId, className = '' }: { cardId: string; className?: string }) {
+  if (!HS_CARDS[cardId]) return null;
+  return (
+    <div className={'aspect-[2/3] w-full overflow-hidden rounded-lg shadow-2xl shadow-black/80 ' + className}>
+      <HybridCard cardId={cardId} />
+    </div>
+  );
+}
+
 /** Hover popover with the CLEAN TEXT army card: name, General/class, the whole
  *  stat grid, and every special power (name + printed text from
  *  POWER_DESCRIPTIONS). No image here — the roster/draft PANEL shows the scanned
@@ -727,11 +742,11 @@ function CardHoverPanel({ cardId, placement = 'above', big = false, side = 'righ
     return (
       <div
         className={
-          'pointer-events-none fixed top-1/2 z-50 hidden w-[min(410px,48vw)] max-h-[94vh] -translate-y-1/2 overflow-y-auto rounded-lg shadow-2xl shadow-black/80 group-hover:block ' +
+          'pointer-events-none fixed top-1/2 z-50 hidden w-[min(384px,42vw)] max-h-[96vh] -translate-y-1/2 group-hover:block ' +
           (side === 'left' ? 'left-4' : 'right-4')
         }
       >
-        <HybridCard cardId={cardId} />
+        <BigCardPreview cardId={cardId} />
       </div>
     );
   }
@@ -2410,6 +2425,22 @@ export default function HeroScapeBoard({
           </div>
         )}
 
+        {/* NOW ACTING — the active unit's card, shown to everyone (it's shared
+            state, not viewer-specific) so the whole table can see which character
+            is taking its turn. Same hybrid card as the draft, enlarged into the
+            portrait preview frame. */}
+        {state.phase === 'playing' && state.subPhase === 'turns' && activeCard && activeCardDef && (
+          <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
+            <div className="mb-1.5 flex items-center justify-between px-0.5">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Now acting</span>
+              <span className="text-[11px] font-semibold" style={{ color: seatColor(state.turnSeat ?? 0) }}>
+                {turnPlayer?.username ?? ''}
+              </span>
+            </div>
+            <BigCardPreview cardId={activeCard.cardId} />
+          </div>
+        )}
+
         {/* This round's d20 initiative (every attempt, ties marked) */}
         {state.subPhase === 'turns' && state.initiativeRolls.length > 0 && (
           <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-[11px] text-neutral-300">
@@ -2861,12 +2892,13 @@ export default function HeroScapeBoard({
           </div>
         )}
 
-        {/* End turn */}
+        {/* End turn — pinned to the rail bottom on lg so the (tall) Now-acting
+            card above can never push the primary action out of reach. */}
         {myTurn && !pending && (
           <button
             onClick={() => { onEndTurn(); setSelectedId(null); }}
             disabled={disabled}
-            className="rounded-lg border-2 border-amber-600 px-4 py-2 text-sm font-semibold text-amber-300 transition hover:bg-amber-900/40 disabled:opacity-40"
+            className="rounded-lg border-2 border-amber-600 bg-neutral-950/85 px-4 py-2 text-sm font-semibold text-amber-300 backdrop-blur-sm transition hover:bg-amber-900/50 disabled:opacity-40 lg:sticky lg:bottom-0"
           >
             End turn ▶
           </button>
