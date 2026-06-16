@@ -286,21 +286,21 @@ function StatPill({ label, value, tone }: { label: string; value: string | numbe
  *  path is derived purely from the card id (no per-card config). If the image is
  *  missing or fails to load, it hides itself (onError) so the surrounding text /
  *  stat layout shows through as a graceful fallback. */
-// Bump this whenever the card SCANS in public/heroscape/cards are replaced. The
-// files keep their names, so without a changing query the browser/CDN serves the
-// stale cached copy (e.g. an old low-res scan); the version forces a fresh fetch.
-const CARD_ART_VERSION = '20260615-3';
 function CardArt({ cardId, className }: { cardId: string; className?: string }) {
   // next/image serves a thumbnail-sized variant matched to the ~280px draft slot
   // (and a bigger one on retina / when the browser is zoomed in to read a card),
-  // so the card stays crisp at 100% instead of a 1404px scan being crushed down
-  // by the browser's weak downscaler. Hides itself on a 404 so the text/stat card
-  // layered behind it shows through. `fill` => the positioned panel sets the size.
+  // so the card stays crisp at 100% instead of a 1404px scan being crushed down by
+  // the browser's weak downscaler. NO ?v= cache-bust query: Vercel's image
+  // optimizer 400s on a query string for local files (-> the card would 404 to the
+  // text fallback). Unlike the long-cached static jpg, the optimized variants carry
+  // a short TTL and revalidate on their own when a card file is replaced (a
+  // hard-refresh forces it immediately). Hides on error so the text/stat card
+  // behind it shows through. `fill` => the positioned panel sets the size.
   const [failed, setFailed] = useState(false);
   if (failed) return null;
   return (
     <Image
-      src={`/heroscape/cards/${cardId}.jpg?v=${CARD_ART_VERSION}`}
+      src={`/heroscape/cards/${cardId}.jpg`}
       alt=""
       fill
       sizes="(max-width: 640px) 50vw, 340px"
