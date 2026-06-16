@@ -285,13 +285,17 @@ function StatPill({ label, value, tone }: { label: string; value: string | numbe
  *  path is derived purely from the card id (no per-card config). If the image is
  *  missing or fails to load, it hides itself (onError) so the surrounding text /
  *  stat layout shows through as a graceful fallback. */
+// Bump this whenever the card SCANS in public/heroscape/cards are replaced. The
+// files keep their names, so without a changing query the browser/CDN serves the
+// stale cached copy (e.g. an old low-res scan); the version forces a fresh fetch.
+const CARD_ART_VERSION = '20260615';
 function CardArt({ cardId, className }: { cardId: string; className?: string }) {
   return (
     // Plain <img> (not next/image) avoids image config; the art is a static,
     // already-sized local asset that falls back to text on error.
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={`/heroscape/cards/${cardId}.jpg`}
+      src={`/heroscape/cards/${cardId}.jpg?v=${CARD_ART_VERSION}`}
       alt=""
       loading="lazy"
       onError={(e) => { e.currentTarget.style.display = 'none'; }}
