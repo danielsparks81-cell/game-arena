@@ -617,6 +617,54 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
   );
 }
 
+/** The "hybrid" card: the scanned card cropped to its HEADER (title + art + stat
+ *  block) on top, with the special powers RECONSTRUCTED from POWER_DESCRIPTIONS as
+ *  crisp HTML below. Two wins: (1) the powers are legible at ANY size — the scan's
+ *  printed power text turns to mush when small — and (2) with `onPowerTap` each
+ *  power becomes a tappable button, so the play-view activation panel can let a
+ *  player fire a power straight off the card. */
+const CARD_HEADER_FRAC = 0.48; // top fraction of the scan kept (cuts just above the power text)
+function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (power: { name: string; text: string }, index: number) => void }) {
+  const def = HS_CARDS[cardId];
+  if (!def) return null;
+  const powers = POWER_DESCRIPTIONS[cardId] ?? [];
+  return (
+    <div className="overflow-hidden rounded-lg border-2 border-amber-900/80 bg-[#c6c2ba] shadow-lg">
+      {/* Scanned header — object-top in a header-height box reveals just the top
+          (title + art + stats); everything below the stat block is cropped off. */}
+      <div className="relative w-full overflow-hidden" style={{ aspectRatio: `886 / ${Math.round(1432 * CARD_HEADER_FRAC)}` }}>
+        <CardArt cardId={cardId} className="object-cover object-top" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5 bg-gradient-to-t from-[#c6c2ba] to-transparent" />
+      </div>
+      {/* Reconstructed powers — crisp HTML; each is a tap target when onPowerTap. */}
+      <div className="flex flex-col gap-1.5 px-2.5 pb-2.5 pt-1.5 text-stone-900">
+        {powers.length > 0 ? powers.map((p, i) => {
+          const inner = (
+            <>
+              <div className="text-[12px] font-extrabold uppercase tracking-wide text-stone-900">{p.name}</div>
+              <div className="text-[11px] leading-snug text-stone-800">{p.text}</div>
+            </>
+          );
+          return onPowerTap ? (
+            <button
+              key={p.name}
+              type="button"
+              onClick={() => onPowerTap(p, i)}
+              className="rounded-md border border-stone-500/60 bg-stone-100/80 px-2 py-1.5 text-left transition hover:border-amber-700 hover:bg-amber-100 active:bg-amber-200"
+            >
+              {inner}
+            </button>
+          ) : (
+            <div key={p.name} className="px-0.5">{inner}</div>
+          );
+        }) : (
+          <div className="px-0.5 text-[11px] italic text-stone-600">No special power.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Hover popover with the CLEAN TEXT army card: name, General/class, the whole
  *  stat grid, and every special power (name + printed text from
  *  POWER_DESCRIPTIONS). No image here — the roster/draft PANEL shows the scanned
@@ -628,24 +676,24 @@ function CardHoverPanel({ cardId, placement = 'above', big = false }: { cardId: 
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
+
+  // Draft pool: the hybrid card (scanned header + reconstructed legible powers),
+  // pinned to the side so it never clips at the grid edges.
+  if (big) {
+    return (
+      <div className="pointer-events-none fixed right-4 top-1/2 z-50 hidden w-[min(340px,42vw)] max-h-[92vh] -translate-y-1/2 overflow-y-auto rounded-lg shadow-2xl shadow-black/80 group-hover:block">
+        <HybridCard cardId={cardId} />
+      </div>
+    );
+  }
+
   return (
     <div
       className={
-        'pointer-events-none z-50 hidden overflow-y-auto rounded-lg border-2 border-amber-700 bg-neutral-950/98 px-3 py-2.5 text-left shadow-2xl shadow-black/80 group-hover:block ' +
-        (big
-          // Draft pool: a big scanned card pinned to the side, so it stays fully
-          // on-screen no matter which card you hover (no edge clipping).
-          ? 'fixed right-4 top-1/2 max-h-[92vh] w-[min(340px,40vw)] -translate-y-1/2'
-          : 'absolute left-1/2 max-h-[80vh] w-72 -translate-x-1/2 ' +
-            (placement === 'below' ? 'top-full mt-2' : 'bottom-full mb-2'))
+        'pointer-events-none absolute left-1/2 z-30 hidden max-h-[80vh] w-72 -translate-x-1/2 overflow-y-auto rounded-lg border-2 border-amber-700 bg-neutral-950/97 px-3 py-2.5 text-left shadow-xl shadow-black/60 group-hover:block ' +
+        (placement === 'below' ? 'top-full mt-2' : 'bottom-full mb-2')
       }
     >
-      {big && (
-        // The actual scanned card, large — the hover-to-enlarge view.
-        <div className="relative mb-2 aspect-[886/1432] w-full overflow-hidden rounded">
-          <CardArt cardId={cardId} className="object-contain" />
-        </div>
-      )}
       <div className="text-sm font-bold leading-tight text-amber-100">{def.name}</div>
       <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
         {def.unitClass ?? (def.type === 'hero' ? 'Hero' : 'Squad')}
