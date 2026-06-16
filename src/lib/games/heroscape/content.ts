@@ -461,6 +461,34 @@ export const HS_DRAFT_POOL: readonly string[] = [
   'theracus', 'jotun', 'braxas', 'nilfheim', 'major_q9',
 ];
 
+/** Title-bar GENERAL plus the printed PERSONALITY and WORLD rows — the identity
+ *  bits not needed for rules (so not on HSCardDef). Combined with each card's
+ *  species/unitClass/size to render the reconstructed HTML header; `general`
+ *  also drives the card's army colour. (cards.md for the 16; Big-Hero scans.) */
+export const CARD_IDENTITY: Record<string, { general: string; personality: string; world: string }> = {
+  tarn_vikings: { general: 'Jandar', personality: 'Wild', world: 'Earth' },
+  finn: { general: 'Jandar', personality: 'Valiant', world: 'Earth' },
+  thorgrim: { general: 'Jandar', personality: 'Valiant', world: 'Earth' },
+  airborne_elite: { general: 'Jandar', personality: 'Disciplined', world: 'Earth' },
+  drake: { general: 'Jandar', personality: 'Valiant', world: 'Earth' },
+  raelin: { general: 'Jandar', personality: 'Resolute', world: 'Valhalla' },
+  zettian_guards: { general: 'Utgar', personality: 'Precise', world: 'Alpha Prime' },
+  ne_gok_sa: { general: 'Utgar', personality: 'Tricky', world: 'Marr' },
+  marro_warriors: { general: 'Utgar', personality: 'Wild', world: 'Marr' },
+  deathwalker_9000: { general: 'Utgar', personality: 'Precise', world: 'Alpha Prime' },
+  mimring: { general: 'Utgar', personality: 'Ferocious', world: 'Icaria' },
+  grimnak: { general: 'Utgar', personality: 'Ferocious', world: 'Grut' },
+  syvarris: { general: 'Ullar', personality: 'Precise', world: 'Feylund' },
+  agent_carr: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
+  krav_maga: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
+  izumi_samurai: { general: 'Einar', personality: 'Disciplined', world: 'Earth' },
+  nilfheim: { general: 'Jandar', personality: 'Ferocious', world: 'Icaria' },
+  braxas: { general: 'Vydar', personality: 'Wild', world: 'Icaria' },
+  theracus: { general: 'Ullar', personality: 'Disciplined', world: 'Feylund' },
+  major_q9: { general: 'Vydar', personality: 'Precise', world: 'Alpha Prime' },
+  jotun: { general: 'Ullar', personality: 'Wild', world: 'Feylund' },
+};
+
 /** Quick-battle fixed armies by roster index (hero first):
  *  Player 1 = Finn + Tarn Viking Warriors, Player 2 = Thorgrim + Marro
  *  Warriors (the pairing test-maps.md suggests for the Training Field). Used by

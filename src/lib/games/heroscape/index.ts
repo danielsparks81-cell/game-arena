@@ -65,7 +65,7 @@ export {
 } from './engine';
 export type { EffectiveStat } from './engine';
 
-export { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS, POWER_DESCRIPTIONS } from './content';
+export { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS, POWER_DESCRIPTIONS, CARD_IDENTITY } from './content';
 export type { HSGlyphDef, HSGlyphKind } from './content';
 
 export { MAPS, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, parseMap } from './maps';

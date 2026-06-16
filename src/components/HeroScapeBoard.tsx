@@ -27,6 +27,7 @@ import {
   HS_DRAFT_POOL,
   HS_GLYPHS,
   POWER_DESCRIPTIONS,
+  CARD_IDENTITY,
   POINT_BUDGETS,
   MIN_POINT_BUDGET,
   MAX_POINT_BUDGET,
@@ -619,18 +620,85 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
  *  printed power text turns to mush when small — and (2) with `onPowerTap` each
  *  power becomes a tappable button, so the play-view activation panel can let a
  *  player fire a power straight off the card. */
-const CARD_HEADER_FRAC = 0.455; // top fraction of the scan kept — cuts just below the stat block (size line + points), tight above the power text
+/** Army colours per General — drive the stat band + the title accent. */
+const GENERAL_THEME: Record<string, { band: string; accent: string; chip: string }> = {
+  Jandar: { band: 'bg-blue-800', accent: 'border-blue-400', chip: 'bg-blue-600' },
+  Utgar: { band: 'bg-red-900', accent: 'border-red-400', chip: 'bg-red-700' },
+  Ullar: { band: 'bg-green-800', accent: 'border-green-400', chip: 'bg-green-600' },
+  Vydar: { band: 'bg-slate-700', accent: 'border-slate-300', chip: 'bg-slate-500' },
+  Einar: { band: 'bg-amber-800', accent: 'border-amber-400', chip: 'bg-amber-600' },
+};
+
+/** One reconstructed stat pill — colour-coded, crisp HTML. (No Points pill: that
+ *  number lives in the card's corner badge, per the printed-card layout.) */
+function HeaderPill({ tone, label, value }: { tone: string; label: string; value: number }) {
+  return (
+    <div className={'flex items-center justify-between gap-1 rounded px-1.5 py-[3px] ' + tone}>
+      <span className="text-[8px] font-bold uppercase tracking-wide text-white/85">{label}</span>
+      <span className="text-sm font-extrabold leading-none tabular-nums text-white">{value}</span>
+    </div>
+  );
+}
+
+/** The card HEADER, fully reconstructed as crisp HTML (replaces the scanned top):
+ *  title bar (name + General) + the army-coloured stat band — figure art, the six
+ *  identity rows, and five colour-coded stat pills. Legible at any size; Points
+ *  intentionally omitted (shown on the draft tile's corner badge). */
+function HtmlCardHeader({ cardId }: { cardId: string }) {
+  const def = HS_CARDS[cardId];
+  const ident = CARD_IDENTITY[cardId];
+  if (!def) return null;
+  const theme = GENERAL_THEME[ident?.general ?? ''] ?? GENERAL_THEME.Jandar;
+  const rows = [
+    def.species,
+    def.type === 'hero' ? 'Unique Hero' : 'Unique Squad',
+    def.unitClass,
+    ident?.personality,
+    ident?.world,
+  ].filter(Boolean) as string[];
+  return (
+    <div className="shrink-0">
+      <div className={'flex items-center gap-1.5 border-b-2 bg-neutral-900 px-2 py-1.5 ' + theme.accent}>
+        {ident?.general && (
+          <span className={'shrink-0 rounded px-1 py-0.5 text-[8px] font-bold uppercase tracking-wide text-white ' + theme.chip}>
+            {ident.general}
+          </span>
+        )}
+        <span className="flex-1 truncate text-sm font-extrabold uppercase tracking-wide text-white">{def.name}</span>
+      </div>
+      <div className={'flex ' + theme.band}>
+        <div className="relative w-2/5 shrink-0 overflow-hidden">
+          <CardArt cardId={cardId} className="object-cover object-[25%_28%]" />
+        </div>
+        <div className="flex flex-1 items-stretch gap-1 p-1">
+          <div className="flex flex-1 flex-col justify-center gap-px">
+            {rows.map((r, i) => (
+              <div key={i} className="truncate text-[10px] font-bold uppercase leading-tight tracking-wide text-white">{r}</div>
+            ))}
+            <div className="text-[11px] font-extrabold uppercase leading-tight tracking-wide text-amber-200">
+              {def.size ?? 'medium'} {def.height}
+            </div>
+          </div>
+          <div className="flex w-16 shrink-0 flex-col justify-center gap-[3px]">
+            <HeaderPill tone="bg-red-800" label="Life" value={def.life} />
+            <HeaderPill tone="bg-emerald-700" label="Move" value={def.move} />
+            <HeaderPill tone="bg-neutral-600" label="Rng" value={def.range} />
+            <HeaderPill tone="bg-rose-700" label="Atk" value={def.attack} />
+            <HeaderPill tone="bg-blue-700" label="Def" value={def.defense} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (power: { name: string; text: string }, index: number) => void }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-lg border-2 border-amber-900/80 bg-[#c6c2ba] shadow-lg">
-      {/* Scanned header — object-top in a header-height box reveals just the top
-          (title + art + stats); everything below the stat block is cropped off. */}
-      <div className="relative w-full shrink-0 overflow-hidden" style={{ aspectRatio: `886 / ${Math.round(1432 * CARD_HEADER_FRAC)}` }}>
-        <CardArt cardId={cardId} className="object-cover object-top" />
-      </div>
+      {/* Header — fully reconstructed HTML (title + army-coloured stats), points-free. */}
+      <HtmlCardHeader cardId={cardId} />
       {/* Reconstructed powers — crisp HTML; each is a tap target when onPowerTap.
           A hard divider line gives a clean break from the scanned header; flex-1
           lets the parchment fill to the card's height when cards are equalized. */}
