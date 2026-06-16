@@ -648,8 +648,8 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
             backgroundPosition: '11% 25%',
           }}
         />
-        <div className="flex flex-1 items-stretch gap-1 p-1">
-          <div className="flex flex-1 flex-col justify-center gap-px">
+        <div className="flex min-w-0 flex-1 items-stretch gap-1 p-1">
+          <div className="flex min-w-0 flex-1 flex-col justify-center gap-px">
             {rows.map((r, i) => (
               <div key={i} className="truncate text-[10px] font-bold uppercase leading-tight tracking-wide text-white">{r}</div>
             ))}
@@ -2458,7 +2458,7 @@ export default function HeroScapeBoard({
             is taking its turn. Same hybrid card as the draft, enlarged into the
             portrait preview frame. */}
         {state.phase === 'playing' && state.subPhase === 'turns' && activeCard && activeCardDef && (
-          <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
+          <div className="overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
             <div className="mb-1.5 flex items-center justify-between px-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Now acting</span>
               <span className="text-[11px] font-semibold" style={{ color: seatColor(state.turnSeat ?? 0) }}>
@@ -2501,49 +2501,7 @@ export default function HeroScapeBoard({
           </div>
         )}
 
-        {/* Last attack dice */}
-        {state.lastAttack && (
-          <div className="rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-xs text-neutral-200">
-            <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">Last attack</div>
-            <div className="mb-1">{state.lastAttack.attackerLabel} → {state.lastAttack.targetLabel}</div>
-            {/* Dice breakdown caption (slice 4): WHY the dice counts are what
-                they are — printed + height + auras + glyphs + Spirit. The
-                bonuses are already folded into the rolls below. */}
-            {state.lastAttack.breakdown && state.lastAttack.breakdown.length > 0 && (
-              <div className="mb-1 text-[10px] font-semibold text-amber-300">
-                {state.lastAttack.breakdown.join('  ·  ')}
-              </div>
-            )}
-            <div className="flex items-center gap-1">
-              <span className="text-orange-300">⚔</span>
-              {state.lastAttack.attackRoll.map((f, i) => <DieFace key={i} face={f} />)}
-              <span className="ml-1 font-bold text-orange-300">{state.lastAttack.skulls}</span>
-            </div>
-            <div className="mt-1 flex items-center gap-1">
-              <span className="text-sky-300">🛡</span>
-              {state.lastAttack.defenseRoll.map((f, i) => <DieFace key={i} face={f} />)}
-              <span className="ml-1 font-bold text-sky-300">{state.lastAttack.shields}</span>
-            </div>
-            <div className={`mt-1 font-semibold ${state.lastAttack.destroyed ? 'text-red-400' : state.lastAttack.wounds > 0 ? 'text-orange-300' : 'text-neutral-400'}`}>
-              {state.lastAttack.destroyed
-                ? `${state.lastAttack.targetLabel} is destroyed!`
-                : state.lastAttack.wounds > 0
-                  ? `${state.lastAttack.wounds} wound${state.lastAttack.wounds === 1 ? '' : 's'} inflicted.`
-                  // slice 7: Stealth Dodge — one shield blocked ALL damage from a
-                  // non-adjacent attacker (skulls beat shields, yet 0 wounds).
-                  : state.lastAttack.skulls > state.lastAttack.shields
-                    ? 'Stealth Dodge — all damage blocked!'
-                    : 'Attack blocked.'}
-            </div>
-            {/* slice 7: Counter Strike — the Izumi reflected excess shields back
-                onto the attacker as unblockable wounds. */}
-            {state.lastAttack.counterWounds != null && state.lastAttack.counterWounds > 0 && (
-              <div className="mt-1 font-semibold text-fuchsia-300">
-                ⚔ Counter Strike — {state.lastAttack.targetLabel} reflects {state.lastAttack.counterWounds} wound{state.lastAttack.counterWounds === 1 ? '' : 's'} onto {state.lastAttack.attackerLabel}!
-              </div>
-            )}
-          </div>
-        )}
+        {/* (Last-attack dice moved into the LOG, under End turn.) */}
 
         {/* (Army cards render below the board — see the main column.) */}
 
@@ -2936,11 +2894,61 @@ export default function HeroScapeBoard({
           <button
             onClick={() => { onEndTurn(); setSelectedId(null); }}
             disabled={disabled}
-            className="rounded-lg border-2 border-amber-600 bg-neutral-950/85 px-4 py-2 text-sm font-semibold text-amber-300 backdrop-blur-sm transition hover:bg-amber-900/50 disabled:opacity-40 lg:sticky lg:bottom-0"
+            className="rounded-lg border-2 border-amber-600 bg-neutral-950/85 px-4 py-2 text-sm font-semibold text-amber-300 backdrop-blur-sm transition hover:bg-amber-900/50 disabled:opacity-40"
           >
             End turn ▶
           </button>
         )}
+
+        {/* LOG — under End turn, collapsed by default. Folds in the LAST ATTACK
+            dice (its standalone panel was removed) above the rolling text log. */}
+        <div className="flex flex-col gap-1">
+          <button
+            onClick={() => setLogOpen(o => !o)}
+            title={logOpen ? 'Hide the battle log' : 'Show the battle log'}
+            className="flex shrink-0 items-center gap-1 self-start rounded border border-neutral-700 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 transition hover:border-neutral-500"
+          >
+            📜 {logOpen ? 'Battle log ✕' : 'Log'}
+          </button>
+          {logOpen && (
+            <div className="max-h-72 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400">
+              {state.lastAttack && (
+                <div className="mb-2 rounded-md border border-neutral-700 bg-neutral-900/60 px-2 py-1.5 text-neutral-200">
+                  <div className="mb-1 font-semibold uppercase tracking-wider text-neutral-400">Last attack</div>
+                  <div className="mb-1">{state.lastAttack.attackerLabel} → {state.lastAttack.targetLabel}</div>
+                  {state.lastAttack.breakdown && state.lastAttack.breakdown.length > 0 && (
+                    <div className="mb-1 text-[10px] font-semibold text-amber-300">{state.lastAttack.breakdown.join('  ·  ')}</div>
+                  )}
+                  <div className="flex flex-wrap items-center gap-1">
+                    <span className="text-orange-300">⚔</span>
+                    {state.lastAttack.attackRoll.map((f, i) => <DieFace key={i} face={f} />)}
+                    <span className="ml-1 font-bold text-orange-300">{state.lastAttack.skulls}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <span className="text-sky-300">🛡</span>
+                    {state.lastAttack.defenseRoll.map((f, i) => <DieFace key={i} face={f} />)}
+                    <span className="ml-1 font-bold text-sky-300">{state.lastAttack.shields}</span>
+                  </div>
+                  <div className={`mt-1 font-semibold ${state.lastAttack.destroyed ? 'text-red-400' : state.lastAttack.wounds > 0 ? 'text-orange-300' : 'text-neutral-400'}`}>
+                    {state.lastAttack.destroyed
+                      ? `${state.lastAttack.targetLabel} is destroyed!`
+                      : state.lastAttack.wounds > 0
+                        ? `${state.lastAttack.wounds} wound${state.lastAttack.wounds === 1 ? '' : 's'} inflicted.`
+                        : state.lastAttack.skulls > state.lastAttack.shields
+                          ? 'Stealth Dodge — all damage blocked!'
+                          : 'Attack blocked.'}
+                  </div>
+                  {state.lastAttack.counterWounds != null && state.lastAttack.counterWounds > 0 && (
+                    <div className="mt-1 font-semibold text-fuchsia-300">⚔ Counter Strike — {state.lastAttack.targetLabel} reflects {state.lastAttack.counterWounds} wound{state.lastAttack.counterWounds === 1 ? '' : 's'} onto {state.lastAttack.attackerLabel}!</div>
+                  )}
+                </div>
+              )}
+              {state.log.slice(-40).reverse().map(e => (
+                <div key={e.seq} className={e.tag === 'win' ? 'font-bold text-amber-300' : e.tag === 'attack' ? 'text-red-300/80' : e.tag === 'fall' ? 'text-orange-300/90' : ''}>{e.text}</div>
+              ))}
+            </div>
+          )}
+        </div>
 
       </div>
 
@@ -3302,38 +3310,7 @@ export default function HeroScapeBoard({
         {me && <div className="shrink-0">{renderArmyRow(me.seat)}</div>}
       </div>
 
-      {/* LEFT RAIL — COLLAPSIBLE event log. Collapsed by default to a thin toggle
-          so the map and cards own the space; the log can never shrink them. When
-          open it's a fixed-width rail whose box scrolls INTERNALLY. */}
-      <div className={'flex w-full shrink-0 flex-col gap-1 lg:order-1 lg:min-h-0 lg:self-stretch lg:overflow-hidden ' + (logOpen ? 'lg:w-[210px]' : 'lg:w-auto')}>
-        <button
-          onClick={() => setLogOpen(o => !o)}
-          title={logOpen ? 'Hide the battle log' : 'Show the battle log'}
-          className="flex shrink-0 items-center gap-1 self-start rounded border border-neutral-700 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-400 transition hover:border-neutral-500"
-        >
-          📜 {logOpen ? 'Battle log ✕' : 'Log'}
-        </button>
-        {logOpen && (
-          <div className="overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400 max-h-60 lg:max-h-none lg:min-h-0 lg:flex-1">
-            {state.log.slice(-40).reverse().map(e => (
-              <div
-                key={e.seq}
-                className={
-                  e.tag === 'win'
-                    ? 'font-bold text-amber-300'
-                    : e.tag === 'attack'
-                      ? 'text-red-300/80'
-                      : e.tag === 'fall'
-                        ? 'text-orange-300/90'
-                        : ''
-                }
-              >
-                {e.text}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* (Battle log moved into the right rail, under End turn.) */}
     </div>
   );
 }
