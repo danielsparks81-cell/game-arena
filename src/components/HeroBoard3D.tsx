@@ -24,9 +24,13 @@ const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
 // Fraction of a figure cut-out's BOTTOM that is the moulded plastic base. We crop
 // it off so the figure stands directly on the player's COLOUR disc instead of
-// floating above it on its own base. Tunable — raise if a base sliver remains,
-// lower if feet get clipped. (Ankle-cropped source pics would make this exact.)
-const BASE_CROP = 0.15;
+// floating above it on its own base. Bases vary a lot, so a per-card override
+// dials in any figure; the rest use the default. Raise if a base sliver remains,
+// lower if feet get clipped. (Ankle-cropped source pics would let this go to ~0.)
+const BASE_CROP = 0.26;
+const BASE_CROP_BY_CARD: Record<string, number> = {
+  // Per figure, e.g. sgt_drake_alexander: 0.22, ne_gok_sa: 0.3 — fill in from feedback.
+};
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
 const SEAT_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
@@ -124,14 +128,15 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // ON the colour disc. A cloned texture keeps the shared image but samples only
   // the V range [BASE_CROP, 1]; the plane shrinks to match so the figure isn't
   // stretched, and its feet land at the disc top (y = BASE_H).
+  const crop = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
   const croppedTex = useMemo(() => {
     if (!tex) return null;
     const t = tex.clone();
-    t.offset.set(0, BASE_CROP);
-    t.repeat.set(1, 1 - BASE_CROP);
+    t.offset.set(0, crop);
+    t.repeat.set(1, 1 - crop);
     return t;
-  }, [tex]);
-  const h2 = h * (1 - BASE_CROP);
+  }, [tex, crop]);
+  const h2 = h * (1 - crop);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = SIZE * 0.58;
