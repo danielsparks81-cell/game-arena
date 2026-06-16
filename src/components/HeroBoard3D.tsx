@@ -161,16 +161,19 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
-      <mesh position={[0, BASE_H / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} castShadow receiveShadow>
-        <cylinderGeometry args={[r, r * 1.08, BASE_H, 28]} />
-        <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.7 : 0} roughness={0.5} metalness={0.2} />
+      {/* A THIN colour disc at the hex top. The figure's OWN (recoloured) moulded
+          base sits right over it, so the disc is "hidden inside" the base — not a
+          second disc floating below it. Glows when selected / targeted. */}
+      <mesh position={[0, 0.03, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} receiveShadow>
+        <cylinderGeometry args={[r, r * 1.05, 0.06, 28]} />
+        <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.8 : 0} roughness={0.5} metalness={0.2} />
       </mesh>
       {/* Lock tilt (X) and roll (Z) so the standee stays UPRIGHT and only yaws to
           face the camera. A full billboard tips backward when you angle the camera
           down, lifting the figure's feet off the hex — that's the "floaty" look.
           Y-only keeps every figure planted on its base. */}
       {figMat && (
-        <Billboard follow lockX lockZ position={[0, BASE_H + h / 2, 0]}>
+        <Billboard follow lockX lockZ position={[0, h / 2, 0]}>
           <mesh>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
@@ -179,7 +182,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
       )}
       {/* Wound markers — a row of red pips floating above the figure's head. */}
       {pips > 0 && (
-        <group position={[0, BASE_H + h + 0.22, 0]}>
+        <group position={[0, h + 0.22, 0]}>
           {Array.from({ length: pips }, (_, i) => (
             <mesh key={i} position={[(i - (pips - 1) / 2) * 0.2, 0, 0]}>
               <sphereGeometry args={[0.08, 12, 12]} />
