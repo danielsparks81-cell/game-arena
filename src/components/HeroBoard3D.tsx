@@ -22,6 +22,11 @@ const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
+// Fraction of a figure cut-out's BOTTOM that is the moulded plastic base. We crop
+// it off so the figure stands directly on the player's COLOUR disc instead of
+// floating above it on its own base. Tunable — raise if a base sliver remains,
+// lower if feet get clipped. (Ankle-cropped source pics would make this exact.)
+const BASE_CROP = 0.15;
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
 const SEAT_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
@@ -115,6 +120,18 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
   const w = h * aspect;
+  // Crop the moulded base off the bottom of the cut-out so the figure stands
+  // ON the colour disc. A cloned texture keeps the shared image but samples only
+  // the V range [BASE_CROP, 1]; the plane shrinks to match so the figure isn't
+  // stretched, and its feet land at the disc top (y = BASE_H).
+  const croppedTex = useMemo(() => {
+    if (!tex) return null;
+    const t = tex.clone();
+    t.offset.set(0, BASE_CROP);
+    t.repeat.set(1, 1 - BASE_CROP);
+    return t;
+  }, [tex]);
+  const h2 = h * (1 - BASE_CROP);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = SIZE * 0.58;
@@ -136,17 +153,17 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           face the camera. A full billboard tips backward when you angle the camera
           down, lifting the figure's feet off the hex — that's the "floaty" look.
           Y-only keeps every figure planted on its base. */}
-      {tex && (
-        <Billboard follow lockX lockZ position={[0, BASE_H + h / 2, 0]}>
+      {croppedTex && (
+        <Billboard follow lockX lockZ position={[0, BASE_H + h2 / 2, 0]}>
           <mesh castShadow>
-            <planeGeometry args={[w, h]} />
-            <meshBasicMaterial map={tex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
+            <planeGeometry args={[w, h2]} />
+            <meshBasicMaterial map={croppedTex} transparent alphaTest={0.5} side={THREE.DoubleSide} toneMapped={false} />
           </mesh>
         </Billboard>
       )}
       {/* Wound markers — a row of red pips floating above the figure's head. */}
       {pips > 0 && (
-        <group position={[0, BASE_H + h + 0.22, 0]}>
+        <group position={[0, BASE_H + h2 + 0.22, 0]}>
           {Array.from({ length: pips }, (_, i) => (
             <mesh key={i} position={[(i - (pips - 1) / 2) * 0.2, 0, 0]}>
               <sphereGeometry args={[0.08, 12, 12]} />
