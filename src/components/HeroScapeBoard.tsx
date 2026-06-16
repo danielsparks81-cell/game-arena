@@ -1164,7 +1164,9 @@ export default function HeroScapeBoard({
   }, []);
   // Per-seat army-row expand override (opponent rosters collapse to fit 4-6
   // players; the user can toggle any). Keyed by seat; absent → default.
-  const [openSeats, setOpenSeats] = useState<Record<number, boolean>>({});
+  // Global army-panel DETAIL LEVEL: 1 = names + life stacked, 2 = compact stat
+  // tiles (default), 3 = full cards. Toggled from any player strip's header.
+  const [armyDetail, setArmyDetail] = useState<1 | 2 | 3>(2);
   // The battle log is collapsible and minimized by default so the map/cards own
   // the space; expand it (a thin toggle on the far left) to read/scroll history.
   const [logOpen, setLogOpen] = useState(false);
@@ -1775,31 +1777,26 @@ export default function HeroScapeBoard({
   // Hovering a card pops the full-card popover (CardHoverPanel). Rendered for
   // the opponent (above the board) and for me (below it) in the three-zone
   // layout, so each player's cards sit on the same side as their figures.
-  function renderArmyRow(seat: number, collapsible = false) {
+  function renderArmyRow(seat: number) {
     const entry = roster.find(r => r.pl.seat === seat);
     if (!entry) return null;
     const { pl, cards } = entry;
     const isMe = !!me && pl.seat === me.seat;
     const placingMine = placing && isMe && !iAmReady;
     const isActive = seat === state.turnSeat && state.subPhase === 'turns';
-    // A collapsible (opponent) row defaults OPEN when it's that player's turn or
-    // in a 2-player game, collapsed otherwise; the user can toggle. My own row
-    // never collapses.
-    const expanded = !collapsible || (openSeats[seat] ?? (state.players.length <= 2 || isActive));
-    const aliveCards = cards.filter(c => c.alive > 0).length;
+    // Detail level applies to every strip; a player PLACING markers needs the
+    // tiles to click, so their own strip is forced to level 2 while placing.
+    const level: 1 | 2 | 3 = placingMine ? 2 : armyDetail;
+    const colorFor = (dead: boolean) => (dead ? '#737373' : seatColor(seat));
+    // The strip is only as wide as its cards (w-fit), but wraps within the column
+    // when a big army would overflow (max-w-full).
     return (
-      <div className={'w-full rounded-lg border bg-neutral-900/40 px-2 py-1 ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
+      <div className={'w-fit max-w-full rounded-lg border bg-neutral-900/40 px-2 py-1 ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <button
-            type="button"
-            onClick={collapsible ? () => setOpenSeats(s => ({ ...s, [seat]: !expanded })) : undefined}
-            className={'flex items-center gap-1.5 ' + (collapsible ? 'cursor-pointer hover:opacity-90' : 'cursor-default')}
-          >
-            {collapsible && <span className="text-[10px] text-neutral-500">{expanded ? '▾' : '▸'}</span>}
+          <span className="flex items-center gap-1.5">
             <span className="text-xs font-bold" style={{ color: seatColor(pl.seat) }}>{pl.username}{isMe ? ' (you)' : ''}</span>
             {isActive && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
-            {collapsible && !expanded && <span className="text-[10px] text-neutral-500">· {aliveCards} card{aliveCards === 1 ? '' : 's'} left</span>}
-          </button>
+          </span>
           {placingMine && (
             <span className="flex items-center gap-1">
               {MARKERS.map(v => (
@@ -1837,19 +1834,44 @@ export default function HeroScapeBoard({
               </button>
             </span>
           )}
-          {/* collapsed summary — tiny portraits + count, click the header to open */}
-          {collapsible && !expanded && (
-            <span className="flex items-center gap-1">
-              {cards.map(c => (
-                <span key={c.uid} className={'h-6 w-6 overflow-hidden rounded-full border border-neutral-700 ' + (c.alive === 0 ? 'opacity-40 grayscale' : '')}>
-                  <Portrait cardId={c.def.id} letter={c.def.letter} accent={seatColor(seat)} />
-                </span>
+          {/* detail-level control — global; applies to every player's strip */}
+          {!placingMine && (
+            <span className="flex items-center gap-0.5 rounded border border-neutral-700 p-0.5" title="Army-panel detail (applies to all players)">
+              {([1, 2, 3] as const).map(lv => (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() => setArmyDetail(lv)}
+                  title={lv === 1 ? 'Names + life' : lv === 2 ? 'Compact cards' : 'Full cards'}
+                  className={'rounded px-1.5 text-[10px] font-bold leading-4 transition ' + (armyDetail === lv ? 'bg-neutral-200 text-neutral-900' : 'text-neutral-400 hover:bg-neutral-800')}
+                >
+                  {lv}
+                </button>
               ))}
             </span>
           )}
         </div>
-        {/* Compact cards — wrap to a second line if a wide army doesn't fit. */}
-        {expanded && (
+        {/* LEVEL 1 — just the army names + life status, stacked thin. */}
+        {level === 1 && (
+          <div className="mt-1 flex flex-col gap-0.5">
+            {cards.map(({ uid, def, alive, heroWounds }) => {
+              const dead = alive === 0;
+              const active = uid === activeCardUid && state.subPhase === 'turns';
+              return (
+                <div key={uid} className={'group relative flex items-center justify-between gap-3 rounded px-1.5 py-0.5 text-[11px] ' + (active ? 'bg-amber-900/30 ring-1 ring-amber-600 ' : '') + (dead ? 'opacity-45' : '')}>
+                  <span className={'font-semibold ' + (dead ? 'line-through' : '')} style={{ color: colorFor(dead) }}>{def.name}</span>
+                  <span className="flex shrink-0 items-center tabular-nums text-neutral-400">
+                    {def.type === 'hero' ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} /> : `${alive}/${def.figures}`}
+                  </span>
+                  <CardHoverPanel cardId={def.id} big />
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* LEVEL 2 — compact stat tiles (the default); wraps if a wide army doesn't fit. */}
+        {level === 2 && (
         <div className="mt-1 flex flex-wrap gap-1.5">
           {cards.map(({ uid, def, alive, heroWounds, markers }) => {
             const canAssign = placingMine && alive > 0;
@@ -1931,6 +1953,29 @@ export default function HeroScapeBoard({
             );
           })}
         </div>
+        )}
+
+        {/* LEVEL 3 — the full cards (with markers above + a live-status badge). */}
+        {level === 3 && (
+          <div className="mt-1 flex flex-wrap gap-2">
+            {cards.map(({ uid, def, alive, heroWounds, markers }) => {
+              const active = uid === activeCardUid && state.subPhase === 'turns';
+              const dead = alive === 0;
+              return (
+                <div key={uid} className="flex flex-col items-center gap-0.5">
+                  <div className="flex h-5 items-center justify-center gap-0.5">
+                    {markers.map((m, i) => <MarkerChip key={i} m={m} size={16} />)}
+                  </div>
+                  <div className={'relative w-[240px] overflow-hidden rounded-lg ' + (active ? 'ring-2 ring-amber-500 ' : '') + (dead ? 'opacity-45 grayscale' : '')}>
+                    <HybridCard cardId={def.id} />
+                    <span className="absolute right-1 top-1 flex items-center rounded bg-neutral-950/85 px-1 py-0.5 text-[10px] font-bold tabular-nums text-neutral-200">
+                      {def.type === 'hero' ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} /> : `${alive}/${def.figures}`}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     );
@@ -2984,7 +3029,7 @@ export default function HeroScapeBoard({
               .filter(p => !me || p.seat !== me.seat)
               .sort((a, b) => a.seat - b.seat)
               .map(p => (
-                <div key={p.seat}>{renderArmyRow(p.seat, true)}</div>
+                <div key={p.seat}>{renderArmyRow(p.seat)}</div>
               ))}
           </div>
         )}
