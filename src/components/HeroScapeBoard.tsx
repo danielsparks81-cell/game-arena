@@ -644,8 +644,8 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
           className="w-2/5 shrink-0 self-stretch bg-neutral-950 bg-no-repeat"
           style={{
             backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=384&q=75')`,
-            backgroundSize: '195% auto',
-            backgroundPosition: '8% 24%',
+            backgroundSize: '235% auto',
+            backgroundPosition: '6% 22%',
           }}
         />
         <div className="flex flex-1 items-stretch gap-1 p-1">
