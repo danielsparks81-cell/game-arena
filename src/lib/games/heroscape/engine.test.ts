@@ -763,6 +763,24 @@ describe('attack eligibility', () => {
     expect(legalTargets(clear, MARRO(1))).toContain(FINN);
   });
 
+  it('LOS: a SLENDER figure on the line does NOT block (a shot passes a snake-like dragon)', () => {
+    // Same collinear setup as the blocker test (Marro 0,3 — mid 2,3 — Finn 4,3).
+    // A normal body on the line blocks; flagging its card `slender` (as Braxas is)
+    // lets the shot pass it. Movement is unaffected — the figure still occupies
+    // its hex. We mutate + restore the shared card so the assertion is exact.
+    let s = inTurns('p2', { p2: 's1-marro_warriors' });
+    s = place(s, MARRO(1), at(0, 3));
+    s = place(s, FINN, at(4, 3));
+    const mid = place(s, TARN(1), at(2, 3)); // squarely on the line
+    expect(legalTargets(mid, MARRO(1))).not.toContain(FINN); // a normal body blocks
+    HS_CARDS['tarn_vikings'].slender = true;
+    try {
+      expect(legalTargets(mid, MARRO(1))).toContain(FINN); // slender → the shot passes
+    } finally {
+      delete HS_CARDS['tarn_vikings'].slender;
+    }
+  });
+
   it('cannot target friends, dead figures, or attack twice with one figure', () => {
     let s = inTurns('p1', { p1: 's0-finn' });
     s = place(s, THORGRIM, at(3, 1));

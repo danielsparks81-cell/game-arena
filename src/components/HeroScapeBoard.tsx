@@ -1051,18 +1051,24 @@ function D20RollOverlay({ roll, onDismiss }: { roll: LastRoll; onDismiss: () => 
         <button onClick={onDismiss} className="absolute right-2 top-2 rounded-md px-2 py-0.5 text-[11px] font-bold text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-300">Skip ▸</button>
         <div className="text-xs font-bold uppercase tracking-widest text-violet-300/90">{roll.title}</div>
         <div className="mt-4 flex min-h-[72px] flex-wrap items-end justify-center gap-3">
-          {roll.dice.map((d, i) => (
-            <div key={i} className="flex flex-col items-center gap-1" style={{ visibility: i < shown ? 'visible' : 'hidden' }}>
-              <div
-                className={'flex h-16 w-16 items-center justify-center rounded-xl border-2 bg-neutral-900 text-3xl font-black tabular-nums ' +
-                  (d === 20 ? 'border-amber-400 text-amber-300' : d === 1 ? 'border-rose-700 text-rose-400' : 'border-neutral-700 text-neutral-100')}
-                style={{ animation: i < shown ? 'hsD20In 420ms ease-out' : undefined }}
-              >
-                {d}
+          {roll.dice.map((d, i) => {
+            // The d20 is drawn as a HEXAGON — two stacked clip-paths make a coloured
+            // rim around a dark face — instead of a rounded square. Natural 20 glows
+            // gold, a natural 1 glows red.
+            const HEXAGON = 'polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)';
+            const rim = d === 20 ? '#fbbf24' : d === 1 ? '#be123c' : '#525252';
+            const ink = d === 20 ? '#fcd34d' : d === 1 ? '#fb7185' : '#f5f5f5';
+            return (
+              <div key={i} className="flex flex-col items-center gap-1" style={{ visibility: i < shown ? 'visible' : 'hidden' }}>
+                <div className="relative h-16 w-16" style={{ animation: i < shown ? 'hsD20In 420ms ease-out' : undefined }}>
+                  <div className="absolute inset-0" style={{ clipPath: HEXAGON, background: rim }} />
+                  <div className="absolute inset-[3px]" style={{ clipPath: HEXAGON, background: '#171717' }} />
+                  <div className="absolute inset-0 flex items-center justify-center text-3xl font-black tabular-nums" style={{ color: ink }}>{d}</div>
+                </div>
+                {roll.labels?.[i] && <div className="max-w-[5rem] truncate text-[10px] text-neutral-400">{roll.labels[i]}</div>}
               </div>
-              {roll.labels?.[i] && <div className="max-w-[5rem] truncate text-[10px] text-neutral-400">{roll.labels[i]}</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
         {allShown && <div className={'mt-4 border-t border-neutral-800 pt-3 text-sm font-semibold ' + resultColor}>{roll.detail}</div>}
       </div>
@@ -2319,6 +2325,9 @@ export default function HeroScapeBoard({
     // (items-stretch) so their overflow-y-auto actually engages. Narrow screens
     // stack (flex-col) and scroll the window naturally.
     <div className="flex w-full flex-col gap-3 p-3 lg:h-[calc(100vh-4rem)] lg:flex-row lg:items-stretch lg:overflow-hidden">
+      {/* Board-scoped keyframes (no global stylesheet): the pulsing base-glow that
+          marks a figure with actions left. */}
+      <style>{`@keyframes hsBaseGlow { 0%,100% { opacity: 0.28; } 50% { opacity: 0.62; } } .hs-base-glow { animation: hsBaseGlow 1.4s ease-in-out infinite; }`}</style>
       {/* Dramatic dice-roll overlay (UI only). Keyed on seq so a superseding
           attack remounts it (cancelling the prior animation's timers). */}
       {rollAttack && (
@@ -3132,6 +3141,18 @@ export default function HeroScapeBoard({
                     {/* slice 8: Chomp target ring (lime dashed) */}
                     {isChompTarget && (
                       <ellipse cx={aCx} cy={aCy} rx={HEX * 0.56 + baseSpan} ry={HEX * 0.32} fill="none" stroke="#84cc16" strokeWidth={3.5} strokeDasharray="3 2" style={{ pointerEvents: 'none' }} />
+                    )}
+                    {/* base GLOW — a soft, pulsing aura under the base while this
+                        figure can still act (green=move left, amber=attack left).
+                        It vanishes the instant the figure is 'done' (ring=null), so
+                        a finished figure's base reads dull. Drawn before the crisp
+                        ring so it sits behind it and the standee. */}
+                    {ring && (
+                      <ellipse
+                        cx={aCx} cy={aCy} rx={HEX * 0.62 + baseSpan} ry={HEX * 0.38}
+                        fill={ring} className="hs-base-glow"
+                        style={{ filter: 'blur(4px)', pointerEvents: 'none' }}
+                      />
                     )}
                     {/* activation ring: green=can move, amber=can attack */}
                     {ring && (

@@ -1513,7 +1513,7 @@ function raelinAuraReaches(state: HSState, defender: Figure): boolean {
     // intervening figures (neither endpoint) blocking exactly as in combat LOS.
     const occupied: HexKey[] = [];
     for (const f of state.figures) {
-      if (f.at != null && f.id !== raelin.id && f.id !== defender.id) occupied.push(f.at);
+      if (f.at != null && f.id !== raelin.id && f.id !== defender.id && figureBlocksSight(state, f)) occupied.push(f.at);
     }
     return hasLineOfSight3D(map.cells, raelin.at!, defender.at!, occupied, (k: HexKey) =>
       eyeHeightOfKey(state, k),
@@ -2127,6 +2127,7 @@ function targetBlockReason(
   const occupied: HexKey[] = [];
   for (const f of state.figures) {
     if (f.id === attacker.id || f.id === target.id) continue;
+    if (!figureBlocksSight(state, f)) continue; // a slender model is shot past
     for (const k of figureHexes(f)) occupied.push(k);
   }
   const eye = (k: HexKey) => eyeHeightOfKey(state, k);
@@ -3469,6 +3470,7 @@ function withinRangeLos(state: HSState, attacker: Figure, target: Figure, range:
   const occupied: HexKey[] = [];
   for (const f of state.figures) {
     if (f.id === attacker.id || f.id === target.id) continue;
+    if (!figureBlocksSight(state, f)) continue; // a slender model is shot past
     for (const k of figureHexes(f)) occupied.push(k);
   }
   const eye = (k: HexKey) => eyeHeightOfKey(state, k);
@@ -3827,6 +3829,19 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
     seq: s.logSeq + 1,
   };
   pushLog(s, 'power', `${figureLabel(s, braxas)} exhales Poisonous Acid: ${results.join('; ')}.`);
+  // Surface the per-target d20s as a GLOBAL roll (the same dice overlay every
+  // other d20 power pops), so both players see each acid roll — not just the
+  // log/summary panel.
+  setLastRoll(s, {
+    title: 'Poisonous Acid Breath',
+    dice: rolls.map(r => r.d20),
+    labels: rolls.map(r => {
+      const t = s.figures.find(f => f.id === r.targetId);
+      return t ? figureLabel(s, t) : '';
+    }),
+    success: results.some(r => r.includes('destroyed')),
+    detail: results.join('; '),
+  });
   checkEliminationWin(s);
   return s;
 }
@@ -3866,10 +3881,17 @@ export function throwLandingHexes(state: HSState, attackerId: string, targetId: 
   const jotun = state.figures.find(f => f.id === attackerId);
   const target = state.figures.find(f => f.id === targetId);
   if (!map || !jotun || jotun.at == null || !target) return [];
+  // `occupied`/`occSet` block LANDING — a thrown figure needs an empty hex, and
+  // EVERY figure occupies one (slender or not). `sightOccupied` blocks SIGHT, from
+  // which slender models are excluded (a shot passes them), so the two sets
+  // diverge when a snake-like dragon stands between Jotun and a landing space.
   const occupied: HexKey[] = [];
+  const sightOccupied: HexKey[] = [];
   for (const f of state.figures) {
     if (f.id === jotun.id || f.id === target.id) continue;
-    for (const k of figureHexes(f)) occupied.push(k);
+    const hexes = figureHexes(f);
+    occupied.push(...hexes);
+    if (figureBlocksSight(state, f)) sightOccupied.push(...hexes);
   }
   const occSet = new Set(occupied);
   const eye = (k: HexKey) => eyeHeightOfKey(state, k);
@@ -3881,7 +3903,7 @@ export function throwLandingHexes(state: HSState, attackerId: string, targetId: 
       return d != null && d <= THROW_RANGE;
     });
     if (!within) continue;
-    if (figureHexes(jotun).some(jk => hasLineOfSight3D(map.cells, jk, key, occupied, eye))) out.push(key);
+    if (figureHexes(jotun).some(jk => hasLineOfSight3D(map.cells, jk, key, sightOccupied, eye))) out.push(key);
   }
   return out;
 }
@@ -4306,6 +4328,15 @@ function setLastRoll(s: HSState, roll: Omit<LastRoll, 'seq'>): void {
 
 export function cardDef(cardId: string): HSCardDef {
   return HS_CARDS[cardId];
+}
+
+/** Does this figure's model BLOCK line of sight? Bulky figures do; a SLENDER
+ *  model (a snake-like dragon such as Braxas, flagged `slender` in content) does
+ *  NOT — a shot passes it. Movement is unaffected (a slender figure still
+ *  occupies its hex for moving/landing); this only filters the figure set fed to
+ *  the LOS tracer. */
+function figureBlocksSight(state: HSState, f: Figure): boolean {
+  return !cardDefFor(state, f).slender;
 }
 
 function cardDefFor(state: HSState, fig: Figure): HSCardDef {
