@@ -180,7 +180,11 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
         'void main(){ float figV = (vUv.y - uBot) / max(uTop - uBot, 0.001);' +
         'if (figV < uClip) discard;' +
         'vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard;' +
-        'gl_FragColor = vec4(t.rgb, 1.0); }',
+        // sRGB textures are linearised on sample, but a custom ShaderMaterial gets no
+        // output colour-space pass (built-in materials do), so figures rendered DARKER
+        // than the terrain/discs. Encode linear -> sRGB here so brightness matches.
+        'vec3 c = mix(t.rgb * 12.92, 1.055 * pow(max(t.rgb, 0.0), vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), t.rgb));' +
+        'gl_FragColor = vec4(c, 1.0); }',
       transparent: true,
       side: THREE.DoubleSide,
       toneMapped: false,
