@@ -162,7 +162,12 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
   const { bottomV, topV } = useOpaqueBoundsV(img);
   const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
-  const liftY = (DISC_H - 0.03) + h / 2 - cutV * h;
+  // PIVOT the billboard around the figure's cut edge, locked at the disc centre (the hex
+  // centre), so spinning or angling the camera rotates the figure IN PLACE instead of
+  // sliding it across the hex. The plane is offset up so its cut edge meets the pivot.
+  const pivotY = DISC_H - 0.03;
+  const planeOffsetY = h / 2 - cutV * h;
+  const headY = pivotY + planeOffsetY + h / 2; // figure top, for the wound pips
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
@@ -181,7 +186,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   }, [tex, clip, bottomV, topV]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
-  const r = Math.min(0.72, Math.max(0.42, w * 0.3)); // disc radius ≈ the figure's base
+  const r = SIZE * 0.74; // disc ≈ 80% of the hex; the figure's image edges sit on it
   let baseScaleX = 1, baseRotY = 0;
   if (trail) {
     const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
@@ -202,8 +207,8 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           one edge-on from a steep angle; 2-hex figures lock tilt/roll to keep their
           orientation across the two hexes. */}
       {figMat && (
-        <Billboard follow lockX={!!trail} lockZ={!!trail} position={[0, liftY, 0]}>
-          <mesh>
+        <Billboard follow lockX={!!trail} lockZ={!!trail} position={[0, pivotY, 0]}>
+          <mesh position={[0, planeOffsetY, 0]}>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
           </mesh>
@@ -211,7 +216,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
       )}
       {/* Wound markers — a row of red pips floating above the figure's head. */}
       {pips > 0 && (
-        <group position={[0, liftY + h / 2 + 0.22, 0]}>
+        <group position={[0, headY + 0.22, 0]}>
           {Array.from({ length: pips }, (_, i) => (
             <mesh key={i} position={[(i - (pips - 1) / 2) * 0.2, 0, 0]}>
               <sphereGeometry args={[0.08, 12, 12]} />
