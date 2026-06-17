@@ -36,6 +36,11 @@ const BASE_CROP_BY_CARD: Record<string, number> = {
   deathwalker_9000: 0.18,
   raelin: 0.16,
   grimnak: 0.13,          // 2-hex oval base, tall rider
+  mimring: 0.15,          // 2-hex dragon, low base
+  nilfheim: 0.15,         // 2-hex dragon, low base
+  theracus: 0.14,         // 2-hex flyer, low base
+  braxas: 0.16,           // big dragon, low base
+  // remaining single-hex figures sit at ~0.20 (the default) per the montage scan
 };
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
