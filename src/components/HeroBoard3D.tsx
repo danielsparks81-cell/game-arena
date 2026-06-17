@@ -122,8 +122,8 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
  *  from transparent padding), `topV` = highest opaque row. Together they give the
  *  figure's true height so the base-recolour line is a fraction of the FIGURE, not of
  *  the image — robust to however much padding a cut-out has. */
-function useOpaqueBoundsV(img: HTMLImageElement | undefined): { bottomV: number; topV: number } {
-  const [b, setB] = useState({ bottomV: 0, topV: 1 });
+function useOpaqueBoundsV(img: HTMLImageElement | undefined, clip: number): { bottomV: number; topV: number; baseCenterX: number } {
+  const [b, setB] = useState({ bottomV: 0, topV: 1, baseCenterX: 0.5 });
   useEffect(() => {
     if (!img || !img.complete || !img.width || !img.height) return;
     try {
@@ -136,9 +136,18 @@ function useOpaqueBoundsV(img: HTMLImageElement | undefined): { bottomV: number;
       const rowOpaque = (y: number) => { for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) return true; return false; };
       let bottom = H - 1; for (; bottom > 0; bottom--) if (rowOpaque(bottom)) break;
       let top = 0; for (; top < H - 1; top++) if (rowOpaque(top)) break;
-      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H });
+      // Horizontal centroid of the FEET — opaque pixels in a band just above the crop
+      // line — so a figure can be re-centred by where it actually stands on the disc,
+      // not by the image centre (an off-centre/asymmetric pose shifts the base sideways).
+      const figH = Math.max(1, bottom - top);
+      const cutRow = bottom - clip * figH;
+      const bandTop = Math.max(top, Math.round(cutRow - 0.1 * figH));
+      let sx = 0, n = 0;
+      for (let y = bandTop; y <= cutRow && y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) { sx += x; n++; }
+      const baseCenterX = n ? sx / n / W : 0.5;
+      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H, baseCenterX });
     } catch { /* leave defaults */ }
-  }, [img]);
+  }, [img, clip]);
   return b;
 }
 
@@ -160,7 +169,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // colour disc — the disc IS the base. A hair of overlap hides the seam.
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
   const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
-  const { bottomV, topV } = useOpaqueBoundsV(img);
+  const { bottomV, topV, baseCenterX } = useOpaqueBoundsV(img, clip);
   const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
   // PIVOT the billboard around the figure's cut edge, locked at the hex centre ON PLANE
   // WITH THE DISC TOP (not sunk into the disc cylinder), so the figure sits ON the disc
@@ -168,6 +177,10 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // hex. The plane is offset up so its cut edge meets the pivot at the disc top.
   const pivotY = DISC_H;
   const planeOffsetY = h / 2 - cutV * h;
+  // Single-hex figures whose feet sit off the image centre get nudged back onto the
+  // disc by HALF the offset — splitting the difference between the figure's overall
+  // centre and its base, so the base reads centred without throwing the silhouette off.
+  const baseShiftX = trail ? 0 : -(baseCenterX - 0.5) * w * 0.5;
   const headY = pivotY + planeOffsetY + h / 2; // figure top, for the wound pips
   const figMat = useMemo(() => {
     if (!tex) return null;
@@ -209,7 +222,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           orientation across the two hexes. */}
       {figMat && (
         <Billboard follow lockX={!!trail} lockZ={!!trail} position={[0, pivotY, 0]}>
-          <mesh position={[0, planeOffsetY, 0]}>
+          <mesh position={[baseShiftX, planeOffsetY, 0]}>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
           </mesh>
