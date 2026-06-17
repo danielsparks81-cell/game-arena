@@ -32,7 +32,7 @@ const DISC_TOP = 0.08; // height (thickness) of the player-colour base disc
 const BASE_CROP = 0.2;
 const BASE_CROP_BY_CARD: Record<string, number> = {
   drake: 0.26,            // low wide stance on a tall textured disc
-  zettian_guards: 0.22,   // prominent disc under the feet
+  zettian_guards: 0.28,   // prominent disc; clip at the feet line (verified on image)
   deathwalker_9000: 0.18,
   raelin: 0.16,
   grimnak: 0.13,          // 2-hex oval base, tall rider
@@ -128,6 +128,34 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
   return tex;
 }
 
+/** V coordinate (0 = image bottom) of the cut-out's lowest opaque row, so we can
+ *  plant the figure on the disc by its actual feet — no float from transparent
+ *  padding below, and hand-masked figures (base erased) sit right without needing a
+ *  tight crop. Finding the lowest opaque row is unambiguous (unlike guessing where
+ *  the base ends), so this is safe to run for every figure. */
+function useOpaqueBottomV(img: HTMLImageElement | undefined): number {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (!img || !img.complete || !img.width || !img.height) return;
+    try {
+      const W = img.width, H = img.height;
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, W, H).data;
+      let bottom = H - 1;
+      for (; bottom > 0; bottom--) {
+        let any = false;
+        for (let x = 0; x < W; x++) if (d[(bottom * W + x) * 4 + 3] > 128) { any = true; break; }
+        if (any) break;
+      }
+      setV(1 - bottom / H);
+    } catch { /* leave at 0 → plants by the plane bottom */ }
+  }, [img]);
+  return v;
+}
+
 /** A height-scaled photo standee on an owner base (oval across both hexes for a
  *  double-space figure). The base glows: amber = selected, red = attack target,
  *  fuchsia = special-power target (Chomp / Grenade / Mind Shackle). Red pips float
@@ -146,7 +174,15 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // base. Sit the cut line just *inside* the disc top so the disc hides the seam and
   // the figure reads as planted on it (no float, no leftover base sliver).
   const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
-  const liftY = (DISC_TOP - 0.02) + h / 2 - clip * h;
+  // Plant by whichever sits higher: the clip line (base removed by the shader) or the
+  // cut-out's real opaque bottom — so a hand-masked figure whose base is already
+  // erased (clip ~0) rests on the disc by its feet instead of floating on padding.
+  const opaqueBottomV = useOpaqueBottomV(img);
+  const visBottomV = Math.max(clip, opaqueBottomV);
+  // Sink the figure's cut bottom ~0.05 below the disc top so the disc reliably hides
+  // the thin base sliver an angled-base cut leaves (the feet rest slightly into the
+  // disc, which also reads naturally for a based miniature).
+  const liftY = (DISC_TOP - 0.05) + h / 2 - visBottomV * h;
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
