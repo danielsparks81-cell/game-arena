@@ -5,11 +5,15 @@
 // using the same crop + feet-centring math as the 3D board (figureBase.ts). Because
 // the in-game figures are camera-facing billboards, this 2D front view matches the 3D
 // look — but it scrolls instead of making you orbit a single board. SQUADS expand to
-// one tile PER FIGURE (each member's own pose, `<card>-N.png`, like the board).
+// one tile PER FIGURE. CLICK a tile to open that figure on a hex in the real 3D board.
 
-import { useEffect, useRef } from 'react';
-import { HS_CARDS } from '@/lib/games/heroscape';
+import dynamic from 'next/dynamic';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { HS_CARDS, MAPS } from '@/lib/games/heroscape';
+import type { HSState, HexCell } from '@/lib/games/heroscape';
 import { BASE_CROP, BASE_CROP_BY_CARD } from '@/lib/games/heroscape/figureBase';
+
+const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: false });
 
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 
@@ -18,7 +22,9 @@ function shade(hex: string, f: number): string {
   return `rgb(${Math.round(((n >> 16) & 255) * f)},${Math.round(((n >> 8) & 255) * f)},${Math.round((n & 255) * f)})`;
 }
 
-function FigureTile({ cardId, src, fallbackSrc, color }: { cardId: string; src: string; fallbackSrc?: string; color: string }) {
+type Tile = { key: string; cardId: string; index: number; color: string; name: string; label: string; src: string; fallbackSrc?: string };
+
+function FigureTile({ tile }: { tile: Tile }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const cv = ref.current;
@@ -43,10 +49,9 @@ function FigureTile({ cardId, src, fallbackSrc, color }: { cardId: string; src: 
       while (bot > 0 && !rowOp(bot)) bot--;
       while (lft < W - 1 && !colOp(lft)) lft++;
       while (rgt > 0 && !colOp(rgt)) rgt--;
-      const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
+      const clip = BASE_CROP_BY_CARD[tile.cardId] ?? BASE_CROP;
       const figH = bot - top;
-      const cutY = Math.round(bot - clip * figH); // crop line, in image rows
-      // feet centroid (band just above the cut) → re-centre by HALF the offset (split)
+      const cutY = Math.round(bot - clip * figH);
       const bandTop = Math.max(top, Math.round(cutY - 0.1 * figH));
       let sx = 0, n = 0;
       for (let y = bandTop; y <= cutY; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) { sx += x; n++; }
@@ -54,24 +59,60 @@ function FigureTile({ cardId, src, fallbackSrc, color }: { cardId: string; src: 
       const visW = rgt - lft + 1, visH = cutY - top + 1;
       const discCy = TH - 62, discRx = TW * 0.4, discRy = 22;
       const sc = Math.min((TW - 28) / visW, (discCy - 18) / visH);
-      const feetTileX = TW / 2 + (baseCx - W / 2) * sc * 0.5; // half-offset, like the board
+      const feetTileX = TW / 2 + (baseCx - W / 2) * sc * 0.5;
       const dx = feetTileX - (baseCx - lft) * sc;
-      const dy = discCy - visH * sc; // cut edge lands on the disc top
-      ctx.fillStyle = shade(color, 0.6); ctx.beginPath(); ctx.ellipse(TW / 2, discCy + 9, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = color; ctx.beginPath(); ctx.ellipse(TW / 2, discCy, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
+      const dy = discCy - visH * sc;
+      ctx.fillStyle = shade(tile.color, 0.6); ctx.beginPath(); ctx.ellipse(TW / 2, discCy + 9, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = tile.color; ctx.beginPath(); ctx.ellipse(TW / 2, discCy, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
       ctx.drawImage(img, lft, top, visW, visH, dx, dy, visW * sc, visH * sc);
     };
     img.onload = draw;
-    img.onerror = () => { if (!triedFallback && fallbackSrc) { triedFallback = true; img.src = fallbackSrc; } };
-    img.src = src;
-  }, [cardId, src, fallbackSrc, color]);
+    img.onerror = () => { if (!triedFallback && tile.fallbackSrc) { triedFallback = true; img.src = tile.fallbackSrc; } };
+    img.src = tile.src;
+  }, [tile]);
   return <canvas ref={ref} width={400} height={440} style={{ width: '100%', height: 'auto', display: 'block' }} />;
 }
 
+// One flat grass hex cluster, registered once, for the click-to-open 3D inspector.
+function ensureSoloMap() {
+  if (MAPS['__solo__']) return;
+  const cells: Record<string, HexCell> = {};
+  for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) cells[`${q},${r}`] = { q, r, height: 1, terrain: 'grass' };
+  MAPS['__solo__'] = { id: '__solo__', name: 'Solo', cols: 3, rows: 3, cells, startZones: {}, glyphSpots: [], glyphs: [] };
+}
+
+function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const state = useMemo<HSState>(() => {
+    ensureSoloMap();
+    const cards = [{ uid: `s-${tile.cardId}`, cardId: tile.cardId, ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 }];
+    const figures = [{ id: `s-${tile.cardId}-${tile.index}`, cardUid: `s-${tile.cardId}`, ownerSeat: 0, at: '1,1', index: tile.index, wounds: 0 }];
+    const players = [{ seat: 0, playerId: 's0', username: 'P', accent_color: tile.color }];
+    return { mapId: '__solo__', players, cards, figures, glyphs: [] } as unknown as HSState;
+  }, [tile]);
+  return (
+    <div className="fixed inset-0 z-50 bg-black/85 p-3 sm:p-6" onClick={onClose}>
+      <div className="mx-auto flex h-full max-w-5xl flex-col" onClick={e => e.stopPropagation()}>
+        <div className="mb-2 flex items-center justify-between text-neutral-200">
+          <div className="text-sm font-medium">{tile.name} <span className="text-neutral-500">· {tile.label} · crop {BASE_CROP_BY_CARD[tile.cardId] ?? BASE_CROP}</span></div>
+          <button onClick={onClose} className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800">Close ✕</button>
+        </div>
+        <div className="min-h-0 flex-1">
+          <HeroBoard3D state={state} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HeroScapeSandbox() {
+  const [sel, setSel] = useState<Tile | null>(null);
   const units = Object.values(HS_CARDS).filter(c => c.type === 'squad' || c.type === 'hero');
-  // Expand squads to one tile per figure (each member's own pose); heroes → one tile.
-  const tiles = units.flatMap((c, ci) => {
+  const tiles: Tile[] = units.flatMap((c, ci) => {
     const color = COLORS[ci % COLORS.length];
     const isSquad = c.type === 'squad';
     return Array.from({ length: Math.max(1, c.figures) }, (_, k) => {
@@ -79,6 +120,7 @@ export default function HeroScapeSandbox() {
       return {
         key: `${c.id}-${idx}`,
         cardId: c.id,
+        index: idx,
         color,
         name: c.figures > 1 ? `${c.name} #${idx}` : c.name,
         label: isSquad ? `${c.id}-${idx}` : c.id,
@@ -91,17 +133,23 @@ export default function HeroScapeSandbox() {
     <main className="min-h-screen bg-neutral-950 p-4 text-neutral-200">
       <h1 className="text-lg font-semibold">HeroScape figure gallery</h1>
       <p className="mb-4 text-sm text-neutral-400">
-        Every figure ({tiles.length} total, squads expanded to all members) cropped and seated on its player disc — scroll to review bases, crops, and centering. The crop value is under each; tell me which to nudge (higher = more base off, lower = keep more feet).
+        Every figure ({tiles.length} total, squads expanded) cropped and seated on its player disc. Click any figure to open it on a hex in the real 3D board (orbit/zoom). Crop value is under each — tell me which to nudge.
       </p>
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {tiles.map(t => (
-          <div key={t.key} className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-center">
-            <FigureTile cardId={t.cardId} src={t.src} fallbackSrc={t.fallbackSrc} color={t.color} />
-            <div className="mt-1 truncate text-xs font-medium text-neutral-200" title={t.name}>{t.name}</div>
+          <button
+            key={t.key}
+            onClick={() => setSel(t)}
+            className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-center transition hover:border-sky-500 hover:bg-neutral-800"
+            title={`Open ${t.name} in 3D`}
+          >
+            <FigureTile tile={t} />
+            <div className="mt-1 truncate text-xs font-medium text-neutral-200">{t.name}</div>
             <div className="text-[11px] text-neutral-500">{t.label} · crop {BASE_CROP_BY_CARD[t.cardId] ?? BASE_CROP}</div>
-          </div>
+          </button>
         ))}
       </div>
+      {sel && <FigureModal tile={sel} onClose={() => setSel(null)} />}
     </main>
   );
 }
