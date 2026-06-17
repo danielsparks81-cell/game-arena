@@ -331,9 +331,9 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   );
 }
 
-export default function HeroBoard3D({ state, ...it }: { state: HSState } & Interact) {
+export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?: string } & Interact) {
   return (
-    <div className="h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 bg-gradient-to-b from-neutral-900 to-neutral-950">
+    <div className={`h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
       <Canvas shadows camera={{ position: [0, 13, 16], fov: 45 }} dpr={[1, 2]}>
         <hemisphereLight args={['#cfe3ff', '#3a3320', 0.7]} />
         <ambientLight intensity={0.25} />

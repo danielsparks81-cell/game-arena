@@ -95,14 +95,14 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
     return { mapId: '__solo__', players, cards, figures, glyphs: [] } as unknown as HSState;
   }, [tile]);
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 p-3 sm:p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-neutral-200/95 p-3 sm:p-6" onClick={onClose}>
       <div className="mx-auto flex h-full max-w-5xl flex-col" onClick={e => e.stopPropagation()}>
-        <div className="mb-2 flex items-center justify-between text-neutral-200">
+        <div className="mb-2 flex items-center justify-between text-neutral-800">
           <div className="text-sm font-medium">{tile.name} <span className="text-neutral-500">· {tile.label} · crop {BASE_CROP_BY_CARD[tile.cardId] ?? BASE_CROP}</span></div>
-          <button onClick={onClose} className="rounded-md border border-neutral-700 px-3 py-1 text-sm hover:bg-neutral-800">Close ✕</button>
+          <button onClick={onClose} className="rounded-md border border-neutral-300 bg-white px-3 py-1 text-sm hover:bg-neutral-100">Close ✕</button>
         </div>
         <div className="min-h-0 flex-1">
-          <HeroBoard3D state={state} />
+          <HeroBoard3D state={state} bg="bg-gradient-to-b from-white to-neutral-200" />
         </div>
       </div>
     </div>
@@ -130,9 +130,9 @@ export default function HeroScapeSandbox() {
     });
   });
   return (
-    <main className="min-h-screen bg-neutral-950 p-4 text-neutral-200">
+    <main className="min-h-screen bg-white p-4 text-neutral-900">
       <h1 className="text-lg font-semibold">HeroScape figure gallery</h1>
-      <p className="mb-4 text-sm text-neutral-400">
+      <p className="mb-4 text-sm text-neutral-600">
         Every figure ({tiles.length} total, squads expanded) cropped and seated on its player disc. Click any figure to open it on a hex in the real 3D board (orbit/zoom). Crop value is under each — tell me which to nudge.
       </p>
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
@@ -140,11 +140,11 @@ export default function HeroScapeSandbox() {
           <button
             key={t.key}
             onClick={() => setSel(t)}
-            className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-center transition hover:border-sky-500 hover:bg-neutral-800"
+            className="rounded-lg border border-neutral-200 bg-white p-2 text-center transition hover:border-sky-500 hover:bg-neutral-50"
             title={`Open ${t.name} in 3D`}
           >
             <FigureTile tile={t} />
-            <div className="mt-1 truncate text-xs font-medium text-neutral-200">{t.name}</div>
+            <div className="mt-1 truncate text-xs font-medium text-neutral-800">{t.name}</div>
             <div className="text-[11px] text-neutral-500">{t.label} · crop {BASE_CROP_BY_CARD[t.cardId] ?? BASE_CROP}</div>
           </button>
         ))}
