@@ -40,6 +40,14 @@ export default function TopBar({
         >
           🛠 Sandbox
         </Link>
+        {/* HeroScape figure gallery — every figure on one board to vet bases/crops. */}
+        <Link
+          href="/heroscape-sandbox"
+          title="HeroScape figure gallery — every figure on one board"
+          className="hidden text-xs text-neutral-400 transition hover:text-sky-400 sm:inline"
+        >
+          ⬡ HS figures
+        </Link>
         {/* Bug-report button for everyone; admin-only bug-inbox alongside */}
         <ReportErrorButton />
         <BugInbox />
