@@ -22,16 +22,19 @@ const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
+const DISC_H = 0.1; // thickness of the player-colour base disc that sits on the hex
+const NEUTRAL = '#8f8f95'; // the figure's own base is recoloured to this neutral grey,
+// then blends DOWN into the player-colour disc, so the grey reads as the player colour
+// without a saturated blob floating on the hex.
 // Fraction of the FIGURE's height (padding-independent), measured up from the feet,
-// that is the moulded base. We RECOLOUR that band to the owner's colour right on the
-// billboard — a flat line across the feet, everything below becomes the player's disc
-// — so its left/right edges always line up with the figure (no separate 3D disc to
-// drift as the camera orbits). Raise if a base sliver still shows above the colour,
-// lower if it creeps up the feet. Measured per figure by eye; rest use the default.
+// that is the moulded base. We recolour that band: neutral grey at the feet line
+// blending down to the player colour at the bottom, where it meets the player's 3D
+// disc on the hex (which grounds the figure). Line sits across the feet — raise if a
+// base sliver still shows above it, lower if it creeps into the feet. By eye per figure.
 const BASE_CROP = 0.2;
 const BASE_CROP_BY_CARD: Record<string, number> = {
-  drake: 0.3,             // flat disc; line across the boots (verified on image)
-  ne_gok_sa: 0.27,        // flat disc; line across the clawed feet (verified on image)
+  drake: 0.25,            // line just below the boots (verified on image)
+  ne_gok_sa: 0.23,        // line across the lower claws (verified on image)
   zettian_guards: 0.28,
   deathwalker_9000: 0.18,
   raelin: 0.16,
@@ -155,43 +158,55 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
   const w = h * aspect;
-  // RECOLOUR the bottom `clip` fraction of the FIGURE (a flat line across the feet) to
-  // the owner's colour — turning the photographed base into the player's disc right on
-  // the camera-facing billboard, so its left/right edges always line up with the
-  // figure (no separate 3D disc that drifts as the camera orbits). The base glows the
-  // ring colour when the figure is selected / targeted.
+  // The figure's moulded base (bottom `clip` fraction of the FIGURE, a flat line across
+  // the feet) is recoloured to NEUTRAL grey at the feet line, blending DOWN to the
+  // player colour at the bottom where it meets the player's 3D disc on the hex. So the
+  // base reads as the player colour without a saturated blob, and the disc grounds the
+  // figure (no float). `clip` is a fraction of the figure's real height.
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
-  const baseCol = ring ?? color;
   const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
   const { bottomV, topV } = useOpaqueBoundsV(img);
-  const liftY = h / 2 - bottomV * h; // the figure's real base bottom rests on the hex top
+  const liftY = DISC_H + h / 2 - bottomV * h; // figure's base bottom rests on the disc top
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
-      uniforms: { map: { value: tex }, uBase: { value: new THREE.Color(baseCol) }, uClip: { value: clip }, uBot: { value: bottomV }, uTop: { value: topV } },
+      uniforms: { map: { value: tex }, uColor: { value: new THREE.Color(color) }, uNeutral: { value: new THREE.Color(NEUTRAL) }, uClip: { value: clip }, uBot: { value: bottomV }, uTop: { value: topV } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader:
-        'uniform sampler2D map; uniform vec3 uBase; uniform float uClip; uniform float uBot; uniform float uTop; varying vec2 vUv;' +
+        'uniform sampler2D map; uniform vec3 uColor; uniform vec3 uNeutral; uniform float uClip; uniform float uBot; uniform float uTop; varying vec2 vUv;' +
         'void main(){ vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard;' +
         'float figV = (vUv.y - uBot) / max(uTop - uBot, 0.001);' +
-        'if (figV < uClip){ float f = clamp(figV / max(uClip, 0.001), 0.0, 1.0); gl_FragColor = vec4(uBase * (0.72 + 0.43 * f), 1.0); }' +
+        'if (figV < uClip){ float tt = clamp(figV / max(uClip, 0.001), 0.0, 1.0); vec3 b = mix(uColor, uNeutral, tt); gl_FragColor = vec4(b * (0.78 + 0.34 * tt), 1.0); }' +
         'else { gl_FragColor = vec4(t.rgb, 1.0); } }',
       transparent: true,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
-  }, [tex, baseCol, clip, bottomV, topV]);
+  }, [tex, color, clip, bottomV, topV]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
+  const r = Math.min(0.72, Math.max(0.42, w * 0.3)); // disc radius ≈ the figure's base
+  let baseScaleX = 1, baseRotY = 0;
+  if (trail) {
+    const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
+    baseRotY = -Math.atan2(dz, dx);
+    baseScaleX = (Math.hypot(dx, dz) / 2 + r) / r;
+  }
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
-      {/* The standee is ONE camera-facing card: figure above the feet line, owner's
-          colour disc recoloured below it. Lock tilt (X) and roll (Z) so it stays
-          upright and only yaws — a full billboard tips back when you angle the camera
-          down, lifting the figure off the hex (the "floaty" look). */}
+      {/* The player-colour 3D disc on the hex grounds the figure; the recoloured base
+          blends down into it. Oval across both hexes for a 2-space figure. Glows the
+          ring colour when selected / targeted. */}
+      <mesh position={[0, DISC_H / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} receiveShadow>
+        <cylinderGeometry args={[r, r * 1.04, DISC_H, 28]} />
+        <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.9 : 0} roughness={0.5} metalness={0.2} />
+      </mesh>
+      {/* Single-hex figures FULL-billboard (always face the camera) so you never catch
+          one edge-on from a steep angle; 2-hex figures lock tilt/roll to keep their
+          orientation across the two hexes. */}
       {figMat && (
-        <Billboard follow lockX lockZ position={[0, liftY, 0]}>
+        <Billboard follow lockX={!!trail} lockZ={!!trail} position={[0, liftY, 0]}>
           <mesh>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
