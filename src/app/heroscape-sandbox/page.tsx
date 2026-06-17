@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { HS_CARDS, MAPS } from '@/lib/games/heroscape';
 import type { HSState, HexCell } from '@/lib/games/heroscape';
-import { BASE_CROP, BASE_CROP_BY_CARD } from '@/lib/games/heroscape/figureBase';
+import { cropFor } from '@/lib/games/heroscape/figureBase';
 
 const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: false });
 
@@ -49,7 +49,7 @@ function FigureTile({ tile }: { tile: Tile }) {
       while (bot > 0 && !rowOp(bot)) bot--;
       while (lft < W - 1 && !colOp(lft)) lft++;
       while (rgt > 0 && !colOp(rgt)) rgt--;
-      const clip = BASE_CROP_BY_CARD[tile.cardId] ?? BASE_CROP;
+      const clip = cropFor(tile.cardId, tile.index);
       const figH = bot - top;
       const cutY = Math.round(bot - clip * figH);
       const bandTop = Math.max(top, Math.round(cutY - 0.1 * figH));
@@ -98,7 +98,7 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
     <div className="fixed inset-0 z-50 bg-neutral-200/95 p-3 sm:p-6" onClick={onClose}>
       <div className="mx-auto flex h-full max-w-5xl flex-col" onClick={e => e.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between text-neutral-800">
-          <div className="text-sm font-medium">{tile.name} <span className="text-neutral-500">· {tile.label} · crop {BASE_CROP_BY_CARD[tile.cardId] ?? BASE_CROP}</span></div>
+          <div className="text-sm font-medium">{tile.name} <span className="text-neutral-500">· {tile.label} · crop {cropFor(tile.cardId, tile.index)}</span></div>
           <button onClick={onClose} className="rounded-md border border-neutral-300 bg-white px-3 py-1 text-sm hover:bg-neutral-100">Close ✕</button>
         </div>
         <div className="min-h-0 flex-1">
@@ -145,7 +145,7 @@ export default function HeroScapeSandbox() {
           >
             <FigureTile tile={t} />
             <div className="mt-1 truncate text-xs font-medium text-neutral-800">{t.name}</div>
-            <div className="text-[11px] text-neutral-500">{t.label} · crop {BASE_CROP_BY_CARD[t.cardId] ?? BASE_CROP}</div>
+            <div className="text-[11px] text-neutral-500">{t.label} · crop {cropFor(t.cardId, t.index)}</div>
           </button>
         ))}
       </div>

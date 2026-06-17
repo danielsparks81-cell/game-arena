@@ -17,7 +17,7 @@ import { Suspense, useMemo, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
-import { BASE_CROP, BASE_CROP_BY_CARD } from '@/lib/games/heroscape/figureBase';
+import { cropFor } from '@/lib/games/heroscape/figureBase';
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
@@ -156,7 +156,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // figure's height is discarded) and butt the figure's cut edge onto the player's
   // colour disc — the disc IS the base. A hair of overlap hides the seam.
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
-  const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
+  const clip = cropFor(cardId, figIndex);
   const { bottomV, topV, baseCenterX } = useOpaqueBoundsV(img, clip);
   const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
   // PIVOT the billboard around the figure's cut edge, locked at the hex centre ON PLANE
