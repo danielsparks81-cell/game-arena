@@ -111,6 +111,43 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
   return tex;
 }
 
+/** Detect the moulded BASE in a cut-out from its alpha: the base is WIDER than the
+ *  legs, so we find the bottom-most opaque row (base bottom — skipping transparent
+ *  padding), the widest row near the bottom (base middle), then scan up to where
+ *  the silhouette narrows to the legs (base top). Returns V coords (0 = image
+ *  bottom). Lets the 3D PLANT the base on the hex (no float) and recolour exactly
+ *  the base. Runs once per image; null on any canvas/CORS issue → caller falls back. */
+function useStandeeBaseGeom(img: HTMLImageElement | undefined): { bottomV: number; topV: number } | null {
+  const [geom, setGeom] = useState<{ bottomV: number; topV: number } | null>(null);
+  useEffect(() => {
+    if (!img || !img.complete || !img.width || !img.height) return;
+    try {
+      const W = img.width, H = img.height;
+      const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      const d = ctx.getImageData(0, 0, W, H).data;
+      const rowW = new Float32Array(H);
+      for (let y = 0; y < H; y++) {
+        let min = W, max = -1;
+        for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) { if (x < min) min = x; if (x > max) max = x; }
+        rowW[y] = max >= min ? max - min + 1 : 0;
+      }
+      let baseBottom = H - 1;
+      while (baseBottom > 0 && rowW[baseBottom] === 0) baseBottom--; // skip transparent padding
+      let maxW = 0, maxRow = baseBottom;
+      for (let y = baseBottom; y >= Math.max(0, baseBottom - Math.floor(H * 0.45)); y--) {
+        if (rowW[y] > maxW) { maxW = rowW[y]; maxRow = y; } // base middle = widest row
+      }
+      let baseTop = maxRow;
+      for (let y = maxRow; y >= 0; y--) { if (rowW[y] > 0 && rowW[y] < 0.55 * maxW) { baseTop = y; break; } }
+      setGeom({ bottomV: 1 - baseBottom / H, topV: 1 - baseTop / H });
+    } catch { setGeom(null); }
+  }, [img]);
+  return geom;
+}
+
 /** A height-scaled photo standee on an owner base (oval across both hexes for a
  *  double-space figure). The base glows: amber = selected, red = attack target,
  *  fuchsia = special-power target (Chomp / Grenade / Mind Shackle). Red pips float
@@ -124,19 +161,20 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
   const w = h * aspect;
-  // Crop the moulded base off the bottom of the cut-out so the figure stands
-  // ON the colour disc. A cloned texture keeps the shared image but samples only
-  // the V range [BASE_CROP, 1]; the plane shrinks to match so the figure isn't
-  // stretched, and its feet land at the disc top (y = BASE_H).
-  const crop = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
-  // Recolour the moulded BASE (bottom `crop` of the cut-out) to the owner's colour
-  // so it merges with the colour disc beneath it — the tan base no longer reads as
-  // a separate piece floating on the disc. The figure above the threshold is
-  // untouched; the base keeps its own shading (tinted) and its alpha silhouette.
+  // Auto-detect the moulded base from the cut-out's silhouette: `bottomV` plants it
+  // on the hex (skipping transparent padding so it never floats), `topV` is the line
+  // up to which we recolour. Falls back to the per-card / default crop before the
+  // image is measured.
+  const baseGeom = useStandeeBaseGeom(img);
+  const bottomV = baseGeom?.bottomV ?? 0;
+  const threshV = baseGeom?.topV ?? (BASE_CROP_BY_CARD[cardId] ?? BASE_CROP);
+  const liftY = h / 2 - bottomV * h; // base bottom rests on the hex top (y = 0)
+  // Recolour the base region (V < threshV) to the owner's colour, keeping its
+  // shading + alpha, so the figure stands on one continuous coloured base.
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
-      uniforms: { map: { value: tex }, uColor: { value: new THREE.Color(color) }, uThresh: { value: crop } },
+      uniforms: { map: { value: tex }, uColor: { value: new THREE.Color(color) }, uThresh: { value: threshV } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader:
         'uniform sampler2D map; uniform vec3 uColor; uniform float uThresh; varying vec2 vUv;' +
@@ -147,7 +185,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
-  }, [tex, color, crop]);
+  }, [tex, color, threshV]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = SIZE * 0.58;
@@ -173,7 +211,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           down, lifting the figure's feet off the hex — that's the "floaty" look.
           Y-only keeps every figure planted on its base. */}
       {figMat && (
-        <Billboard follow lockX lockZ position={[0, h / 2, 0]}>
+        <Billboard follow lockX lockZ position={[0, liftY, 0]}>
           <mesh>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
@@ -182,7 +220,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
       )}
       {/* Wound markers — a row of red pips floating above the figure's head. */}
       {pips > 0 && (
-        <group position={[0, h + 0.22, 0]}>
+        <group position={[0, liftY + h / 2 + 0.22, 0]}>
           {Array.from({ length: pips }, (_, i) => (
             <mesh key={i} position={[(i - (pips - 1) / 2) * 0.2, 0, 0]}>
               <sphereGeometry args={[0.08, 12, 12]} />
