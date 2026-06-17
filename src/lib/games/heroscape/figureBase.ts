@@ -23,12 +23,13 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   nilfheim: 0.15,         // 2-hex dragon, low base
   theracus: 0.14,         // 2-hex flyer, low base
   braxas: 0.16,           // big dragon, low base
-  // Marro Warriors — tall oval bases, per-pose feet lines:
-  marro_warriors: 0.34,   // card fallback
-  'marro_warriors-1': 0.36,
-  'marro_warriors-2': 0.30,
-  'marro_warriors-3': 0.33,
-  'marro_warriors-4': 0.36,
+  // Marro Warriors — oval bases; line at the claws where they meet the base top
+  // (the brown base only runs to ~0.22-0.26 of the figure; higher slices the legs):
+  marro_warriors: 0.24,   // card fallback
+  'marro_warriors-1': 0.25,
+  'marro_warriors-2': 0.22,
+  'marro_warriors-3': 0.24,
+  'marro_warriors-4': 0.25,
 };
 
 /** The crop line for a figure: a per-squad-member override (`<card>-<index>`) wins
