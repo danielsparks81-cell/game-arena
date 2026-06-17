@@ -4,7 +4,8 @@
 // renders the cut-out CROPPED at its base line and seated on a player-colour disc,
 // using the same crop + feet-centring math as the 3D board (figureBase.ts). Because
 // the in-game figures are camera-facing billboards, this 2D front view matches the 3D
-// look — but it scrolls instead of making you orbit a single board.
+// look — but it scrolls instead of making you orbit a single board. SQUADS expand to
+// one tile PER FIGURE (each member's own pose, `<card>-N.png`, like the board).
 
 import { useEffect, useRef } from 'react';
 import { HS_CARDS } from '@/lib/games/heroscape';
@@ -17,13 +18,14 @@ function shade(hex: string, f: number): string {
   return `rgb(${Math.round(((n >> 16) & 255) * f)},${Math.round(((n >> 8) & 255) * f)},${Math.round((n & 255) * f)})`;
 }
 
-function FigureTile({ cardId, color }: { cardId: string; color: string }) {
+function FigureTile({ cardId, src, fallbackSrc, color }: { cardId: string; src: string; fallbackSrc?: string; color: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const cv = ref.current;
     if (!cv) return;
+    let triedFallback = false;
     const img = new Image();
-    img.onload = () => {
+    const draw = () => {
       const ctx = cv.getContext('2d');
       if (!ctx) return;
       const TW = cv.width, TH = cv.height;
@@ -55,30 +57,48 @@ function FigureTile({ cardId, color }: { cardId: string; color: string }) {
       const feetTileX = TW / 2 + (baseCx - W / 2) * sc * 0.5; // half-offset, like the board
       const dx = feetTileX - (baseCx - lft) * sc;
       const dy = discCy - visH * sc; // cut edge lands on the disc top
-      // disc: a rim hint behind, then the colour top
       ctx.fillStyle = shade(color, 0.6); ctx.beginPath(); ctx.ellipse(TW / 2, discCy + 9, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = color; ctx.beginPath(); ctx.ellipse(TW / 2, discCy, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
       ctx.drawImage(img, lft, top, visW, visH, dx, dy, visW * sc, visH * sc);
     };
-    img.src = `/heroscape/figures/${cardId}.png`;
-  }, [cardId, color]);
+    img.onload = draw;
+    img.onerror = () => { if (!triedFallback && fallbackSrc) { triedFallback = true; img.src = fallbackSrc; } };
+    img.src = src;
+  }, [cardId, src, fallbackSrc, color]);
   return <canvas ref={ref} width={400} height={440} style={{ width: '100%', height: 'auto', display: 'block' }} />;
 }
 
 export default function HeroScapeSandbox() {
   const units = Object.values(HS_CARDS).filter(c => c.type === 'squad' || c.type === 'hero');
+  // Expand squads to one tile per figure (each member's own pose); heroes → one tile.
+  const tiles = units.flatMap((c, ci) => {
+    const color = COLORS[ci % COLORS.length];
+    const isSquad = c.type === 'squad';
+    return Array.from({ length: Math.max(1, c.figures) }, (_, k) => {
+      const idx = k + 1;
+      return {
+        key: `${c.id}-${idx}`,
+        cardId: c.id,
+        color,
+        name: c.figures > 1 ? `${c.name} #${idx}` : c.name,
+        label: isSquad ? `${c.id}-${idx}` : c.id,
+        src: isSquad ? `/heroscape/figures/${c.id}-${idx}.png` : `/heroscape/figures/${c.id}.png`,
+        fallbackSrc: isSquad ? `/heroscape/figures/${c.id}.png` : undefined,
+      };
+    });
+  });
   return (
     <main className="min-h-screen bg-neutral-950 p-4 text-neutral-200">
       <h1 className="text-lg font-semibold">HeroScape figure gallery</h1>
       <p className="mb-4 text-sm text-neutral-400">
-        Every figure cropped and seated on its player disc — scroll to review bases, crops, and centering. The crop value is under each; tell me which to nudge (higher = more base off, lower = keep more feet).
+        Every figure ({tiles.length} total, squads expanded to all members) cropped and seated on its player disc — scroll to review bases, crops, and centering. The crop value is under each; tell me which to nudge (higher = more base off, lower = keep more feet).
       </p>
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-        {units.map((c, i) => (
-          <div key={c.id} className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-center">
-            <FigureTile cardId={c.id} color={COLORS[i % COLORS.length]} />
-            <div className="mt-1 truncate text-xs font-medium text-neutral-200" title={c.name}>{c.name}</div>
-            <div className="text-[11px] text-neutral-500">{c.id} · crop {BASE_CROP_BY_CARD[c.id] ?? BASE_CROP}</div>
+        {tiles.map(t => (
+          <div key={t.key} className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-center">
+            <FigureTile cardId={t.cardId} src={t.src} fallbackSrc={t.fallbackSrc} color={t.color} />
+            <div className="mt-1 truncate text-xs font-medium text-neutral-200" title={t.name}>{t.name}</div>
+            <div className="text-[11px] text-neutral-500">{t.label} · crop {BASE_CROP_BY_CARD[t.cardId] ?? BASE_CROP}</div>
           </div>
         ))}
       </div>
