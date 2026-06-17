@@ -128,20 +128,24 @@ function useStandeeBaseGeom(img: HTMLImageElement | undefined): { bottomV: numbe
       if (!ctx) return;
       ctx.drawImage(img, 0, 0);
       const d = ctx.getImageData(0, 0, W, H).data;
-      const rowW = new Float32Array(H);
+      // Opaque-pixel COUNT per row (NOT left-to-right extent): the moulded base is a
+      // SOLID disc (high count) while legs/arms are thin strips (low count even when
+      // spread or outstretched), so count separates the base from the figure where
+      // extent fails (a soldier's arm span is wider than his base).
+      const rowN = new Float32Array(H);
       for (let y = 0; y < H; y++) {
-        let min = W, max = -1;
-        for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) { if (x < min) min = x; if (x > max) max = x; }
-        rowW[y] = max >= min ? max - min + 1 : 0;
+        let cnt = 0;
+        for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) cnt++;
+        rowN[y] = cnt;
       }
       let baseBottom = H - 1;
-      while (baseBottom > 0 && rowW[baseBottom] === 0) baseBottom--; // skip transparent padding
-      let maxW = 0, maxRow = baseBottom;
-      for (let y = baseBottom; y >= Math.max(0, baseBottom - Math.floor(H * 0.45)); y--) {
-        if (rowW[y] > maxW) { maxW = rowW[y]; maxRow = y; } // base middle = widest row
+      while (baseBottom > 0 && rowN[baseBottom] === 0) baseBottom--; // skip transparent padding
+      let maxN = 0, maxRow = baseBottom; // solidest row in the bottom 40% = base middle
+      for (let y = baseBottom; y >= Math.max(0, baseBottom - Math.floor(H * 0.4)); y--) {
+        if (rowN[y] > maxN) { maxN = rowN[y]; maxRow = y; }
       }
-      let baseTop = maxRow;
-      for (let y = maxRow; y >= 0; y--) { if (rowW[y] > 0 && rowW[y] < 0.55 * maxW) { baseTop = y; break; } }
+      let baseTop = maxRow; // up from the base middle, legs = where the solid count halves
+      for (let y = maxRow; y >= 0; y--) { if (rowN[y] > 0 && rowN[y] < 0.5 * maxN) { baseTop = y; break; } }
       setGeom({ bottomV: 1 - baseBottom / H, topV: 1 - baseTop / H });
     } catch { setGeom(null); }
   }, [img]);
