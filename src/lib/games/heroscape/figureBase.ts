@@ -30,6 +30,12 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   'marro_warriors-2': 0.22,
   'marro_warriors-3': 0.24,
   'marro_warriors-4': 0.25,
+  // Tarn Vikings — SHORT rocky bases (feet sit compactly on top), line ~0.13-0.16:
+  tarn_vikings: 0.15,
+  'tarn_vikings-1': 0.16,
+  'tarn_vikings-2': 0.14,
+  'tarn_vikings-3': 0.14,
+  'tarn_vikings-4': 0.15,
 };
 
 /** The crop line for a figure: a per-squad-member override (`<card>-<index>`) wins
