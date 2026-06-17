@@ -22,14 +22,20 @@ const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
-// Fraction of a figure cut-out's BOTTOM that is the moulded plastic base. We crop
-// it off so the figure stands directly on the player's COLOUR disc instead of
-// floating above it on its own base. Bases vary a lot, so a per-card override
-// dials in any figure; the rest use the default. Raise if a base sliver remains,
-// lower if feet get clipped. (Ankle-cropped source pics would let this go to ~0.)
-const BASE_CROP = 0.26;
+const DISC_TOP = 0.12; // height of the player-colour base disc the figure stands on
+// Fraction of a figure cut-out's BOTTOM that is the moulded plastic base. We CLIP
+// it off so the figure stands on the player's COLOUR disc instead of its own
+// photographed base (recolouring the base instead swallowed wide-stance legs and a
+// low-held sword — there's no colour/width signal to separate base from figure, so
+// it's measured per figure by eye from the cut-out). Raise if a base sliver still
+// shows above the disc, lower if feet get clipped; the rest use the default.
+const BASE_CROP = 0.2;
 const BASE_CROP_BY_CARD: Record<string, number> = {
-  // Per figure, e.g. sgt_drake_alexander: 0.22, ne_gok_sa: 0.3 — fill in from feedback.
+  drake: 0.26,            // low wide stance on a tall textured disc
+  zettian_guards: 0.22,   // prominent disc under the feet
+  deathwalker_9000: 0.18,
+  raelin: 0.16,
+  grimnak: 0.13,          // 2-hex oval base, tall rider
 };
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
@@ -111,47 +117,6 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
   return tex;
 }
 
-/** Detect the moulded BASE in a cut-out from its alpha: the base is WIDER than the
- *  legs, so we find the bottom-most opaque row (base bottom — skipping transparent
- *  padding), the widest row near the bottom (base middle), then scan up to where
- *  the silhouette narrows to the legs (base top). Returns V coords (0 = image
- *  bottom). Lets the 3D PLANT the base on the hex (no float) and recolour exactly
- *  the base. Runs once per image; null on any canvas/CORS issue → caller falls back. */
-function useStandeeBaseGeom(img: HTMLImageElement | undefined): { bottomV: number; topV: number } | null {
-  const [geom, setGeom] = useState<{ bottomV: number; topV: number } | null>(null);
-  useEffect(() => {
-    if (!img || !img.complete || !img.width || !img.height) return;
-    try {
-      const W = img.width, H = img.height;
-      const c = document.createElement('canvas'); c.width = W; c.height = H;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return;
-      ctx.drawImage(img, 0, 0);
-      const d = ctx.getImageData(0, 0, W, H).data;
-      // Opaque-pixel COUNT per row (NOT left-to-right extent): the moulded base is a
-      // SOLID disc (high count) while legs/arms are thin strips (low count even when
-      // spread or outstretched), so count separates the base from the figure where
-      // extent fails (a soldier's arm span is wider than his base).
-      const rowN = new Float32Array(H);
-      for (let y = 0; y < H; y++) {
-        let cnt = 0;
-        for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) cnt++;
-        rowN[y] = cnt;
-      }
-      let baseBottom = H - 1;
-      while (baseBottom > 0 && rowN[baseBottom] === 0) baseBottom--; // skip transparent padding
-      let maxN = 0, maxRow = baseBottom; // solidest row in the bottom 40% = base middle
-      for (let y = baseBottom; y >= Math.max(0, baseBottom - Math.floor(H * 0.4)); y--) {
-        if (rowN[y] > maxN) { maxN = rowN[y]; maxRow = y; }
-      }
-      let baseTop = maxRow; // up from the base middle, legs = where the solid count halves
-      for (let y = maxRow; y >= 0; y--) { if (rowN[y] > 0 && rowN[y] < 0.5 * maxN) { baseTop = y; break; } }
-      setGeom({ bottomV: 1 - baseBottom / H, topV: 1 - baseTop / H });
-    } catch { setGeom(null); }
-  }, [img]);
-  return geom;
-}
-
 /** A height-scaled photo standee on an owner base (oval across both hexes for a
  *  double-space figure). The base glows: amber = selected, red = attack target,
  *  fuchsia = special-power target (Chomp / Grenade / Mind Shackle). Red pips float
@@ -165,31 +130,26 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
   const w = h * aspect;
-  // Auto-detect the moulded base from the cut-out's silhouette: `bottomV` plants it
-  // on the hex (skipping transparent padding so it never floats), `topV` is the line
-  // up to which we recolour. Falls back to the per-card / default crop before the
-  // image is measured.
-  const baseGeom = useStandeeBaseGeom(img);
-  const bottomV = baseGeom?.bottomV ?? 0;
-  const threshV = baseGeom?.topV ?? (BASE_CROP_BY_CARD[cardId] ?? BASE_CROP);
-  const liftY = h / 2 - bottomV * h; // base bottom rests on the hex top (y = 0)
-  // Recolour the base region (V < threshV) to the owner's colour, keeping its
-  // shading + alpha, so the figure stands on one continuous coloured base.
+  // CLIP the moulded plastic base off the bottom `clip` fraction of the cut-out, so
+  // the figure stands on the player's COLOUR disc rather than its own photographed
+  // base. Sit the cut line just *inside* the disc top so the disc hides the seam and
+  // the figure reads as planted on it (no float, no leftover base sliver).
+  const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
+  const liftY = (DISC_TOP - 0.02) + h / 2 - clip * h;
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
-      uniforms: { map: { value: tex }, uColor: { value: new THREE.Color(color) }, uThresh: { value: threshV } },
+      uniforms: { map: { value: tex }, uClip: { value: clip } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader:
-        'uniform sampler2D map; uniform vec3 uColor; uniform float uThresh; varying vec2 vUv;' +
-        'void main(){ vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard; vec3 rgb = t.rgb;' +
-        'if (vUv.y < uThresh){ float l = dot(t.rgb, vec3(0.299,0.587,0.114)); rgb = uColor * (0.5 + 0.6 * l); }' +
-        'gl_FragColor = vec4(rgb, 1.0); }',
+        'uniform sampler2D map; uniform float uClip; varying vec2 vUv;' +
+        'void main(){ if (vUv.y < uClip) discard; vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard;' +
+        'gl_FragColor = vec4(t.rgb, 1.0); }',
       transparent: true,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
-  }, [tex, color, threshV]);
+  }, [tex, clip]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = SIZE * 0.58;
@@ -203,16 +163,17 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
-      {/* A THIN colour disc at the hex top. The figure's OWN (recoloured) moulded
-          base sits right over it, so the disc is "hidden inside" the base — not a
-          second disc floating below it. Glows when selected / targeted. */}
-      <mesh position={[0, 0.03, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} receiveShadow>
-        <cylinderGeometry args={[r, r * 1.05, 0.06, 28]} />
+      {/* The player-colour base disc. The figure's photographed base is clipped off
+          and its cut bottom sits just inside this disc's top, so the disc reads as
+          the figure's base. Oval across both hexes for a 2-space figure. Glows when
+          selected / targeted. */}
+      <mesh position={[0, DISC_TOP / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} receiveShadow>
+        <cylinderGeometry args={[r, r * 1.05, DISC_TOP, 28]} />
         <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.8 : 0} roughness={0.5} metalness={0.2} />
       </mesh>
       {/* Lock tilt (X) and roll (Z) so the standee stays UPRIGHT and only yaws to
           face the camera. A full billboard tips backward when you angle the camera
-          down, lifting the figure's feet off the hex — that's the "floaty" look.
+          down, lifting the figure's feet off the disc — that's the "floaty" look.
           Y-only keeps every figure planted on its base. */}
       {figMat && (
         <Billboard follow lockX lockZ position={[0, liftY, 0]}>
