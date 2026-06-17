@@ -22,31 +22,20 @@ const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
-const DISC_TOP = 0.08; // height (thickness) of the player-colour base disc
-// Fraction of a figure cut-out's BOTTOM that is the moulded plastic base. We CLIP
-// it off so the figure stands on the player's COLOUR disc instead of its own
-// photographed base (recolouring the base instead swallowed wide-stance legs and a
-// low-held sword — there's no colour/width signal to separate base from figure, so
-// it's measured per figure by eye from the cut-out). Raise if a base sliver still
-// shows above the disc, lower if feet get clipped; the rest use the default.
+// Fraction of the FIGURE's height (padding-independent), measured up from the feet,
+// that is the moulded base. We RECOLOUR that band to the owner's colour right on the
+// billboard — a flat line across the feet, everything below becomes the player's disc
+// — so its left/right edges always line up with the figure (no separate 3D disc to
+// drift as the camera orbits). Raise if a base sliver still shows above the colour,
+// lower if it creeps up the feet. Measured per figure by eye; rest use the default.
 const BASE_CROP = 0.2;
 const BASE_CROP_BY_CARD: Record<string, number> = {
-  drake: 0.3,             // tall textured disc; straight-clip trims the low sword tip
-  zettian_guards: 0.28,   // prominent disc; clip at the feet line (verified on image)
+  drake: 0.3,             // flat disc; line across the boots (verified on image)
+  ne_gok_sa: 0.27,        // flat disc; line across the clawed feet (verified on image)
+  zettian_guards: 0.28,
   deathwalker_9000: 0.18,
   raelin: 0.16,
   grimnak: 0.13,          // 2-hex oval base, tall rider
-};
-// Colour-disc DIAMETER as a fraction of the cut-out width, so the disc lines up with
-// where the photographed base's edge was instead of being one fixed oversized puck.
-// Measured per figure from the solidest row of the base region; the rest use BASE_W.
-const BASE_W = 0.7;
-const BASE_W_BY_CARD: Record<string, number> = {
-  agent_carr: 0.67, airborne_elite: 0.84, braxas: 0.65, deathwalker_9000: 0.51,
-  drake: 0.71, finn: 0.58, grimnak: 0.56, izumi_samurai: 0.49, jotun: 0.79,
-  krav_maga: 0.61, major_q9: 0.94, marro_warriors: 0.87, mimring: 0.54,
-  ne_gok_sa: 0.77, nilfheim: 0.70, raelin: 0.50, syvarris: 0.76,
-  tarn_vikings: 0.87, theracus: 0.89, thorgrim: 0.93, zettian_guards: 0.53,
 };
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
@@ -128,13 +117,13 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
   return tex;
 }
 
-/** V coordinate (0 = image bottom) of the cut-out's lowest opaque row, so we can
- *  plant the figure on the disc by its actual feet — no float from transparent
- *  padding below, and hand-masked figures (base erased) sit right without needing a
- *  tight crop. Finding the lowest opaque row is unambiguous (unlike guessing where
- *  the base ends), so this is safe to run for every figure. */
-function useOpaqueBottomV(img: HTMLImageElement | undefined): number {
-  const [v, setV] = useState(0);
+/** Opaque bounds of the cut-out in V coords (0 = image bottom, 1 = top): `bottomV` =
+ *  lowest opaque row (so we plant the figure on the hex by its real base, no float
+ *  from transparent padding), `topV` = highest opaque row. Together they give the
+ *  figure's true height so the base-recolour line is a fraction of the FIGURE, not of
+ *  the image — robust to however much padding a cut-out has. */
+function useOpaqueBoundsV(img: HTMLImageElement | undefined): { bottomV: number; topV: number } {
+  const [b, setB] = useState({ bottomV: 0, topV: 1 });
   useEffect(() => {
     if (!img || !img.complete || !img.width || !img.height) return;
     try {
@@ -144,16 +133,13 @@ function useOpaqueBottomV(img: HTMLImageElement | undefined): number {
       if (!ctx) return;
       ctx.drawImage(img, 0, 0);
       const d = ctx.getImageData(0, 0, W, H).data;
-      let bottom = H - 1;
-      for (; bottom > 0; bottom--) {
-        let any = false;
-        for (let x = 0; x < W; x++) if (d[(bottom * W + x) * 4 + 3] > 128) { any = true; break; }
-        if (any) break;
-      }
-      setV(1 - bottom / H);
-    } catch { /* leave at 0 → plants by the plane bottom */ }
+      const rowOpaque = (y: number) => { for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) return true; return false; };
+      let bottom = H - 1; for (; bottom > 0; bottom--) if (rowOpaque(bottom)) break;
+      let top = 0; for (; top < H - 1; top++) if (rowOpaque(top)) break;
+      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H });
+    } catch { /* leave defaults */ }
   }, [img]);
-  return v;
+  return b;
 }
 
 /** A height-scaled photo standee on an owner base (oval across both hexes for a
@@ -169,62 +155,41 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
   const w = h * aspect;
-  // CLIP the moulded plastic base off the bottom `clip` fraction of the cut-out, so
-  // the figure stands on the player's COLOUR disc rather than its own photographed
-  // base. Sit the cut line just *inside* the disc top so the disc hides the seam and
-  // the figure reads as planted on it (no float, no leftover base sliver).
+  // RECOLOUR the bottom `clip` fraction of the FIGURE (a flat line across the feet) to
+  // the owner's colour — turning the photographed base into the player's disc right on
+  // the camera-facing billboard, so its left/right edges always line up with the
+  // figure (no separate 3D disc that drifts as the camera orbits). The base glows the
+  // ring colour when the figure is selected / targeted.
+  const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
+  const baseCol = ring ?? color;
   const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
-  // Plant by whichever sits higher: the clip line (base removed by the shader) or the
-  // cut-out's real opaque bottom — so a hand-masked figure whose base is already
-  // erased (clip ~0) rests on the disc by its feet instead of floating on padding.
-  const opaqueBottomV = useOpaqueBottomV(img);
-  const visBottomV = Math.max(clip, opaqueBottomV);
-  // Sink the figure's cut bottom ~0.05 below the disc top so the disc reliably hides
-  // the thin base sliver an angled-base cut leaves (the feet rest slightly into the
-  // disc, which also reads naturally for a based miniature).
-  const liftY = (DISC_TOP - 0.05) + h / 2 - visBottomV * h;
+  const { bottomV, topV } = useOpaqueBoundsV(img);
+  const liftY = h / 2 - bottomV * h; // the figure's real base bottom rests on the hex top
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
-      uniforms: { map: { value: tex }, uClip: { value: clip } },
+      uniforms: { map: { value: tex }, uBase: { value: new THREE.Color(baseCol) }, uClip: { value: clip }, uBot: { value: bottomV }, uTop: { value: topV } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader:
-        'uniform sampler2D map; uniform float uClip; varying vec2 vUv;' +
-        'void main(){ if (vUv.y < uClip) discard; vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard;' +
-        'gl_FragColor = vec4(t.rgb, 1.0); }',
+        'uniform sampler2D map; uniform vec3 uBase; uniform float uClip; uniform float uBot; uniform float uTop; varying vec2 vUv;' +
+        'void main(){ vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard;' +
+        'float figV = (vUv.y - uBot) / max(uTop - uBot, 0.001);' +
+        'if (figV < uClip){ float f = clamp(figV / max(uClip, 0.001), 0.0, 1.0); gl_FragColor = vec4(uBase * (0.72 + 0.43 * f), 1.0); }' +
+        'else { gl_FragColor = vec4(t.rgb, 1.0); } }',
       transparent: true,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
-  }, [tex, clip]);
+  }, [tex, baseCol, clip, bottomV, topV]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
-  // Disc radius = half the figure's base width (base-width fraction × billboard width),
-  // so the colour disc matches the photographed base's footprint. Clamped to stay a
-  // sensible hex-sized base for very tall / wide-armed cut-outs.
-  const r = Math.min(0.78, Math.max(0.42, ((BASE_W_BY_CARD[cardId] ?? BASE_W) * w) / 2));
-  let baseScaleX = 1, baseRotY = 0;
-  if (trail) {
-    const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
-    baseRotY = -Math.atan2(dz, dx);
-    baseScaleX = (Math.hypot(dx, dz) / 2 + r) / r;
-  }
-  const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
-      {/* The player-colour base disc. The figure's photographed base is clipped off
-          and its cut bottom sits just inside this disc's top, so the disc reads as
-          the figure's base. Oval across both hexes for a 2-space figure. Glows when
-          selected / targeted. */}
-      <mesh position={[0, DISC_TOP / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} receiveShadow>
-        <cylinderGeometry args={[r, r * 1.05, DISC_TOP, 28]} />
-        <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.8 : 0} roughness={0.5} metalness={0.2} />
-      </mesh>
-      {/* Lock tilt (X) and roll (Z) so the standee stays UPRIGHT and only yaws to
-          face the camera. A full billboard tips backward when you angle the camera
-          down, lifting the figure's feet off the disc — that's the "floaty" look.
-          Y-only keeps every figure planted on its base. */}
+      {/* The standee is ONE camera-facing card: figure above the feet line, owner's
+          colour disc recoloured below it. Lock tilt (X) and roll (Z) so it stays
+          upright and only yaws — a full billboard tips back when you angle the camera
+          down, lifting the figure off the hex (the "floaty" look). */}
       {figMat && (
         <Billboard follow lockX lockZ position={[0, liftY, 0]}>
           <mesh>
