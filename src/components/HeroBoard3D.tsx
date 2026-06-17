@@ -17,31 +17,14 @@ import { Suspense, useMemo, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
+import { BASE_CROP, BASE_CROP_BY_CARD } from '@/lib/games/heroscape/figureBase';
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
 const DISC_H = 0.14; // thickness of the player-colour base disc that sits on the hex
-// Fraction of the FIGURE's height (padding-independent), measured up from the feet,
-// that is the moulded base. We CROP it off at that line and butt the figure's cut edge
-// straight onto the player's colour disc on the hex — no recolour, the disc IS the
-// base. Line sits across the feet: raise if a base sliver still shows above the disc,
-// lower if it crops into the feet. Measured by eye per figure; rest use the default.
-const BASE_CROP = 0.2;
-const BASE_CROP_BY_CARD: Record<string, number> = {
-  drake: 0.25,            // line just below the boots (verified on image)
-  ne_gok_sa: 0.23,        // line across the lower claws (verified on image)
-  zettian_guards: 0.28,
-  deathwalker_9000: 0.18,
-  raelin: 0.16,
-  grimnak: 0.13,          // 2-hex oval base, tall rider
-  mimring: 0.15,          // 2-hex dragon, low base
-  nilfheim: 0.15,         // 2-hex dragon, low base
-  theracus: 0.14,         // 2-hex flyer, low base
-  braxas: 0.16,           // big dragon, low base
-  // remaining single-hex figures sit at ~0.20 (the default) per the montage scan
-};
+// BASE_CROP / BASE_CROP_BY_CARD now live in figureBase.ts (shared with the 2D gallery).
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
 const SEAT_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];

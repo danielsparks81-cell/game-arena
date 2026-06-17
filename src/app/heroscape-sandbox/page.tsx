@@ -1,56 +1,86 @@
 'use client';
 
-// HeroScape FIGURE GALLERY — a dev-only page that drops every figure onto a flat
-// board grid so you can spin the camera and eyeball all the bases / crops / centering
-// at once, without drafting armies or firing up a game. Reuses the real 3D board
-// (HeroBoard3D) so what you see here is exactly what you get in play.
+// HeroScape FIGURE GALLERY — a flat, scrollable review of every figure. Each tile
+// renders the cut-out CROPPED at its base line and seated on a player-colour disc,
+// using the same crop + feet-centring math as the 3D board (figureBase.ts). Because
+// the in-game figures are camera-facing billboards, this 2D front view matches the 3D
+// look — but it scrolls instead of making you orbit a single board.
 
-import dynamic from 'next/dynamic';
-import { useMemo } from 'react';
-import { MAPS, type HSMap } from '@/lib/games/heroscape/maps';
-import { HS_CARDS } from '@/lib/games/heroscape/content';
-import type { HSState, HexCell } from '@/lib/games/heroscape/types';
-
-const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: false });
+import { useEffect, useRef } from 'react';
+import { HS_CARDS } from '@/lib/games/heroscape';
+import { BASE_CROP, BASE_CROP_BY_CARD } from '@/lib/games/heroscape/figureBase';
 
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
-const COLS = 6; // figures per row, spaced 2 hexes apart so they don't occlude
+
+function shade(hex: string, f: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${Math.round(((n >> 16) & 255) * f)},${Math.round(((n >> 8) & 255) * f)},${Math.round((n & 255) * f)})`;
+}
+
+function FigureTile({ cardId, color }: { cardId: string; color: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const img = new Image();
+    img.onload = () => {
+      const ctx = cv.getContext('2d');
+      if (!ctx) return;
+      const TW = cv.width, TH = cv.height;
+      ctx.clearRect(0, 0, TW, TH);
+      const W = img.width, H = img.height;
+      const oc = document.createElement('canvas'); oc.width = W; oc.height = H;
+      const ox = oc.getContext('2d', { willReadFrequently: true });
+      if (!ox) return;
+      ox.drawImage(img, 0, 0);
+      const d = ox.getImageData(0, 0, W, H).data;
+      const rowOp = (y: number) => { for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) return true; return false; };
+      const colOp = (x: number) => { for (let y = 0; y < H; y++) if (d[(y * W + x) * 4 + 3] > 128) return true; return false; };
+      let top = 0, bot = H - 1, lft = 0, rgt = W - 1;
+      while (top < H - 1 && !rowOp(top)) top++;
+      while (bot > 0 && !rowOp(bot)) bot--;
+      while (lft < W - 1 && !colOp(lft)) lft++;
+      while (rgt > 0 && !colOp(rgt)) rgt--;
+      const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
+      const figH = bot - top;
+      const cutY = Math.round(bot - clip * figH); // crop line, in image rows
+      // feet centroid (band just above the cut) → re-centre by HALF the offset (split)
+      const bandTop = Math.max(top, Math.round(cutY - 0.1 * figH));
+      let sx = 0, n = 0;
+      for (let y = bandTop; y <= cutY; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) { sx += x; n++; }
+      const baseCx = n ? sx / n : (lft + rgt) / 2;
+      const visW = rgt - lft + 1, visH = cutY - top + 1;
+      const discCy = TH - 62, discRx = TW * 0.4, discRy = 22;
+      const sc = Math.min((TW - 28) / visW, (discCy - 18) / visH);
+      const feetTileX = TW / 2 + (baseCx - W / 2) * sc * 0.5; // half-offset, like the board
+      const dx = feetTileX - (baseCx - lft) * sc;
+      const dy = discCy - visH * sc; // cut edge lands on the disc top
+      // disc: a rim hint behind, then the colour top
+      ctx.fillStyle = shade(color, 0.6); ctx.beginPath(); ctx.ellipse(TW / 2, discCy + 9, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = color; ctx.beginPath(); ctx.ellipse(TW / 2, discCy, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.drawImage(img, lft, top, visW, visH, dx, dy, visW * sc, visH * sc);
+    };
+    img.src = `/heroscape/figures/${cardId}.png`;
+  }, [cardId, color]);
+  return <canvas ref={ref} width={400} height={440} style={{ width: '100%', height: 'auto', display: 'block' }} />;
+}
 
 export default function HeroScapeSandbox() {
-  const { state, units } = useMemo(() => {
-    const units = Object.values(HS_CARDS).filter(c => c.type === 'squad' || c.type === 'hero');
-    const positions = units.map((_, i) => [(i % COLS) * 2, Math.floor(i / COLS) * 2] as const);
-
-    // A continuous flat grass grid big enough to hold the spaced-out figures.
-    const cells: Record<string, HexCell> = {};
-    const maxQ = (COLS - 1) * 2;
-    const maxR = Math.floor((units.length - 1) / COLS) * 2;
-    for (let r = 0; r <= maxR; r++) for (let q = 0; q <= maxQ; q++) cells[`${q},${r}`] = { q, r, height: 1, terrain: 'grass' };
-    const galleryMap: HSMap = { id: '__gallery__', name: 'Gallery', cols: maxQ + 1, rows: maxR + 1, cells, startZones: {}, glyphSpots: [], glyphs: [] };
-    MAPS['__gallery__'] = galleryMap; // register so the board's MAPS[mapId] lookup resolves
-
-    // One card + one figure per unit, cycled through the six player colours so every
-    // disc colour shows up. index 1 loads a squad's first pose; heroes ignore it.
-    const cards = units.map((c, i) => ({ uid: `g-${c.id}`, cardId: c.id, ownerSeat: i % COLORS.length, orderMarkers: [], attackMod: 0, defenseMod: 0 }));
-    const figures = units.map((c, i) => ({ id: `g-${c.id}-1`, cardUid: `g-${c.id}`, ownerSeat: i % COLORS.length, at: `${positions[i][0]},${positions[i][1]}`, index: 1, wounds: 0 }));
-    const players = COLORS.map((accent_color, seat) => ({ seat, playerId: `g${seat}`, username: `P${seat}`, accent_color }));
-
-    // The 3D scene only reads mapId/players/cards/figures/glyphs, so a partial state is
-    // enough — cast past the rest of HSState (round/phase/etc. are never touched here).
-    return { units, state: { mapId: '__gallery__', players, cards, figures, glyphs: [] } as unknown as HSState };
-  }, []);
-
+  const units = Object.values(HS_CARDS).filter(c => c.type === 'squad' || c.type === 'hero');
   return (
     <main className="min-h-screen bg-neutral-950 p-4 text-neutral-200">
       <h1 className="text-lg font-semibold">HeroScape figure gallery</h1>
-      <p className="mb-3 text-sm text-neutral-400">
-        All {units.length} figures on player discs — drag to orbit, scroll to zoom. Cycled through the six player colours. No game setup needed.
+      <p className="mb-4 text-sm text-neutral-400">
+        Every figure cropped and seated on its player disc — scroll to review bases, crops, and centering. The crop value is under each; tell me which to nudge (higher = more base off, lower = keep more feet).
       </p>
-      <div className="h-[78vh]">
-        <HeroBoard3D state={state} />
-      </div>
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-neutral-500">
-        {units.map(c => <span key={c.id}>{c.name}</span>)}
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+        {units.map((c, i) => (
+          <div key={c.id} className="rounded-lg border border-neutral-800 bg-neutral-900 p-2 text-center">
+            <FigureTile cardId={c.id} color={COLORS[i % COLORS.length]} />
+            <div className="mt-1 truncate text-xs font-medium text-neutral-200" title={c.name}>{c.name}</div>
+            <div className="text-[11px] text-neutral-500">{c.id} · crop {BASE_CROP_BY_CARD[c.id] ?? BASE_CROP}</div>
+          </div>
+        ))}
       </div>
     </main>
   );
