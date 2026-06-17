@@ -162,10 +162,11 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
   const { bottomV, topV } = useOpaqueBoundsV(img);
   const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
-  // PIVOT the billboard around the figure's cut edge, locked at the disc centre (the hex
-  // centre), so spinning or angling the camera rotates the figure IN PLACE instead of
-  // sliding it across the hex. The plane is offset up so its cut edge meets the pivot.
-  const pivotY = DISC_H - 0.03;
+  // PIVOT the billboard around the figure's cut edge, locked at the hex centre ON PLANE
+  // WITH THE DISC TOP (not sunk into the disc cylinder), so the figure sits ON the disc
+  // and spinning/angling the camera rotates it IN PLACE instead of sliding across the
+  // hex. The plane is offset up so its cut edge meets the pivot at the disc top.
+  const pivotY = DISC_H;
   const planeOffsetY = h / 2 - cutV * h;
   const headY = pivotY + planeOffsetY + h / 2; // figure top, for the wound pips
   const figMat = useMemo(() => {
