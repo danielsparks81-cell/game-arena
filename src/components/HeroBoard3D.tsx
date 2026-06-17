@@ -22,15 +22,12 @@ const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
-const DISC_H = 0.1; // thickness of the player-colour base disc that sits on the hex
-const NEUTRAL = '#8f8f95'; // the figure's own base is recoloured to this neutral grey,
-// then blends DOWN into the player-colour disc, so the grey reads as the player colour
-// without a saturated blob floating on the hex.
+const DISC_H = 0.14; // thickness of the player-colour base disc that sits on the hex
 // Fraction of the FIGURE's height (padding-independent), measured up from the feet,
-// that is the moulded base. We recolour that band: neutral grey at the feet line
-// blending down to the player colour at the bottom, where it meets the player's 3D
-// disc on the hex (which grounds the figure). Line sits across the feet — raise if a
-// base sliver still shows above it, lower if it creeps into the feet. By eye per figure.
+// that is the moulded base. We CROP it off at that line and butt the figure's cut edge
+// straight onto the player's colour disc on the hex — no recolour, the disc IS the
+// base. Line sits across the feet: raise if a base sliver still shows above the disc,
+// lower if it crops into the feet. Measured by eye per figure; rest use the default.
 const BASE_CROP = 0.2;
 const BASE_CROP_BY_CARD: Record<string, number> = {
   drake: 0.25,            // line just below the boots (verified on image)
@@ -158,31 +155,30 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
   const w = h * aspect;
-  // The figure's moulded base (bottom `clip` fraction of the FIGURE, a flat line across
-  // the feet) is recoloured to NEUTRAL grey at the feet line, blending DOWN to the
-  // player colour at the bottom where it meets the player's 3D disc on the hex. So the
-  // base reads as the player colour without a saturated blob, and the disc grounds the
-  // figure (no float). `clip` is a fraction of the figure's real height.
+  // CROP the moulded base off at the feet line (everything below `clip` fraction of the
+  // figure's height is discarded) and butt the figure's cut edge onto the player's
+  // colour disc — the disc IS the base. A hair of overlap hides the seam.
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
   const clip = BASE_CROP_BY_CARD[cardId] ?? BASE_CROP;
   const { bottomV, topV } = useOpaqueBoundsV(img);
-  const liftY = DISC_H + h / 2 - bottomV * h; // figure's base bottom rests on the disc top
+  const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
+  const liftY = (DISC_H - 0.03) + h / 2 - cutV * h;
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
-      uniforms: { map: { value: tex }, uColor: { value: new THREE.Color(color) }, uNeutral: { value: new THREE.Color(NEUTRAL) }, uClip: { value: clip }, uBot: { value: bottomV }, uTop: { value: topV } },
+      uniforms: { map: { value: tex }, uClip: { value: clip }, uBot: { value: bottomV }, uTop: { value: topV } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader:
-        'uniform sampler2D map; uniform vec3 uColor; uniform vec3 uNeutral; uniform float uClip; uniform float uBot; uniform float uTop; varying vec2 vUv;' +
-        'void main(){ vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard;' +
-        'float figV = (vUv.y - uBot) / max(uTop - uBot, 0.001);' +
-        'if (figV < uClip){ float tt = clamp(figV / max(uClip, 0.001), 0.0, 1.0); vec3 b = mix(uColor, uNeutral, tt); gl_FragColor = vec4(b * (0.78 + 0.34 * tt), 1.0); }' +
-        'else { gl_FragColor = vec4(t.rgb, 1.0); } }',
+        'uniform sampler2D map; uniform float uClip; uniform float uBot; uniform float uTop; varying vec2 vUv;' +
+        'void main(){ float figV = (vUv.y - uBot) / max(uTop - uBot, 0.001);' +
+        'if (figV < uClip) discard;' +
+        'vec4 t = texture2D(map, vUv); if (t.a < 0.5) discard;' +
+        'gl_FragColor = vec4(t.rgb, 1.0); }',
       transparent: true,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
-  }, [tex, color, clip, bottomV, topV]);
+  }, [tex, clip, bottomV, topV]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = Math.min(0.72, Math.max(0.42, w * 0.3)); // disc radius ≈ the figure's base
@@ -195,9 +191,9 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
-      {/* The player-colour 3D disc on the hex grounds the figure; the recoloured base
-          blends down into it. Oval across both hexes for a 2-space figure. Glows the
-          ring colour when selected / targeted. */}
+      {/* The player-colour 3D disc IS the base: the cropped figure butts straight onto
+          its top. Oval across both hexes for a 2-space figure. Glows the ring colour
+          when selected / targeted. */}
       <mesh position={[0, DISC_H / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} receiveShadow>
         <cylinderGeometry args={[r, r * 1.04, DISC_H, 28]} />
         <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.9 : 0} roughness={0.5} metalness={0.2} />
