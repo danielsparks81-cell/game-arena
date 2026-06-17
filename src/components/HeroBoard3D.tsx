@@ -31,7 +31,7 @@ const DISC_TOP = 0.08; // height (thickness) of the player-colour base disc
 // shows above the disc, lower if feet get clipped; the rest use the default.
 const BASE_CROP = 0.2;
 const BASE_CROP_BY_CARD: Record<string, number> = {
-  drake: 0.26,            // low wide stance on a tall textured disc
+  drake: 0.3,             // tall textured disc; straight-clip trims the low sword tip
   zettian_guards: 0.28,   // prominent disc; clip at the feet line (verified on image)
   deathwalker_9000: 0.18,
   raelin: 0.16,
