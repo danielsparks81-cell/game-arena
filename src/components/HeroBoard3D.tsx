@@ -22,7 +22,7 @@ const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
-const DISC_TOP = 0.12; // height of the player-colour base disc the figure stands on
+const DISC_TOP = 0.08; // height (thickness) of the player-colour base disc
 // Fraction of a figure cut-out's BOTTOM that is the moulded plastic base. We CLIP
 // it off so the figure stands on the player's COLOUR disc instead of its own
 // photographed base (recolouring the base instead swallowed wide-stance legs and a
@@ -36,6 +36,17 @@ const BASE_CROP_BY_CARD: Record<string, number> = {
   deathwalker_9000: 0.18,
   raelin: 0.16,
   grimnak: 0.13,          // 2-hex oval base, tall rider
+};
+// Colour-disc DIAMETER as a fraction of the cut-out width, so the disc lines up with
+// where the photographed base's edge was instead of being one fixed oversized puck.
+// Measured per figure from the solidest row of the base region; the rest use BASE_W.
+const BASE_W = 0.7;
+const BASE_W_BY_CARD: Record<string, number> = {
+  agent_carr: 0.67, airborne_elite: 0.84, braxas: 0.65, deathwalker_9000: 0.51,
+  drake: 0.71, finn: 0.58, grimnak: 0.56, izumi_samurai: 0.49, jotun: 0.79,
+  krav_maga: 0.61, major_q9: 0.94, marro_warriors: 0.87, mimring: 0.54,
+  ne_gok_sa: 0.77, nilfheim: 0.70, raelin: 0.50, syvarris: 0.76,
+  tarn_vikings: 0.87, theracus: 0.89, thorgrim: 0.93, zettian_guards: 0.53,
 };
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
@@ -152,7 +163,10 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   }, [tex, clip]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
-  const r = SIZE * 0.58;
+  // Disc radius = half the figure's base width (base-width fraction × billboard width),
+  // so the colour disc matches the photographed base's footprint. Clamped to stay a
+  // sensible hex-sized base for very tall / wide-armed cut-outs.
+  const r = Math.min(0.78, Math.max(0.42, ((BASE_W_BY_CARD[cardId] ?? BASE_W) * w) / 2));
   let baseScaleX = 1, baseRotY = 0;
   if (trail) {
     const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
