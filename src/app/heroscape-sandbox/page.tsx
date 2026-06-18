@@ -11,14 +11,14 @@ import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { HS_CARDS, MAPS } from '@/lib/games/heroscape';
 import type { HSState, HexCell } from '@/lib/games/heroscape';
-import { analyzeCut, cropOverride } from '@/lib/games/heroscape/figureBase';
+import { analyzeCut, cropOverride, figureAnchor } from '@/lib/games/heroscape/figureBase';
 
 const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: false });
 
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 // Cache-bust for the figure PNGs — bump whenever a cut-out is re-cut so the gallery (and
 // browser) fetch the new image instead of a stale same-named copy.
-const IMG_V = '20260618g';
+const IMG_V = '20260618h';
 
 function shade(hex: string, f: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -49,8 +49,11 @@ function FigureTile({ tile }: { tile: Tile }) {
       // matches the board.
       const { top, bottom: bot, left: lft, right: rgt, clip, baseCenterX } = analyzeCut(d, W, H, cropOverride(tile.cardId, tile.index));
       const figH = bot - top;
-      const cutY = Math.round(bot - clip * figH);
-      const baseCx = baseCenterX * W;
+      // The "black dot" anchor (if set) overrides: its Y is the cut line, its X the centre —
+      // matching the 3D board's useOpaqueBoundsV so the gallery never drifts from the board.
+      const anchor = figureAnchor(tile.cardId, tile.index);
+      const cutY = anchor ? Math.round(anchor.y * H) : Math.round(bot - clip * figH);
+      const baseCx = anchor ? anchor.x * W : baseCenterX * W;
       const visW = rgt - lft + 1, visH = cutY - top + 1;
       const discCy = TH - 62, discRx = TW * 0.4, discRy = 22;
       const sc = Math.min((TW - 28) / visW, (discCy - 18) / visH);

@@ -31,6 +31,29 @@ export function cropOverride(cardId: string, index: number): number | undefined 
   return BASE_CROP_OVERRIDE[`${cardId}-${index}`] ?? BASE_CROP_OVERRIDE[cardId];
 }
 
+/** THE "BLACK DOT" ANCHOR (user's model). A single point on the cut-out — normalized image
+ *  coords, x from LEFT, y from TOP (0..1) — that does double duty:
+ *    • its Y is the CUT LINE: everything BELOW it is discarded (slices the moulded base off,
+ *      and any leftover backdrop white sitting beside the base goes with it), and
+ *    • the point itself is the SEAT: it's placed at the disc centre, so it sets left/right
+ *      centring AND depth in one mark.
+ *  It supersedes cropOverride (the fraction guess) + the auto baseCenterX for any figure
+ *  listed here. SIZE is untouched — still the base-width ruler. The disc centre (the "red
+ *  dot") is computed by the board, so only this one point is ever needed per figure. */
+export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
+  // Krav Maga agents — pilot of the anchor system (cut at the feet so the moulded base + the
+  // leftover white beside it both drop away; centre on the base).
+  'krav_maga-1': { x: 0.45, y: 0.74 },
+  'krav_maga-2': { x: 0.45, y: 0.84 },
+  'krav_maga-3': { x: 0.45, y: 0.73 },
+};
+
+/** The anchor point for a figure, or `undefined` to fall back to cropOverride + auto-centre.
+ *  Squad members keyed `<card>-<index>` win over the card value. */
+export function figureAnchor(cardId: string, index: number): { x: number; y: number } | undefined {
+  return FIGURE_ANCHOR[`${cardId}-${index}`] ?? FIGURE_ANCHOR[cardId];
+}
+
 /** Analyse a cut-out's alpha and find the base crop by the WIDEST-BAND rule (see top).
  *  Returns the opaque pixel bounds, the crop fraction `clip` (0 = the figure's feet/bottom,
  *  1 = its top), and the feet centroid X (0..1 of width) for re-centring off-centre poses.

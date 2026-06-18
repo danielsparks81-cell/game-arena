@@ -17,7 +17,7 @@ import { Suspense, useMemo, useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
-import { cropOverride, analyzeCut } from '@/lib/games/heroscape/figureBase';
+import { cropOverride, analyzeCut, figureAnchor } from '@/lib/games/heroscape/figureBase';
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
@@ -114,8 +114,9 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
  *  from transparent padding), `topV` = highest opaque row. Together they give the
  *  figure's true height so the base-recolour line is a fraction of the FIGURE, not of
  *  the image — robust to however much padding a cut-out has. */
-function useOpaqueBoundsV(img: HTMLImageElement | undefined, clipOverride?: number): { bottomV: number; topV: number; baseCenterX: number; baseWidthFrac: number; clip: number } {
+function useOpaqueBoundsV(img: HTMLImageElement | undefined, clipOverride?: number, anchor?: { x: number; y: number }): { bottomV: number; topV: number; baseCenterX: number; baseWidthFrac: number; clip: number } {
   const [b, setB] = useState({ bottomV: 0, topV: 1, baseCenterX: 0.5, baseWidthFrac: 0.5, clip: 0.16 });
+  const ax = anchor?.x, ay = anchor?.y;
   useEffect(() => {
     if (!img || !img.complete || !img.width || !img.height) return;
     try {
@@ -128,9 +129,19 @@ function useOpaqueBoundsV(img: HTMLImageElement | undefined, clipOverride?: numb
       // The crop line is auto-detected from the cut-out (widest-band rule); a per-figure
       // override only steps in for flyers/wings where that rule misfires.
       const { top, bottom, clip, baseCenterX, baseWidthFrac } = analyzeCut(d, W, H, clipOverride);
-      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H, baseCenterX, baseWidthFrac, clip });
+      const bottomV = 1 - bottom / H, topV = 1 - top / H;
+      // The "black dot" anchor (if set) wins: its Y becomes the crop line and its X the
+      // centre. cutV = 1 − anchor.y (image-Y→V); express it as the figure-fraction `clip`
+      // the shader already consumes. Size (baseWidthFrac) is left alone.
+      let finalClip = clip, finalCenterX = baseCenterX;
+      if (ax !== undefined && ay !== undefined) {
+        finalCenterX = ax;
+        const cutV = 1 - ay;
+        finalClip = Math.max(0, Math.min(0.95, (cutV - bottomV) / Math.max(topV - bottomV, 1e-3)));
+      }
+      setB({ bottomV, topV, baseCenterX: finalCenterX, baseWidthFrac, clip: finalClip });
     } catch { /* leave defaults */ }
-  }, [img, clipOverride]);
+  }, [img, clipOverride, ax, ay]);
   return b;
 }
 
@@ -169,7 +180,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const img = tex?.image as HTMLImageElement | undefined;
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
-  const { bottomV, topV, baseCenterX, baseWidthFrac, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex));
+  const { bottomV, topV, baseCenterX, baseWidthFrac, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex), figureAnchor(cardId, figIndex));
   // SIZE by the BASE, not a height stat: scale a 1-hex figure so its detected base width
   // renders at the disc, so taller minis come through taller (natural variation, no resize).
   // 2-hex figures keep the height-stat scale until their peanut base is calibrated.
