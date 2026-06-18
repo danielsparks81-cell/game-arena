@@ -27,13 +27,15 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   nilfheim: 0.15,         // 2-hex dragon, low base
   theracus: 0.14,         // 2-hex flyer, low base
   braxas: 0.16,           // big dragon, low base
-  // Marro Warriors — oval bases; line at the claws where they meet the base top
-  // (the brown base only runs to ~0.22-0.26 of the figure; higher slices the legs):
-  marro_warriors: 0.24,   // card fallback
-  'marro_warriors-1': 0.25,
-  'marro_warriors-2': 0.22,
-  'marro_warriors-3': 0.24,
-  'marro_warriors-4': 0.25,
+  // Marro Warriors — reshot 2026-06-17 on clean white (the cream body finally
+  // keyed off white where it couldn't off the old grey backdrop). Lean LOW: the
+  // clawed bird-feet splay onto the disc, so cut at the ankle and let the 3D
+  // player disc hide the thin remaining sliver rather than slice the feet.
+  marro_warriors: 0.22,   // card fallback
+  'marro_warriors-1': 0.22,
+  'marro_warriors-2': 0.23,
+  'marro_warriors-3': 0.23,
+  'marro_warriors-4': 0.20,
   // Tarn Vikings — SHORT rocky bases (feet sit compactly on top), line ~0.13-0.16:
   tarn_vikings: 0.15,
   'tarn_vikings-1': 0.16,
