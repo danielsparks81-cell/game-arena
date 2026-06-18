@@ -18,7 +18,9 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   zettian_guards: 0.28,
   deathwalker_9000: 0.18,
   thorgrim: 0.18,         // reshot 2026-06-17 on clean white; flat disc base
-  raelin: 0.16,
+  raelin: 0.11,           // reshot; tall (wings up) so the base is a small fraction
+  finn: 0.13,             // reshot
+  syvarris: 0.12,         // reshot
   grimnak: 0.13,          // 2-hex oval base, tall rider
   mimring: 0.15,          // 2-hex dragon, low base
   nilfheim: 0.15,         // 2-hex dragon, low base
