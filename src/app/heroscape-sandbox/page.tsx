@@ -106,7 +106,10 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
 
 export default function HeroScapeSandbox() {
   const [sel, setSel] = useState<Tile | null>(null);
-  const units = Object.values(HS_CARDS).filter(c => c.type === 'squad' || c.type === 'hero');
+  // All 1-hex figures first, then all 2-hex (double-space), each group A→Z by name.
+  const units = Object.values(HS_CARDS)
+    .filter(c => c.type === 'squad' || c.type === 'hero')
+    .sort((a, b) => ((a.baseSize ?? 1) - (b.baseSize ?? 1)) || a.name.localeCompare(b.name));
   const tiles: Tile[] = units.flatMap((c, ci) => {
     const color = COLORS[ci % COLORS.length];
     const isSquad = c.type === 'squad';
