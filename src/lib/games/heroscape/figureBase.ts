@@ -42,6 +42,13 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   'tarn_vikings-2': 0.14,
   'tarn_vikings-3': 0.14,
   'tarn_vikings-4': 0.15,
+  // Izumi Samurai — reshot 2026-06-17 on clean white (white-robe trooper keyed at
+  // tol 30 like Raelin; the two red-armor ones at 36). Feet sit flat ON the disc so
+  // the cut is clean — line just below the boots ~0.15:
+  izumi_samurai: 0.15,
+  'izumi_samurai-1': 0.15,  // white robe + katana
+  'izumi_samurai-2': 0.16,  // red armor + silver cleaver (wide stance)
+  'izumi_samurai-3': 0.15,  // red/white armor + katana (crouched)
 };
 
 /** The crop line for a figure: a per-squad-member override (`<card>-<index>`) wins
