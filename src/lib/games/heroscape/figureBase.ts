@@ -13,12 +13,12 @@
 // Use cropFor() so the per-variant override is always applied.
 export const BASE_CROP = 0.2;
 export const BASE_CROP_BY_CARD: Record<string, number> = {
-  drake: 0.17,            // reshot 2026-06-17 (full gun + cables); flat disc
+  drake: 0.13,            // RE-reshot 2026-06-17 at dialed exposure; boots on disc
   ne_gok_sa: 0.20,        // reshot 2026-06-17 clean (was the eroded cream-on-grey); clawed feet
   zettian_guards: 0.15,   // reshot 2026-06-17 (2 robots, hammer+gun); was 0.28 (ancient)
   deathwalker_9000: 0.15, // RE-reshot 2026-06-17 on clean white
-  thorgrim: 0.18,         // reshot 2026-06-17 on clean white; flat disc base
-  raelin: 0.11,           // reshot; tall (wings up) so the base is a small fraction
+  thorgrim: 0.14,         // RE-reshot 2026-06-17 at dialed exposure; boots on disc
+  raelin: 0.10,           // RE-reshot 2026-06-17 RAW (silver wings = intrinsically light, meanL 173); tall
   finn: 0.13,             // reshot
   syvarris: 0.12,         // reshot
   agent_carr: 0.13,       // reshot 2026-06-17 (trenchcoat + visor + sword); boots on disc
