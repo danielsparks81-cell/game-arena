@@ -181,7 +181,9 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // Single-hex figures whose feet sit off the image centre get nudged back onto the
   // disc by HALF the offset — splitting the difference between the figure's overall
   // centre and its base, so the base reads centred without throwing the silhouette off.
-  const baseShiftX = trail ? 0 : -(baseCenterX - 0.5) * w * 0.5;
+  // Shift so the BASE centre (not the figure centroid) sits on the hex centre; overhang
+  // (sword/arm into a neighbour hex) is intended. Full shift — no "split the difference".
+  const baseShiftX = trail ? 0 : -(baseCenterX - 0.5) * w;
   const headY = pivotY + planeOffsetY + h / 2; // figure top, for the wound pips
   const figMat = useMemo(() => {
     if (!tex) return null;

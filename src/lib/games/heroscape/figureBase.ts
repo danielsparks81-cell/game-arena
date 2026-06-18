@@ -57,11 +57,11 @@ export function analyzeCut(
   let y = yRim; while (y > top && width[y] >= 0.80 * wBase) y--;
   const autoClip = Math.min(0.45, Math.max(0.04, (bottom - (y + 1)) / figH));
   const clip = clipOverride ?? autoClip;
-  // Feet centroid in a band just above the cut line → re-centre asymmetric poses.
-  const cutRow = bottom - clip * figH;
-  const bandTop = Math.max(top, Math.round(cutRow - 0.1 * figH));
-  let sx = 0, n = 0;
-  for (let yy = bandTop; yy <= cutRow && yy < H; yy++) for (let x = 0; x < W; x++) if (op(x, yy)) { sx += x; n++; }
-  const baseCenterX = n ? sx / n / W : 0.5;
+  // Centre on the BASE, not the figure: baseCenterX = the midpoint of the widest bottom
+  // row (the disc's diameter). A sword/arm/lunge that overhangs into another hex is fine
+  // and intended — only the disc needs to sit on the player's hex.
+  let lr = -1, rr = -1;
+  for (let x = 0; x < W; x++) if (op(x, yRim)) { if (lr < 0) lr = x; rr = x; }
+  const baseCenterX = lr >= 0 ? (lr + rr) / 2 / W : 0.5;
   return { top, bottom, left, right, clip, baseCenterX };
 }

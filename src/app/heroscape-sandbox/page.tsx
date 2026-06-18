@@ -51,7 +51,7 @@ function FigureTile({ tile }: { tile: Tile }) {
       const visW = rgt - lft + 1, visH = cutY - top + 1;
       const discCy = TH - 62, discRx = TW * 0.4, discRy = 22;
       const sc = Math.min((TW - 28) / visW, (discCy - 18) / visH);
-      const feetTileX = TW / 2 + (baseCx - W / 2) * sc * 0.5;
+      const feetTileX = TW / 2; // centre the BASE on the disc (overhang is fine), matching the board
       const dx = feetTileX - (baseCx - lft) * sc;
       const dy = discCy - visH * sc;
       ctx.fillStyle = shade(tile.color, 0.6); ctx.beginPath(); ctx.ellipse(TW / 2, discCy + 9, discRx, discRy, 0, 0, Math.PI * 2); ctx.fill();
