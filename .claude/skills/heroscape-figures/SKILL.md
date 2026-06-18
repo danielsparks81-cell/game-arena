@@ -97,6 +97,14 @@ and `src/lib/games/heroscape/figureBase.ts` (`analyzeCut`, `cropOverride`).
   for every figure; the billboard pivots there so orbiting rotates it in place.
 - **Billboard:** 1-hex figures full-billboard (always face camera); 2-hex lock tilt/roll
   and rotate around vertical only.
+- **2-hex must NOT flip (head locked to a world direction).** A 2-hex plane turns to face
+  the camera from whichever side it's on; that turn would mirror the photo so the figure's
+  head/lead **jumps to the opposite hex** as you orbit past the back — the user's rule is the
+  head must always face the **same** direction. Fix: mirror the texture (`planeRef.scale.x =
+  -1`) **in lockstep** with that facing-flip, so the head stays world-stable. The swap lands
+  exactly when the plane goes edge-on (camera crossing the long axis), so it's invisible. (If
+  the head ends up locked over the *trail* hex instead of the lead, flip the scale sign — it's
+  still no-flip either way; the sign just picks which end the head sits over.)
 - **2-hex disc = a PEANUT** (a lobe over each hex + a pinched waist), not a uniform pill;
   extruded via `peanutShape`. 1-hex disc = a cylinder.
 - **sRGB:** the figure shader manually encodes linear→sRGB — a custom ShaderMaterial gets

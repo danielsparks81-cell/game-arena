@@ -18,7 +18,7 @@ export const BASE_CROP_OVERRIDE: Record<string, number> = {
   drake: 0.13, ne_gok_sa: 0.20, zettian_guards: 0.15, deathwalker_9000: 0.15,
   thorgrim: 0.14, raelin: 0.10, finn: 0.13, syvarris: 0.12, agent_carr: 0.13,
   krav_maga: 0.13, airborne_elite: 0.14, major_q9: 0.20,
-  grimnak: 0.13, mimring: 0.15, nilfheim: 0.15, theracus: 0.14, braxas: 0.10,
+  grimnak: 0.13, mimring: 0.15, nilfheim: 0.15, theracus: 0.14, braxas: 0.10, jotun: 0.13,
   marro_warriors: 0.20, 'marro_warriors-1': 0.20, 'marro_warriors-2': 0.21, 'marro_warriors-3': 0.20, 'marro_warriors-4': 0.19,
   tarn_vikings: 0.14, 'tarn_vikings-1': 0.13, 'tarn_vikings-2': 0.13, 'tarn_vikings-3': 0.14, 'tarn_vikings-4': 0.14,
   izumi_samurai: 0.14, 'izumi_samurai-1': 0.13, 'izumi_samurai-2': 0.14, 'izumi_samurai-3': 0.14,

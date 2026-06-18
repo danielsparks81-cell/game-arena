@@ -235,6 +235,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // letting it sway toward the camera only up to the angle where its base edge still fits
   // inside the peanut (half-width ≈ the lobe radius) with margin.
   const swayRef = useRef<THREE.Group>(null);
+  const planeRef = useRef<THREE.Mesh>(null);
   useFrame(({ camera }) => {
     const g = swayRef.current;
     if (!g || !trail) return;
@@ -244,12 +245,19 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
     let cdx = camera.position.x - cx, cdz = camera.position.z - cz;
     const cl = Math.hypot(cdx, cdz) || 1; cdx /= cl; cdz /= cl;  // camera dir unit
     let px = -lz, pz = lx;                                       // perpendicular to long axis…
-    if (px * cdx + pz * cdz < 0) { px = lz; pz = -lx; }          // …on the camera's side
+    let flipped = false;
+    if (px * cdx + pz * cdz < 0) { px = lz; pz = -lx; flipped = true; } // …on the camera's side
     const ang = Math.atan2(px * cdz - pz * cdx, px * cdx + pz * cdz); // signed perp→camera
     const dmax = Math.asin(Math.min(1, 1.6 * SIZE * 0.62 / Math.max(w, 0.01)));
     const a = Math.max(-dmax, Math.min(dmax, ang));
     const ca = Math.cos(a), sa = Math.sin(a);
     g.rotation.y = Math.atan2(px * ca - pz * sa, px * sa + pz * ca);
+    // NO HEAD-FLIP: when we turn the plane to face the camera from the OTHER side, the
+    // photo would otherwise mirror and the figure's head/lead would jump to the opposite
+    // hex. Counter it by mirroring the texture (scale.x = -1) in lockstep with that turn,
+    // so the head always points the SAME world direction. The mirror lands exactly when
+    // the plane goes edge-on (camera crossing the long axis), so the swap is invisible.
+    if (planeRef.current) planeRef.current.scale.x = flipped ? -1 : 1;
   });
   const pips = Math.min(wounds, 8);
   return (
@@ -274,7 +282,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           on the peanut instead of spinning off it. */}
       {figMat && (trail ? (
         <group ref={swayRef} position={[0, pivotY, 0]}>
-          <mesh position={[baseShiftX, planeOffsetY, 0]}>
+          <mesh ref={planeRef} position={[baseShiftX, planeOffsetY, 0]}>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
           </mesh>
