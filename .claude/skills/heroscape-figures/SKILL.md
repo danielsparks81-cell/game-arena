@@ -48,19 +48,23 @@ never lie flat — it must be cut away (see Rules).
   157 with no correction needed.
 - Soft, slightly warm light reads fine; the figure just needs to be clearly brighter and
   more saturated than the card without clipping.
-- **Background colour by figure tone:** bright-white works for dark/olive/cream figures. A
-  **TWO-TONE figure (near-white AND near-black parts at once — e.g. Nilfheim: white bones +
-  black wings)** cannot be cut on any *neutral* background: white-bg dissolves the bones,
-  dark-bg dissolves the wings, mid-grey is too close to the dark parts. Use a **SATURATED
-  background (blue/green)** — it separates *both* tones by HUE, so the cut is clean.
-- ⚠ **A saturated background fools the phone's AUTO white-balance.** A big blue field makes
-  the camera pump WARM into the whole scene to "cancel" the blue, so white parts go gold and
-  black parts go tan (validated on Nilfheim: cut's neutral midtone measured (203,179,144)).
-  **Fix: LOCK white balance** — Pro/Expert mode → manual WB ~5000–5500K, or long-press to
-  lock AE/AWB on the figure, or lay a small white/grey card in a corner as a neutral anchor.
-  Then a saturated bg gives true colours AND a clean cut, raw. If a shot already has the
-  cast, `wb.mjs` (see Cutting) neutralises most of it as a stopgap, but in-camera WB is the
-  real fix.
+- ⭐ **A PALE/WHITE figure that "won't cut" on a white card is an OVEREXPOSURE problem, not a
+  background problem.** If the card is blown out (clips to 255) and the figure's whites are
+  also ~255, they're identical → uncuttable (the figure dissolves; only its dark parts and the
+  silhouette survive). **Fix: drop exposure so the white card reads an un-clipped light GREY
+  (~200).** That restores the separation — the figure's whites sit a notch brighter than the
+  card — so a **gentle `tol` (~20)** keys it cleanly, and the colours stay TRUE (a neutral grey
+  bg doesn't shift white-balance). *Validated on Nilfheim (white bones + black wings):* blown
+  white = only floating wings survived; the same figure on an un-clipped grey card cut whole at
+  tol 20, raw, accurate. Go LOW on tol — the pale extremities (a thin neck/tail) are the margin
+  and erode first as tol climbs.
+- **Saturated (blue/green) bg is a FALLBACK, not the first move.** It separates a two-tone
+  figure by hue, but a big saturated field fools the phone's auto white-balance into a WARM cast
+  (whites→gold, blacks→tan; measured (203,179,144) on a blue Nilfheim cut). If you must use it,
+  LOCK white balance (Pro/Expert manual WB ~5000–5500K, or long-press AE/AWB lock, or a grey
+  card in-frame), or neutralise after with `wb.mjs` (see Cutting) — but the un-clipped-grey
+  approach above is simpler and gives a raw, accurate cut with no correction. (User PREFERRED
+  the warm raw blue over a wb-corrected one once — don't assume neutralising is wanted; ask.)
 
 ## Cutting — `bg-knockout.mjs`
 
