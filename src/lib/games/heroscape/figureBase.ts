@@ -29,7 +29,7 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   nilfheim: 0.15,         // 2-hex dragon, low base
   theracus: 0.14,         // 2-hex flyer, low base
   braxas: 0.10,           // RE-reshot 2026-06-17 clean; tall dragon → small base fraction
-  major_q9: 0.13,         // reshot 2026-06-17 (grey mech, 2-hex peanut base) — the LAST figure
+  major_q9: 0.20,         // reshot 2026-06-17 (grey mech); crop the molded 2-hex peanut base off at the feet
   // Marro Warriors — RE-reshot 2026-06-17 at correct exposure (meanL ~155-163) and
   // deployed RAW (no tone.mjs — the post-correction had overcooked the cream into
   // orange). Lean LOW: the clawed bird-feet splay onto the disc, so cut at the ankle

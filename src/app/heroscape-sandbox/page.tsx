@@ -90,7 +90,10 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
   const state = useMemo<HSState>(() => {
     ensureSoloMap();
     const cards = [{ uid: `s-${tile.cardId}`, cardId: tile.cardId, ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 }];
-    const figures = [{ id: `s-${tile.cardId}-${tile.index}`, cardUid: `s-${tile.cardId}`, ownerSeat: 0, at: '1,1', index: tile.index, wounds: 0 }];
+    // Double-space (baseSize 2) figures occupy a 2nd hex so the inspector shows their
+    // 2-hex peanut disc, not a single-hex circle.
+    const big = (HS_CARDS[tile.cardId]?.baseSize ?? 1) === 2;
+    const figures = [{ id: `s-${tile.cardId}-${tile.index}`, cardUid: `s-${tile.cardId}`, ownerSeat: 0, at: '1,1', at2: big ? '2,1' : undefined, index: tile.index, wounds: 0 }];
     const players = [{ seat: 0, playerId: 's0', username: 'P', accent_color: tile.color }];
     return { mapId: '__solo__', players, cards, figures, glyphs: [] } as unknown as HSState;
   }, [tile]);

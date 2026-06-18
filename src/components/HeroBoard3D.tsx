@@ -193,22 +193,33 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = SIZE * 0.74; // disc ≈ 80% of the hex; the figure's image edges sit on it
-  let baseScaleX = 1, baseRotY = 0;
+  // A 2-hex figure gets a PEANUT base: one colour cylinder centred over EACH hex, joined
+  // by a bridge, so the disc genuinely covers BOTH hexes. (A single stretched cylinder
+  // tapers to points at the ends and leaves the hex centres uncovered.)
+  let span = 0, discRotY = 0;
   if (trail) {
     const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
-    baseRotY = -Math.atan2(dz, dx);
-    baseScaleX = (Math.hypot(dx, dz) / 2 + r) / r;
+    span = Math.hypot(dx, dz);
+    discRotY = -Math.atan2(dz, dx);
   }
+  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: ring ? 0.9 : 0, roughness: 0.5, metalness: 0.2 };
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
       {/* The player-colour 3D disc IS the base: the cropped figure butts straight onto
-          its top. Oval across both hexes for a 2-space figure. Glows the ring colour
-          when selected / targeted. */}
-      <mesh position={[0, DISC_H / 2, 0]} rotation={[0, baseRotY, 0]} scale={[baseScaleX, 1, 1]} receiveShadow>
-        <cylinderGeometry args={[r, r * 1.04, DISC_H, 28]} />
-        <meshStandardMaterial color={color} emissive={ring ?? '#000000'} emissiveIntensity={ring ? 0.9 : 0} roughness={0.5} metalness={0.2} />
-      </mesh>
+          its top. Glows the ring colour when selected / targeted. */}
+      {trail ? (
+        <group rotation={[0, discRotY, 0]} position={[0, DISC_H / 2, 0]}>
+          <mesh position={[-span / 2, 0, 0]} receiveShadow><cylinderGeometry args={[r, r * 1.04, DISC_H, 24]} /><meshStandardMaterial {...discProps} /></mesh>
+          <mesh position={[span / 2, 0, 0]} receiveShadow><cylinderGeometry args={[r, r * 1.04, DISC_H, 24]} /><meshStandardMaterial {...discProps} /></mesh>
+          <mesh receiveShadow><boxGeometry args={[span, DISC_H, 2 * r]} /><meshStandardMaterial {...discProps} /></mesh>
+        </group>
+      ) : (
+        <mesh position={[0, DISC_H / 2, 0]} receiveShadow>
+          <cylinderGeometry args={[r, r * 1.04, DISC_H, 28]} />
+          <meshStandardMaterial {...discProps} />
+        </mesh>
+      )}
       {/* Single-hex figures FULL-billboard (always face the camera) so you never catch
           one edge-on from a steep angle; 2-hex figures lock tilt/roll to keep their
           orientation across the two hexes. */}
