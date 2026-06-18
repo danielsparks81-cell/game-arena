@@ -43,9 +43,9 @@ export function cropOverride(cardId: string, index: number): number | undefined 
 export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   // Krav Maga agents — pilot of the anchor system (cut at the feet so the moulded base + the
   // leftover white beside it both drop away; centre on the base).
-  'krav_maga-1': { x: 0.45, y: 0.74 },
-  'krav_maga-2': { x: 0.45, y: 0.84 },
-  'krav_maga-3': { x: 0.45, y: 0.73 },
+  'krav_maga-1': { x: 0.46, y: 0.79 },
+  'krav_maga-2': { x: 0.46, y: 0.80 },
+  'krav_maga-3': { x: 0.46, y: 0.74 },
   // Batch 2 (2026-06-18): cut at the feet so the moulded base drops to the disc.
   'izumi_samurai-1': { x: 0.47, y: 0.66 },
   'izumi_samurai-2': { x: 0.47, y: 0.66 },
