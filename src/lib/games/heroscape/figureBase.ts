@@ -46,6 +46,14 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'krav_maga-1': { x: 0.45, y: 0.74 },
   'krav_maga-2': { x: 0.45, y: 0.84 },
   'krav_maga-3': { x: 0.45, y: 0.73 },
+  // Batch 2 (2026-06-18): cut at the feet so the moulded base drops to the disc.
+  'izumi_samurai-1': { x: 0.47, y: 0.66 },
+  'izumi_samurai-2': { x: 0.47, y: 0.66 },
+  'izumi_samurai-3': { x: 0.47, y: 0.67 },
+  // Deathwalker: cut LOWER (0.82) than the old 0.15 crop — the user said too much was
+  // cut, so the line sits just below the clawed feet, keeping them whole.
+  deathwalker_9000: { x: 0.50, y: 0.82 },
+  finn: { x: 0.47, y: 0.80 },
 };
 
 /** The anchor point for a figure, or `undefined` to fall back to cropOverride + auto-centre.
