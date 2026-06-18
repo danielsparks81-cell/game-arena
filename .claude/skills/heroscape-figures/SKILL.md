@@ -80,10 +80,12 @@ and `src/lib/games/heroscape/figureBase.ts` (`analyzeCut`, `cropOverride`).
   current figure is hand-pinned in `cropOverride`/`BASE_CROP_OVERRIDE` because silhouette
   detection fails on long coats/robes (solid to the floor), splayed legs/claws (as wide as
   the base), capes, and dragons. New figures get the auto guess.
-- **CENTER on the BASE, not the figure** (user's rule). `baseCenterX` = midpoint of the
-  widest bottom row (the disc's diameter); shift the plane so that lands on the hex centre,
-  **full shift** (no "split the difference"). A sword/arm **overhanging** into a neighbour
-  hex is fine and intended.
+- **CENTER on the BASE, not the figure** (user's rule). `baseCenterX` = the midpoint of the
+  disc's **bottom rim** (a band just above the very bottom), NOT the widest row — a
+  cape/shield/weapon hanging beside the base widens the widest row and drags the centre
+  sideways (it was over-shifting figures left). The rim sits below all that. Shift the plane
+  so the centre lands on the hex centre, **full shift** (no "split the difference"). A
+  sword/arm **overhanging** into a neighbour hex is fine and intended.
 - **SIZE by the BASE — never resize to a uniform size** (user's rule: "figures should be
   different sizes"). Every mini is on the same physical base, so the base is a built-in
   ruler: scale so the detected base width renders at `BASE_DISC_W`. A taller mini has more
@@ -107,6 +109,11 @@ and `src/lib/games/heroscape/figureBase.ts` (`analyzeCut`, `cropOverride`).
   fixing exposure in-camera always beats it. If a figure is washed/orange, reshoot.
 - A **flat horizontal crop can't keep a weapon/claw that rests ON the base** (Drake's
   sword tip, Marro claws) — accept the minor loss; it's a billboard, not a 3D model.
+- **Leftover background white:** the knockout's enclosed-pocket cull only removes LARGE
+  pockets, so a small pure-white gap (between legs, under an arm) can survive as a visible
+  white blob on the board. Cleanup pass: strip opaque **near-pure-white** (luma>247,
+  sat<0.03) from the PNG — that's only true backdrop; cream kimono (~225), silver wings, and
+  steel are warmer/darker and survive untouched (verified). Re-run it on any new cut.
 - **EXIF rotation:** a tall figure shot in portrait may display sideways in the Read tool,
   but `@napi-rs/canvas` applies the EXIF so the cut comes out upright. Don't pre-rotate by
   how Read shows it — cut first, then check.
