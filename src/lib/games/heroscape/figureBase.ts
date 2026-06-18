@@ -15,8 +15,8 @@ export const BASE_CROP = 0.2;
 export const BASE_CROP_BY_CARD: Record<string, number> = {
   drake: 0.17,            // reshot 2026-06-17 (full gun + cables); flat disc
   ne_gok_sa: 0.20,        // reshot 2026-06-17 clean (was the eroded cream-on-grey); clawed feet
-  zettian_guards: 0.28,
-  deathwalker_9000: 0.16, // reshot 2026-06-17 on clean white
+  zettian_guards: 0.15,   // reshot 2026-06-17 (2 robots, hammer+gun); was 0.28 (ancient)
+  deathwalker_9000: 0.15, // RE-reshot 2026-06-17 on clean white
   thorgrim: 0.18,         // reshot 2026-06-17 on clean white; flat disc base
   raelin: 0.11,           // reshot; tall (wings up) so the base is a small fraction
   finn: 0.13,             // reshot
