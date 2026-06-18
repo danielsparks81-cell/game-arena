@@ -48,6 +48,19 @@ never lie flat — it must be cut away (see Rules).
   157 with no correction needed.
 - Soft, slightly warm light reads fine; the figure just needs to be clearly brighter and
   more saturated than the card without clipping.
+- **Background colour by figure tone:** bright-white works for dark/olive/cream figures. A
+  **TWO-TONE figure (near-white AND near-black parts at once — e.g. Nilfheim: white bones +
+  black wings)** cannot be cut on any *neutral* background: white-bg dissolves the bones,
+  dark-bg dissolves the wings, mid-grey is too close to the dark parts. Use a **SATURATED
+  background (blue/green)** — it separates *both* tones by HUE, so the cut is clean.
+- ⚠ **A saturated background fools the phone's AUTO white-balance.** A big blue field makes
+  the camera pump WARM into the whole scene to "cancel" the blue, so white parts go gold and
+  black parts go tan (validated on Nilfheim: cut's neutral midtone measured (203,179,144)).
+  **Fix: LOCK white balance** — Pro/Expert mode → manual WB ~5000–5500K, or long-press to
+  lock AE/AWB on the figure, or lay a small white/grey card in a corner as a neutral anchor.
+  Then a saturated bg gives true colours AND a clean cut, raw. If a shot already has the
+  cast, `wb.mjs` (see Cutting) neutralises most of it as a stopgap, but in-camera WB is the
+  real fix.
 
 ## Cutting — `bg-knockout.mjs`
 
@@ -64,6 +77,16 @@ and writes a transparent PNG (the moulded base is KEPT in the PNG — it's cropp
   the light parts erode at the silhouette edge.
 - `sat>0` (~0.18) only as the inversion fix for a dim/warm backdrop (rarely needed on
   clean white). `sat 0` keeps dark figure parts.
+- **Saturated (blue/green) backdrop:** the bright-low-sat ref filter rejects all the coloured
+  refs, so the tool falls back to sampling them and keys the colour anyway — use a HIGHER
+  `tol` (~60) since the figure sits far from the bg in RGB, and **`sat 0`** (a `sat>0` would
+  delete the figure's own near-neutral whites). Then white-balance-correct (next line).
+- **`wb.mjs <in.png> <out.png> [strength] [lo] [hi] [satMax]`** — neutralises a global colour
+  cast (e.g. the auto-WB warm shift from a saturated bg). Reference = opaque MIDTONE
+  (`lo..hi` luma, default 110–225) NEAR-NEUTRAL (`sat<satMax`) pixels — the parts that *should*
+  be grey but got tinted, skipping clipped highlights and the genuinely-coloured bits — then
+  per-channel gains to neutralise. It removes a cast, NOT a saturation boost, so it won't
+  overcook warm figures the way `tone.mjs` did. Stopgap only; locked in-camera WB beats it.
 
 **Verify** by compositing the cut(s) on a checkerboard (`@napi-rs/canvas`) and reading it.
 Re-cut if a thin weapon/cape/pale region is eaten. A low-contrast figure on a dim backdrop
