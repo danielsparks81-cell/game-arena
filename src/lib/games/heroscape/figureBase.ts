@@ -46,13 +46,15 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'krav_maga-1': { x: 0.46, y: 0.79 },
   'krav_maga-2': { x: 0.46, y: 0.80 },
   'krav_maga-3': { x: 0.46, y: 0.74 },
-  // Batch 2 (2026-06-18): cut at the feet so the moulded base drops to the disc.
-  'izumi_samurai-1': { x: 0.47, y: 0.66 },
-  'izumi_samurai-2': { x: 0.47, y: 0.66 },
-  'izumi_samurai-3': { x: 0.47, y: 0.67 },
-  // Deathwalker: cut LOWER (0.82) than the old 0.15 crop — the user said too much was
-  // cut, so the line sits just below the clawed feet, keeping them whole.
-  deathwalker_9000: { x: 0.50, y: 0.82 },
+  // Batch 2 (2026-06-18): cut at the SOLES so the moulded base drops to the disc. (First
+  // pass used 0.66-0.67 — that was up at the robe waist, floating the figure; corrected to
+  // the true feet line read off lines.mjs.)
+  'izumi_samurai-1': { x: 0.47, y: 0.76 },
+  'izumi_samurai-2': { x: 0.47, y: 0.78 },
+  'izumi_samurai-3': { x: 0.47, y: 0.78 },
+  // Deathwalker: cut just below the clawed feet (0.85), keeping them whole — the user said
+  // too much was cut by the old 0.15 crop.
+  deathwalker_9000: { x: 0.50, y: 0.85 },
   finn: { x: 0.47, y: 0.80 },
 };
 
