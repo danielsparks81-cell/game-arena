@@ -22,7 +22,11 @@ import { cropOverride, analyzeCut } from '@/lib/games/heroscape/figureBase';
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
 const BASE_H = 0.14;
-const STANDEE_H = 1.9; // billboard height at scale 1 (a Medium/Height-5 figure)
+const STANDEE_H = 1.9; // legacy height-stat scale, still used for 2-hex figures
+// Base-as-ruler sizing: a 1-hex figure is scaled so its detected base width renders at this
+// world size. Calibrated (median figH/baseW≈1.49) so a median figure ≈ STANDEE_H tall;
+// shorter/taller minis vary naturally. One knob — raise/lower to scale the whole roster.
+const BASE_DISC_W = SIZE * 1.28;
 const DISC_H = 0.14; // thickness of the player-colour base disc that sits on the hex
 // BASE_CROP / BASE_CROP_BY_CARD now live in figureBase.ts (shared with the 2D gallery).
 
@@ -110,8 +114,8 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
  *  from transparent padding), `topV` = highest opaque row. Together they give the
  *  figure's true height so the base-recolour line is a fraction of the FIGURE, not of
  *  the image — robust to however much padding a cut-out has. */
-function useOpaqueBoundsV(img: HTMLImageElement | undefined, clipOverride?: number): { bottomV: number; topV: number; baseCenterX: number; clip: number } {
-  const [b, setB] = useState({ bottomV: 0, topV: 1, baseCenterX: 0.5, clip: 0.16 });
+function useOpaqueBoundsV(img: HTMLImageElement | undefined, clipOverride?: number): { bottomV: number; topV: number; baseCenterX: number; baseWidthFrac: number; clip: number } {
+  const [b, setB] = useState({ bottomV: 0, topV: 1, baseCenterX: 0.5, baseWidthFrac: 0.5, clip: 0.16 });
   useEffect(() => {
     if (!img || !img.complete || !img.width || !img.height) return;
     try {
@@ -123,8 +127,8 @@ function useOpaqueBoundsV(img: HTMLImageElement | undefined, clipOverride?: numb
       const d = ctx.getImageData(0, 0, W, H).data;
       // The crop line is auto-detected from the cut-out (widest-band rule); a per-figure
       // override only steps in for flyers/wings where that rule misfires.
-      const { top, bottom, clip, baseCenterX } = analyzeCut(d, W, H, clipOverride);
-      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H, baseCenterX, clip });
+      const { top, bottom, clip, baseCenterX, baseWidthFrac } = analyzeCut(d, W, H, clipOverride);
+      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H, baseCenterX, baseWidthFrac, clip });
     } catch { /* leave defaults */ }
   }, [img, clipOverride]);
   return b;
@@ -164,13 +168,17 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
-  const h = STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5);
-  const w = h * aspect;
-  // CROP the moulded base off at the feet line (everything below `clip` fraction of the
-  // figure's height is discarded) and butt the figure's cut edge onto the player's
-  // colour disc — the disc IS the base. A hair of overlap hides the seam.
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
-  const { bottomV, topV, baseCenterX, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex));
+  const { bottomV, topV, baseCenterX, baseWidthFrac, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex));
+  // SIZE by the BASE, not a height stat: scale a 1-hex figure so its detected base width
+  // renders at the disc, so taller minis come through taller (natural variation, no resize).
+  // 2-hex figures keep the height-stat scale until their peanut base is calibrated.
+  const h = trail
+    ? STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5)
+    : (BASE_DISC_W / Math.max(baseWidthFrac, 0.15)) / aspect;
+  const w = h * aspect;
+  // CROP the moulded base off at the crop line and butt the figure's cut edge onto the
+  // player's colour disc — the disc IS the base.
   const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
   // PIVOT the billboard around the figure's cut edge, locked at the hex centre ON PLANE
   // WITH THE DISC TOP (not sunk into the disc cylinder), so the figure sits ON the disc

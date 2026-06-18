@@ -37,7 +37,7 @@ export function cropOverride(cardId: string, index: number): number | undefined 
  *  A `clipOverride` (from cropOverride) wins over the detected value when provided. */
 export function analyzeCut(
   data: Uint8ClampedArray, W: number, H: number, clipOverride?: number,
-): { top: number; bottom: number; left: number; right: number; clip: number; baseCenterX: number } {
+): { top: number; bottom: number; left: number; right: number; clip: number; baseCenterX: number; baseWidthFrac: number } {
   const op = (x: number, y: number) => data[(y * W + x) * 4 + 3] > 128;
   const width = new Array<number>(H).fill(0);
   let left = W - 1, right = 0;
@@ -63,5 +63,10 @@ export function analyzeCut(
   let lr = -1, rr = -1;
   for (let x = 0; x < W; x++) if (op(x, yRim)) { if (lr < 0) lr = x; rr = x; }
   const baseCenterX = lr >= 0 ? (lr + rr) / 2 / W : 0.5;
-  return { top, bottom, left, right, clip, baseCenterX };
+  // The base's width as a fraction of image width. Every mini sits on the same physical
+  // base, so this is a built-in SCALE RULER: scale a figure so this maps to the disc and
+  // its true height comes through. (figH/baseW is a within-image ratio, so it's unaffected
+  // by the cut-out being normalised to a fixed pixel width.)
+  const baseWidthFrac = lr >= 0 ? (rr - lr + 1) / W : 0.5;
+  return { top, bottom, left, right, clip, baseCenterX, baseWidthFrac };
 }
