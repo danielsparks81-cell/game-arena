@@ -36,12 +36,14 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   'marro_warriors-2': 0.21,
   'marro_warriors-3': 0.20,
   'marro_warriors-4': 0.19,
-  // Tarn Vikings — SHORT rocky bases (feet sit compactly on top), line ~0.13-0.16:
-  tarn_vikings: 0.15,
-  'tarn_vikings-1': 0.16,
-  'tarn_vikings-2': 0.14,
+  // Tarn Vikings — reshot 2026-06-17 on clean white (boots flat on the disc → clean
+  // line; meanL 118-146, intrinsically dark figures so deployed RAW). Tall poses
+  // (raised swords/spears) make the disc a small fraction, line ~0.13-0.14:
+  tarn_vikings: 0.14,
+  'tarn_vikings-1': 0.13,
+  'tarn_vikings-2': 0.13,
   'tarn_vikings-3': 0.14,
-  'tarn_vikings-4': 0.15,
+  'tarn_vikings-4': 0.14,
   // Izumi Samurai — reshot 2026-06-17 on clean white (white-robe trooper keyed at
   // tol 30 like Raelin; the two red-armor ones at 36). Feet sit flat ON the disc so
   // the cut is clean — line just below the boots ~0.15:
