@@ -109,11 +109,14 @@ and `src/lib/games/heroscape/figureBase.ts` (`analyzeCut`, `cropOverride`).
   fixing exposure in-camera always beats it. If a figure is washed/orange, reshoot.
 - A **flat horizontal crop can't keep a weapon/claw that rests ON the base** (Drake's
   sword tip, Marro claws) — accept the minor loss; it's a billboard, not a 3D model.
-- **Leftover background white:** the knockout's enclosed-pocket cull only removes LARGE
-  pockets, so a small pure-white gap (between legs, under an arm) can survive as a visible
-  white blob on the board. Cleanup pass: strip opaque **near-pure-white** (luma>247,
-  sat<0.03) from the PNG — that's only true backdrop; cream kimono (~225), silver wings, and
-  steel are warmer/darker and survive untouched (verified). Re-run it on any new cut.
+- **Leftover background white** (a small pure-white gap between legs/under an arm that the
+  knockout's LARGE-pocket cull missed, showing as a white blob on the board): do NOT strip
+  it by a COLOUR THRESHOLD. A figure's own white/silver/cream is the same brightness, so a
+  threshold erodes it — a blanket luma>247 strip ate ~1000px of Raelin's silver wings and
+  had to be reverted. Remove it by **connectivity** instead: re-cut that figure at a higher
+  `tol` (the knockout removes border-connected backdrop, edge-aware), or lower the knockout's
+  enclosed-pocket size floor. That spares the figure's interior light areas. It's a per-cut
+  fix, not a roster-wide pass.
 - **EXIF rotation:** a tall figure shot in portrait may display sideways in the Read tool,
   but `@napi-rs/canvas` applies the EXIF so the cut comes out upright. Don't pre-rotate by
   how Read shows it — cut first, then check.
