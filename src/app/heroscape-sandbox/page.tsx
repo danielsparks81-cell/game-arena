@@ -18,7 +18,7 @@ const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: fal
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 // Cache-bust for the figure PNGs — bump whenever a cut-out is re-cut so the gallery (and
 // browser) fetch the new image instead of a stale same-named copy.
-const IMG_V = '20260618c';
+const IMG_V = '20260618d';
 
 function shade(hex: string, f: number): string {
   const n = parseInt(hex.slice(1), 16);
