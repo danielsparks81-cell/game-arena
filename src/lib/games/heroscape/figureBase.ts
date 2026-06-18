@@ -23,6 +23,7 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   syvarris: 0.12,         // reshot
   agent_carr: 0.13,       // reshot 2026-06-17 (trenchcoat + visor + sword); boots on disc
   krav_maga: 0.13,        // RE-reshot 2026-06-17 (3 agents, dark suits); boots flat on disc
+  airborne_elite: 0.14,   // reshot 2026-06-17 (4 olive paratroopers); boots flat on disc
   grimnak: 0.13,          // 2-hex oval base, tall rider
   mimring: 0.15,          // 2-hex dragon, low base
   nilfheim: 0.15,         // 2-hex dragon, low base
