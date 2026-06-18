@@ -16,6 +16,9 @@ import { analyzeCut, cropOverride } from '@/lib/games/heroscape/figureBase';
 const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: false });
 
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
+// Cache-bust for the figure PNGs — bump whenever a cut-out is re-cut so the gallery (and
+// browser) fetch the new image instead of a stale same-named copy.
+const IMG_V = '20260618b';
 
 function shade(hex: string, f: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -122,8 +125,8 @@ export default function HeroScapeSandbox() {
         color,
         name: c.figures > 1 ? `${c.name} #${idx}` : c.name,
         label: isSquad ? `${c.id}-${idx}` : c.id,
-        src: isSquad ? `/heroscape/figures/${c.id}-${idx}.png` : `/heroscape/figures/${c.id}.png`,
-        fallbackSrc: isSquad ? `/heroscape/figures/${c.id}.png` : undefined,
+        src: isSquad ? `/heroscape/figures/${c.id}-${idx}.png?v=${IMG_V}` : `/heroscape/figures/${c.id}.png?v=${IMG_V}`,
+        fallbackSrc: isSquad ? `/heroscape/figures/${c.id}.png?v=${IMG_V}` : undefined,
       };
     });
   });
