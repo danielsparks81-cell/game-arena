@@ -11,9 +11,9 @@
 //
 // Coordinate model: pointy-top axial (q,r) → world (x,z); elevation → y. Board
 // recentered on the origin so camera/orbit target sit at (0,0,0).
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Billboard, Edges } from '@react-three/drei';
-import { Suspense, useMemo, useState, useEffect } from 'react';
+import { Suspense, useMemo, useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
@@ -230,6 +230,27 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // what makes it a peanut rather than a uniform pill.
   const peanut = useMemo(() => (span > 0 ? peanutShape(span / 2, SIZE * 0.62, SIZE * 0.34) : null), [span]);
   const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: ring ? 0.9 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
+  // 2-hex SWAY: a double-space figure must not billboard freely or its wide plane swings
+  // perpendicular and hangs off the peanut. Keep its footprint along the peanut's long axis,
+  // letting it sway toward the camera only up to the angle where its base edge still fits
+  // inside the peanut (half-width ≈ the lobe radius) with margin.
+  const swayRef = useRef<THREE.Group>(null);
+  useFrame(({ camera }) => {
+    const g = swayRef.current;
+    if (!g || !trail) return;
+    const ux = trail[0] - lead[0], uz = trail[1] - lead[1];
+    const ll = Math.hypot(ux, uz) || 1;
+    const lx = ux / ll, lz = uz / ll;                          // long-axis unit
+    let cdx = camera.position.x - cx, cdz = camera.position.z - cz;
+    const cl = Math.hypot(cdx, cdz) || 1; cdx /= cl; cdz /= cl;  // camera dir unit
+    let px = -lz, pz = lx;                                       // perpendicular to long axis…
+    if (px * cdx + pz * cdz < 0) { px = lz; pz = -lx; }          // …on the camera's side
+    const ang = Math.atan2(px * cdz - pz * cdx, px * cdx + pz * cdz); // signed perp→camera
+    const dmax = Math.asin(Math.min(1, 1.6 * SIZE * 0.62 / Math.max(w, 0.01)));
+    const a = Math.max(-dmax, Math.min(dmax, ang));
+    const ca = Math.cos(a), sa = Math.sin(a);
+    g.rotation.y = Math.atan2(px * ca - pz * sa, px * sa + pz * ca);
+  });
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
@@ -248,17 +269,24 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           <meshStandardMaterial {...discProps} />
         </mesh>
       )}
-      {/* Single-hex figures FULL-billboard (always face the camera) so you never catch
-          one edge-on from a steep angle; 2-hex figures lock tilt/roll to keep their
-          orientation across the two hexes. */}
-      {figMat && (
-        <Billboard follow lockX={!!trail} lockZ={!!trail} position={[0, pivotY, 0]}>
+      {/* Single-hex figures FULL-billboard (always face the camera) so you never catch one
+          edge-on. 2-hex figures use a CLAMPED sway (see useFrame) that keeps their footprint
+          on the peanut instead of spinning off it. */}
+      {figMat && (trail ? (
+        <group ref={swayRef} position={[0, pivotY, 0]}>
+          <mesh position={[baseShiftX, planeOffsetY, 0]}>
+            <planeGeometry args={[w, h]} />
+            <primitive object={figMat} attach="material" />
+          </mesh>
+        </group>
+      ) : (
+        <Billboard follow position={[0, pivotY, 0]}>
           <mesh position={[baseShiftX, planeOffsetY, 0]}>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
           </mesh>
         </Billboard>
-      )}
+      ))}
       {/* Wound markers — a row of red pips floating above the figure's head. */}
       {pips > 0 && (
         <group position={[0, headY + 0.22, 0]}>
