@@ -143,6 +143,29 @@ function useOpaqueBoundsV(img: HTMLImageElement | undefined, clip: number): { bo
  *  double-space figure). The base glows: amber = selected, red = attack target,
  *  fuchsia = special-power target (Chomp / Grenade / Mind Shackle). Red pips float
  *  above the head, one per wound taken. */
+/** Outline of a 2-hex "peanut" base: a circular lobe centred over EACH hex (at ±d on
+ *  the long axis) joined by a PINCHED waist — not a uniform pill. waistY (< lobeR) is
+ *  the half-depth at the neck; the smaller it is, the more pronounced the pinch. */
+function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
+  const s = Math.sqrt(Math.max(lobeR * lobeR - waistY * waistY, 1e-4)); // x of the inner-waist point
+  const beta = Math.atan2(waistY, s);
+  const N = 22;
+  const sh = new THREE.Shape();
+  for (let i = 0; i <= N; i++) { // right lobe outer arc (top-inner → rightmost → bottom-inner)
+    const a = (Math.PI - beta) - (i / N) * 2 * (Math.PI - beta);
+    const x = d + lobeR * Math.cos(a), y = lobeR * Math.sin(a);
+    if (i === 0) sh.moveTo(x, y); else sh.lineTo(x, y);
+  }
+  sh.lineTo(0, -waistY * 0.82); // pinched bottom waist
+  for (let i = 0; i <= N; i++) { // left lobe outer arc (bottom-inner → leftmost → top-inner)
+    const a = -beta - (i / N) * 2 * (Math.PI - beta);
+    sh.lineTo(-d + lobeR * Math.cos(a), lobeR * Math.sin(a));
+  }
+  sh.lineTo(0, waistY * 0.82); // pinched top waist
+  sh.closePath();
+  return sh;
+}
+
 function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, wounds, onClick }: {
   lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
   selected: boolean; target: boolean; powerTarget: boolean; wounds: number; onClick?: () => void;
@@ -202,17 +225,22 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
     span = Math.hypot(dx, dz);
     discRotY = -Math.atan2(dz, dx);
   }
-  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: ring ? 0.9 : 0, roughness: 0.5, metalness: 0.2 };
+  // 2-hex base = a PEANUT (a lobe over each hex + a pinched waist), extruded flat. The
+  // lobe radius is < the 1-hex disc so it doesn't read too "deep"; the waist pinch is
+  // what makes it a peanut rather than a uniform pill.
+  const peanut = useMemo(() => (span > 0 ? peanutShape(span / 2, SIZE * 0.62, SIZE * 0.34) : null), [span]);
+  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: ring ? 0.9 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
   const pips = Math.min(wounds, 8);
   return (
     <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
       {/* The player-colour 3D disc IS the base: the cropped figure butts straight onto
           its top. Glows the ring colour when selected / targeted. */}
-      {trail ? (
-        <group rotation={[0, discRotY, 0]} position={[0, DISC_H / 2, 0]}>
-          <mesh position={[-span / 2, 0, 0]} receiveShadow><cylinderGeometry args={[r, r * 1.04, DISC_H, 24]} /><meshStandardMaterial {...discProps} /></mesh>
-          <mesh position={[span / 2, 0, 0]} receiveShadow><cylinderGeometry args={[r, r * 1.04, DISC_H, 24]} /><meshStandardMaterial {...discProps} /></mesh>
-          <mesh receiveShadow><boxGeometry args={[span, DISC_H, 2 * r]} /><meshStandardMaterial {...discProps} /></mesh>
+      {peanut ? (
+        <group rotation={[0, discRotY, 0]}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+            <extrudeGeometry args={[peanut, { depth: DISC_H, bevelEnabled: false }]} />
+            <meshStandardMaterial {...discProps} />
+          </mesh>
         </group>
       ) : (
         <mesh position={[0, DISC_H / 2, 0]} receiveShadow>
