@@ -21,7 +21,8 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   raelin: 0.11,           // reshot; tall (wings up) so the base is a small fraction
   finn: 0.13,             // reshot
   syvarris: 0.12,         // reshot
-  krav_maga: 0.14,        // reshot squad (3 agents on thin discs)
+  agent_carr: 0.13,       // reshot 2026-06-17 (trenchcoat + visor + sword); boots on disc
+  krav_maga: 0.13,        // RE-reshot 2026-06-17 (3 agents, dark suits); boots flat on disc
   grimnak: 0.13,          // 2-hex oval base, tall rider
   mimring: 0.15,          // 2-hex dragon, low base
   nilfheim: 0.15,         // 2-hex dragon, low base
