@@ -57,16 +57,22 @@ export function analyzeCut(
   let y = yRim; while (y > top && width[y] >= 0.80 * wBase) y--;
   const autoClip = Math.min(0.45, Math.max(0.04, (bottom - (y + 1)) / figH));
   const clip = clipOverride ?? autoClip;
-  // Centre on the BASE, not the figure: baseCenterX = the midpoint of the widest bottom
-  // row (the disc's diameter). A sword/arm/lunge that overhangs into another hex is fine
-  // and intended — only the disc needs to sit on the player's hex.
+  // base WIDTH = the widest bottom row (the disc's diameter), a built-in SCALE RULER:
+  // every mini sits on the same physical base, so scaling a figure so this maps to the
+  // disc makes its true height come through. (figH/baseW is a within-image ratio, so it's
+  // unaffected by the cut-out being normalised to a fixed pixel width.)
   let lr = -1, rr = -1;
   for (let x = 0; x < W; x++) if (op(x, yRim)) { if (lr < 0) lr = x; rr = x; }
-  const baseCenterX = lr >= 0 ? (lr + rr) / 2 / W : 0.5;
-  // The base's width as a fraction of image width. Every mini sits on the same physical
-  // base, so this is a built-in SCALE RULER: scale a figure so this maps to the disc and
-  // its true height comes through. (figH/baseW is a within-image ratio, so it's unaffected
-  // by the cut-out being normalised to a fixed pixel width.)
   const baseWidthFrac = lr >= 0 ? (rr - lr + 1) / W : 0.5;
+  // base CENTRE from the disc's BOTTOM RIM (a band just above the bottom), NOT the widest
+  // row — a cape/shield/weapon hanging beside the base skews the widest row sideways and
+  // was pulling figures off-centre. The rim is below all that, so it tracks the real disc
+  // centre. A sword/arm overhanging into a neighbour hex is fine and intended.
+  let cs = 0, cn = 0;
+  for (let yy = Math.max(top, Math.round(bottom - 0.09 * figH)); yy <= Math.round(bottom - 0.03 * figH); yy++) {
+    let l = -1, r = -1; for (let x = 0; x < W; x++) if (op(x, yy)) { if (l < 0) l = x; r = x; }
+    if (l >= 0) { cs += (l + r) / 2; cn++; }
+  }
+  const baseCenterX = cn ? cs / cn / W : (lr >= 0 ? (lr + rr) / 2 / W : 0.5);
   return { top, bottom, left, right, clip, baseCenterX, baseWidthFrac };
 }
