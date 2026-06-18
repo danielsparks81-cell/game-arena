@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { HS_CARDS, MAPS } from '@/lib/games/heroscape';
 import type { HSState, HexCell } from '@/lib/games/heroscape';
-import { cropFor } from '@/lib/games/heroscape/figureBase';
+import { analyzeCut, cropOverride } from '@/lib/games/heroscape/figureBase';
 
 const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: false });
 
@@ -42,20 +42,12 @@ function FigureTile({ tile }: { tile: Tile }) {
       if (!ox) return;
       ox.drawImage(img, 0, 0);
       const d = ox.getImageData(0, 0, W, H).data;
-      const rowOp = (y: number) => { for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) return true; return false; };
-      const colOp = (x: number) => { for (let y = 0; y < H; y++) if (d[(y * W + x) * 4 + 3] > 128) return true; return false; };
-      let top = 0, bot = H - 1, lft = 0, rgt = W - 1;
-      while (top < H - 1 && !rowOp(top)) top++;
-      while (bot > 0 && !rowOp(bot)) bot--;
-      while (lft < W - 1 && !colOp(lft)) lft++;
-      while (rgt > 0 && !colOp(rgt)) rgt--;
-      const clip = cropFor(tile.cardId, tile.index);
+      // Same auto base-crop rule as the 3D board (figureBase.analyzeCut), so the gallery
+      // matches the board.
+      const { top, bottom: bot, left: lft, right: rgt, clip, baseCenterX } = analyzeCut(d, W, H, cropOverride(tile.cardId, tile.index));
       const figH = bot - top;
       const cutY = Math.round(bot - clip * figH);
-      const bandTop = Math.max(top, Math.round(cutY - 0.1 * figH));
-      let sx = 0, n = 0;
-      for (let y = bandTop; y <= cutY; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) { sx += x; n++; }
-      const baseCx = n ? sx / n : (lft + rgt) / 2;
+      const baseCx = baseCenterX * W;
       const visW = rgt - lft + 1, visH = cutY - top + 1;
       const discCy = TH - 62, discRx = TW * 0.4, discRy = 22;
       const sc = Math.min((TW - 28) / visW, (discCy - 18) / visH);
@@ -101,7 +93,7 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
     <div className="fixed inset-0 z-50 bg-neutral-200/95 p-3 sm:p-6" onClick={onClose}>
       <div className="mx-auto flex h-full max-w-5xl flex-col" onClick={e => e.stopPropagation()}>
         <div className="mb-2 flex items-center justify-between text-neutral-800">
-          <div className="text-sm font-medium">{tile.name} <span className="text-neutral-500">· {tile.label} · crop {cropFor(tile.cardId, tile.index)}</span></div>
+          <div className="text-sm font-medium">{tile.name} <span className="text-neutral-500">· {tile.label} · crop {cropOverride(tile.cardId, tile.index) ?? 'auto'}</span></div>
           <button onClick={onClose} className="rounded-md border border-neutral-300 bg-white px-3 py-1 text-sm hover:bg-neutral-100">Close ✕</button>
         </div>
         <div className="min-h-0 flex-1">
@@ -148,7 +140,7 @@ export default function HeroScapeSandbox() {
           >
             <FigureTile tile={t} />
             <div className="mt-1 truncate text-xs font-medium text-neutral-800">{t.name}</div>
-            <div className="text-[11px] text-neutral-500">{t.label} · crop {cropFor(t.cardId, t.index)}</div>
+            <div className="text-[11px] text-neutral-500">{t.label} · crop {cropOverride(t.cardId, t.index) ?? 'auto'}</div>
           </button>
         ))}
       </div>

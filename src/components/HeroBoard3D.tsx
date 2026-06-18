@@ -17,7 +17,7 @@ import { Suspense, useMemo, useState, useEffect } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
-import { cropFor } from '@/lib/games/heroscape/figureBase';
+import { cropOverride, analyzeCut } from '@/lib/games/heroscape/figureBase';
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
@@ -110,8 +110,8 @@ function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | nu
  *  from transparent padding), `topV` = highest opaque row. Together they give the
  *  figure's true height so the base-recolour line is a fraction of the FIGURE, not of
  *  the image — robust to however much padding a cut-out has. */
-function useOpaqueBoundsV(img: HTMLImageElement | undefined, clip: number): { bottomV: number; topV: number; baseCenterX: number } {
-  const [b, setB] = useState({ bottomV: 0, topV: 1, baseCenterX: 0.5 });
+function useOpaqueBoundsV(img: HTMLImageElement | undefined, clipOverride?: number): { bottomV: number; topV: number; baseCenterX: number; clip: number } {
+  const [b, setB] = useState({ bottomV: 0, topV: 1, baseCenterX: 0.5, clip: 0.16 });
   useEffect(() => {
     if (!img || !img.complete || !img.width || !img.height) return;
     try {
@@ -121,21 +121,12 @@ function useOpaqueBoundsV(img: HTMLImageElement | undefined, clip: number): { bo
       if (!ctx) return;
       ctx.drawImage(img, 0, 0);
       const d = ctx.getImageData(0, 0, W, H).data;
-      const rowOpaque = (y: number) => { for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) return true; return false; };
-      let bottom = H - 1; for (; bottom > 0; bottom--) if (rowOpaque(bottom)) break;
-      let top = 0; for (; top < H - 1; top++) if (rowOpaque(top)) break;
-      // Horizontal centroid of the FEET — opaque pixels in a band just above the crop
-      // line — so a figure can be re-centred by where it actually stands on the disc,
-      // not by the image centre (an off-centre/asymmetric pose shifts the base sideways).
-      const figH = Math.max(1, bottom - top);
-      const cutRow = bottom - clip * figH;
-      const bandTop = Math.max(top, Math.round(cutRow - 0.1 * figH));
-      let sx = 0, n = 0;
-      for (let y = bandTop; y <= cutRow && y < H; y++) for (let x = 0; x < W; x++) if (d[(y * W + x) * 4 + 3] > 128) { sx += x; n++; }
-      const baseCenterX = n ? sx / n / W : 0.5;
-      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H, baseCenterX });
+      // The crop line is auto-detected from the cut-out (widest-band rule); a per-figure
+      // override only steps in for flyers/wings where that rule misfires.
+      const { top, bottom, clip, baseCenterX } = analyzeCut(d, W, H, clipOverride);
+      setB({ bottomV: 1 - bottom / H, topV: 1 - top / H, baseCenterX, clip });
     } catch { /* leave defaults */ }
-  }, [img, clip]);
+  }, [img, clipOverride]);
   return b;
 }
 
@@ -179,8 +170,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // figure's height is discarded) and butt the figure's cut edge onto the player's
   // colour disc — the disc IS the base. A hair of overlap hides the seam.
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
-  const clip = cropFor(cardId, figIndex);
-  const { bottomV, topV, baseCenterX } = useOpaqueBoundsV(img, clip);
+  const { bottomV, topV, baseCenterX, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex));
   const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
   // PIVOT the billboard around the figure's cut edge, locked at the hex centre ON PLANE
   // WITH THE DISC TOP (not sunk into the disc cylinder), so the figure sits ON the disc
