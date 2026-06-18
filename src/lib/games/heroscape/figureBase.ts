@@ -17,6 +17,7 @@ export const BASE_CROP_BY_CARD: Record<string, number> = {
   ne_gok_sa: 0.23,        // line across the lower claws (verified on image)
   zettian_guards: 0.28,
   deathwalker_9000: 0.18,
+  thorgrim: 0.18,         // reshot 2026-06-17 on clean white; flat disc base
   raelin: 0.16,
   grimnak: 0.13,          // 2-hex oval base, tall rider
   mimring: 0.15,          // 2-hex dragon, low base
