@@ -97,11 +97,11 @@ export function figureAnchor(cardId: string, index: number): { x: number; y: num
 export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; by: number }> = {
   // USER-picked (gallery two-click): the FRONT-base and BACK-base lobe centres, lined up to
   // the two hex centres (head/wings/tail overhang). Replaces the earlier tip-to-tip picks.
-  braxas: { fx: 0.28, fy: 0.94, bx: 0.57, by: 0.94 },
-  grimnak: { fx: 0.28, fy: 0.92, bx: 0.64, by: 0.92 },
+  braxas: { fx: 0.23, fy: 0.94, bx: 0.62, by: 0.94 },
+  grimnak: { fx: 0.24, fy: 0.93, bx: 0.66, by: 0.93 },
   jotun: { fx: 0.20, fy: 0.93, bx: 0.80, by: 0.93 },
   major_q9: { fx: 0.22, fy: 0.89, bx: 0.80, by: 0.88 },
-  mimring: { fx: 0.25, fy: 0.95, bx: 0.54, by: 0.95 },
+  mimring: { fx: 0.20, fy: 0.95, bx: 0.56, by: 0.95 },
   nilfheim: { fx: 0.27, fy: 0.92, bx: 0.53, by: 0.92 },
   theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
 };
