@@ -205,7 +205,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
   const undo = useRef<Uint8ClampedArray[]>([]);
   const drawing = useRef(false);
   const [tol, setTol] = useState(55);
-  const [mode, setMode] = useState<'flood' | 'brush'>('flood');
+  const [mode, setMode] = useState<'flood' | 'brush' | 'restore'>('flood');
   const [brushR, setBrushR] = useState(8);
   const [loaded, setLoaded] = useState(false);
   const [count, setCount] = useState(0);
@@ -282,8 +282,19 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
     paint();
   };
 
-  const onDown = (e: ReactMouseEvent<HTMLCanvasElement>) => { const { x, y } = at(e); if (mode === 'brush') { drawing.current = true; snapshot(); brush(x, y); } else flood(x, y); };
-  const onMove = (e: ReactMouseEvent<HTMLCanvasElement>) => { if (mode === 'brush' && drawing.current) { const { x, y } = at(e); brush(x, y); } };
+  // Restore brush — paint the ORIGINAL pixels (baseRef) back, so an over-eager flood/erase can
+  // be repaired locally without Reset wiping all your other erases.
+  const restore = (sx: number, sy: number) => {
+    const work = workRef.current, base = baseRef.current; if (!work || !base) return;
+    const { w: W, h: H } = dim.current; const d = work.data; const r = brushR, r2 = r * r;
+    for (let y = Math.max(0, sy - r); y <= Math.min(H - 1, sy + r); y++)
+      for (let x = Math.max(0, sx - r); x <= Math.min(W - 1, sx + r); x++) { const dx = x - sx, dy = y - sy; if (dx * dx + dy * dy <= r2) { const i = (y * W + x) * 4; d[i] = base[i]; d[i + 1] = base[i + 1]; d[i + 2] = base[i + 2]; d[i + 3] = base[i + 3]; } }
+    paint();
+  };
+
+  const stroke = (x: number, y: number) => { if (mode === 'restore') restore(x, y); else brush(x, y); };
+  const onDown = (e: ReactMouseEvent<HTMLCanvasElement>) => { const { x, y } = at(e); if (mode === 'flood') { flood(x, y); return; } drawing.current = true; snapshot(); stroke(x, y); };
+  const onMove = (e: ReactMouseEvent<HTMLCanvasElement>) => { if (mode !== 'flood' && drawing.current) { const { x, y } = at(e); stroke(x, y); } };
   const onUp = () => { drawing.current = false; };
   const doUndo = () => { const prev = undo.current.pop(); const work = workRef.current; if (prev && work) { work.data.set(prev); paint(); } };
   const doReset = () => { const base = baseRef.current, work = workRef.current; if (base && work) { work.data.set(base); undo.current = []; setCount(0); paint(); } };
@@ -293,18 +304,19 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>
       <div className="w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="mb-2 text-center text-sm text-neutral-200">
-          {tile.name} — {mode === 'flood' ? 'click each white blob to erase it' : 'drag over white to erase'}
+          {tile.name} — {mode === 'flood' ? 'click each white blob to erase it' : mode === 'brush' ? 'drag to erase' : 'drag to paint pixels back'}
           {!loaded && <span className="text-neutral-400"> · loading…</span>}
         </div>
         <canvas
           ref={dispRef}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           className="mx-auto block select-none"
-          style={{ maxWidth: 460, width: '100%', height: 'auto', cursor: mode === 'brush' ? 'cell' : 'crosshair', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+          style={{ maxWidth: 460, width: '100%', height: 'auto', cursor: mode === 'flood' ? 'crosshair' : 'cell', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
         />
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm text-neutral-200">
           <button onClick={() => setMode('flood')} className={`rounded-md border px-2 py-1 ${mode === 'flood' ? 'border-sky-400 bg-sky-700 text-white' : 'border-neutral-600 bg-neutral-800'}`}>🪣 Flood</button>
-          <button onClick={() => setMode('brush')} className={`rounded-md border px-2 py-1 ${mode === 'brush' ? 'border-sky-400 bg-sky-700 text-white' : 'border-neutral-600 bg-neutral-800'}`}>🖌 Brush</button>
+          <button onClick={() => setMode('brush')} className={`rounded-md border px-2 py-1 ${mode === 'brush' ? 'border-sky-400 bg-sky-700 text-white' : 'border-neutral-600 bg-neutral-800'}`}>🖌 Erase</button>
+          <button onClick={() => setMode('restore')} className={`rounded-md border px-2 py-1 ${mode === 'restore' ? 'border-emerald-400 bg-emerald-700 text-white' : 'border-neutral-600 bg-neutral-800'}`}>↩ Restore</button>
           {mode === 'flood'
             ? <label className="flex items-center gap-1">spread {tol}<input type="range" min={10} max={120} value={tol} onChange={e => setTol(+e.target.value)} /></label>
             : <label className="flex items-center gap-1">size {brushR}<input type="range" min={2} max={30} value={brushR} onChange={e => setBrushR(+e.target.value)} /></label>}
