@@ -102,7 +102,7 @@ export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; 
   jotun: { fx: 0.20, fy: 0.93, bx: 0.80, by: 0.93 },
   major_q9: { fx: 0.22, fy: 0.89, bx: 0.80, by: 0.88 },
   mimring: { fx: 0.23, fy: 0.94, bx: 0.55, by: 0.95 },
-  nilfheim: { fx: 0.26, fy: 0.94, bx: 0.64, by: 0.94 },
+  nilfheim: { fx: 0.19, fy: 0.93, bx: 0.48, by: 0.93 },
   theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
 };
 
