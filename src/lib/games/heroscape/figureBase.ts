@@ -41,21 +41,24 @@ export function cropOverride(cardId: string, index: number): number | undefined 
  *  listed here. SIZE is untouched — still the base-width ruler. The disc centre (the "red
  *  dot") is computed by the board, so only this one point is ever needed per figure. */
 export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
-  // Krav Maga agents — pilot of the anchor system (cut at the feet so the moulded base + the
-  // leftover white beside it both drop away; centre on the base).
-  'krav_maga-1': { x: 0.46, y: 0.79 },
-  'krav_maga-2': { x: 0.46, y: 0.80 },
-  'krav_maga-3': { x: 0.46, y: 0.74 },
-  // Batch 2 (2026-06-18): cut at the SOLES so the moulded base drops to the disc. (First
-  // pass used 0.66-0.67 — that was up at the robe waist, floating the figure; corrected to
-  // the true feet line read off lines.mjs.)
-  'izumi_samurai-1': { x: 0.47, y: 0.76 },
-  'izumi_samurai-2': { x: 0.47, y: 0.78 },
-  'izumi_samurai-3': { x: 0.47, y: 0.78 },
-  // Deathwalker: cut just below the clawed feet (0.85), keeping them whole — the user said
-  // too much was cut by the old 0.15 crop.
-  deathwalker_9000: { x: 0.50, y: 0.85 },
-  finn: { x: 0.47, y: 0.80 },
+  // USER-PICKED via the gallery cut-line picker (click the feet → x = centre, y = cut line).
+  // These are the authoritative values; they override the crop-fraction + auto-centre.
+  agent_carr: { x: 0.58, y: 0.83 },
+  'airborne_elite-1': { x: 0.50, y: 0.73 },
+  'airborne_elite-2': { x: 0.60, y: 0.80 },
+  'airborne_elite-3': { x: 0.50, y: 0.75 },
+  'airborne_elite-4': { x: 0.51, y: 0.72 },
+  deathwalker_9000: { x: 0.47, y: 0.85 },
+  finn: { x: 0.61, y: 0.79 },
+  'izumi_samurai-1': { x: 0.69, y: 0.78 },
+  'izumi_samurai-2': { x: 0.51, y: 0.73 },
+  'izumi_samurai-3': { x: 0.50, y: 0.72 },
+  'krav_maga-1': { x: 0.38, y: 0.76 },
+  'krav_maga-2': { x: 0.49, y: 0.77 },
+  'krav_maga-3': { x: 0.47, y: 0.74 },
+  'marro_warriors-1': { x: 0.55, y: 0.77 },
+  'marro_warriors-2': { x: 0.48, y: 0.74 },
+  'marro_warriors-3': { x: 0.48, y: 0.76 },
 };
 
 /** The anchor point for a figure, or `undefined` to fall back to cropOverride + auto-centre.
