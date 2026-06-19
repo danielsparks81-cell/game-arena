@@ -113,8 +113,9 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
 // Cut-line PICKER: shows the RAW cut-out (moulded base still on) with a 0.1 grid; click
 // where the feet meet the base and it prints the exact { x, y } to paste into FIGURE_ANCHOR
 // (x = centre, y = cut line). Same-origin <img>, so it loads at full res with no CSP issue.
-function MeasureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
+function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => void; onSave: (label: string, x: number, y: number) => void }) {
   const [pt, setPt] = useState<{ x: number; y: number } | null>(null);
+  const [saved, setSaved] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -132,6 +133,7 @@ function MeasureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
           onClick={e => {
             const r = e.currentTarget.getBoundingClientRect();
             setPt({ x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) });
+            setSaved(false);
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -152,7 +154,15 @@ function MeasureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
           {pt ? <>cut y <b>{pt.y.toFixed(2)}</b> · center x <b>{pt.x.toFixed(2)}</b></> : <span className="text-neutral-400">click the figure</span>}
         </div>
         {pt && <div className="mt-1 text-center"><code className="select-all rounded bg-neutral-800 px-2 py-1 text-[12px] text-emerald-300">{snippet}</code></div>}
-        <div className="mt-3 text-center">
+        <div className="mt-3 flex justify-center gap-2">
+          {pt && (
+            <button
+              onClick={() => { onSave(tile.label, pt.x, pt.y); setSaved(true); }}
+              className={`rounded-md border px-3 py-1 text-sm text-white ${saved ? 'border-emerald-600 bg-emerald-700' : 'border-emerald-500 bg-emerald-600 hover:bg-emerald-500'}`}
+            >
+              {saved ? 'Saved ✓' : 'Save pick'}
+            </button>
+          )}
           <button onClick={onClose} className="rounded-md border border-neutral-600 bg-neutral-800 px-3 py-1 text-sm text-neutral-100 hover:bg-neutral-700">Close ✕</button>
         </div>
       </div>
@@ -164,6 +174,17 @@ export default function HeroScapeSandbox() {
   const [sel, setSel] = useState<Tile | null>(null);
   const [measure, setMeasure] = useState(false);
   const [measTile, setMeasTile] = useState<Tile | null>(null);
+  // Picks accumulate (localStorage-backed) so you can mark several figures, then "Copy all"
+  // one block to paste back — the deployed app can't write source, so chat is the hand-off.
+  const [picks, setPicks] = useState<Record<string, { x: number; y: number }>>({});
+  useEffect(() => { try { const s = localStorage.getItem('hs_anchor_picks'); if (s) setPicks(JSON.parse(s)); } catch { /* ignore */ } }, []);
+  const savePick = (label: string, x: number, y: number) => setPicks(prev => {
+    const next = { ...prev, [label]: { x: +x.toFixed(2), y: +y.toFixed(2) } };
+    try { localStorage.setItem('hs_anchor_picks', JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
+  const clearPicks = () => { setPicks({}); try { localStorage.removeItem('hs_anchor_picks'); } catch { /* ignore */ } };
+  const picksText = Object.entries(picks).map(([k, v]) => `'${k}': { x: ${v.x}, y: ${v.y} },`).join('\n');
   // All 1-hex figures first, then all 2-hex (double-space), each group A→Z by name.
   const units = Object.values(HS_CARDS)
     .filter(c => c.type === 'squad' || c.type === 'hero')
@@ -196,6 +217,16 @@ export default function HeroScapeSandbox() {
         <input type="checkbox" checked={measure} onChange={e => setMeasure(e.target.checked)} />
         Cut-line picker
       </label>
+      {Object.keys(picks).length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+          <div className="mb-1 font-medium text-amber-900">{Object.keys(picks).length} pick(s) saved — paste into chat to lock in &amp; redeploy</div>
+          <pre className="overflow-x-auto whitespace-pre rounded bg-white p-2 text-[12px] text-neutral-800">{picksText}</pre>
+          <div className="mt-2 flex gap-2">
+            <button onClick={() => navigator.clipboard?.writeText(picksText)} className="rounded-md border border-amber-400 bg-white px-3 py-1 hover:bg-amber-100">Copy all</button>
+            <button onClick={clearPicks} className="rounded-md border border-neutral-300 bg-white px-3 py-1 hover:bg-neutral-100">Clear</button>
+          </div>
+        </div>
+      )}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {tiles.map(t => (
           <button
@@ -211,7 +242,7 @@ export default function HeroScapeSandbox() {
         ))}
       </div>
       {sel && <FigureModal tile={sel} onClose={() => setSel(null)} />}
-      {measTile && <MeasureModal tile={measTile} onClose={() => setMeasTile(null)} />}
+      {measTile && <MeasureModal tile={measTile} onClose={() => setMeasTile(null)} onSave={savePick} />}
     </main>
   );
 }
