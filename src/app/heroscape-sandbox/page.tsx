@@ -18,7 +18,7 @@ const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: fal
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 // Cache-bust for the figure PNGs — bump whenever a cut-out is re-cut so the gallery (and
 // browser) fetch the new image instead of a stale same-named copy.
-const IMG_V = '20260619i';
+const IMG_V = '20260619j';
 
 function shade(hex: string, f: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -302,7 +302,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>
-      <div className="w-full max-w-md" onClick={e => e.stopPropagation()}>
+      <div className="flex max-h-[96vh] w-full max-w-md flex-col overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="mb-2 text-center text-sm text-neutral-200">
           {tile.name} — {mode === 'flood' ? 'click each white blob to erase it' : mode === 'brush' ? 'drag to erase' : 'drag to paint pixels back'}
           {!loaded && <span className="text-neutral-400"> · loading…</span>}
@@ -311,7 +311,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
           ref={dispRef}
           onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
           className="mx-auto block select-none"
-          style={{ maxWidth: 460, width: '100%', height: 'auto', cursor: mode === 'flood' ? 'crosshair' : 'cell', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+          style={{ maxWidth: 'min(460px, 90vw)', maxHeight: '58vh', width: 'auto', height: 'auto', cursor: mode === 'flood' ? 'crosshair' : 'cell', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
         />
         <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm text-neutral-200">
           <button onClick={() => setMode('flood')} className={`rounded-md border px-2 py-1 ${mode === 'flood' ? 'border-sky-400 bg-sky-700 text-white' : 'border-neutral-600 bg-neutral-800'}`}>🪣 Flood</button>
