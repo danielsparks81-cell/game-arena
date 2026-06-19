@@ -88,6 +88,20 @@ export function figureAnchor(cardId: string, index: number): { x: number; y: num
   return FIGURE_ANCHOR[`${cardId}-${index}`] ?? FIGURE_ANCHOR[cardId];
 }
 
+/** DOUBLE-figure (2-hex) TWO-POINT pick: the FRONT (head) and BACK (tail) of the figure at
+ *  the base, in normalized image coords. The board scales the figure so those two points sit
+ *  the hex-centre distance apart (front→one mark, back→the other = the user's "front reaches
+ *  the front line, back reaches the back line"), centres it on the peanut by their midpoint,
+ *  and crops at the lower of the two. Replaces FIGURE_ANCHOR's size for the listed doubles;
+ *  un-picked doubles fall back to the height-stat scale. */
+export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; by: number }> = {
+};
+
+/** The two-point span pick for a 2-hex figure, or `undefined` to fall back. */
+export function figureSpan2(cardId: string, index: number): { fx: number; fy: number; bx: number; by: number } | undefined {
+  return FIGURE_SPAN2[`${cardId}-${index}`] ?? FIGURE_SPAN2[cardId];
+}
+
 /** Analyse a cut-out's alpha and find the base crop by the WIDEST-BAND rule (see top).
  *  Returns the opaque pixel bounds, the crop fraction `clip` (0 = the figure's feet/bottom,
  *  1 = its top), and the feet centroid X (0..1 of width) for re-centring off-centre poses.

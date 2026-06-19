@@ -17,7 +17,7 @@ import { Suspense, useMemo, useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
-import { cropOverride, analyzeCut, figureAnchor } from '@/lib/games/heroscape/figureBase';
+import { cropOverride, analyzeCut, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
@@ -181,16 +181,33 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
   const { bottomV, topV, baseCenterX, baseWidthFrac, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex), figureAnchor(cardId, figIndex));
-  // SIZE by the BASE, not a height stat: scale a 1-hex figure so its detected base width
-  // renders at the disc, so taller minis come through taller (natural variation, no resize).
-  // 2-hex figures keep the height-stat scale until their peanut base is calibrated.
+  // 2-hex peanut geometry — span (hex-centre distance) is needed BEFORE sizing.
+  let span = 0, discRotY = 0;
+  if (trail) {
+    const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
+    span = Math.hypot(dx, dz);
+    discRotY = -Math.atan2(dz, dx);
+  }
+  // DOUBLE figures: the user's two-click FRONT/BACK pick sizes the figure so head + tail land
+  // on the two hex marks, centres it by their midpoint, and crops at the lower point. (Un-picked
+  // doubles fall back to the height stat.) The cut/centre override the single-click anchor.
+  const span2 = trail ? figureSpan2(cardId, figIndex) : undefined;
+  let effClip = clip, effCenterX = baseCenterX;
+  if (span2) {
+    effCenterX = (span2.fx + span2.bx) / 2;
+    const cutV2 = 1 - Math.max(span2.fy, span2.by);
+    effClip = Math.max(0, Math.min(0.95, (cutV2 - bottomV) / Math.max(topV - bottomV, 1e-3)));
+  }
+  // SIZE: 1-hex by the base ruler; 2-hex by the FRONT→BACK span so the figure bridges both
+  // hexes (the two picks map to the hex-centre distance). Un-picked 2-hex use the height stat.
+  const extent2 = span2 ? Math.max(Math.abs(span2.fx - span2.bx), 0.1) : 1;
   const h = trail
-    ? STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5)
+    ? (span2 ? (span / extent2) / aspect : STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5))
     : (BASE_DISC_W / Math.max(baseWidthFrac, 0.15)) / aspect;
   const w = h * aspect;
   // CROP the moulded base off at the crop line and butt the figure's cut edge onto the
   // player's colour disc — the disc IS the base.
-  const cutV = bottomV + clip * (topV - bottomV); // V of the crop line (figV = clip)
+  const cutV = bottomV + effClip * (topV - bottomV); // V of the crop line (figV = effClip)
   // PIVOT the billboard around the figure's cut edge, locked at the hex centre ON PLANE
   // WITH THE DISC TOP (not sunk into the disc cylinder), so the figure sits ON the disc
   // and spinning/angling the camera rotates it IN PLACE instead of sliding across the
@@ -202,12 +219,14 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // centre and its base, so the base reads centred without throwing the silhouette off.
   // Shift so the BASE centre (not the figure centroid) sits on the hex centre; overhang
   // (sword/arm into a neighbour hex) is intended. Full shift — no "split the difference".
-  const baseShiftX = trail ? 0 : -(baseCenterX - 0.5) * w;
+  // Shift so the centre sits on the hex centre. 1-hex always; 2-hex only when a span2 pick
+  // exists (so front/back land on the marks) — plain 2-hex stay centred on the peanut.
+  const baseShiftX = (!trail || span2) ? -(effCenterX - 0.5) * w : 0;
   const headY = pivotY + planeOffsetY + h / 2; // figure top, for the wound pips
   const figMat = useMemo(() => {
     if (!tex) return null;
     return new THREE.ShaderMaterial({
-      uniforms: { map: { value: tex }, uClip: { value: clip }, uBot: { value: bottomV }, uTop: { value: topV } },
+      uniforms: { map: { value: tex }, uClip: { value: effClip }, uBot: { value: bottomV }, uTop: { value: topV } },
       vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }',
       fragmentShader:
         'uniform sampler2D map; uniform float uClip; uniform float uBot; uniform float uTop; varying vec2 vUv;' +
@@ -223,19 +242,10 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
       side: THREE.DoubleSide,
       toneMapped: false,
     });
-  }, [tex, clip, bottomV, topV]);
+  }, [tex, effClip, bottomV, topV]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
   const r = SIZE * 0.74; // disc ≈ 80% of the hex; the figure's image edges sit on it
-  // A 2-hex figure gets a PEANUT base: one colour cylinder centred over EACH hex, joined
-  // by a bridge, so the disc genuinely covers BOTH hexes. (A single stretched cylinder
-  // tapers to points at the ends and leaves the hex centres uncovered.)
-  let span = 0, discRotY = 0;
-  if (trail) {
-    const dx = trail[0] - lead[0], dz = trail[1] - lead[1];
-    span = Math.hypot(dx, dz);
-    discRotY = -Math.atan2(dz, dx);
-  }
   // 2-hex base = a PEANUT (a lobe over each hex + a pinched waist), extruded flat. The
   // lobe radius is < the 1-hex disc so it doesn't read too "deep"; the waist pinch is
   // what makes it a peanut rather than a uniform pill.
@@ -259,16 +269,22 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
     let flipped = false;
     if (px * cdx + pz * cdz < 0) { px = lz; pz = -lx; flipped = true; } // …on the camera's side
     const ang = Math.atan2(px * cdz - pz * cdx, px * cdx + pz * cdz); // signed perp→camera
-    const dmax = Math.asin(Math.min(1, 1.6 * SIZE * 0.62 / Math.max(w, 0.01)));
+    // Keep doubles mostly FLAT along the peanut (the user wants them "horizontal", not
+    // billboarding off to the side): a small sway cap, not the full fit-the-peanut angle.
+    const dmax = Math.min(0.12, Math.asin(Math.min(1, 1.6 * SIZE * 0.62 / Math.max(w, 0.01))));
     const a = Math.max(-dmax, Math.min(dmax, ang));
     const ca = Math.cos(a), sa = Math.sin(a);
     g.rotation.y = Math.atan2(px * ca - pz * sa, px * sa + pz * ca);
     // NO HEAD-FLIP: when we turn the plane to face the camera from the OTHER side, the
     // photo would otherwise mirror and the figure's head/lead would jump to the opposite
     // hex. Counter it by mirroring the texture (scale.x = -1) in lockstep with that turn,
-    // so the head always points the SAME world direction. The mirror lands exactly when
-    // the plane goes edge-on (camera crossing the long axis), so the swap is invisible.
-    if (planeRef.current) planeRef.current.scale.x = flipped ? -1 : 1;
+    // so the head always points the SAME world direction. Negate baseShiftX too so an
+    // off-centre figure doesn't jump sideways at the flip. The swap lands when the plane
+    // goes edge-on (camera crossing the long axis), so it's invisible.
+    if (planeRef.current) {
+      planeRef.current.scale.x = flipped ? -1 : 1;
+      planeRef.current.position.x = flipped ? -baseShiftX : baseShiftX;
+    }
   });
   const pips = Math.min(wounds, 8);
   return (

@@ -110,29 +110,38 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
   );
 }
 
-// Cut-line PICKER: shows the RAW cut-out (moulded base still on) with a 0.1 grid; click
-// where the feet meet the base and it prints the exact { x, y } to paste into FIGURE_ANCHOR
-// (x = centre, y = cut line). Same-origin <img>, so it loads at full res with no CSP issue.
-function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => void; onSave: (label: string, x: number, y: number) => void }) {
-  const [pt, setPt] = useState<{ x: number; y: number } | null>(null);
+// Cut-line PICKER on the RAW cut-out (moulded base still on) with a 0.1 grid. Same-origin
+// <img>, full res. SINGLE figures: one click = cut line (y) + centre (x). DOUBLE (2-hex)
+// figures: TWO clicks = FRONT (head) then BACK (tail) at the base — the board sizes the
+// figure so those land on the two hex marks, centres by their midpoint, cuts at the lower.
+function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => void; onSave: (label: string, snippet: string) => void }) {
+  const isDouble = (HS_CARDS[tile.cardId]?.baseSize ?? 1) === 2;
+  const [pts, setPts] = useState<{ x: number; y: number }[]>([]);
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-  const cur = figureAnchor(tile.cardId, tile.index);
-  const snippet = pt ? `'${tile.label}': { x: ${pt.x.toFixed(2)}, y: ${pt.y.toFixed(2)} },` : '';
+  const f = (n: number) => n.toFixed(2);
+  const ready = isDouble ? pts.length === 2 : pts.length === 1;
+  const snippet = !ready ? ''
+    : isDouble ? `'${tile.label}': { fx: ${f(pts[0].x)}, fy: ${f(pts[0].y)}, bx: ${f(pts[1].x)}, by: ${f(pts[1].y)} },`
+      : `'${tile.label}': { x: ${f(pts[0].x)}, y: ${f(pts[0].y)} },`;
+  const hint = isDouble
+    ? (pts.length === 0 ? 'click the FRONT (head) at the base' : pts.length === 1 ? 'now click the BACK (tail) at the base' : 'click to redo — front first')
+    : 'click where the feet meet the base';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm" onClick={e => e.stopPropagation()}>
-        <div className="mb-2 text-center text-sm text-neutral-200">{tile.name} — click where the feet meet the base{cur ? ` · now (${cur.x}, ${cur.y})` : ''}</div>
+      <div className="w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="mb-2 text-center text-sm text-neutral-200">{tile.name} {isDouble && <span className="rounded bg-amber-500/30 px-1 text-amber-200">2-hex</span>} — {hint}</div>
         <div
           className="relative mx-auto select-none"
-          style={{ maxWidth: 420, cursor: 'crosshair', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+          style={{ maxWidth: 460, cursor: 'crosshair', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
           onClick={e => {
             const r = e.currentTarget.getBoundingClientRect();
-            setPt({ x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) });
+            const p = { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) };
+            setPts(prev => (!isDouble ? [p] : prev.length >= 2 ? [p] : [...prev, p]));
             setSaved(false);
           }}
         >
@@ -143,21 +152,26 @@ function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => vo
               <span className="absolute left-0 top-0 -translate-y-1/2 rounded bg-white/70 px-1 text-[10px] text-neutral-900">{(y / 100).toFixed(1)}</span>
             </div>
           ))}
-          {pt && (
+          {!isDouble && pts.length === 1 && (
             <>
-              <div className="pointer-events-none absolute left-0 right-0" style={{ top: `${pt.y * 100}%`, borderTop: '2px solid #ff3b3b' }} />
-              <div className="pointer-events-none absolute bottom-0 top-0" style={{ left: `${pt.x * 100}%`, borderLeft: '2px solid #18b6d6' }} />
+              <div className="pointer-events-none absolute left-0 right-0" style={{ top: `${pts[0].y * 100}%`, borderTop: '2px solid #ff3b3b' }} />
+              <div className="pointer-events-none absolute bottom-0 top-0" style={{ left: `${pts[0].x * 100}%`, borderLeft: '2px solid #18b6d6' }} />
             </>
           )}
+          {isDouble && pts.length === 2 && (
+            <div className="pointer-events-none absolute" style={{ left: `${Math.min(pts[0].x, pts[1].x) * 100}%`, width: `${Math.abs(pts[0].x - pts[1].x) * 100}%`, top: `${Math.max(pts[0].y, pts[1].y) * 100}%`, borderTop: '2px solid #ff3b3b' }} />
+          )}
+          {pts.map((p, i) => (
+            <div key={i} className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-amber-900" style={{ left: `${p.x * 100}%`, top: `${p.y * 100}%`, background: i === 0 ? '#ffd000' : '#22d3ee' }} />
+          ))}
         </div>
         <div className="mt-2 text-center text-sm text-neutral-100">
-          {pt ? <>cut y <b>{pt.y.toFixed(2)}</b> · center x <b>{pt.x.toFixed(2)}</b></> : <span className="text-neutral-400">click the figure</span>}
+          {ready ? <code className="select-all rounded bg-neutral-800 px-2 py-1 text-[12px] text-emerald-300">{snippet}</code> : <span className="text-neutral-400">{hint}</span>}
         </div>
-        {pt && <div className="mt-1 text-center"><code className="select-all rounded bg-neutral-800 px-2 py-1 text-[12px] text-emerald-300">{snippet}</code></div>}
         <div className="mt-3 flex justify-center gap-2">
-          {pt && (
+          {ready && (
             <button
-              onClick={() => { onSave(tile.label, pt.x, pt.y); setSaved(true); }}
+              onClick={() => { onSave(tile.label, snippet); setSaved(true); }}
               className={`rounded-md border px-3 py-1 text-sm text-white ${saved ? 'border-emerald-600 bg-emerald-700' : 'border-emerald-500 bg-emerald-600 hover:bg-emerald-500'}`}
             >
               {saved ? 'Saved ✓' : 'Save pick'}
@@ -176,15 +190,15 @@ export default function HeroScapeSandbox() {
   const [measTile, setMeasTile] = useState<Tile | null>(null);
   // Picks accumulate (localStorage-backed) so you can mark several figures, then "Copy all"
   // one block to paste back — the deployed app can't write source, so chat is the hand-off.
-  const [picks, setPicks] = useState<Record<string, { x: number; y: number }>>({});
-  useEffect(() => { try { const s = localStorage.getItem('hs_anchor_picks'); if (s) setPicks(JSON.parse(s)); } catch { /* ignore */ } }, []);
-  const savePick = (label: string, x: number, y: number) => setPicks(prev => {
-    const next = { ...prev, [label]: { x: +x.toFixed(2), y: +y.toFixed(2) } };
-    try { localStorage.setItem('hs_anchor_picks', JSON.stringify(next)); } catch { /* ignore */ }
+  const [picks, setPicks] = useState<Record<string, string>>({});
+  useEffect(() => { try { const s = localStorage.getItem('hs_anchor_picks2'); if (s) setPicks(JSON.parse(s)); } catch { /* ignore */ } }, []);
+  const savePick = (label: string, snippet: string) => setPicks(prev => {
+    const next = { ...prev, [label]: snippet };
+    try { localStorage.setItem('hs_anchor_picks2', JSON.stringify(next)); } catch { /* ignore */ }
     return next;
   });
-  const clearPicks = () => { setPicks({}); try { localStorage.removeItem('hs_anchor_picks'); } catch { /* ignore */ } };
-  const picksText = Object.entries(picks).map(([k, v]) => `'${k}': { x: ${v.x}, y: ${v.y} },`).join('\n');
+  const clearPicks = () => { setPicks({}); try { localStorage.removeItem('hs_anchor_picks2'); } catch { /* ignore */ } };
+  const picksText = Object.values(picks).join('\n');
   // All 1-hex figures first, then all 2-hex (double-space), each group A→Z by name.
   const units = Object.values(HS_CARDS)
     .filter(c => c.type === 'squad' || c.type === 'hero')
