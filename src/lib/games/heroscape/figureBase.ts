@@ -95,14 +95,15 @@ export function figureAnchor(cardId: string, index: number): { x: number; y: num
  *  their midpoint, and crops at the lower of the two. Replaces FIGURE_ANCHOR's size for the
  *  listed doubles; un-picked doubles fall back to the height-stat scale. */
 export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; by: number }> = {
-  // USER-picked (gallery two-click): FRONT (head) + BACK (tail) at the base.
-  braxas: { fx: 0.16, fy: 0.94, bx: 0.68, by: 0.93 },
-  grimnak: { fx: 0.16, fy: 0.91, bx: 0.73, by: 0.92 },
-  jotun: { fx: 0.09, fy: 0.93, bx: 0.90, by: 0.93 },
-  major_q9: { fx: 0.11, fy: 0.87, bx: 0.88, by: 0.87 },
-  mimring: { fx: 0.15, fy: 0.94, bx: 0.61, by: 0.95 },
-  nilfheim: { fx: 0.18, fy: 0.93, bx: 0.72, by: 0.94 },
-  theracus: { fx: 0.08, fy: 0.90, bx: 0.89, by: 0.90 },
+  // USER-picked (gallery two-click): the FRONT-base and BACK-base lobe centres, lined up to
+  // the two hex centres (head/wings/tail overhang). Replaces the earlier tip-to-tip picks.
+  braxas: { fx: 0.26, fy: 0.94, bx: 0.59, by: 0.94 },
+  grimnak: { fx: 0.26, fy: 0.92, bx: 0.65, by: 0.92 },
+  jotun: { fx: 0.20, fy: 0.93, bx: 0.80, by: 0.93 },
+  major_q9: { fx: 0.22, fy: 0.89, bx: 0.80, by: 0.88 },
+  mimring: { fx: 0.23, fy: 0.94, bx: 0.55, by: 0.95 },
+  nilfheim: { fx: 0.26, fy: 0.94, bx: 0.64, by: 0.94 },
+  theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
 };
 
 /** The two-point span pick for a 2-hex figure, or `undefined` to fall back. */
