@@ -110,8 +110,60 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
   );
 }
 
+// Cut-line PICKER: shows the RAW cut-out (moulded base still on) with a 0.1 grid; click
+// where the feet meet the base and it prints the exact { x, y } to paste into FIGURE_ANCHOR
+// (x = centre, y = cut line). Same-origin <img>, so it loads at full res with no CSP issue.
+function MeasureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
+  const [pt, setPt] = useState<{ x: number; y: number } | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  const cur = figureAnchor(tile.cardId, tile.index);
+  const snippet = pt ? `'${tile.label}': { x: ${pt.x.toFixed(2)}, y: ${pt.y.toFixed(2)} },` : '';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>
+      <div className="w-full max-w-sm" onClick={e => e.stopPropagation()}>
+        <div className="mb-2 text-center text-sm text-neutral-200">{tile.name} — click where the feet meet the base{cur ? ` · now (${cur.x}, ${cur.y})` : ''}</div>
+        <div
+          className="relative mx-auto select-none"
+          style={{ maxWidth: 420, cursor: 'crosshair', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+          onClick={e => {
+            const r = e.currentTarget.getBoundingClientRect();
+            setPt({ x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) });
+          }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={tile.src} alt={tile.name} className="pointer-events-none block h-auto w-full" />
+          {[10, 20, 30, 40, 50, 60, 70, 80, 90].map(y => (
+            <div key={y} className="pointer-events-none absolute left-0 right-0" style={{ top: `${y}%`, borderTop: '1px solid rgba(0,0,0,0.25)' }}>
+              <span className="absolute left-0 top-0 -translate-y-1/2 rounded bg-white/70 px-1 text-[10px] text-neutral-900">{(y / 100).toFixed(1)}</span>
+            </div>
+          ))}
+          {pt && (
+            <>
+              <div className="pointer-events-none absolute left-0 right-0" style={{ top: `${pt.y * 100}%`, borderTop: '2px solid #ff3b3b' }} />
+              <div className="pointer-events-none absolute bottom-0 top-0" style={{ left: `${pt.x * 100}%`, borderLeft: '2px solid #18b6d6' }} />
+            </>
+          )}
+        </div>
+        <div className="mt-2 text-center text-sm text-neutral-100">
+          {pt ? <>cut y <b>{pt.y.toFixed(2)}</b> · center x <b>{pt.x.toFixed(2)}</b></> : <span className="text-neutral-400">click the figure</span>}
+        </div>
+        {pt && <div className="mt-1 text-center"><code className="select-all rounded bg-neutral-800 px-2 py-1 text-[12px] text-emerald-300">{snippet}</code></div>}
+        <div className="mt-3 text-center">
+          <button onClick={onClose} className="rounded-md border border-neutral-600 bg-neutral-800 px-3 py-1 text-sm text-neutral-100 hover:bg-neutral-700">Close ✕</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function HeroScapeSandbox() {
   const [sel, setSel] = useState<Tile | null>(null);
+  const [measure, setMeasure] = useState(false);
+  const [measTile, setMeasTile] = useState<Tile | null>(null);
   // All 1-hex figures first, then all 2-hex (double-space), each group A→Z by name.
   const units = Object.values(HS_CARDS)
     .filter(c => c.type === 'squad' || c.type === 'hero')
@@ -136,16 +188,21 @@ export default function HeroScapeSandbox() {
   return (
     <main className="min-h-screen bg-white p-4 text-neutral-900">
       <h1 className="text-lg font-semibold">HeroScape figure gallery</h1>
-      <p className="mb-4 text-sm text-neutral-600">
-        Every figure ({tiles.length} total, squads expanded) cropped and seated on its player disc. Click any figure to open it on a hex in the real 3D board (orbit/zoom). Crop value is under each — tell me which to nudge.
+      <p className="mb-2 text-sm text-neutral-600">
+        Every figure ({tiles.length} total, squads expanded) cropped and seated on its player disc.{' '}
+        {measure ? 'Cut-line picker ON: click a figure, then click where its feet meet the base — it prints the anchor to paste back.' : 'Click any figure to open it on a hex in the real 3D board (orbit/zoom).'}
       </p>
+      <label className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-md border border-neutral-300 px-2 py-1 text-sm text-neutral-700">
+        <input type="checkbox" checked={measure} onChange={e => setMeasure(e.target.checked)} />
+        Cut-line picker
+      </label>
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {tiles.map(t => (
           <button
             key={t.key}
-            onClick={() => setSel(t)}
-            className="rounded-lg border border-neutral-200 bg-white p-2 text-center transition hover:border-sky-500 hover:bg-neutral-50"
-            title={`Open ${t.name} in 3D`}
+            onClick={() => (measure ? setMeasTile(t) : setSel(t))}
+            className={`rounded-lg border bg-white p-2 text-center transition hover:bg-neutral-50 ${measure ? 'border-amber-300 hover:border-amber-500' : 'border-neutral-200 hover:border-sky-500'}`}
+            title={measure ? `Pick cut line for ${t.name}` : `Open ${t.name} in 3D`}
           >
             <FigureTile tile={t} />
             <div className="mt-1 truncate text-xs font-medium text-neutral-800">{t.name}</div>
@@ -154,6 +211,7 @@ export default function HeroScapeSandbox() {
         ))}
       </div>
       {sel && <FigureModal tile={sel} onClose={() => setSel(null)} />}
+      {measTile && <MeasureModal tile={measTile} onClose={() => setMeasTile(null)} />}
     </main>
   );
 }
