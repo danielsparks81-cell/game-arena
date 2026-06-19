@@ -59,6 +59,27 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'marro_warriors-1': { x: 0.55, y: 0.77 },
   'marro_warriors-2': { x: 0.48, y: 0.74 },
   'marro_warriors-3': { x: 0.48, y: 0.76 },
+  'marro_warriors-4': { x: 0.42, y: 0.74 },
+  ne_gok_sa: { x: 0.55, y: 0.80 },
+  raelin: { x: 0.67, y: 0.88 },
+  drake: { x: 0.59, y: 0.80 },
+  syvarris: { x: 0.53, y: 0.82 },
+  'tarn_vikings-1': { x: 0.55, y: 0.84 },
+  'tarn_vikings-2': { x: 0.44, y: 0.84 },
+  'tarn_vikings-3': { x: 0.37, y: 0.80 },
+  'tarn_vikings-4': { x: 0.48, y: 0.83 },
+  thorgrim: { x: 0.49, y: 0.77 },
+  'zettian_guards-1': { x: 0.40, y: 0.80 },
+  'zettian_guards-2': { x: 0.40, y: 0.79 },
+  // 2-hex big figures — Y (cut) applies; X is ignored for double-space figures (they stay
+  // centred on the peanut). The high Y's = these fill the frame with the base at the bottom.
+  braxas: { x: 0.43, y: 0.94 },
+  grimnak: { x: 0.46, y: 0.92 },
+  jotun: { x: 0.50, y: 0.93 },
+  major_q9: { x: 0.51, y: 0.89 },
+  mimring: { x: 0.40, y: 0.95 },
+  nilfheim: { x: 0.46, y: 0.94 },
+  theracus: { x: 0.51, y: 0.90 },
 };
 
 /** The anchor point for a figure, or `undefined` to fall back to cropOverride + auto-centre.
