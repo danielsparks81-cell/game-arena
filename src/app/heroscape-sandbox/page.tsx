@@ -11,7 +11,7 @@ import dynamic from 'next/dynamic';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { HS_CARDS, MAPS } from '@/lib/games/heroscape';
 import type { HSState, HexCell } from '@/lib/games/heroscape';
-import { analyzeCut, cropOverride, figureAnchor } from '@/lib/games/heroscape/figureBase';
+import { analyzeCut, cropOverride, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
 
 const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: false });
 
@@ -116,7 +116,12 @@ function FigureModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
 // figure so those land on the two hex marks, centres by their midpoint, cuts at the lower.
 function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => void; onSave: (label: string, snippet: string) => void }) {
   const isDouble = (HS_CARDS[tile.cardId]?.baseSize ?? 1) === 2;
-  const [pts, setPts] = useState<{ x: number; y: number }[]>([]);
+  // Pre-load the CURRENTLY-set point(s) so you can see what's selected and nudge from there.
+  const current = isDouble
+    ? (() => { const s = figureSpan2(tile.cardId, tile.index); return s ? [{ x: s.fx, y: s.fy }, { x: s.bx, y: s.by }] : []; })()
+    : (() => { const a = figureAnchor(tile.cardId, tile.index); return a ? [{ x: a.x, y: a.y }] : []; })();
+  const [pts, setPts] = useState<{ x: number; y: number }[]>(current);
+  const [pristine, setPristine] = useState(current.length > 0); // true = showing the saved value, not yet re-clicked
   const [saved, setSaved] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -128,9 +133,11 @@ function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => vo
   const snippet = !ready ? ''
     : isDouble ? `'${tile.label}': { fx: ${f(pts[0].x)}, fy: ${f(pts[0].y)}, bx: ${f(pts[1].x)}, by: ${f(pts[1].y)} },`
       : `'${tile.label}': { x: ${f(pts[0].x)}, y: ${f(pts[0].y)} },`;
-  const hint = isDouble
-    ? (pts.length === 0 ? 'click where it sits over the FRONT hex mark (head/tail overhang)' : pts.length === 1 ? 'now over the BACK hex mark' : 'click to redo — front first')
-    : 'click where the feet meet the base';
+  const hint = pristine
+    ? 'showing the current pick — click to re-pick'
+    : isDouble
+      ? (pts.length === 0 ? 'click where it sits over the FRONT hex mark (head/tail overhang)' : pts.length === 1 ? 'now over the BACK hex mark' : 'click to redo — front first')
+      : 'click where the feet meet the base';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>
       <div className="w-full max-w-md" onClick={e => e.stopPropagation()}>
@@ -141,7 +148,8 @@ function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => vo
           onClick={e => {
             const r = e.currentTarget.getBoundingClientRect();
             const p = { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) };
-            setPts(prev => (!isDouble ? [p] : prev.length >= 2 ? [p] : [...prev, p]));
+            setPts(prev => { const base = pristine ? [] : prev; return !isDouble ? [p] : base.length >= 2 ? [p] : [...base, p]; });
+            setPristine(false);
             setSaved(false);
           }}
         >
@@ -166,7 +174,7 @@ function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => vo
           ))}
         </div>
         <div className="mt-2 text-center text-sm text-neutral-100">
-          {ready ? <code className="select-all rounded bg-neutral-800 px-2 py-1 text-[12px] text-emerald-300">{snippet}</code> : <span className="text-neutral-400">{hint}</span>}
+          {ready ? <>{pristine && <span className="text-neutral-400">current · </span>}<code className="select-all rounded bg-neutral-800 px-2 py-1 text-[12px] text-emerald-300">{snippet}</code></> : <span className="text-neutral-400">{hint}</span>}
         </div>
         <div className="mt-3 flex justify-center gap-2">
           {ready && (
