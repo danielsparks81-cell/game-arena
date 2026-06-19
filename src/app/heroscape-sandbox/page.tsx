@@ -8,7 +8,7 @@
 // one tile PER FIGURE. CLICK a tile to open that figure on a hex in the real 3D board.
 
 import dynamic from 'next/dynamic';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import { HS_CARDS, MAPS } from '@/lib/games/heroscape';
 import type { HSState, HexCell } from '@/lib/games/heroscape';
 import { analyzeCut, cropOverride, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
@@ -18,7 +18,7 @@ const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: fal
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 // Cache-bust for the figure PNGs — bump whenever a cut-out is re-cut so the gallery (and
 // browser) fetch the new image instead of a stale same-named copy.
-const IMG_V = '20260619c';
+const IMG_V = '20260619d';
 
 function shade(hex: string, f: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -192,10 +192,141 @@ function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => vo
   );
 }
 
+// WHITE-ERASER on the cut-out. Click a leftover-backdrop blob → FLOOD-erase it (alpha→0),
+// bounded by RGB distance from the clicked colour so it stops at the painted figure (the same
+// algorithm as heroscape-extract/floodseed.mjs). A BRUSH cleans up bits the flood misses.
+// Edits the SAME PNG the board uses (full res, same-origin so the canvas isn't tainted) → what
+// you see is what ships. Download the cleaned PNG; it gets dropped into public/heroscape/figures/.
+function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
+  const dispRef = useRef<HTMLCanvasElement>(null);
+  const baseRef = useRef<Uint8ClampedArray | null>(null); // pristine pixels (for Reset)
+  const workRef = useRef<ImageData | null>(null);          // current working pixels
+  const dim = useRef<{ w: number; h: number }>({ w: 0, h: 0 });
+  const undo = useRef<Uint8ClampedArray[]>([]);
+  const drawing = useRef(false);
+  const [tol, setTol] = useState(55);
+  const [mode, setMode] = useState<'flood' | 'brush'>('flood');
+  const [brushR, setBrushR] = useState(8);
+  const [loaded, setLoaded] = useState(false);
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const paint = () => {
+    const cv = dispRef.current, work = workRef.current;
+    if (!cv || !work) return;
+    const ctx = cv.getContext('2d'); if (!ctx) return;
+    ctx.putImageData(work, 0, 0);
+  };
+
+  useEffect(() => {
+    let tried = false;
+    const img = new Image();
+    const load = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      const oc = document.createElement('canvas'); oc.width = W; oc.height = H;
+      const ox = oc.getContext('2d', { willReadFrequently: true }); if (!ox) return;
+      ox.drawImage(img, 0, 0);
+      const id = ox.getImageData(0, 0, W, H);
+      baseRef.current = new Uint8ClampedArray(id.data);
+      workRef.current = id;
+      dim.current = { w: W, h: H };
+      const cv = dispRef.current; if (cv) { cv.width = W; cv.height = H; }
+      undo.current = []; setCount(0); setLoaded(true);
+      paint();
+    };
+    img.onload = load;
+    img.onerror = () => { if (!tried && tile.fallbackSrc) { tried = true; img.src = tile.fallbackSrc; } };
+    img.src = tile.src;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tile]);
+
+  const snapshot = () => { const work = workRef.current; if (!work) return; undo.current.push(new Uint8ClampedArray(work.data)); if (undo.current.length > 12) undo.current.shift(); };
+
+  const at = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    const cv = dispRef.current; const { w: W, h: H } = dim.current;
+    if (!cv) return { x: 0, y: 0 };
+    const r = cv.getBoundingClientRect();
+    const x = Math.floor((e.clientX - r.left) / r.width * W);
+    const y = Math.floor((e.clientY - r.top) / r.height * H);
+    return { x: Math.max(0, Math.min(W - 1, x)), y: Math.max(0, Math.min(H - 1, y)) };
+  };
+
+  const flood = (sx: number, sy: number) => {
+    const work = workRef.current; if (!work) return;
+    const { w: W, h: H } = dim.current; const d = work.data; const N = W * H;
+    const p0 = (sy * W + sx) * 4; if (d[p0 + 3] < 40) return; // already transparent
+    const sr = d[p0], sg = d[p0 + 1], sb = d[p0 + 2]; const t2 = tol * tol;
+    snapshot();
+    const seen = new Uint8Array(N); const st: number[] = [sy * W + sx]; seen[sy * W + sx] = 1; let n = 0;
+    const ok = (q: number) => { if (seen[q] || d[q * 4 + 3] < 40) return false; const dr = d[q * 4] - sr, dg = d[q * 4 + 1] - sg, db = d[q * 4 + 2] - sb; return dr * dr + dg * dg + db * db <= t2; };
+    while (st.length) {
+      const p = st.pop() as number; d[p * 4 + 3] = 0; n++; const x = p % W;
+      if (x > 0 && ok(p - 1)) { seen[p - 1] = 1; st.push(p - 1); }
+      if (x < W - 1 && ok(p + 1)) { seen[p + 1] = 1; st.push(p + 1); }
+      if (p - W >= 0 && ok(p - W)) { seen[p - W] = 1; st.push(p - W); }
+      if (p + W < N && ok(p + W)) { seen[p + W] = 1; st.push(p + W); }
+    }
+    paint(); setCount(c => c + n);
+  };
+
+  const brush = (sx: number, sy: number) => {
+    const work = workRef.current; if (!work) return;
+    const { w: W, h: H } = dim.current; const d = work.data; const r = brushR, r2 = r * r;
+    for (let y = Math.max(0, sy - r); y <= Math.min(H - 1, sy + r); y++)
+      for (let x = Math.max(0, sx - r); x <= Math.min(W - 1, sx + r); x++) { const dx = x - sx, dy = y - sy; if (dx * dx + dy * dy <= r2) d[(y * W + x) * 4 + 3] = 0; }
+    paint();
+  };
+
+  const onDown = (e: ReactMouseEvent<HTMLCanvasElement>) => { const { x, y } = at(e); if (mode === 'brush') { drawing.current = true; snapshot(); brush(x, y); } else flood(x, y); };
+  const onMove = (e: ReactMouseEvent<HTMLCanvasElement>) => { if (mode === 'brush' && drawing.current) { const { x, y } = at(e); brush(x, y); } };
+  const onUp = () => { drawing.current = false; };
+  const doUndo = () => { const prev = undo.current.pop(); const work = workRef.current; if (prev && work) { work.data.set(prev); paint(); } };
+  const doReset = () => { const base = baseRef.current, work = workRef.current; if (base && work) { work.data.set(base); undo.current = []; setCount(0); paint(); } };
+  const download = () => { const cv = dispRef.current; if (!cv) return; cv.toBlob(b => { if (!b) return; const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href = u; a.download = `${tile.label}.png`; a.click(); setTimeout(() => URL.revokeObjectURL(u), 1000); }, 'image/png'); };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>
+      <div className="w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="mb-2 text-center text-sm text-neutral-200">
+          {tile.name} — {mode === 'flood' ? 'click each white blob to erase it' : 'drag over white to erase'}
+          {!loaded && <span className="text-neutral-400"> · loading…</span>}
+        </div>
+        <canvas
+          ref={dispRef}
+          onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp}
+          className="mx-auto block select-none"
+          style={{ maxWidth: 460, width: '100%', height: 'auto', cursor: mode === 'brush' ? 'cell' : 'crosshair', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+        />
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm text-neutral-200">
+          <button onClick={() => setMode('flood')} className={`rounded-md border px-2 py-1 ${mode === 'flood' ? 'border-sky-400 bg-sky-700 text-white' : 'border-neutral-600 bg-neutral-800'}`}>🪣 Flood</button>
+          <button onClick={() => setMode('brush')} className={`rounded-md border px-2 py-1 ${mode === 'brush' ? 'border-sky-400 bg-sky-700 text-white' : 'border-neutral-600 bg-neutral-800'}`}>🖌 Brush</button>
+          {mode === 'flood'
+            ? <label className="flex items-center gap-1">spread {tol}<input type="range" min={10} max={120} value={tol} onChange={e => setTol(+e.target.value)} /></label>
+            : <label className="flex items-center gap-1">size {brushR}<input type="range" min={2} max={30} value={brushR} onChange={e => setBrushR(+e.target.value)} /></label>}
+        </div>
+        <div className="mt-2 flex flex-wrap justify-center gap-2">
+          <button onClick={doUndo} className="rounded-md border border-neutral-600 bg-neutral-800 px-3 py-1 text-sm text-neutral-100 hover:bg-neutral-700">↶ Undo</button>
+          <button onClick={doReset} className="rounded-md border border-neutral-600 bg-neutral-800 px-3 py-1 text-sm text-neutral-100 hover:bg-neutral-700">Reset</button>
+          <button onClick={download} className="rounded-md border border-emerald-500 bg-emerald-600 px-3 py-1 text-sm text-white hover:bg-emerald-500">⬇ Download PNG</button>
+          <button onClick={onClose} className="rounded-md border border-neutral-600 bg-neutral-800 px-3 py-1 text-sm text-neutral-100 hover:bg-neutral-700">Close ✕</button>
+        </div>
+        <div className="mt-1 text-center text-[11px] text-neutral-400">erased {count.toLocaleString()} px · saves as <code className="text-neutral-300">{tile.label}.png</code> (drop it back to me)</div>
+      </div>
+    </div>
+  );
+}
+
 export default function HeroScapeSandbox() {
   const [sel, setSel] = useState<Tile | null>(null);
   const [measure, setMeasure] = useState(false);
   const [measTile, setMeasTile] = useState<Tile | null>(null);
+  const [erase, setErase] = useState(false);
+  const [eraseTile, setEraseTile] = useState<Tile | null>(null);
   // Picks accumulate (localStorage-backed) so you can mark several figures, then "Copy all"
   // one block to paste back — the deployed app can't write source, so chat is the hand-off.
   const [picks, setPicks] = useState<Record<string, string>>({});
@@ -233,12 +364,18 @@ export default function HeroScapeSandbox() {
       <h1 className="text-lg font-semibold">HeroScape figure gallery</h1>
       <p className="mb-2 text-sm text-neutral-600">
         Every figure ({tiles.length} total, squads expanded) cropped and seated on its player disc.{' '}
-        {measure ? 'Cut-line picker ON: click a figure, then click where its feet meet the base — it prints the anchor to paste back.' : 'Click any figure to open it on a hex in the real 3D board (orbit/zoom).'}
+        {erase ? 'White eraser ON: click a figure, then click each leftover-white blob to flood-erase it (brush for the rest), and Download the cleaned PNG to send back.' : measure ? 'Cut-line picker ON: click a figure, then click where its feet meet the base — it prints the anchor to paste back.' : 'Click any figure to open it on a hex in the real 3D board (orbit/zoom).'}
       </p>
-      <label className="mb-4 inline-flex cursor-pointer items-center gap-2 rounded-md border border-neutral-300 px-2 py-1 text-sm text-neutral-700">
-        <input type="checkbox" checked={measure} onChange={e => setMeasure(e.target.checked)} />
-        Cut-line picker
-      </label>
+      <div className="mb-4 flex flex-wrap gap-2">
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-neutral-300 px-2 py-1 text-sm text-neutral-700">
+          <input type="checkbox" checked={measure} onChange={e => { setMeasure(e.target.checked); if (e.target.checked) setErase(false); }} />
+          Cut-line picker
+        </label>
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-neutral-300 px-2 py-1 text-sm text-neutral-700">
+          <input type="checkbox" checked={erase} onChange={e => { setErase(e.target.checked); if (e.target.checked) setMeasure(false); }} />
+          White eraser
+        </label>
+      </div>
       {Object.keys(picks).length > 0 && (
         <div className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
           <div className="mb-1 font-medium text-amber-900">{Object.keys(picks).length} pick(s) saved — paste into chat to lock in &amp; redeploy</div>
@@ -253,9 +390,9 @@ export default function HeroScapeSandbox() {
         {tiles.map(t => (
           <button
             key={t.key}
-            onClick={() => (measure ? setMeasTile(t) : setSel(t))}
-            className={`rounded-lg border bg-white p-2 text-center transition hover:bg-neutral-50 ${measure ? 'border-amber-300 hover:border-amber-500' : 'border-neutral-200 hover:border-sky-500'}`}
-            title={measure ? `Pick cut line for ${t.name}` : `Open ${t.name} in 3D`}
+            onClick={() => (erase ? setEraseTile(t) : measure ? setMeasTile(t) : setSel(t))}
+            className={`rounded-lg border bg-white p-2 text-center transition hover:bg-neutral-50 ${erase ? 'border-rose-300 hover:border-rose-500' : measure ? 'border-amber-300 hover:border-amber-500' : 'border-neutral-200 hover:border-sky-500'}`}
+            title={erase ? `Erase white on ${t.name}` : measure ? `Pick cut line for ${t.name}` : `Open ${t.name} in 3D`}
           >
             <FigureTile tile={t} />
             <div className="mt-1 truncate text-xs font-medium text-neutral-800">{t.name}</div>
@@ -265,6 +402,7 @@ export default function HeroScapeSandbox() {
       </div>
       {sel && <FigureModal tile={sel} onClose={() => setSel(null)} />}
       {measTile && <MeasureModal tile={measTile} onClose={() => setMeasTile(null)} onSave={savePick} />}
+      {eraseTile && <EraseModal tile={eraseTile} onClose={() => setEraseTile(null)} />}
     </main>
   );
 }
