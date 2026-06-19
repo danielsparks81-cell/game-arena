@@ -269,9 +269,10 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
     let flipped = false;
     if (px * cdx + pz * cdz < 0) { px = lz; pz = -lx; flipped = true; } // …on the camera's side
     const ang = Math.atan2(px * cdz - pz * cdx, px * cdx + pz * cdz); // signed perp→camera
-    // Keep doubles mostly FLAT along the peanut (the user wants them "horizontal", not
-    // billboarding off to the side): a small sway cap, not the full fit-the-peanut angle.
-    const dmax = Math.min(0.12, Math.asin(Math.min(1, 1.6 * SIZE * 0.62 / Math.max(w, 0.01))));
+    // LOCK doubles FLAT along the peanut — zero sway, so the footprint stays put and never
+    // tilts/swings off-centre (even a few degrees swung the ends on a big figure). The plane
+    // still flips sides (mirror-couple below) to keep facing the camera, but it never tilts.
+    const dmax = 0;
     const a = Math.max(-dmax, Math.min(dmax, ang));
     const ca = Math.cos(a), sa = Math.sin(a);
     g.rotation.y = Math.atan2(px * ca - pz * sa, px * sa + pz * ca);

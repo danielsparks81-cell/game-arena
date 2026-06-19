@@ -129,7 +129,7 @@ function MeasureModal({ tile, onClose, onSave }: { tile: Tile; onClose: () => vo
     : isDouble ? `'${tile.label}': { fx: ${f(pts[0].x)}, fy: ${f(pts[0].y)}, bx: ${f(pts[1].x)}, by: ${f(pts[1].y)} },`
       : `'${tile.label}': { x: ${f(pts[0].x)}, y: ${f(pts[0].y)} },`;
   const hint = isDouble
-    ? (pts.length === 0 ? 'click the FRONT (head) at the base' : pts.length === 1 ? 'now click the BACK (tail) at the base' : 'click to redo — front first')
+    ? (pts.length === 0 ? 'click where it sits over the FRONT hex mark (head/tail overhang)' : pts.length === 1 ? 'now over the BACK hex mark' : 'click to redo — front first')
     : 'click where the feet meet the base';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>

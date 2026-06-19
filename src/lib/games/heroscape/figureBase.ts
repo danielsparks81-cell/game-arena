@@ -88,12 +88,12 @@ export function figureAnchor(cardId: string, index: number): { x: number; y: num
   return FIGURE_ANCHOR[`${cardId}-${index}`] ?? FIGURE_ANCHOR[cardId];
 }
 
-/** DOUBLE-figure (2-hex) TWO-POINT pick: the FRONT (head) and BACK (tail) of the figure at
- *  the base, in normalized image coords. The board scales the figure so those two points sit
- *  the hex-centre distance apart (front→one mark, back→the other = the user's "front reaches
- *  the front line, back reaches the back line"), centres it on the peanut by their midpoint,
- *  and crops at the lower of the two. Replaces FIGURE_ANCHOR's size for the listed doubles;
- *  un-picked doubles fall back to the height-stat scale. */
+/** DOUBLE-figure (2-hex) TWO-POINT pick: the two points that should sit ON the two hex marks —
+ *  the front-of-BODY and back-of-BODY (NOT the head/tail tips; the head and tail OVERHANG the
+ *  marks). Normalized image coords. The board scales the figure so those points sit the
+ *  hex-centre distance apart (front→one mark, back→the other), centres it on the peanut by
+ *  their midpoint, and crops at the lower of the two. Replaces FIGURE_ANCHOR's size for the
+ *  listed doubles; un-picked doubles fall back to the height-stat scale. */
 export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; by: number }> = {
   // USER-picked (gallery two-click): FRONT (head) + BACK (tail) at the base.
   braxas: { fx: 0.16, fy: 0.94, bx: 0.68, by: 0.93 },
