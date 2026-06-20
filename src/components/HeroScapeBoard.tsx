@@ -34,6 +34,7 @@ import {
   grappleDestinations,
   canFireLine,
   fireLineSpaces,
+  fireLineTargets,
   canMindShackle,
   mindShackleTargets,
   canChomp,
@@ -1447,6 +1448,15 @@ export default function HeroScapeBoard({
     }
     return m;
   }, [state, selected, canFire]);
+  // Figures the Fire Line could hit (union across all 6 directions) — highlighted while AIMING
+  // so the player SEES who is in the fire (friend OR foe) before committing to a direction.
+  const fireLineVictims = useMemo(() => {
+    const ids = new Set<string>();
+    if (fireLineMode && selected) {
+      for (let d = 0; d < 6; d++) for (const f of fireLineTargets(state, selected.id, d)) ids.add(f.id);
+    }
+    return ids;
+  }, [state, selected, fireLineMode]);
 
   // slice 8: Ne-Gok-Sa MIND SHACKLE — offered when my active Ne-Gok-Sa has an
   // adjacent enemy and hasn't attacked. In shackle mode the adjacent enemy
@@ -2819,7 +2829,7 @@ export default function HeroScapeBoard({
         {(fireLineMode || grappleMode || throwAim) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
-              {fireLineMode && '🔥 Fire Line — click a direction on the board'}
+              {fireLineMode && '🔥 Fire Line — click a direction; highlighted figures will be hit'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
             </span>
@@ -3177,7 +3187,7 @@ export default function HeroScapeBoard({
             selectedId={selectedId}
             moveHexes={destinations}
             targetIds={targets}
-            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...(targetPicker?.ids ?? [])])}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...(targetPicker?.ids ?? [])])}
             actionableIds={actionableFigureIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
