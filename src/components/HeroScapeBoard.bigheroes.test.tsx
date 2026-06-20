@@ -104,20 +104,20 @@ describe('Big-Hero powers — board UI panel', () => {
     expect(cb.onQueglix).toHaveBeenCalledWith(hero, 's1-thorgrim-1', 3); // default dice = min(3, 9)
   });
 
-  it('Jotun: Wild Swing AND Throw rows render; their buttons dispatch the right callbacks', () => {
+  it('Jotun: Wild Swing AND Throw rows render; Swing dispatches, Throw arms landing-aim', () => {
     const { s, hero, ring } = stage('jotun');
     put(s, 's1-thorgrim-1', ring[0]); // adjacent medium non-flying → both a swing target and a throw target
     const cb = spies();
     renderBoard(s, cb);
     expect(screen.getByRole('button', { name: 'Swing' })).toBeTruthy(); // Wild Swing row rendered
-    expect(screen.getByRole('button', { name: 'Throw' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Swing' }));
     expect(cb.onWildSwing).toHaveBeenCalledWith(hero, 's1-thorgrim-1');
-    fireEvent.click(screen.getByRole('button', { name: 'Throw' }));
-    expect(cb.onThrow).toHaveBeenCalledTimes(1);
-    expect(cb.onThrow.mock.calls[0][0]).toBe(hero);
-    expect(cb.onThrow.mock.calls[0][1]).toBe('s1-thorgrim-1');
-    expect(typeof cb.onThrow.mock.calls[0][2]).toBe('string'); // a landing hex
+    // Throw is a CLICK-THE-HEX flow now (rules-fidelity: the landing is the player's choice, not
+    // auto-picked). The Throw button only ARMS landing-aim — the player then clicks a board hex —
+    // so it must NOT auto-dispatch onThrow; instead the aiming strip appears.
+    fireEvent.click(screen.getByRole('button', { name: /pick a landing/i }));
+    expect(cb.onThrow).not.toHaveBeenCalled();
+    expect(screen.getByText(/Throw .* click a highlighted landing hex/i)).toBeTruthy();
   });
 
   it('Braxas: the Acid Breath panel renders; toggling a target then Breathe dispatches onAcidBreath(hero, [target])', () => {

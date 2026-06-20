@@ -1144,6 +1144,9 @@ export default function HeroScapeBoard({
   // auto-fires when exactly one enemy is adjacent, else opens a list under the card ability — no
   // separate board-targeting mode. Declared up here so the reset effects below can clear it.
   const [targetPicker, setTargetPicker] = useState<{ power: 'shackle' | 'chomp'; ids: string[] } | null>(null);
+  // Jotun THROW: after choosing whom to throw, the player CLICKS the landing hex on the board
+  // ("you may throw it to any empty space within 4 spaces" — a real choice, never auto-picked).
+  const [throwAim, setThrowAim] = useState<{ targetId: string } | null>(null);
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
@@ -1210,6 +1213,7 @@ export default function HeroScapeBoard({
     setShackleMode(false);
     setChompMode(false);
     setTargetPicker(null);
+    setThrowAim(null);
   }, [state.round, state.phase]);
   // Drop Grapple / Fire-Line / Mind-Shackle / Chomp mode when the selection changes.
   useEffect(() => {
@@ -1218,6 +1222,7 @@ export default function HeroScapeBoard({
     setShackleMode(false);
     setChompMode(false);
     setTargetPicker(null);
+    setThrowAim(null);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -1824,6 +1829,15 @@ export default function HeroScapeBoard({
       return;
     }
     if (!canAct) return;
+    // Jotun THROW landing — after choosing whom to throw, click a highlighted legal landing hex
+    // (empty, within 4, in clear sight) to hurl the figure there (the server rolls both d20s).
+    if (throwAim) {
+      if (bhHeroId && throwLandingHexes(state, bhHeroId, throwAim.targetId).includes(key)) {
+        onThrow(bhHeroId, throwAim.targetId, key);
+        setThrowAim(null);
+      }
+      return; // while aiming a throw, a click never falls through to move/attack
+    }
     // slice 8: Fire-Line mode — clicking a highlighted line space fires that
     // straight line (Mimring's special attack), replacing his normal attack.
     if (fireLineMode && selected) {
@@ -2802,15 +2816,16 @@ export default function HeroScapeBoard({
             {powerHint}
           </div>
         )}
-        {(fireLineMode || grappleMode) && (
+        {(fireLineMode || grappleMode || throwAim) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
               {fireLineMode && '🔥 Fire Line — click a direction on the board'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
+              {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
             </span>
             <button
               type="button"
-              onClick={() => { setFireLineMode(false); setGrappleMode(false); }}
+              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); }}
               className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
             >
               Cancel
@@ -2891,18 +2906,20 @@ export default function HeroScapeBoard({
               {throwList.length > 0 && bhHeroId && (() => {
                 const tgt = bh.throwTgt && throwList.includes(bh.throwTgt) ? bh.throwTgt : throwList[0];
                 const lands = throwLandingHexes(state, bhHeroId, tgt);
-                const to = bh.throwTo && lands.includes(bh.throwTo) ? bh.throwTo : lands[0];
                 return (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-orange-300">🤾 Throw (d20 14+):</span>
-                    <select value={tgt} onChange={e => patchBh({ throwTgt: e.target.value, throwTo: undefined })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                    <select value={tgt} onChange={e => patchBh({ throwTgt: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
                       {throwList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
                     </select>
-                    <span className="text-neutral-500">→</span>
-                    <select value={to ?? ''} onChange={e => patchBh({ throwTo: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {lands.map(k => <option key={k} value={k}>{k}</option>)}
-                    </select>
-                    <button disabled={!to} onClick={() => { onThrow(bhHeroId, tgt, to!); patchBh({ throwTgt: undefined, throwTo: undefined }); }} className="rounded border border-orange-600 px-2 py-0.5 font-semibold text-orange-300 hover:bg-orange-900/40 disabled:opacity-40">Throw</button>
+                    <button
+                      disabled={lands.length === 0}
+                      onClick={() => setThrowAim({ targetId: tgt })}
+                      title="Then click where to throw the figure — any highlighted empty space within 4, in clear sight."
+                      className="rounded border border-orange-600 px-2 py-0.5 font-semibold text-orange-300 hover:bg-orange-900/40 disabled:opacity-40"
+                    >
+                      {lands.length === 0 ? 'no landing in range' : 'pick a landing →'}
+                    </button>
                   </div>
                 );
               })()}
@@ -3164,7 +3181,7 @@ export default function HeroScapeBoard({
             actionableIds={actionableFigureIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
-            dropHexes={dropLegalSet}
+            dropHexes={throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet}
             dropPicks={new Set(dropPicks)}
           />
         ) : (
