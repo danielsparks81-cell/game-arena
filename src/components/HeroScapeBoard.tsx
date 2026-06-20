@@ -1481,28 +1481,63 @@ export default function HeroScapeBoard({
     if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setPowerFlash(false), 1400);
   }, []);
-  // Tap a special ON the Now-acting card to USE it — the user's model: the power is part of the
-  // card, not a separate button (which can get clipped in the rail). Routes by the active card:
-  // roll/instant powers fire (the SERVER validates timing, so this works even if a client
-  // eligibility flag is off), toggle powers enter their targeting mode, Big Heroes open the
-  // power panel below. Only active on your turn (onPowerTap is undefined otherwise).
+  // Tap a special ON the Now-acting card to USE it — the power is part of the card, not a
+  // separate button. Routes by the active card, gated on the SAME eligibility the engine
+  // enforces (these flags are correct — the earlier "missing button" was a clipping bug, not a
+  // flag bug): roll/instant powers fire, toggle powers enter targeting mode, Big Heroes open
+  // their picker panel. If a power isn't usable yet we flash a short reason instead of failing
+  // silently. Tapping a toggle power again turns its targeting mode back off.
+  const [powerHint, setPowerHint] = useState<string | null>(null);
+  const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showPowerHint = (msg: string) => {
+    setPowerHint(msg);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+    hintTimer.current = setTimeout(() => setPowerHint(null), 3500);
+  };
   const onCardPower = () => {
     const cid = activeCard?.cardId;
     if (!cid || !canAct) return;
     switch (cid) {
-      case 'tarn_vikings': onBerserkerCharge(); return;   // after-move d20 (server checks timing)
-      case 'marro_warriors': onWaterClone(); return;      // instead-of-attack (server checks)
-      case 'ne_gok_sa': setShackleMode(m => !m); return;  // then click an adjacent enemy
-      case 'grimnak': setChompMode(m => !m); return;      // then click an adjacent victim
-      case 'mimring': setFireLineMode(m => !m); return;   // then pick a direction
-      case 'drake': setGrappleMode(m => !m); return;      // then pick a hex (1-space climb)
-      default: revealPowerPanel(); return;                // Big Heroes & passive cards
+      case 'tarn_vikings':
+        if (canBerserk) onBerserkerCharge();
+        else showPowerHint(
+          state.berserkerSpent ? 'Berserker Charge — already used this turn.'
+            : state.turnAttacks.length > 0 ? 'Berserker Charge — not after attacking.'
+              : 'Berserker Charge — move a Viking first.');
+        return;
+      case 'marro_warriors':
+        if (canWaterClone) onWaterClone();
+        else showPowerHint('Water Clone — use it before attacking (it replaces your attack).');
+        return;
+      case 'ne_gok_sa':
+        if (canShackle) setShackleMode(m => !m);
+        else showPowerHint(`Mind Shackle — ${shackleReason ?? 'not available'}.`);
+        return;
+      case 'grimnak':
+        if (canDoChomp) setChompMode(m => !m);
+        else showPowerHint('Chomp — move next to a medium or small enemy first.');
+        return;
+      case 'mimring':
+        if (canFire) setFireLineMode(m => !m);
+        else showPowerHint('Fire Line — available before you attack.');
+        return;
+      case 'drake':
+        if (canGrapple) setGrappleMode(m => !m);
+        else showPowerHint('Grapple Gun — use it before Drake moves.');
+        return;
+      case 'airborne_elite':
+        if (canThrowGrenade) onGrenade();
+        else showPowerHint('Grenade — once per game, used before attacking.');
+        return;
+      default:
+        revealPowerPanel(); // Big Heroes (Ice Shard / Queglix / …) & passive cards
+        return;
     }
   };
   // Does the now-acting card have a power you can trigger by tapping it? (drives the hint)
   const activeCardHasTapPower =
     !!activeCard &&
-    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake'].includes(
+    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite'].includes(
       activeCard.cardId,
     ) ||
       !!anyBigHeroPower);
@@ -2670,7 +2705,7 @@ export default function HeroScapeBoard({
                 {turnPlayer?.username ?? ''}
               </span>
             </div>
-            <HybridCard cardId={activeCard.cardId} onPowerTap={canAct ? onCardPower : undefined} />
+            <HybridCard cardId={activeCard.cardId} onPowerTap={canAct && activeCardHasTapPower ? onCardPower : undefined} />
             {canAct && activeCardHasTapPower && (
               <div className="mt-1 text-center text-[10px] text-violet-300/80">
                 tap the highlighted power on the card to use it
@@ -2678,115 +2713,31 @@ export default function HeroScapeBoard({
             )}
             {/* the active unit's action controls — its powers live here, on the card */}
             <div className="mt-2 flex flex-col gap-2">
-        {/* slice 4: special-power buttons (after moving, before attacking) */}
-        {canBerserk && (
-          <button
-            onClick={onBerserkerCharge}
-            disabled={disabled}
-            title="Roll a d20 — on 15+ you may move all Tarn Viking Warriors again."
-            className="rounded-lg border-2 border-orange-600 px-4 py-2 text-sm font-semibold text-orange-300 transition hover:bg-orange-900/40 disabled:opacity-40"
-          >
-            ⚡ Berserker Charge (roll d20)
-          </button>
+        {/* Powers are now activated by TAPPING them on the card above. Below we only
+            show feedback: a short reason if a tapped power isn't usable yet, and a
+            targeting strip while a click-a-target power (Mind Shackle / Chomp / Fire
+            Line / Grapple) is armed. */}
+        {powerHint && (
+          <div className="rounded-lg border border-amber-600/70 bg-amber-950/40 px-3 py-1.5 text-center text-xs font-medium text-amber-200">
+            {powerHint}
+          </div>
         )}
-        {canWaterClone && (
-          <button
-            onClick={onWaterClone}
-            disabled={disabled}
-            title="Instead of attacking: roll a d20 per Marro Warrior (15+, or 10+ on water) to return slain Warriors."
-            className="rounded-lg border-2 border-cyan-600 px-4 py-2 text-sm font-semibold text-cyan-300 transition hover:bg-cyan-900/40 disabled:opacity-40"
-          >
-            🌊 Water Clone (instead of attacking)
-          </button>
-        )}
-        {/* slice 7: Sgt. Drake GRAPPLE GUN toggle — shown when Drake is selected
-            and has not moved. Flips his highlights to the 1-space climb-anywhere
-            set; a hex click then routes to grapple_move (replacing the normal
-            move). Toggle off to return to his ordinary movement. */}
-        {canAct && canGrapple && (
-          <button
-            onClick={() => setGrappleMode(m => !m)}
-            disabled={disabled}
-            title="Instead of Drake's normal move, fire the Grapple Gun: move exactly ONE space that may be up to 25 levels higher (climb a cliff he couldn't otherwise)."
-            className={
-              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
-              (grappleMode
-                ? 'border-lime-400 bg-lime-900/40 text-lime-200'
-                : 'border-lime-600 text-lime-300 hover:bg-lime-900/30')
-            }
-          >
-            🪝 Grapple Gun {grappleMode ? '— pick a hex (1 space, climb anywhere)' : '(climb anywhere, 1 space)'}
-          </button>
-        )}
-        {/* slice 8: Mimring FIRE LINE SPECIAL ATTACK toggle — choose a straight
-            line of 8 spaces; every figure on it in LOS (friend OR foe) is hit.
-            Replaces his normal attack. */}
-        {canFire && (
-          <button
-            onClick={() => setFireLineMode(m => !m)}
-            disabled={disabled}
-            title="Fire Line Special Attack: a straight line of 8 spaces from Mimring. Every figure on those spaces in line of sight — friend OR foe — is hit (4 attack dice rolled once; each defends separately). Replaces his normal attack."
-            className={
-              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
-              (fireLineMode
-                ? 'border-orange-400 bg-orange-900/40 text-orange-200'
-                : 'border-orange-600 text-orange-300 hover:bg-orange-900/30')
-            }
-          >
-            🔥 Fire Line {fireLineMode ? '— pick a direction' : '(line of 8, friend or foe)'}
-          </button>
-        )}
-        {/* slice 8: Ne-Gok-Sa MIND SHACKLE toggle — after moving, before
-            attacking, target an adjacent enemy; a natural 20 seizes their whole
-            Army Card. Does not consume his attack. */}
-        {isNeGokActive && canAct && (
-          <button
-            onClick={() => { if (canShackle) setShackleMode(m => !m); }}
-            disabled={disabled || !canShackle}
-            title={canShackle
-              ? "Mind Shackle 20: choose an adjacent enemy figure and roll a d20. On a natural 20, take control of that figure's entire Army Card and every figure on it. Used after moving, before attacking — it does NOT use Ne-Gok-Sa's attack."
-              : `Mind Shackle 20 isn't available yet — ${shackleReason}. (All figures are Unique, so any adjacent enemy is a valid target.)`}
-            className={
-              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition ' +
-              (!canShackle
-                ? 'cursor-not-allowed border-fuchsia-900/70 text-fuchsia-400/45'
-                : shackleMode
-                  ? 'border-fuchsia-400 bg-fuchsia-900/40 text-fuchsia-200'
-                  : 'border-fuchsia-600 text-fuchsia-300 hover:bg-fuchsia-900/30')
-            }
-          >
-            🧠 Mind Shackle {canShackle
-              ? (shackleMode ? '— pick an adjacent enemy' : '(seize a card on a natural 20)')
-              : `— ${shackleReason}`}
-          </button>
-        )}
-        {/* slice 8: Grimnak CHOMP toggle — before attacking, devour an adjacent
-            medium/small enemy (Squad auto, Hero on a d20 16+). Not his attack. */}
-        {canDoChomp && (
-          <button
-            onClick={() => setChompMode(m => !m)}
-            disabled={disabled}
-            title="Chomp: before attacking, choose an adjacent medium or small enemy figure. A Squad figure is devoured automatically; a Hero is devoured on a d20 of 16+. Large/Huge figures can't be Chomped. Doesn't use Grimnak's attack."
-            className={
-              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
-              (chompMode
-                ? 'border-lime-400 bg-lime-900/40 text-lime-200'
-                : 'border-lime-600 text-lime-300 hover:bg-lime-900/30')
-            }
-          >
-            🦖 Chomp {chompMode ? '— pick an adjacent enemy' : '(devour medium/small)'}
-          </button>
-        )}
-        {/* slice 8: Airborne GRENADE SPECIAL ATTACK — once-per-game initiate. */}
-        {canThrowGrenade && (
-          <button
-            onClick={() => onGrenade()}
-            disabled={disabled}
-            title="Grenade Special Attack (once per game): each Airborne Elite lobs a grenade one at a time at a figure within Range 5 (no line of sight needed). The target AND every figure adjacent to it are hit (2 attack dice rolled once; each defends separately). Replaces this turn's attack."
-            className="rounded-lg border-2 border-orange-600 px-4 py-2 text-sm font-semibold text-orange-300 transition hover:bg-orange-900/40 disabled:opacity-40"
-          >
-            💣 Grenade (once per game)
-          </button>
+        {(shackleMode || chompMode || fireLineMode || grappleMode) && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
+            <span>
+              {shackleMode && '🧠 Mind Shackle — click an adjacent enemy'}
+              {chompMode && '🦖 Chomp — click an adjacent enemy'}
+              {fireLineMode && '🔥 Fire Line — click a direction'}
+              {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
+            </span>
+            <button
+              type="button"
+              onClick={() => { setShackleMode(false); setChompMode(false); setFireLineMode(false); setGrappleMode(false); }}
+              className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
+            >
+              Cancel
+            </button>
+          </div>
         )}
         {/* slice 8b: Big-Hero special-power control panel — dropdown pickers +
             a fire button per available power (the engine re-validates each). */}
