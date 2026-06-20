@@ -271,6 +271,41 @@ export function reachableDestinations(
   return out;
 }
 
+/** ONE step of a hand-traced DRAG path (the HeroQuest-style movement input).
+ *  Given the figure's START hex, the path's current last hex `prev`, and a
+ *  candidate next hex `to`, returns that step's movement cost and whether `to` is a
+ *  FORCED STOP (water / glyph) — or null if the step is illegal. Reuses the SAME
+ *  primitives as reachableDestinations (stepCost / canStepUp / water-transit ban /
+ *  enemy block / flyer / ghostWalk) so a hand-traced route can never diverge from
+ *  engine legality. Transit THROUGH a friendly is allowed (matching
+ *  reachableDestinations); the caller enforces that the FINAL hex is a legal
+ *  ENDPOINT (empty + present in reachableDestinations). The running cost ≤ Move and
+ *  the forced-stop flag (no extending past it) are the caller's to accumulate. */
+export function dragStep(
+  cells: Record<HexKey, HexCell>,
+  start: HexKey,
+  prev: HexKey,
+  to: HexKey,
+  occupancyOf: (key: HexKey) => Occupancy,
+  cardHeight = Infinity,
+  options: ReachOptions = {},
+): { cost: number; forcedStop: boolean } | null {
+  if (!cells[prev] || !cells[to]) return null;
+  if (!neighborKeys(prev).includes(to)) return null; // must be an adjacent hex
+  const flyer = !!options.flyer;
+  const ghostWalk = flyer || !!options.ghostWalk;
+  const isWater = (k: HexKey) => !flyer && cells[k]?.terrain === 'water';
+  if (prev !== start && isWater(prev) && isWater(to)) return null; // no water→water transit
+  const occ = occupancyOf(to);
+  if (occ === 'enemy' && !ghostWalk) return null; // can't step onto / through an enemy
+  const hFrom = cells[prev]?.height ?? 0;
+  const hTo = cells[to]?.height ?? 0;
+  if (!flyer && !canStepUp(hFrom, hTo, cardHeight)) return null; // climb limit
+  const cost = flyer ? 1 : stepCost(hFrom, hTo);
+  const forcedStop = isWater(to) || (to !== start && !!options.glyphHexes?.has(to));
+  return { cost, forcedStop };
+}
+
 // ============================================================================
 // Pixel-space geometry (LOS + rendering)
 // ============================================================================

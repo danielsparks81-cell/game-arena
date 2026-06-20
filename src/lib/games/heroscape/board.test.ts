@@ -8,6 +8,7 @@ import {
   hexDistance,
   rangeDistance,
   reachableDestinations,
+  dragStep,
   hexToPixel,
   stepCost,
   canStepUp,
@@ -117,6 +118,36 @@ describe('rangeDistance (spaces counted around gaps)', () => {
       `,
     );
     expect(rangeDistance(m.cells, at(0, 0), at(2, 0))).toBeNull();
+  });
+});
+
+describe('dragStep (hand-traced path step)', () => {
+  const cells = TRAINING_FIELD.cells;
+  const empty: (k: HexKey) => Occupancy = () => null;
+  const start = at(3, 3);
+  const nbr = neighborKeys(start).find(k => cells[k])!; // an on-map neighbour
+
+  it('a flat step costs 1 and is not a forced stop', () => {
+    const s = dragStep(cells, start, start, nbr, empty);
+    expect(s).not.toBeNull();
+    expect(s!.cost).toBe(1);
+    expect(s!.forcedStop).toBe(false);
+  });
+
+  it('rejects a non-adjacent step', () => {
+    expect(dragStep(cells, start, start, at(0, 0), empty)).toBeNull();
+  });
+
+  it('blocks stepping onto an enemy but allows transit through a friendly', () => {
+    const enemy: (k: HexKey) => Occupancy = k => (k === nbr ? 'enemy' : null);
+    const friend: (k: HexKey) => Occupancy = k => (k === nbr ? 'friendly' : null);
+    expect(dragStep(cells, start, start, nbr, enemy)).toBeNull();
+    expect(dragStep(cells, start, start, nbr, friend)).not.toBeNull();
+  });
+
+  it('flags a glyph hex as a forced stop', () => {
+    const s = dragStep(cells, start, start, nbr, empty, Infinity, { glyphHexes: new Set([nbr]) });
+    expect(s!.forcedStop).toBe(true);
   });
 });
 
