@@ -72,7 +72,7 @@ const put = (s: HSState, id: string, key: string): HSState => {
 function spies() {
   return {
     onStart: vi.fn(), onSetLobbyConfig: vi.fn(), onPlaceMarkers: vi.fn(), onMoveFigure: vi.fn(),
-    onGrappleMove: vi.fn(), onFireLine: vi.fn(), onOrient: vi.fn(), onAttack: vi.fn(),
+    onGrappleMove: vi.fn(), onFireLine: vi.fn(), onExplosion: vi.fn(), onOrient: vi.fn(), onAttack: vi.fn(),
     onBerserkerCharge: vi.fn(), onWaterClone: vi.fn(), onMindShackle: vi.fn(), onChomp: vi.fn(),
     onGrenade: vi.fn(), onGrenadeThrow: vi.fn(), onIceShard: vi.fn(), onQueglix: vi.fn(),
     onWildSwing: vi.fn(), onAcidBreath: vi.fn(), onThrow: vi.fn(), onCarry: vi.fn(), onTheDrop: vi.fn(),

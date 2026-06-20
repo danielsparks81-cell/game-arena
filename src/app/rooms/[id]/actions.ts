@@ -84,6 +84,7 @@ import {
   applyAction as applyActionHS,
   attackDiceRequirements as hsAttackDiceRequirements,
   fireLineDefenders as hsFireLineDefenders,
+  explosionDefenders as hsExplosionDefenders,
   grenadeDefenders as hsGrenadeDefenders,
   wildSwingDefenders as hsWildSwingDefenders,
   effectiveDefenseDice as hsEffectiveDefenseDice,
@@ -743,6 +744,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
+  | { game: 'heroscape'; kind: 'explosion'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'orient_figure'; figureId: string; dir: number }
   | { game: 'heroscape'; kind: 'mind_shackle'; targetId: string }
   | { game: 'heroscape'; kind: 'chomp'; targetId: string }
@@ -1202,6 +1204,7 @@ type HSWireAction =
   // Mimring FIRE LINE (slice 8): the attack/defense dice are NOT on the wire —
   // the server rolls 4 attack dice once + each affected figure's defense.
   | { kind: 'fire_line'; attackerId: string; dir: number }
+  | { kind: 'explosion'; attackerId: string; targetId: string }
   // Player-chosen ORIENTATION (figure-presentation slice) — no dice; passed
   // through verbatim. Swings a 2-hex figure's trailing hex / sets 1-hex facing.
   | { kind: 'orient_figure'; figureId: string; dir: number }
@@ -1306,6 +1309,17 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       attackerId: action.attackerId,
       dir: action.dir,
       attackRoll: rollDice(4),
+      defenseRolls: defenders.map(d => ({ figureId: d.figureId, roll: rollDice(d.defense) })),
+    };
+  } else if (action.kind === 'explosion') {
+    // Deathwalker 9000 EXPLOSION — 3 attack dice rolled ONCE + each affected
+    // figure's defense SEPARATELY; the engine re-derives the affected set + need.
+    const defenders = hsExplosionDefenders(state, action.attackerId, action.targetId);
+    engineAction = {
+      kind: 'explosion',
+      attackerId: action.attackerId,
+      targetId: action.targetId,
+      attackRoll: rollDice(3),
       defenseRolls: defenders.map(d => ({ figureId: d.figureId, roll: rollDice(d.defense) })),
     };
   } else if (action.kind === 'grenade_throw') {

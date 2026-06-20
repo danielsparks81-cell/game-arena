@@ -35,6 +35,8 @@ import {
   canFireLine,
   fireLineSpaces,
   fireLineTargets,
+  canExplosion,
+  explosionTargets,
   canMindShackle,
   mindShackleTargets,
   canChomp,
@@ -164,6 +166,7 @@ type Props = {
   onMoveFigure: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
   onFireLine: (attackerId: string, dir: number) => void;
+  onExplosion: (attackerId: string, targetId: string) => void;
   onOrient: (figureId: string, dir: number) => void;
   onAttack: (attackerId: string, targetId: string) => void;
   onBerserkerCharge: () => void;
@@ -1135,7 +1138,7 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
+  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onExplosion, onOrient, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
@@ -1152,6 +1155,8 @@ export default function HeroScapeBoard({
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
   const [fireLineMode, setFireLineMode] = useState(false);
+  // Deathwalker 9000 EXPLOSION: when on, enemies in range/sight highlight; clicking one detonates.
+  const [explosionMode, setExplosionMode] = useState(false);
   // slice 8: Ne-Gok-Sa MIND SHACKLE targeting mode. When on, adjacent enemy
   // figures highlight as shackle targets and a figure click sends mind_shackle.
   const [shackleMode, setShackleMode] = useState(false);
@@ -1215,6 +1220,7 @@ export default function HeroScapeBoard({
     setChompMode(false);
     setTargetPicker(null);
     setThrowAim(null);
+    setExplosionMode(false);
   }, [state.round, state.phase]);
   // Drop Grapple / Fire-Line / Mind-Shackle / Chomp mode when the selection changes.
   useEffect(() => {
@@ -1224,6 +1230,7 @@ export default function HeroScapeBoard({
     setChompMode(false);
     setTargetPicker(null);
     setThrowAim(null);
+    setExplosionMode(false);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -1457,6 +1464,17 @@ export default function HeroScapeBoard({
     }
     return ids;
   }, [state, selected, fireLineMode]);
+  // Deathwalker 9000 EXPLOSION — the active Deathwalker figure + whether he can Explode now.
+  const dwHeroId = activeCard?.cardId === 'deathwalker_9000'
+    ? (state.figures.find(f => f.cardUid === activeCardUid && f.at != null)?.id ?? null)
+    : null;
+  const canExplode = !!(canAct && me && canExplosion(state, me.seat));
+  // Enemies Deathwalker may Explode (in range + clear sight) — highlighted while aiming so the
+  // player sees who's in range; clicking one detonates (the splash also hits figures adjacent to it).
+  const explosionTargetSet = useMemo(
+    () => (explosionMode && dwHeroId ? new Set(explosionTargets(state, dwHeroId)) : new Set<string>()),
+    [state, dwHeroId, explosionMode],
+  );
 
   // slice 8: Ne-Gok-Sa MIND SHACKLE — offered when my active Ne-Gok-Sa has an
   // adjacent enemy and hasn't attacked. In shackle mode the adjacent enemy
@@ -1583,6 +1601,10 @@ export default function HeroScapeBoard({
         if (canThrowGrenade) onGrenade();
         else showPowerHint('Grenade — once per game, used before attacking.');
         return;
+      case 'deathwalker_9000':
+        if (canExplode) setExplosionMode(m => !m); // then click an enemy in range
+        else showPowerHint('Explosion — no enemy in clear sight within Range 7.');
+        return;
       default:
         revealPowerPanel(); // Big Heroes (Ice Shard / Queglix / …) & passive cards
         return;
@@ -1591,7 +1613,7 @@ export default function HeroScapeBoard({
   // Does the now-acting card have a power you can trigger by tapping it? (drives the hint)
   const activeCardHasTapPower =
     !!activeCard &&
-    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite'].includes(
+    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite', 'deathwalker_9000'].includes(
       activeCard.cardId,
     ) ||
       !!anyBigHeroPower);
@@ -1604,7 +1626,8 @@ export default function HeroScapeBoard({
             : activeCard?.cardId === 'mimring' ? canFire
               : activeCard?.cardId === 'drake' ? canGrapple
                 : activeCard?.cardId === 'airborne_elite' ? canThrowGrenade
-                  : !!anyBigHeroPower;
+                  : activeCard?.cardId === 'deathwalker_9000' ? canExplode
+                    : !!anyBigHeroPower;
   /** Readable label for a figure id (card short name + squad index + hex). */
   const figName = (id: string): string => {
     const f = state.figures.find(x => x.id === id);
@@ -1867,6 +1890,12 @@ export default function HeroScapeBoard({
     // Chomps it (server rolls the d20; Squad figures die automatically).
     if (chompMode) {
       if (occ && chompTargetSet.has(occ.id)) { onChomp(occ.id); setChompMode(false); }
+      return;
+    }
+    // Deathwalker 9000 EXPLOSION — click a highlighted enemy in range/sight to detonate; the
+    // splash hits every figure adjacent to it (the server rolls 3 attack dice once).
+    if (explosionMode) {
+      if (occ && dwHeroId && explosionTargetSet.has(occ.id)) { onExplosion(dwHeroId, occ.id); setExplosionMode(false); }
       return;
     }
     // Attack: the clicked hex holds an enemy I can currently target (a 2-hex
@@ -2826,16 +2855,17 @@ export default function HeroScapeBoard({
             {powerHint}
           </div>
         )}
-        {(fireLineMode || grappleMode || throwAim) && (
+        {(fireLineMode || grappleMode || throwAim || explosionMode) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
               {fireLineMode && '🔥 Fire Line — click a direction; highlighted figures will be hit'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
+              {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
             </span>
             <button
               type="button"
-              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); }}
+              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); }}
               className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
             >
               Cancel
@@ -3188,7 +3218,7 @@ export default function HeroScapeBoard({
             moveHexes={destinations}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
-            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
             actionableIds={actionableFigureIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
