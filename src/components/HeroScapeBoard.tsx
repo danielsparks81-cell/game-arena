@@ -3186,6 +3186,7 @@ export default function HeroScapeBoard({
             onHexClick={clickHex}
             selectedId={selectedId}
             moveHexes={destinations}
+            climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...(targetPicker?.ids ?? [])])}
             actionableIds={actionableFigureIds}

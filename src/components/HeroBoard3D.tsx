@@ -56,6 +56,9 @@ type Interact = {
   placeHexes?: Set<HexKey>;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
+  /** Sgt. Drake GRAPPLE GUN targets — a one-space climb-anywhere move. Coloured
+   *  DISTINCTLY (violet) from a normal green move so the 25-level climb is obvious. */
+  climbHexes?: Set<HexKey>;
   /** The viewing player's own start-zone hexes. The board auto-rotates so this
    *  zone faces the camera (near/bottom), so a player never has to spin the board
    *  to deploy or fight from their own side. */
@@ -440,9 +443,10 @@ function Scene({ state, it, drag }: { state: HSState; it: Interact; drag: DragAp
     dragColor(key)
       ?? (it.dropPicks?.has(key) ? '#f97316'
         : it.dropHexes?.has(key) ? '#fb923c'
-          : it.moveHexes?.has(key) ? '#22c55e'
-            : it.placeHexes?.has(key) ? '#38bdf8'
-              : null);
+          : it.climbHexes?.has(key) ? '#a855f7' // Grapple Gun climb target — distinct from a normal move
+            : it.moveHexes?.has(key) ? '#22c55e'
+              : it.placeHexes?.has(key) ? '#38bdf8'
+                : null);
 
   return (
     <group rotation={[0, faceAngle, 0]}>
