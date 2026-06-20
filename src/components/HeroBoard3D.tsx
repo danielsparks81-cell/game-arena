@@ -18,6 +18,7 @@ import * as THREE from 'three';
 import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
+import { neighborKeys } from '@/lib/games/heroscape/board';
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
@@ -58,15 +59,31 @@ type Interact = {
   viewerStartHexes?: HexKey[];
 };
 
+/** Drag-to-move (HeroQuest-style): press on the selected figure and drag across hexes to
+ *  trace a route, release to move. It's a CLIENT path-builder over the existing
+ *  destination-based move — `start` begins on the figure, `extend` grows/backtracks the path
+ *  through legal stop hexes (`moveHexes`), and release commits the endpoint via `onHexClick`
+ *  (the same call a click on that hex makes). The engine is unchanged. */
+type DragApi = {
+  fig: string | null;
+  path: HexKey[];
+  start: (figId: string, startKey: HexKey) => void;
+  extend: (hex: HexKey) => void;
+};
+
 /** One hexagonal-prism terrain tile + thin seam edges; tinted (emissive) when it
  *  is a highlighted move/place/Drop target. */
-function HexTile({ x, z, height, terrain, highlight, onClick }: {
-  x: number; z: number; height: number; terrain: string; highlight: string | null; onClick?: () => void;
+function HexTile({ x, z, height, terrain, highlight, onClick, onPointerMove }: {
+  x: number; z: number; height: number; terrain: string; highlight: string | null; onClick?: () => void; onPointerMove?: () => void;
 }) {
   const isWater = terrain === 'water';
   const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1);
   return (
-    <mesh position={[x, h / 2, z]} castShadow receiveShadow onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
+    <mesh
+      position={[x, h / 2, z]} castShadow receiveShadow
+      onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}
+      onPointerMove={onPointerMove ? e => { e.stopPropagation(); onPointerMove(); } : undefined}
+    >
       <cylinderGeometry args={[SIZE * 1.02, SIZE * 1.02, h, 6]} />
       <meshStandardMaterial
         color={TERRAIN_COLOR[terrain] ?? '#666'}
@@ -172,9 +189,9 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, wounds, onClick }: {
+function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, wounds, onClick, onPointerDown }: {
   lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; powerTarget: boolean; wounds: number; onClick?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; wounds: number; onClick?: () => void; onPointerDown?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
@@ -289,7 +306,11 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   });
   const pips = Math.min(wounds, 8);
   return (
-    <group position={[cx, topY, cz]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
+    <group
+      position={[cx, topY, cz]}
+      onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}
+      onPointerDown={onPointerDown ? e => { e.stopPropagation(); onPointerDown(); } : undefined}
+    >
       {/* The player-colour 3D disc IS the base: the cropped figure butts straight onto
           its top. Glows the ring colour when selected / targeted. */}
       {peanut ? (
@@ -356,7 +377,7 @@ function GlyphMarker({ x, z, topY }: { x: number; z: number; topY: number }) {
   );
 }
 
-function Scene({ state, it }: { state: HSState; it: Interact }) {
+function Scene({ state, it, drag }: { state: HSState; it: Interact; drag: DragApi }) {
   const map = MAPS[state.mapId];
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
   const [cx, cz] = useMemo(() => {
@@ -386,12 +407,22 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     if (team !== undefined) return TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
     return state.players[idx]?.accent_color || SEAT_COLORS[idx] || '#a3a3a3';
   };
+  // While a drag is in progress, the traced route paints OVER the green move set: the
+  // endpoint glows orange, the rest of the path amber. Otherwise the usual highlight order.
+  const dragColor = (key: HexKey): string | null => {
+    if (!drag.fig || drag.path.length < 2) return null;
+    const idx = drag.path.indexOf(key);
+    if (idx === drag.path.length - 1) return '#f97316'; // endpoint (where you'll land)
+    if (idx >= 1) return '#fbbf24';                      // traced path
+    return null;
+  };
   const tileHighlight = (key: HexKey): string | null =>
-    it.dropPicks?.has(key) ? '#f97316'
-      : it.dropHexes?.has(key) ? '#fb923c'
-        : it.moveHexes?.has(key) ? '#22c55e'
-          : it.placeHexes?.has(key) ? '#38bdf8'
-            : null;
+    dragColor(key)
+      ?? (it.dropPicks?.has(key) ? '#f97316'
+        : it.dropHexes?.has(key) ? '#fb923c'
+          : it.moveHexes?.has(key) ? '#22c55e'
+            : it.placeHexes?.has(key) ? '#38bdf8'
+              : null);
 
   return (
     <group rotation={[0, faceAngle, 0]}>
@@ -404,6 +435,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             key={key} x={x} z={z} height={c.height} terrain={c.terrain}
             highlight={tileHighlight(key)}
             onClick={it.onHexClick ? () => it.onHexClick!(key) : undefined}
+            onPointerMove={drag.fig ? () => drag.extend(key) : undefined}
           />
         );
       })}
@@ -429,6 +461,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
               powerTarget={!!it.powerTargetIds?.has(f.id)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
+              onPointerDown={it.selectedId === f.id ? () => drag.start(f.id, f.at!) : undefined}
             />
           );
         })}
@@ -439,6 +472,55 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
 }
 
 export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?: string } & Interact) {
+  // DRAG-TO-MOVE (HeroQuest-style). `dragFig` non-null = a drag is in progress; it also
+  // disables OrbitControls so the camera doesn't spin while you trace a route. The path is
+  // built/validated against the engine's `moveHexes` (legal stops) — one source of truth — and
+  // the endpoint is committed via the same `onHexClick` a tap uses, so the engine is unchanged.
+  const [dragFig, setDragFig] = useState<string | null>(null);
+  const [dragPath, setDragPath] = useState<HexKey[]>([]);
+  const pathRef = useRef<HexKey[]>([]); pathRef.current = dragPath;
+  const movesRef = useRef(it.moveHexes); movesRef.current = it.moveHexes;
+  const clickRef = useRef(it.onHexClick); clickRef.current = it.onHexClick;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const orbitRef = useRef<any>(null);
+
+  const drag: DragApi = {
+    fig: dragFig,
+    path: dragPath,
+    start: (figId, startKey) => {
+      if (orbitRef.current) orbitRef.current.enabled = false; // beat OrbitControls to this pointerdown
+      setDragFig(figId);
+      setDragPath([startKey]);
+    },
+    extend: hex => setDragPath(prev => {
+      if (prev.length === 0) return prev;
+      const last = prev[prev.length - 1];
+      if (hex === last) return prev;
+      if (prev.length >= 2 && hex === prev[prev.length - 2]) return prev.slice(0, -1); // backtrack
+      if (prev.includes(hex)) return prev;                                             // no loops
+      if (!neighborKeys(last).includes(hex)) return prev;                              // must be adjacent
+      if (!movesRef.current?.has(hex)) return prev;                                    // must be a legal stop
+      return [...prev, hex];
+    }),
+  };
+
+  // Releasing ANYWHERE ends the drag: a real drag (path > 1) commits its endpoint via
+  // onHexClick (a legal destination); a tap (path 1) just cancels and the figure's own onClick
+  // handles select/deselect. Listens on window so an off-board release still resolves cleanly.
+  useEffect(() => {
+    if (!dragFig) return;
+    const end = () => {
+      const p = pathRef.current;
+      if (orbitRef.current) orbitRef.current.enabled = true;
+      setDragFig(null);
+      setDragPath([]);
+      if (p.length > 1) clickRef.current?.(p[p.length - 1]);
+    };
+    window.addEventListener('pointerup', end);
+    window.addEventListener('pointercancel', end);
+    return () => { window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end); };
+  }, [dragFig]);
+
   return (
     <div className={`h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
       <Canvas shadows camera={{ position: [0, 13, 16], fov: 45 }} dpr={[1, 2]}>
@@ -450,8 +532,8 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
           shadow-camera-left={-20} shadow-camera-right={20} shadow-camera-top={20} shadow-camera-bottom={-20}
           shadow-bias={-0.0004}
         />
-        <Scene state={state} it={it} />
-        <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={40} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0]} />
+        <Scene state={state} it={it} drag={drag} />
+        <OrbitControls ref={orbitRef} makeDefault enablePan enableDamping enabled={!dragFig} minDistance={6} maxDistance={40} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0]} />
       </Canvas>
     </div>
   );
