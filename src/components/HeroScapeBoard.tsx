@@ -694,7 +694,8 @@ function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (powe
               key={p.name}
               type="button"
               onClick={() => onPowerTap(p, i)}
-              className="rounded-md border border-stone-500/60 bg-stone-100/80 px-2 py-1.5 text-left transition hover:border-amber-700 hover:bg-amber-100 active:bg-amber-200"
+              title="Tap to use this power"
+              className="rounded-md border-2 border-amber-700/70 bg-amber-50/90 px-2 py-1.5 text-left shadow-sm transition hover:border-amber-600 hover:bg-amber-100 hover:shadow active:bg-amber-200"
             >
               {inner}
             </button>
@@ -1480,6 +1481,31 @@ export default function HeroScapeBoard({
     if (flashTimer.current) clearTimeout(flashTimer.current);
     flashTimer.current = setTimeout(() => setPowerFlash(false), 1400);
   }, []);
+  // Tap a special ON the Now-acting card to USE it — the user's model: the power is part of the
+  // card, not a separate button (which can get clipped in the rail). Routes by the active card:
+  // roll/instant powers fire (the SERVER validates timing, so this works even if a client
+  // eligibility flag is off), toggle powers enter their targeting mode, Big Heroes open the
+  // power panel below. Only active on your turn (onPowerTap is undefined otherwise).
+  const onCardPower = () => {
+    const cid = activeCard?.cardId;
+    if (!cid || !canAct) return;
+    switch (cid) {
+      case 'tarn_vikings': onBerserkerCharge(); return;   // after-move d20 (server checks timing)
+      case 'marro_warriors': onWaterClone(); return;      // instead-of-attack (server checks)
+      case 'ne_gok_sa': setShackleMode(m => !m); return;  // then click an adjacent enemy
+      case 'grimnak': setChompMode(m => !m); return;      // then click an adjacent victim
+      case 'mimring': setFireLineMode(m => !m); return;   // then pick a direction
+      case 'drake': setGrappleMode(m => !m); return;      // then pick a hex (1-space climb)
+      default: revealPowerPanel(); return;                // Big Heroes & passive cards
+    }
+  };
+  // Does the now-acting card have a power you can trigger by tapping it? (drives the hint)
+  const activeCardHasTapPower =
+    !!activeCard &&
+    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake'].includes(
+      activeCard.cardId,
+    ) ||
+      !!anyBigHeroPower);
   /** Readable label for a figure id (card short name + squad index + hex). */
   const figName = (id: string): string => {
     const f = state.figures.find(x => x.id === id);
@@ -2637,16 +2663,18 @@ export default function HeroScapeBoard({
             panel, so its powers (Mind Shackle, Acid Breath, …) live ON the card
             instead of as separate panels below. */}
         {state.phase === 'playing' && state.subPhase === 'turns' && activeCard && activeCardDef && (
-          <div className="[order:-1] overflow-hidden rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
+          <div className="[order:-1] shrink-0 rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
             <div className="mb-1.5 flex items-center justify-between px-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Now acting</span>
               <span className="text-[11px] font-semibold" style={{ color: seatColor(state.turnSeat ?? 0) }}>
                 {turnPlayer?.username ?? ''}
               </span>
             </div>
-            <HybridCard cardId={activeCard.cardId} onPowerTap={anyBigHeroPower ? revealPowerPanel : undefined} />
-            {!!anyBigHeroPower && (
-              <div className="mt-1 text-center text-[10px] text-violet-300/80">tap a power to use it ↓</div>
+            <HybridCard cardId={activeCard.cardId} onPowerTap={canAct ? onCardPower : undefined} />
+            {canAct && activeCardHasTapPower && (
+              <div className="mt-1 text-center text-[10px] text-violet-300/80">
+                tap the highlighted power on the card to use it
+              </div>
             )}
             {/* the active unit's action controls — its powers live here, on the card */}
             <div className="mt-2 flex flex-col gap-2">
