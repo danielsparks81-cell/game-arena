@@ -1319,7 +1319,11 @@ export default function HeroScapeBoard({
   // (movedFigureIds), and the whole set clears once an attack is made (movement is over).
   const actionableFigureIds = useMemo(() => {
     const out = new Set<string>();
-    if (state.phase === 'playing' && state.subPhase === 'turns' && activeCardUid && state.turnAttacks.length === 0) {
+    // Glow only while moving is still possible: not after an attack, and not after an
+    // "after-moving" power (Water Clone / Mind Shackle / Throw / Chomp) has ended the move step.
+    const moveOver = state.turnAttacks.length > 0
+      || state.waterClonedThisTurn || state.mindShackleSpent || state.threwThisTurn || state.chompedThisTurn;
+    if (state.phase === 'playing' && state.subPhase === 'turns' && activeCardUid && !moveOver) {
       for (const f of state.figures) {
         if (f.cardUid === activeCardUid && f.at != null && !state.movedFigureIds.includes(f.id)) out.add(f.id);
       }

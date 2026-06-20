@@ -1613,6 +1613,15 @@ function movableFigure(state: HSState, figureId: string): { fig: Figure } | { er
   if (state.waterClonedThisTurn) {
     return { error: 'Movement is over — the Marro Warriors Water Cloned this turn' };
   }
+  // GLOBAL "after moving" rule: a power used in the after-moving / before-attacking window ENDS
+  // the move step — you cannot go back and move once you've used one (rules-fidelity; the card
+  // text reads "After moving and before attacking…"). These three each "do NOT use the attack",
+  // so unlike the special ATTACKS (Fire Line / Grenade / Queglix / Ice Shard / Wild Swing / Acid
+  // Breath, which register a turnAttack and are caught above) they need their own gate here.
+  // Berserker Charge is deliberately ABSENT: it RE-GRANTS movement (by clearing movedFigureIds).
+  if (state.mindShackleSpent || state.threwThisTurn || state.chompedThisTurn) {
+    return { error: 'Movement is over — you used an after-moving power this turn' };
+  }
   if (state.movedFigureIds.includes(figureId)) {
     return { error: 'That figure has already moved this turn' };
   }

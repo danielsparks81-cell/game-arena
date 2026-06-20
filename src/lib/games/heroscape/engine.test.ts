@@ -525,6 +525,19 @@ describe('move undo (undo_move)', () => {
     expect(errOf(applyAction(committed, 'p1', { kind: 'undo_move' }))).toMatch(/Nothing to undo/);
     expect(errOf(applyAction(moved, 'p2', { kind: 'end_move' }))).toMatch(/Not your turn/);
   });
+
+  it('an after-moving power (Mind Shackle / Throw / Chomp) ends the move step — no moving after', () => {
+    const base = inTurns('p1', { p1: 's0-finn' });
+    expect(legalDestinations(base, FINN).size).toBeGreaterThan(0); // can move before any power
+    for (const flag of ['mindShackleSpent', 'threwThisTurn', 'chompedThisTurn'] as const) {
+      const locked = { ...base, [flag]: true };
+      expect(legalDestinations(locked, FINN).size).toBe(0); // board offers no move
+      expect(errOf(applyAction(locked, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 1) })))
+        .toMatch(/Movement is over/);
+    }
+    // Berserker Charge is the exception — it RE-GRANTS movement, so berserkerSpent must NOT lock.
+    expect(legalDestinations({ ...base, berserkerSpent: true }, FINN).size).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
