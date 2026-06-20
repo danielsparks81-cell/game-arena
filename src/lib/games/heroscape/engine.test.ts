@@ -4076,6 +4076,19 @@ describe('Mind Shackle 20 (Ne-Gok-Sa)', () => {
     expect(s.phase).toBe('finished');
     expect(s.winnerSeat).toBe(0);
   });
+
+  it('can Mind Shackle a 2-hex enemy via its SECOND lobe (footprint adjacency)', () => {
+    let s = customBattle(['ne_gok_sa'], ['grimnak', 'thorgrim'], 'p1');
+    s = place(s, NEGOK, at(3, 3));
+    const GRIM = 's1-grimnak-1';
+    s = place(s, GRIM, at(5, 3));   // the 2-hex LEAD is NOT adjacent to Ne-Gok-Sa
+    fig(s, GRIM).at2 = at(4, 3);    // ...but its TAIL lobe is adjacent at (4,3)
+    expect(mindShackleTargets(s, 0)).toContain(GRIM); // targetable via the 2nd lobe
+    const grimUid = s.cards.find(c => c.cardId === 'grimnak')!.uid;
+    s = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: GRIM, d20: 20 }));
+    expect(s.cards.find(c => c.uid === grimUid)!.ownerSeat).toBe(0); // whole card seized
+    expect(fig(s, GRIM).ownerSeat).toBe(0); // the 2-hex figure changed owner
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -4136,6 +4149,14 @@ describe('Chomp (Grimnak)', () => {
     s = place(s, 's0-finn-1', at(3, 3));
     s = place(s, MW(1), at(4, 3));
     expect(errOf(applyAction(s, 'p1', { kind: 'chomp', targetId: MW(1), d20: 20 }))).toMatch(/Only Grimnak/);
+  });
+
+  it('chomping a seat’s LAST figure ends the game', () => {
+    let s = staged(['finn']); // p2 fields only a lone Hero
+    s = place(s, FINN1, at(4, 3)); // adjacent to Grimnak at (3,3)
+    s = unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: FINN1, d20: 16 }));
+    expect(s.phase).toBe('finished');
+    expect(s.winnerSeat).toBe(0);
   });
 });
 
