@@ -1415,6 +1415,18 @@ export default function HeroScapeBoard({
   // adjacent enemy and hasn't attacked. In shackle mode the adjacent enemy
   // figures (the engine's single-source target set) highlight; a click sends it.
   const canShackle = !!(canAct && me && canMindShackle(state, me.seat));
+  // Ne-Gok-Sa's Mind Shackle is shown ON the acting card whenever he's active — even
+  // when it can't be used yet — with a reason, so it never just silently vanishes.
+  const isNeGokActive = activeCard?.cardId === 'ne_gok_sa';
+  const shackleReason: string | null = !isNeGokActive
+    ? null
+    : state.turnAttacks.length > 0
+      ? 'not after attacking'
+      : state.mindShackleSpent
+        ? 'already used this turn'
+        : !canShackle
+          ? 'move adjacent to an enemy'
+          : null; // null ⇒ usable now
   const shackleTargets = useMemo(
     () => (shackleMode && me ? new Set(mindShackleTargets(state, me.seat)) : new Set<string>()),
     [shackleMode, me, state],
@@ -2699,19 +2711,25 @@ export default function HeroScapeBoard({
         {/* slice 8: Ne-Gok-Sa MIND SHACKLE toggle — after moving, before
             attacking, target an adjacent enemy; a natural 20 seizes their whole
             Army Card. Does not consume his attack. */}
-        {canShackle && (
+        {isNeGokActive && canAct && (
           <button
-            onClick={() => setShackleMode(m => !m)}
-            disabled={disabled}
-            title="Mind Shackle 20: choose an adjacent enemy figure and roll a d20. On a natural 20, take control of that figure's entire Army Card and every figure on it. Used after moving, before attacking — it does NOT use Ne-Gok-Sa's attack."
+            onClick={() => { if (canShackle) setShackleMode(m => !m); }}
+            disabled={disabled || !canShackle}
+            title={canShackle
+              ? "Mind Shackle 20: choose an adjacent enemy figure and roll a d20. On a natural 20, take control of that figure's entire Army Card and every figure on it. Used after moving, before attacking — it does NOT use Ne-Gok-Sa's attack."
+              : `Mind Shackle 20 isn't available yet — ${shackleReason}. (All figures are Unique, so any adjacent enemy is a valid target.)`}
             className={
-              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition disabled:opacity-40 ' +
-              (shackleMode
-                ? 'border-fuchsia-400 bg-fuchsia-900/40 text-fuchsia-200'
-                : 'border-fuchsia-600 text-fuchsia-300 hover:bg-fuchsia-900/30')
+              'rounded-lg border-2 px-4 py-2 text-sm font-semibold transition ' +
+              (!canShackle
+                ? 'cursor-not-allowed border-fuchsia-900/70 text-fuchsia-400/45'
+                : shackleMode
+                  ? 'border-fuchsia-400 bg-fuchsia-900/40 text-fuchsia-200'
+                  : 'border-fuchsia-600 text-fuchsia-300 hover:bg-fuchsia-900/30')
             }
           >
-            🧠 Mind Shackle {shackleMode ? '— pick an adjacent enemy' : '(seize a card on a natural 20)'}
+            🧠 Mind Shackle {canShackle
+              ? (shackleMode ? '— pick an adjacent enemy' : '(seize a card on a natural 20)')
+              : `— ${shackleReason}`}
           </button>
         )}
         {/* slice 8: Grimnak CHOMP toggle — before attacking, devour an adjacent
