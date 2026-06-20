@@ -50,6 +50,9 @@ type Interact = {
   /** Figures targetable by an active special power (Chomp / Grenade / Mind
    *  Shackle) — glow fuchsia, distinct from the red normal-attack target. */
   powerTargetIds?: Set<string>;
+  /** Figures of the now-acting card that still have to move this turn — their base disc
+   *  lights up to guide "move each one once"; an id drops out the moment that figure moves. */
+  actionableIds?: Set<string>;
   placeHexes?: Set<HexKey>;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
@@ -189,14 +192,17 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, wounds, onClick, onPointerDown }: {
+function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, actionable, wounds, onClick, onPointerDown }: {
   lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; powerTarget: boolean; wounds: number; onClick?: () => void; onPointerDown?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; actionable: boolean; wounds: number; onClick?: () => void; onPointerDown?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
-  const ring = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
+  // Disc glow priority: selection > attack target > power target > "still to move" (a softer
+  // cyan glow on the now-acting card's un-moved figures, so the player sees who's left).
+  const strongRing = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
+  const ring = strongRing ?? (actionable ? '#67e8f9' : null);
   const { bottomV, topV, baseCenterX, baseWidthFrac, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex), figureAnchor(cardId, figIndex));
   // 2-hex peanut geometry — span (hex-centre distance) is needed BEFORE sizing.
   let span = 0, discRotY = 0;
@@ -267,13 +273,22 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // lobe radius is < the 1-hex disc so it doesn't read too "deep"; the waist pinch is
   // what makes it a peanut rather than a uniform pill.
   const peanut = useMemo(() => (span > 0 ? peanutShape(span / 2, SIZE * 0.62, SIZE * 0.34) : null), [span]);
-  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: ring ? 0.9 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
+  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: strongRing ? 0.9 : actionable ? 0.5 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
   // 2-hex SWAY: a double-space figure must not billboard freely or its wide plane swings
   // perpendicular and hangs off the peanut. Keep its footprint along the peanut's long axis,
   // letting it sway toward the camera only up to the angle where its base edge still fits
   // inside the peanut (half-width ≈ the lobe radius) with margin.
   const swayRef = useRef<THREE.Group>(null);
   const planeRef = useRef<THREE.Mesh>(null);
+  // "Still to move" discs softly PULSE so the un-moved members of the now-acting card stand
+  // out (a stronger ring — selected/target — wins and stays solid). The disc goes dark the
+  // instant the figure moves (actionable flips false → discProps sets intensity 0).
+  const discMatRef = useRef<THREE.MeshStandardMaterial>(null);
+  useFrame(({ clock }) => {
+    const m = discMatRef.current;
+    if (!m || !actionable || strongRing) return;
+    m.emissiveIntensity = 0.3 + 0.45 * (0.5 + 0.5 * Math.sin(clock.elapsedTime * 3.5));
+  });
   useFrame(({ camera }) => {
     const g = swayRef.current;
     if (!g || !trail) return;
@@ -317,13 +332,13 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
         <group rotation={[0, discRotY, 0]}>
           <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
             <extrudeGeometry args={[peanut, { depth: DISC_H, bevelEnabled: false }]} />
-            <meshStandardMaterial {...discProps} />
+            <meshStandardMaterial ref={discMatRef} {...discProps} />
           </mesh>
         </group>
       ) : (
         <mesh position={[0, DISC_H / 2, 0]} receiveShadow>
           <cylinderGeometry args={[r, r * 1.04, DISC_H, 28]} />
-          <meshStandardMaterial {...discProps} />
+          <meshStandardMaterial ref={discMatRef} {...discProps} />
         </mesh>
       )}
       {/* Single-hex figures FULL-billboard (always face the camera) so you never catch one
@@ -464,7 +479,7 @@ function Scene({ state, it, drag }: { state: HSState; it: Interact; drag: DragAp
             <Standee
               key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
-              powerTarget={!!it.powerTargetIds?.has(f.id)} wounds={f.wounds}
+              powerTarget={!!it.powerTargetIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
               onPointerDown={it.selectedId === f.id ? () => drag.start(f.id, f.at!) : undefined}
             />

@@ -1314,6 +1314,18 @@ export default function HeroScapeBoard({
   const activeCardUid = getActiveCardUid(state);
   const activeCard = state.cards.find(c => c.uid === activeCardUid);
   const activeCardDef = HS_CARDS[activeCard?.cardId ?? ''];
+  // Figures of the now-acting card that STILL HAVE TO MOVE this turn — their base disc lights
+  // up to guide "move each one once". An id drops out the instant that figure moves
+  // (movedFigureIds), and the whole set clears once an attack is made (movement is over).
+  const actionableFigureIds = useMemo(() => {
+    const out = new Set<string>();
+    if (state.phase === 'playing' && state.subPhase === 'turns' && activeCardUid && state.turnAttacks.length === 0) {
+      for (const f of state.figures) {
+        if (f.cardUid === activeCardUid && f.at != null && !state.movedFigureIds.includes(f.id)) out.add(f.id);
+      }
+    }
+    return out;
+  }, [state, activeCardUid]);
 
   // --- slice 4: pending choice + special-power availability (only mine) ------
   const pending = state.pendingChoice;
@@ -3145,6 +3157,7 @@ export default function HeroScapeBoard({
             moveHexes={destinations}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...(targetPicker?.ids ?? [])])}
+            actionableIds={actionableFigureIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
             dropHexes={dropLegalSet}
