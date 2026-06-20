@@ -268,7 +268,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   }, [tex, effClip, bottomV, topV]);
   const cx = trail ? (lead[0] + trail[0]) / 2 : lead[0];
   const cz = trail ? (lead[1] + trail[1]) / 2 : lead[1];
-  const r = SIZE * 0.74; // disc ≈ 80% of the hex; the figure's image edges sit on it
+  const r = SIZE * 0.74 * 0.9; // single-hex disc radius — reduced 10% (was SIZE*0.74 ≈ 80% of the hex)
   // 2-hex base = a PEANUT (a lobe over each hex + a pinched waist), extruded flat. The
   // lobe radius is < the 1-hex disc so it doesn't read too "deep"; the waist pinch is
   // what makes it a peanut rather than a uniform pill.
