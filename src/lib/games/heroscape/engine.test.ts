@@ -3227,6 +3227,18 @@ describe('slice 6: Syvarris Double Attack', () => {
     ).toMatch(/already attacked/);
   });
 
+  it('may split his two attacks across DIFFERENT targets', () => {
+    let s = staged();
+    const T2 = 's1-thorgrim-1';
+    s = place(s, T2, at(5, 3)); // a 2nd target in Range 9 + clear sight, away from Finn
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T1, attackRoll: F('kbb'), defenseRoll: F('bbbb') }));
+    expect(fig(s, T1).wounds).toBe(1);
+    expect(legalTargets(s, SYV)).toContain(T2); // the 2nd attack may pick a different figure
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T2, attackRoll: F('kbb'), defenseRoll: F('bbbb') }));
+    expect(fig(s, T2).wounds).toBe(1); // the other target is hit by the 2nd attack
+    expect(s.turnAttacks).toHaveLength(2);
+  });
+
   it('Syvarris MAY stop after one attack (the second is optional)', () => {
     let s = staged();
     s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: SYV, targetId: T1, attackRoll: F('kbb'), defenseRoll: F('ssss') }));
