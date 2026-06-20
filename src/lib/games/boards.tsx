@@ -290,6 +290,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onTheDrop={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'the_drop' }); })}
       onResolveChoice={(choice: HSChoiceResolution) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'resolve_choice', choice }); })}
       onUndoMove={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'undo_move' }); })}
+      onEndMove={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_move' }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
       onDraftCard={(cardId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_card', cardId }); })}
       onDraftPass={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_pass' }); })}

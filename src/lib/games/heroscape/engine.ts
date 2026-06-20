@@ -369,6 +369,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'move_figure':
     case 'grapple_move':
     case 'undo_move':
+    case 'end_move':
     case 'attack':
     case 'fire_line':
     case 'grenade':
@@ -407,6 +408,9 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       else if (action.kind === 'throw_figure') res = doThrow(state, me.seat, action);
       else if (action.kind === 'carry_move') res = doCarryMove(state, me.seat, action);
       else if (action.kind === 'orient_figure') res = doOrientFigure(state, me.seat, action.figureId, action.dir);
+      // "End move": a soft commit — the boundary below clears the undo stack so the move is
+      // locked in. No other state change, so it stays clear of the Berserker/pending-choice flow.
+      else if (action.kind === 'end_move') res = clone(state);
       else res = doEndTurn(state, me.seat);
       // COMMIT BOUNDARY for movement-undo: a move/grapple PUSHES its own undo snapshot
       // (inside applyValidatedMove); orienting is a free reposition that leaves the stack

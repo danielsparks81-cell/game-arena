@@ -181,6 +181,7 @@ type Props = {
   onTheDrop: () => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
   onUndoMove: () => void;
+  onEndMove: () => void;
   onEndTurn: () => void;
   onDraftCard: (cardId: string) => void;
   onDraftPass: () => void;
@@ -670,18 +671,21 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
     </div>
   );
 }
-function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (power: { name: string; text: string }, index: number) => void }) {
+function HybridCard({ cardId, onPowerTap, fit, powerAvailable }: { cardId: string; onPowerTap?: (power: { name: string; text: string }, index: number) => void; fit?: boolean; powerAvailable?: boolean }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
+  // `fit` = size to the card's natural content height (used in the now-acting panel so the panel
+  // grows with the card instead of clipping it). Without it the card fills its parent (h-full),
+  // which equalises heights across the draft grid.
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-lg border-2 border-amber-900/80 bg-[#c6c2ba] shadow-lg">
+    <div className={'flex flex-col overflow-hidden rounded-lg border-2 border-amber-900/80 bg-[#c6c2ba] shadow-lg ' + (fit ? '' : 'h-full')}>
       {/* Header — fully reconstructed HTML (title + army-coloured stats), points-free. */}
       <HtmlCardHeader cardId={cardId} />
       {/* Reconstructed powers — crisp HTML; each is a tap target when onPowerTap.
           A hard divider line gives a clean break from the scanned header; flex-1
           lets the parchment fill to the card's height when cards are equalized. */}
-      <div className="flex flex-1 flex-col gap-1.5 border-t-2 border-neutral-900 px-2.5 pb-2.5 pt-1.5 text-stone-900">
+      <div className={'flex flex-col gap-1.5 border-t-2 border-neutral-900 px-2.5 pb-2.5 pt-1.5 text-stone-900 ' + (fit ? '' : 'flex-1')}>
         {powers.length > 0 ? powers.map((p, i) => {
           const inner = (
             <>
@@ -694,8 +698,13 @@ function HybridCard({ cardId, onPowerTap }: { cardId: string; onPowerTap?: (powe
               key={p.name}
               type="button"
               onClick={() => onPowerTap(p, i)}
-              title="Tap to use this power"
-              className="rounded-md border-2 border-amber-700/70 bg-amber-50/90 px-2 py-1.5 text-left shadow-sm transition hover:border-amber-600 hover:bg-amber-100 hover:shadow active:bg-amber-200"
+              title={powerAvailable ? 'Available now — tap to use this power' : 'Tap to use this power'}
+              className={
+                'rounded-md border-2 px-2 py-1.5 text-left shadow-sm transition active:scale-[0.99] ' +
+                (powerAvailable
+                  ? 'border-fuchsia-500 bg-fuchsia-100/80 ring-2 ring-fuchsia-400/60 hover:bg-fuchsia-200'
+                  : 'border-stone-400/60 bg-stone-100/70 hover:border-amber-600 hover:bg-amber-100')
+              }
             >
               {inner}
             </button>
@@ -1126,11 +1135,15 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
-  onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndTurn,
+  onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Inline target picker for figure-target powers (Mind Shackle, Chomp): tapping the card power
+  // auto-fires when exactly one enemy is adjacent, else opens a list under the card ability — no
+  // separate board-targeting mode. Declared up here so the reset effects below can clear it.
+  const [targetPicker, setTargetPicker] = useState<{ power: 'shackle' | 'chomp'; ids: string[] } | null>(null);
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
@@ -1196,6 +1209,7 @@ export default function HeroScapeBoard({
     setFireLineMode(false);
     setShackleMode(false);
     setChompMode(false);
+    setTargetPicker(null);
   }, [state.round, state.phase]);
   // Drop Grapple / Fire-Line / Mind-Shackle / Chomp mode when the selection changes.
   useEffect(() => {
@@ -1203,6 +1217,7 @@ export default function HeroScapeBoard({
     setFireLineMode(false);
     setShackleMode(false);
     setChompMode(false);
+    setTargetPicker(null);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -1509,14 +1524,22 @@ export default function HeroScapeBoard({
         if (canWaterClone) onWaterClone();
         else showPowerHint('Water Clone — use it before attacking (it replaces your attack).');
         return;
-      case 'ne_gok_sa':
-        if (canShackle) setShackleMode(m => !m);
-        else showPowerHint(`Mind Shackle — ${shackleReason ?? 'not available'}.`);
+      case 'ne_gok_sa': {
+        if (!canShackle) { showPowerHint(`Mind Shackle — ${shackleReason ?? 'not available'}.`); return; }
+        const ids = me ? mindShackleTargets(state, me.seat) : [];
+        if (ids.length === 0) showPowerHint('Mind Shackle — no adjacent enemy.');
+        else if (ids.length === 1) onMindShackle(ids[0]);  // exactly one adjacent → just do it
+        else setTargetPicker({ power: 'shackle', ids });   // more than one → pick from the list
         return;
-      case 'grimnak':
-        if (canDoChomp) setChompMode(m => !m);
-        else showPowerHint('Chomp — move next to a medium or small enemy first.');
+      }
+      case 'grimnak': {
+        if (!canDoChomp) { showPowerHint('Chomp — move next to a medium or small enemy first.'); return; }
+        const ids = me ? chompTargets(state, me.seat) : [];
+        if (ids.length === 0) showPowerHint('Chomp — no adjacent medium/small enemy.');
+        else if (ids.length === 1) onChomp(ids[0]);
+        else setTargetPicker({ power: 'chomp', ids });
         return;
+      }
       case 'mimring':
         if (canFire) setFireLineMode(m => !m);
         else showPowerHint('Fire Line — available before you attack.');
@@ -1541,6 +1564,16 @@ export default function HeroScapeBoard({
       activeCard.cardId,
     ) ||
       !!anyBigHeroPower);
+  // Is the active card's power usable RIGHT NOW? Drives the bright-fuchsia "available" box.
+  const activePowerAvailable =
+    activeCard?.cardId === 'tarn_vikings' ? canBerserk
+      : activeCard?.cardId === 'marro_warriors' ? canWaterClone
+        : activeCard?.cardId === 'ne_gok_sa' ? canShackle
+          : activeCard?.cardId === 'grimnak' ? canDoChomp
+            : activeCard?.cardId === 'mimring' ? canFire
+              : activeCard?.cardId === 'drake' ? canGrapple
+                : activeCard?.cardId === 'airborne_elite' ? canThrowGrenade
+                  : !!anyBigHeroPower;
   /** Readable label for a figure id (card short name + squad index + hex). */
   const figName = (id: string): string => {
     const f = state.figures.find(x => x.id === id);
@@ -2606,7 +2639,7 @@ export default function HeroScapeBoard({
             style={{ borderColor: seatColor(state.turnSeat ?? 0) }}
           >
             <div className="text-center text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
-              {myTurn ? 'Your turn' : `${turnPlayer?.username ?? '…'}'s turn`} · Round {state.round} · Turn {state.turnNumber}/3{map?.name ? ` · ${map.name}` : ''}
+              {myTurn ? 'Your turn' : `${turnPlayer?.username ?? '…'}'s turn`} · Turn {state.turnNumber}/3
             </div>
             <TurnOrderSnake state={state} seatColor={seatColor} />
           </div>
@@ -2705,7 +2738,7 @@ export default function HeroScapeBoard({
                 {turnPlayer?.username ?? ''}
               </span>
             </div>
-            <HybridCard cardId={activeCard.cardId} onPowerTap={canAct && activeCardHasTapPower ? onCardPower : undefined} />
+            <HybridCard cardId={activeCard.cardId} fit powerAvailable={activePowerAvailable} onPowerTap={canAct && activeCardHasTapPower ? onCardPower : undefined} />
             {canAct && activeCardHasTapPower && (
               <div className="mt-1 text-center text-[10px] text-violet-300/80">
                 tap the highlighted power on the card to use it
@@ -2713,26 +2746,55 @@ export default function HeroScapeBoard({
             )}
             {/* the active unit's action controls — its powers live here, on the card */}
             <div className="mt-2 flex flex-col gap-2">
-        {/* Powers are now activated by TAPPING them on the card above. Below we only
-            show feedback: a short reason if a tapped power isn't usable yet, and a
-            targeting strip while a click-a-target power (Mind Shackle / Chomp / Fire
-            Line / Grapple) is armed. */}
+        {/* Powers are activated by TAPPING them on the card above. Below: an inline target
+            picker (Mind Shackle / Chomp when more than one enemy is adjacent), a short reason
+            if a tapped power isn't usable yet, and a targeting strip for the board-aimed
+            powers (Fire Line direction / Grapple hex). */}
+        {targetPicker && (
+          <div className="rounded-lg border-2 border-fuchsia-500 bg-neutral-900/90 p-2">
+            <div className="mb-1 text-center text-[11px] font-bold uppercase tracking-wide text-fuchsia-300">
+              {targetPicker.power === 'shackle' ? 'Mind Shackle — choose a target' : 'Chomp — choose a target'}
+            </div>
+            <div className="flex flex-col gap-1">
+              {targetPicker.ids.map(id => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    if (targetPicker.power === 'shackle') onMindShackle(id);
+                    else onChomp(id);
+                    setTargetPicker(null);
+                  }}
+                  className="flex items-center justify-between rounded-md border border-fuchsia-600/70 bg-fuchsia-950/40 px-2 py-1.5 text-left text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-400 hover:bg-fuchsia-900/50"
+                >
+                  <span>{figName(id)}</span>
+                  <span className="text-[10px] text-fuchsia-300/70">{targetPicker.power === 'shackle' ? 'seize on a 20' : 'devour'}</span>
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => setTargetPicker(null)}
+                className="mt-0.5 self-center rounded border border-neutral-600 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
         {powerHint && (
           <div className="rounded-lg border border-amber-600/70 bg-amber-950/40 px-3 py-1.5 text-center text-xs font-medium text-amber-200">
             {powerHint}
           </div>
         )}
-        {(shackleMode || chompMode || fireLineMode || grappleMode) && (
+        {(fireLineMode || grappleMode) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
-              {shackleMode && '🧠 Mind Shackle — click an adjacent enemy'}
-              {chompMode && '🦖 Chomp — click an adjacent enemy'}
-              {fireLineMode && '🔥 Fire Line — click a direction'}
+              {fireLineMode && '🔥 Fire Line — click a direction on the board'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
             </span>
             <button
               type="button"
-              onClick={() => { setShackleMode(false); setChompMode(false); setFireLineMode(false); setGrappleMode(false); }}
+              onClick={() => { setFireLineMode(false); setGrappleMode(false); }}
               className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
             >
               Cancel
@@ -2951,14 +3013,24 @@ export default function HeroScapeBoard({
         {/* UNDO MOVE — repeatable full rewind. Shown only while moves remain on the
             undo stack this turn and nothing has been committed (no attack yet). */}
         {myTurn && !pending && (state.moveHistory?.length ?? 0) > 0 && state.turnAttacks.length === 0 && (
-          <button
-            onClick={() => { onUndoMove(); setSelectedId(null); }}
-            disabled={disabled}
-            className="rounded-lg border-2 border-sky-600 bg-neutral-950/85 px-4 py-2 text-sm font-semibold text-sky-300 backdrop-blur-sm transition hover:bg-sky-900/50 disabled:opacity-40"
-            title="Take back your last move (until you attack)"
-          >
-            ↶ Undo move ({state.moveHistory!.length})
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { onUndoMove(); setSelectedId(null); }}
+              disabled={disabled}
+              className="flex-1 rounded-lg border-2 border-sky-600 bg-neutral-950/85 px-3 py-2 text-sm font-semibold text-sky-300 backdrop-blur-sm transition hover:bg-sky-900/50 disabled:opacity-40"
+              title="Take back your last move (until you attack)"
+            >
+              ↶ Undo move ({state.moveHistory!.length})
+            </button>
+            <button
+              onClick={() => { onEndMove(); setSelectedId(null); }}
+              disabled={disabled}
+              className="flex-1 rounded-lg border-2 border-emerald-600 bg-neutral-950/85 px-3 py-2 text-sm font-semibold text-emerald-300 backdrop-blur-sm transition hover:bg-emerald-900/50 disabled:opacity-40"
+              title="Lock in your move — you won't be able to undo after this"
+            >
+              ✓ End move
+            </button>
+          </div>
         )}
 
         {/* End turn — pinned to the rail bottom on lg so the (tall) Now-acting
@@ -3072,7 +3144,7 @@ export default function HeroScapeBoard({
             selectedId={selectedId}
             moveHexes={destinations}
             targetIds={targets}
-            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet])}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...(targetPicker?.ids ?? [])])}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
             dropHexes={dropLegalSet}

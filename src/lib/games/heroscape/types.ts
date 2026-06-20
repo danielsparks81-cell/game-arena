@@ -696,6 +696,11 @@ export type HSAction =
       kind: 'undo_move';
     }
   | {
+      // "End move" — a soft commit that locks in the move by clearing the undo stack
+      // (state.moveHistory). No dice, no other state change; only the active seat during 'turns'.
+      kind: 'end_move';
+    }
+  | {
       // Sgt. Drake GRAPPLE GUN 25 (cards.md): "Instead of Sgt. Drake's normal
       // move, he may move only ONE space. This space may be up to 25 levels
       // higher. … all engagement rules still apply." A sibling of move_figure

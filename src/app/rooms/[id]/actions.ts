@@ -739,6 +739,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'undo_move' }
+  | { game: 'heroscape'; kind: 'end_move' }
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
@@ -1191,6 +1192,8 @@ type HSWireAction =
   // through verbatim; the engine validates (active seat, no attack yet) + restores
   // the pre-move snapshot.
   | { kind: 'undo_move' }
+  // "End move" — soft commit (no dice); passed through verbatim, the engine clears the undo stack.
+  | { kind: 'end_move' }
   // Sgt. Drake GRAPPLE GUN (slice 7): a one-space replacement move. Like
   // move_figure, the leaving-engagement swipe / fall dice are rolled server-side
   // (the engine recomputes the need and re-validates).

@@ -513,6 +513,18 @@ describe('move undo (undo_move)', () => {
     const afterAttack = { ...moved, turnAttacks: [{ attackerId: FINN, targetId: 'x' }] };
     expect(errOf(applyAction(afterAttack, 'p1', { kind: 'undo_move' }))).toMatch(/after attacking/);
   });
+
+  it('end_move soft-commits: clears the undo stack but keeps the move applied', () => {
+    const s = inTurns('p1', { p1: 's0-finn' });
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 1) }));
+    expect((moved.moveHistory ?? []).length).toBe(1);
+    const committed = unwrap(applyAction(moved, 'p1', { kind: 'end_move' }));
+    expect((committed.moveHistory ?? []).length).toBe(0);  // undo no longer possible
+    expect(fig(committed, FINN).at).toBe(at(3, 1));         // the move itself still stands
+    expect(committed.movedFigureIds).toContain(FINN);
+    expect(errOf(applyAction(committed, 'p1', { kind: 'undo_move' }))).toMatch(/Nothing to undo/);
+    expect(errOf(applyAction(moved, 'p2', { kind: 'end_move' }))).toMatch(/Not your turn/);
+  });
 });
 
 // ---------------------------------------------------------------------------
