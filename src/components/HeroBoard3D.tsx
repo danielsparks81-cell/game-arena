@@ -331,14 +331,19 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
           on the peanut instead of spinning off it. */}
       {figMat && (trail ? (
         <group ref={swayRef} position={[0, pivotY, 0]}>
-          <mesh ref={planeRef} position={[baseShiftX, planeOffsetY, 0]}>
+          {/* raycast disabled: the tall image must NOT catch clicks meant for hexes it visually
+              overlaps (e.g. a big dragon's wings over a neighbour hex). The base DISC below is
+              the clickable target for the figure; clicks over the image fall through to the hex. */}
+          <mesh ref={planeRef} position={[baseShiftX, planeOffsetY, 0]} raycast={() => null}>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
           </mesh>
         </group>
       ) : (
         <Billboard follow position={[0, pivotY, 0]}>
-          <mesh position={[baseShiftX, planeOffsetY, 0]}>
+          {/* raycast disabled — see the 2-hex note above: the disc is the click target so the
+              figure's image can't steal clicks aimed at a neighbouring hex. */}
+          <mesh position={[baseShiftX, planeOffsetY, 0]} raycast={() => null}>
             <planeGeometry args={[w, h]} />
             <primitive object={figMat} attach="material" />
           </mesh>
