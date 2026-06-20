@@ -692,7 +692,7 @@ export const CARD_ABILITIES: Record<string, string[]> = {
   thorgrim: ['Defensive Aura 1', "Warrior's Armor Spirit 1"],
   airborne_elite: ['Grenade Special Attack', 'The Drop'],
   drake: ['Thorian Speed', 'Grapple Gun 25'],
-  raelin: ['Whirlwind Assault', 'Extended Defensive Aura', 'Flying'],
+  raelin: ['Extended Defensive Aura', 'Flying'],
   // Utgar
   zettian_guards: ['Zettian Targeting'],
   ne_gok_sa: ['Mind Shackle 20'],

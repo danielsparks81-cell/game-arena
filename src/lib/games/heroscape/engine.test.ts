@@ -26,6 +26,8 @@ import {
   mindShackleTargets,
   canChomp,
   chompTargets,
+  explosionTargets,
+  explosionDefenders,
   canGrenade,
   grenadeTargets,
   grenadeDefenders,
@@ -4157,6 +4159,55 @@ describe('Chomp (Grimnak)', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: FINN1, d20: 16 }));
     expect(s.phase).toBe('finished');
     expect(s.winnerSeat).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Deathwalker 9000 EXPLOSION — Range 7, Attack 3; chosen target + adjacent splash
+// ---------------------------------------------------------------------------
+describe('Explosion Special Attack (Deathwalker 9000)', () => {
+  const DW = 's0-deathwalker_9000-1';
+  const MW = (n: number) => `s1-marro_warriors-${n}`;
+  const THOR = 's1-thorgrim-1';
+  function staged(): HSState {
+    let s = customBattle(['deathwalker_9000'], ['marro_warriors', 'thorgrim'], 'p1');
+    s = clearExcept(s, DW, MW(1), MW(2), THOR);
+    s = place(s, DW, at(3, 3));
+    s = place(s, MW(1), at(5, 3)); // chosen target — Range 2, clear sight (not adjacent to DW)
+    s = place(s, MW(2), at(4, 3)); // adjacent to MW(1) → caught in the splash
+    s = place(s, THOR, at(0, 0));  // far away; keeps p2 alive after the blast
+    return s;
+  }
+
+  it('targets an enemy in range/sight; defenders = target + adjacent splash', () => {
+    const s = staged();
+    expect(explosionTargets(s, DW)).toContain(MW(1));
+    const ids = explosionDefenders(s, DW, MW(1)).map(d => d.figureId);
+    expect(ids).toEqual(expect.arrayContaining([MW(1), MW(2)]));
+    expect(ids).not.toContain(THOR); // not adjacent to the target → not splashed
+  });
+
+  it('one attack roll hits the target AND every adjacent figure; each defends', () => {
+    let s = staged();
+    const defs = explosionDefenders(s, DW, MW(1));
+    s = unwrap(applyAction(s, 'p1', {
+      kind: 'explosion', attackerId: DW, targetId: MW(1),
+      attackRoll: F('kkk'), // 3 skulls
+      defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: F('b'.repeat(d.defense)) })),
+    }));
+    expect(fig(s, MW(1)).at).toBeNull(); // target destroyed (Marro Life 1)
+    expect(fig(s, MW(2)).at).toBeNull(); // adjacent splash destroyed too
+    expect(s.turnAttacks.length).toBe(1); // the special IS the attack
+    expect(s.lastAttack?.targetLabel).toMatch(/Explosion/);
+  });
+
+  it('only Deathwalker 9000 may Explosion', () => {
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1');
+    s = place(s, 's0-finn-1', at(3, 3));
+    s = place(s, MW(1), at(4, 3));
+    expect(errOf(applyAction(s, 'p1', {
+      kind: 'explosion', attackerId: 's0-finn-1', targetId: MW(1), attackRoll: F('kkk'), defenseRolls: [],
+    }))).toMatch(/Only Deathwalker/);
   });
 });
 

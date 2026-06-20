@@ -741,6 +741,18 @@ export type HSAction =
       defenseRolls: { figureId: string; roll: CombatFace[] }[];
     }
   | {
+      // Deathwalker 9000 EXPLOSION SPECIAL ATTACK (cards.md) — choose an enemy in
+      // clear sight within Range 7; the target AND figures adjacent to it (friend or
+      // foe, INCLUDING Deathwalker himself) are hit. The SERVER rolls 3 attack dice
+      // ONCE + each affected figure's defense; the engine re-derives the set,
+      // validates, and applies it. Special attack → never modified by height/auras.
+      kind: 'explosion';
+      attackerId: string;
+      targetId: string;
+      attackRoll: CombatFace[];
+      defenseRolls: { figureId: string; roll: CombatFace[] }[];
+    }
+  | {
       // Tarn BERSERKER CHARGE (cards.md) — rolled AFTER moving, BEFORE attacking.
       // The SERVER rolls the d20; on 15+ the engine offers a berserker_charge
       // PendingChoice (the re-move is the player's "may"). On <15 the charge is

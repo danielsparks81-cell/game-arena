@@ -372,6 +372,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'end_move':
     case 'attack':
     case 'fire_line':
+    case 'explosion':
     case 'grenade':
     case 'berserker_charge':
     case 'water_clone':
@@ -396,6 +397,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
         res = doGrappleMove(state, action.figureId, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
       else if (action.kind === 'attack') res = doAttack(state, action);
       else if (action.kind === 'fire_line') res = doFireLine(state, action);
+      else if (action.kind === 'explosion') res = doExplosion(state, action);
       else if (action.kind === 'grenade') res = doGrenade(state, me.seat);
       else if (action.kind === 'berserker_charge') res = doBerserkerCharge(state, me.seat, action.d20);
       else if (action.kind === 'water_clone') res = doWaterClone(state, me.seat, action.rolls);
@@ -2698,6 +2700,156 @@ function doFireLine(
 }
 
 // ============================================================================
+// Deathwalker 9000 EXPLOSION SPECIAL ATTACK (cards.md) — Range 7, Attack 3.
+// Choose an enemy figure in clear sight within Range 7; the target AND every
+// figure adjacent to it (friend OR foe — INCLUDING Deathwalker himself) are hit.
+// 3 attack dice rolled ONCE for all affected; each defends separately. Special
+// attack → flat printed Attack, and defenders get NO height bonus.
+// ============================================================================
+const EXPLOSION_RANGE = 7;
+const EXPLOSION_ATTACK = 3;
+
+/** Enemy figures Deathwalker may Explode: within Range 7 AND in clear (elevation-
+ *  aware) line of sight. The splash to adjacent figures needs no separate sight. */
+export function explosionTargets(state: HSState, attackerId: string): string[] {
+  const dw = state.figures.find(f => f.id === attackerId);
+  const map = MAPS[state.mapId];
+  if (!dw || dw.at == null || !map) return [];
+  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  const aHexes = figureHexes(dw);
+  const out: string[] = [];
+  for (const f of state.figures) {
+    if (f.id === dw.id || f.at == null || f.ownerSeat === dw.ownerSeat) continue;
+    const reachable = figureHexes(f).some(th =>
+      aHexes.some(ah => {
+        const d = rangeDistance(map.cells, ah, th);
+        return d != null && d <= EXPLOSION_RANGE && hasLineOfSight3D(map.cells, ah, th, [], eye);
+      }),
+    );
+    if (reachable) out.push(f.id);
+  }
+  return out;
+}
+
+/** The figures an Explosion at `targetId` AFFECTS — the target plus every figure
+ *  adjacent to it (friend OR foe, INCLUDING Deathwalker if he is adjacent — he
+ *  "can be affected by his own explosion") — with each one's defense dice (printed
+ *  + auras, NO height: special attack). */
+export function explosionDefenders(
+  state: HSState,
+  attackerId: string,
+  targetId: string,
+): { figureId: string; defense: number }[] {
+  const dw = state.figures.find(f => f.id === attackerId);
+  const target = state.figures.find(f => f.id === targetId);
+  if (!dw || !target || target.at == null) return [];
+  const affected = new Map<string, Figure>([[target.id, target]]);
+  for (const f of state.figures) {
+    if (f.at == null || f.id === target.id) continue;
+    if (figuresAdjacent(state, target, f)) affected.set(f.id, f); // incl. Deathwalker (self-hit allowed)
+  }
+  return [...affected.values()].map(t => {
+    const d = effectiveDefenseDice(state, t, dw);
+    const h = heightAdvantage(state, dw, t);
+    return { figureId: t.id, defense: Math.max(0, d.dice - h.defender) }; // special attack → strip height
+  });
+}
+
+/** Can the active Deathwalker Explode now (card active, hasn't attacked, ≥1 enemy
+ *  in range + sight)? The board shows the control + highlights the targets. */
+export function canExplosion(state: HSState, seat: number): boolean {
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat || state.turnAttacks.length > 0 || state.pendingChoice) {
+    return false;
+  }
+  const active = state.cards.find(c => c.uid === getActiveCardUid(state));
+  if (!active || active.cardId !== DEATHWALKER_CARD_ID) return false;
+  const dw = state.figures.find(f => f.cardUid === active.uid && f.at != null);
+  return !!dw && explosionTargets(state, dw.id).length > 0;
+}
+
+function doExplosion(
+  state: HSState,
+  action: {
+    attackerId: string;
+    targetId: string;
+    attackRoll: CombatFace[];
+    defenseRolls: { figureId: string; roll: CombatFace[] }[];
+  },
+): HSResult {
+  const r = attackReadyFigure(state, action.attackerId);
+  if ('error' in r) return r;
+  const attacker = r.fig;
+  if (cardDefFor(state, attacker).id !== DEATHWALKER_CARD_ID) {
+    return { error: 'Only Deathwalker 9000 has the Explosion Special Attack' };
+  }
+  if (!explosionTargets(state, attacker.id).includes(action.targetId)) {
+    return { error: 'Explosion target must be an enemy in clear sight within Range 7' };
+  }
+  if (!validFaces(action.attackRoll, EXPLOSION_ATTACK)) {
+    return { error: 'Malformed Explosion attack roll' };
+  }
+  // Re-derive the affected set + each defender's dice (server-authoritative) and
+  // validate the supplied rolls match it exactly.
+  const defenders = explosionDefenders(state, attacker.id, action.targetId);
+  const got = new Map(action.defenseRolls.map(d => [d.figureId, d.roll] as const));
+  if (got.size !== action.defenseRolls.length) return { error: 'Duplicate Explosion defender' };
+  if (defenders.length !== action.defenseRolls.length) return { error: 'Explosion defender set mismatch' };
+  for (const d of defenders) {
+    const roll = got.get(d.figureId);
+    if (!roll || !validFaces(roll, d.defense)) return { error: 'Malformed Explosion defense roll' };
+  }
+
+  const skulls = countFaces(action.attackRoll, 'skull');
+  const s = clone(state);
+  const mover = s.figures.find(f => f.id === attacker.id)!;
+  s.turnAttacks.push({ attackerId: attacker.id, targetId: action.targetId }); // the special IS the attack
+  const results: string[] = [];
+  const defenseGroups: NonNullable<HSState['lastAttack']>['defenseGroups'] = [];
+  let totalWounds = 0;
+  for (const d of defenders) {
+    const roll = got.get(d.figureId)!;
+    const shields = countFaces(roll, 'shield');
+    const w = Math.max(0, skulls - shields);
+    const t = s.figures.find(f => f.id === d.figureId);
+    if (!t) continue;
+    t.wounds += w;
+    totalWounds += w;
+    const tDef = cardDefFor(s, t);
+    const destroyed = t.wounds >= tDef.life;
+    if (destroyed) { t.at = null; t.at2 = null; }
+    const label = figureLabel(s, t);
+    defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
+    results.push(
+      `${label} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`,
+    );
+  }
+  s.lastAttack = {
+    attackerId: attacker.id,
+    targetId: action.targetId,
+    attackerLabel: figureLabel(s, mover),
+    targetLabel: `Explosion — ${defenders.length} figure${defenders.length === 1 ? '' : 's'}`,
+    attackRoll: action.attackRoll,
+    defenseRoll: [],
+    defenseGroups,
+    skulls,
+    shields: 0,
+    wounds: totalWounds,
+    destroyed: false,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: ['Explosion Special Attack', `Attack ${EXPLOSION_ATTACK} (special — no height / aura)`],
+    seq: s.logSeq + 1,
+  };
+  pushLog(
+    s,
+    'attack',
+    `${figureLabel(s, mover)} detonates an Explosion (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no figures affected'}.`,
+  );
+  checkEliminationWin(s);
+  return s;
+}
+
+// ============================================================================
 // Airborne Elite GRENADE SPECIAL ATTACK (slice 8, cards.md) — Range 5, Lob 12,
 // Attack 2, ONCE PER GAME. One grenade per living Elite, thrown one at a time:
 // choose a figure within Range 5 (no LOS); the target AND every figure adjacent
@@ -2745,10 +2897,11 @@ export function grenadeDefenders(
     if (f.at == null || f.id === target.id) continue;
     if (figuresAdjacent(state, target, f)) affected.set(f.id, f);
   }
-  return [...affected.values()].map(t => ({
-    figureId: t.id,
-    defense: Math.max(0, effectiveDefenseDice(state, t, thrower).dice),
-  }));
+  return [...affected.values()].map(t => {
+    const d = effectiveDefenseDice(state, t, thrower);
+    const h = heightAdvantage(state, thrower, t);
+    return { figureId: t.id, defense: Math.max(0, d.dice - h.defender) }; // special attack → strip height
+  });
 }
 
 /** Can the active Airborne Elite throw grenades now — squad active, marker
