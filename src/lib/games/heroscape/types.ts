@@ -501,6 +501,14 @@ export type HSState = {
   turnSeat: number | null;
   /** Figures that completed their (single) move this turn. */
   movedFigureIds: string[];
+  /** UNDO STACK for movement this turn. Each entry is a JSON snapshot of the
+   *  whole state taken JUST BEFORE a move was applied (with `moveHistory` itself
+   *  stripped, so snapshots don't nest/grow). `undo_move` pops the last one and
+   *  restores it — a full rewind, including any leaving-engagement / fall dice the
+   *  move caused. CLEARED the moment the turn commits past movement (any attack /
+   *  special / end_turn / new active card / round rollover), which is the
+   *  "before committing" boundary. Absent on pre-existing saves ⇒ treat as []. */
+  moveHistory?: string[];
   /**
    * Per-turn attack log (slice 6) — one entry per attack resolved this turn,
    * in order. This is the SINGLE source of truth for "what has attacked":
@@ -679,6 +687,13 @@ export type HSAction =
        *  adjacent at the destination). The engine validates the set matches the
        *  abandoned enemies exactly. */
       leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+    }
+  | {
+      // UNDO the last move this turn (repeatable). Pops `state.moveHistory` and
+      // restores that pre-move snapshot — a full rewind. Only the active seat, only
+      // during 'turns', only while moves remain on the stack (i.e. before any
+      // attack/special this turn clears it). No dice; pure state restore.
+      kind: 'undo_move';
     }
   | {
       // Sgt. Drake GRAPPLE GUN 25 (cards.md): "Instead of Sgt. Drake's normal

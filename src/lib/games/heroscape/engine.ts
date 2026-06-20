@@ -368,6 +368,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     // Turn actions — only the revealed-marker player acts.
     case 'move_figure':
     case 'grapple_move':
+    case 'undo_move':
     case 'attack':
     case 'fire_line':
     case 'grenade':
@@ -385,39 +386,39 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
+      // Movement UNDO (repeatable, full rewind) — pops the pre-move snapshot stack.
+      if (action.kind === 'undo_move') return doUndoMove(state, me.seat);
+      let res: HSResult;
       if (action.kind === 'move_figure')
-        return doMove(
-          state,
-          action.figureId,
-          action.to,
-          action.fallRoll,
-          action.extremeFallD20,
-          action.leaveRolls,
-        );
-      if (action.kind === 'grapple_move')
-        return doGrappleMove(
-          state,
-          action.figureId,
-          action.to,
-          action.fallRoll,
-          action.extremeFallD20,
-          action.leaveRolls,
-        );
-      if (action.kind === 'attack') return doAttack(state, action);
-      if (action.kind === 'fire_line') return doFireLine(state, action);
-      if (action.kind === 'grenade') return doGrenade(state, me.seat);
-      if (action.kind === 'berserker_charge') return doBerserkerCharge(state, me.seat, action.d20);
-      if (action.kind === 'water_clone') return doWaterClone(state, me.seat, action.rolls);
-      if (action.kind === 'mind_shackle') return doMindShackle(state, me.seat, action.targetId, action.d20);
-      if (action.kind === 'chomp') return doChomp(state, me.seat, action.targetId, action.d20);
-      if (action.kind === 'ice_shard') return doIceShard(state, action);
-      if (action.kind === 'queglix') return doQueglix(state, action);
-      if (action.kind === 'wild_swing') return doWildSwing(state, action);
-      if (action.kind === 'acid_breath') return doAcidBreath(state, me.seat, action.rolls);
-      if (action.kind === 'throw_figure') return doThrow(state, me.seat, action);
-      if (action.kind === 'carry_move') return doCarryMove(state, me.seat, action);
-      if (action.kind === 'orient_figure') return doOrientFigure(state, me.seat, action.figureId, action.dir);
-      return doEndTurn(state, me.seat);
+        res = doMove(state, action.figureId, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
+      else if (action.kind === 'grapple_move')
+        res = doGrappleMove(state, action.figureId, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
+      else if (action.kind === 'attack') res = doAttack(state, action);
+      else if (action.kind === 'fire_line') res = doFireLine(state, action);
+      else if (action.kind === 'grenade') res = doGrenade(state, me.seat);
+      else if (action.kind === 'berserker_charge') res = doBerserkerCharge(state, me.seat, action.d20);
+      else if (action.kind === 'water_clone') res = doWaterClone(state, me.seat, action.rolls);
+      else if (action.kind === 'mind_shackle') res = doMindShackle(state, me.seat, action.targetId, action.d20);
+      else if (action.kind === 'chomp') res = doChomp(state, me.seat, action.targetId, action.d20);
+      else if (action.kind === 'ice_shard') res = doIceShard(state, action);
+      else if (action.kind === 'queglix') res = doQueglix(state, action);
+      else if (action.kind === 'wild_swing') res = doWildSwing(state, action);
+      else if (action.kind === 'acid_breath') res = doAcidBreath(state, me.seat, action.rolls);
+      else if (action.kind === 'throw_figure') res = doThrow(state, me.seat, action);
+      else if (action.kind === 'carry_move') res = doCarryMove(state, me.seat, action);
+      else if (action.kind === 'orient_figure') res = doOrientFigure(state, me.seat, action.figureId, action.dir);
+      else res = doEndTurn(state, me.seat);
+      // COMMIT BOUNDARY for movement-undo: a move/grapple PUSHES its own undo snapshot
+      // (inside applyValidatedMove); orienting is a free reposition that leaves the stack
+      // intact; EVERY other turn action (attack / any special / end_turn) ends the chance
+      // to take a move back, so the stack is cleared (see [[the undo design]]).
+      if (!('error' in res)
+          && action.kind !== 'move_figure'
+          && action.kind !== 'grapple_move'
+          && action.kind !== 'orient_figure') {
+        res.moveHistory = [];
+      }
+      return res;
     }
     // Draft/placement actions arriving during 'playing' — out of phase.
     case 'draft_roll':
@@ -515,6 +516,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.turnAttacks = [];
+  s.moveHistory = [];
   s.winnerSeat = null;
   s.winnerTeam = null;
   delete s.pendingChoice;
@@ -1252,6 +1254,7 @@ function beginTurnOrSkip(s: HSState): void {
       s.turnSeat = seat;
       s.movedFigureIds = [];
       s.turnAttacks = [];
+      s.moveHistory = [];
       delete s.waterClonedThisTurn;
       delete s.berserkerSpent;
       delete s.mindShackleSpent;
@@ -1312,6 +1315,7 @@ function startNextRound(s: HSState): void {
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.turnAttacks = [];
+  s.moveHistory = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
   delete s.mindShackleSpent;
@@ -1789,6 +1793,26 @@ function doMove(
  * unneeded roll is rejected. `verb` colours the move log ("moves to" /
  * "grapples to").
  */
+/** UNDO the last move this turn (repeatable) — pops `moveHistory` and restores that
+ *  pre-move snapshot, a full rewind incl. any leaving-engagement/fall dice. Allowed
+ *  only for the active seat during 'turns', only while the stack is non-empty and no
+ *  attack has been made (the dispatcher also clears the stack on any commit). */
+function doUndoMove(state: HSState, seat: number): HSResult {
+  if (state.subPhase !== 'turns') return { error: 'No move to undo right now' };
+  if (state.turnSeat !== seat) return { error: 'Not your turn' };
+  if (state.turnAttacks.length > 0) return { error: 'You cannot undo a move after attacking' };
+  const hist = state.moveHistory ?? [];
+  if (hist.length === 0) return { error: 'Nothing to undo' };
+  let prev: HSState;
+  try {
+    prev = JSON.parse(hist[hist.length - 1]) as HSState;
+  } catch {
+    return { error: 'The move could not be undone (corrupt snapshot)' };
+  }
+  prev.moveHistory = hist.slice(0, -1); // keep the rest of the stack for further undos
+  return prev;
+}
+
 function applyValidatedMove(
   state: HSState,
   figureId: string,
@@ -1838,6 +1862,10 @@ function applyValidatedMove(
   }
 
   const s = clone(state);
+  // Movement UNDO: push a snapshot of the PRE-move state (with the history itself
+  // stripped, so snapshots never nest) onto the stack `undo_move` pops. This makes
+  // the move a full rewind — including the swipe/fall dice resolved below.
+  s.moveHistory = [...(state.moveHistory ?? []), JSON.stringify({ ...state, moveHistory: undefined })];
   const fig = s.figures.find(f => f.id === figureId)!;
   const moverLabel = figureLabel(s, fig);
   const fromKey = fig.at;
@@ -4256,6 +4284,7 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.turnAttacks = [];
+  s.moveHistory = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
   delete s.mindShackleSpent;

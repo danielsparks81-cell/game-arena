@@ -289,6 +289,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onCarry={(figureId: string, to: HSHexKey, passengerId: string, passengerTo: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'carry_move', figureId, to, passengerId, passengerTo }); })}
       onTheDrop={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'the_drop' }); })}
       onResolveChoice={(choice: HSChoiceResolution) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'resolve_choice', choice }); })}
+      onUndoMove={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'undo_move' }); })}
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
       onDraftCard={(cardId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_card', cardId }); })}
       onDraftPass={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_pass' }); })}

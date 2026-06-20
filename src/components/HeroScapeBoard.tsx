@@ -180,6 +180,7 @@ type Props = {
   onCarry: (figureId: string, to: HexKey, passengerId: string, passengerTo: HexKey) => void;
   onTheDrop: () => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
+  onUndoMove: () => void;
   onEndTurn: () => void;
   onDraftCard: (cardId: string) => void;
   onDraftPass: () => void;
@@ -1124,7 +1125,7 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onOrient, onAttack,
-  onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onEndTurn,
+  onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
@@ -2948,6 +2949,19 @@ export default function HeroScapeBoard({
               })}
             </div>
           </div>
+        )}
+
+        {/* UNDO MOVE — repeatable full rewind. Shown only while moves remain on the
+            undo stack this turn and nothing has been committed (no attack yet). */}
+        {myTurn && !pending && (state.moveHistory?.length ?? 0) > 0 && state.turnAttacks.length === 0 && (
+          <button
+            onClick={() => { onUndoMove(); setSelectedId(null); }}
+            disabled={disabled}
+            className="rounded-lg border-2 border-sky-600 bg-neutral-950/85 px-4 py-2 text-sm font-semibold text-sky-300 backdrop-blur-sm transition hover:bg-sky-900/50 disabled:opacity-40"
+            title="Take back your last move (until you attack)"
+          >
+            ↶ Undo move ({state.moveHistory!.length})
+          </button>
         )}
 
         {/* End turn — pinned to the rail bottom on lg so the (tall) Now-acting

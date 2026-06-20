@@ -738,6 +738,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
+  | { game: 'heroscape'; kind: 'undo_move' }
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
@@ -1186,6 +1187,10 @@ type HSWireAction =
   | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
+  // UNDO the last move this turn (repeatable, server-synced). No dice — passed
+  // through verbatim; the engine validates (active seat, no attack yet) + restores
+  // the pre-move snapshot.
+  | { kind: 'undo_move' }
   // Sgt. Drake GRAPPLE GUN (slice 7): a one-space replacement move. Like
   // move_figure, the leaving-engagement swipe / fall dice are rolled server-side
   // (the engine recomputes the need and re-validates).

@@ -471,6 +471,51 @@ describe('roll_initiative', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 2c. Move undo (undo_move) — repeatable full rewind, locked after committing
+// ---------------------------------------------------------------------------
+
+describe('move undo (undo_move)', () => {
+  it('rewinds a single move: position, movedFigureIds, and the stack', () => {
+    const s = inTurns('p1', { p1: 's0-finn' });
+    const start = fig(s, FINN).at;
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 1) }));
+    expect(fig(moved, FINN).at).toBe(at(3, 1));
+    expect(moved.movedFigureIds).toContain(FINN);
+    expect((moved.moveHistory ?? []).length).toBe(1);
+    const undone = unwrap(applyAction(moved, 'p1', { kind: 'undo_move' }));
+    expect(fig(undone, FINN).at).toBe(start);
+    expect(undone.movedFigureIds).not.toContain(FINN);
+    expect((undone.moveHistory ?? []).length).toBe(0);
+  });
+
+  it('is repeatable LIFO across several figures of a squad', () => {
+    const s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    const t1s = fig(s, TARN(1)).at, t2s = fig(s, TARN(2)).at;
+    const d1 = [...legalDestinations(s, TARN(1))][0];
+    const m1 = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: TARN(1), to: d1 }));
+    const d2 = [...legalDestinations(m1, TARN(2))][0];
+    const m2 = unwrap(applyAction(m1, 'p1', { kind: 'move_figure', figureId: TARN(2), to: d2 }));
+    expect((m2.moveHistory ?? []).length).toBe(2);
+    const u1 = unwrap(applyAction(m2, 'p1', { kind: 'undo_move' })); // reverts the most recent move
+    expect(fig(u1, TARN(2)).at).toBe(t2s);
+    expect(fig(u1, TARN(1)).at).toBe(d1); // earlier move still applied
+    const u2 = unwrap(applyAction(u1, 'p1', { kind: 'undo_move' }));
+    expect(fig(u2, TARN(1)).at).toBe(t1s);
+    expect((u2.moveHistory ?? []).length).toBe(0);
+  });
+
+  it('rejects undo with an empty stack, when not your turn, and after attacking', () => {
+    const s = inTurns('p1', { p1: 's0-finn' });
+    expect(errOf(applyAction(s, 'p1', { kind: 'undo_move' }))).toMatch(/Nothing to undo/);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 1) }));
+    expect(errOf(applyAction(moved, 'p2', { kind: 'undo_move' }))).toMatch(/Not your turn/);
+    // Once an attack is recorded this turn, the move can no longer be taken back.
+    const afterAttack = { ...moved, turnAttacks: [{ attackerId: FINN, targetId: 'x' }] };
+    expect(errOf(applyAction(afterAttack, 'p1', { kind: 'undo_move' }))).toMatch(/after attacking/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 3. Reveal flow — automatic reveal, one card per turn, round rollover
 // ---------------------------------------------------------------------------
 
