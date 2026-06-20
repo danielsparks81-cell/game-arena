@@ -483,7 +483,7 @@ function outerZoneRow(map: { startZones: Record<number, HexKey[]> }, seat: numbe
 /** Auto-place a quick-battle army on the seat's outer zone row: hero centered,
  *  squad figures flanking — the slice-4 fixed arrangement, preserved so the
  *  quick path reproduces the slice-4 game exactly. Mutates `figures` in place. */
-function autoPlaceQuickArmy(map: { startZones: Record<number, HexKey[]> }, seat: number, cards: ArmyCardInstance[], figures: Figure[]): string | null {
+function autoPlaceQuickArmy(map: { startZones: Record<number, HexKey[]>; cells: Record<HexKey, { height: number }> }, seat: number, cards: ArmyCardInstance[], figures: Figure[]): string | null {
   const row = outerZoneRow(map, seat);
   if (row.length < 5) return 'Start zone is too small for the army';
   const center = Math.floor(row.length / 2);
@@ -495,6 +495,25 @@ function autoPlaceQuickArmy(map: { startZones: Record<number, HexKey[]> }, seat:
     figs.forEach((f, i) => {
       f.at = def.type === 'hero' ? heroSpot : squadSpots[i];
     });
+  }
+  // DOUBLE-SPACE figures (Big Heroes) need a trailing hex too — without it the
+  // engine sees them on ONE hex (figureHexes = [at]) and they'd miss
+  // engagement/adjacency/occupancy from their second lobe. SLICE1_ARMIES is all
+  // 1-hex today so this is defensive, but it keeps the quick path correct if a
+  // 2-hex card ever joins a preset. Give each a free same-level zone neighbour.
+  const zone = map.startZones[seat] ?? [];
+  const occupied = new Set<HexKey>();
+  for (const f of figures) { if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
+  for (const card of cards.filter(c => c.ownerSeat === seat)) {
+    if (HS_CARDS[card.cardId]?.baseSize !== 2) continue;
+    for (const f of figures.filter(fg => fg.cardUid === card.uid)) {
+      if (f.at == null || f.at2 != null) continue;
+      const free = new Set(zone.filter(h => !occupied.has(h)));
+      const tail = tailFor(map.cells, free, f.at);
+      if (tail == null) return `${HS_CARDS[card.cardId].name} needs two empty adjacent same-level spaces in the start zone`;
+      f.at2 = tail;
+      occupied.add(tail);
+    }
   }
   return null;
 }
