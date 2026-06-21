@@ -1772,6 +1772,27 @@ describe('step-by-step movement (move_step)', () => {
     expect(tailStep).toBeDefined();
   });
 
+  it('a 2-hex FLYER (Mimring) ignores elevation — it can step onto a higher hex (flat-only deferral fixed)', () => {
+    let s = customBattle(['mimring'], ['finn'], 'p1', CLIFF_MAP_ID);
+    const M = 's0-mimring-1';
+    s = clearExcept(s, M, 's1-finn-1');
+    s = place(s, 's1-finn-1', at(6, 6)); // park the enemy far away
+    const cells = MAPS[CLIFF_MAP_ID].cells;
+    // A level (h1) grass hex that is adjacent to BOTH a taller pillar and another grass hex (for the tail).
+    let lead = '', tail = '', pillar = '';
+    for (const k of Object.keys(cells)) {
+      if (cells[k].height !== 1) continue;
+      const hi = neighborKeys(k).find(n => cells[n] && cells[n].height > 1);
+      const lo = neighborKeys(k).find(n => cells[n] && cells[n].height === 1 && n !== k);
+      if (hi && lo) { lead = k; tail = lo; pillar = hi; break; }
+    }
+    expect(lead).toBeTruthy();
+    s = place2(s, M, lead, tail); // a level peanut beside a cliff
+    expect(legalStepHexes(s, M).size).toBeGreaterThan(0); // NOT blocked by the surrounding elevation
+    const c = stepConsequences(s, M, pillar);
+    expect('error' in c).toBe(false); // flies up onto the higher pillar despite the height gap
+  });
+
   it('the "max distance" range reflects REMAINING Move — full at the start, gone once it is spent', () => {
     let s = walker();
     const budget = effectiveMove(s, fig(s, TV(1))).dice;

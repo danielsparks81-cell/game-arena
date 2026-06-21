@@ -1699,7 +1699,8 @@ function movementDestinations2(
     if (!isFree(lead)) continue;
     const lh = map.cells[lead].height;
     for (const t of neighborKeys(lead)) {
-      if (t === lead || !map.cells[t] || map.cells[t].height !== lh || !isFree(t)) continue;
+      if (t === lead || !map.cells[t] || !isFree(t)) continue;
+      if (!def.flying && map.cells[t].height !== lh) continue; // ground figures rest level; a flyer needn't
       if ((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)) continue; // not the current placement
       out.leads.add(lead);
       out.tailOf.set(lead, t);
@@ -2069,8 +2070,11 @@ export function stepConsequences(
   const is2 = baseSizeOf(def) === 2;
   const fp = stepFootprint(state, fig, to);
   if (!fp) return { error: 'That space is not a single step for this figure' };
-  // 2-hex slither stays on ONE level: the lead hex must match its (vacated) back.
-  if (is2 && heightOfKey(state, to) !== heightOfKey(state, fp.frontOld)) {
+  // 2-hex slither stays on ONE level (the lead must match its vacated back) — UNLESS the figure
+  // FLIES, which ignores elevation for movement (a flyer never falls and isn't bound to a level
+  // footprint mid-flight). Without this a 2-hex flyer (Mimring) can't move at all on a map with
+  // any elevation/water around it.
+  if (is2 && !def.flying && heightOfKey(state, to) !== heightOfKey(state, fp.frontOld)) {
     return { error: 'A double-space figure must stay level — pick a same-height space' };
   }
   const occ = occupancyLookup(state, fig);
