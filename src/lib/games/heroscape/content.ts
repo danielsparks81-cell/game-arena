@@ -490,8 +490,10 @@ export const HS_CARDS: Record<string, HSCardDef> = {
 };
 
 /** The full draft pool: every card id in HS_CARDS, in roster order — the 16 base
- *  uniques + the 5 Big Heroes. The draft removes a card when taken (every card is
- *  UNIQUE in this printing, so each is draftable once total). */
+ *  uniques + the 5 Big Heroes. The draft removes a UNIQUE card when taken (so it's
+ *  draftable once total); a COMMON card (`common: true`) stays in the pool and can
+ *  be drafted again. Every card in this roster is Unique, so today nothing repeats —
+ *  the rule is in place for future Common cards. */
 export const HS_DRAFT_POOL: readonly string[] = [
   'tarn_vikings', 'finn', 'thorgrim', 'airborne_elite', 'drake', 'raelin',
   'zettian_guards', 'ne_gok_sa', 'marro_warriors', 'deathwalker_9000', 'mimring',

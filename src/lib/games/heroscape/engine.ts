@@ -859,7 +859,13 @@ function doDraftCard(state: HSState, seat: number, cardId: string): HSResult {
 
   const s = clone(state);
   const dd = s.draft!;
-  dd.pool = dd.pool.filter(id => id !== cardId);
+  // Unique cards leave the shared pool (drafted once total). COMMON cards stay,
+  // so they can be drafted again — same player or another — limited only by
+  // budget (HeroScape's rarity rule). No current card is Common; this is ready
+  // for future ones. Edition-aware so rarity could differ by edition if needed.
+  if (!effectiveCardDef(cardId, state.edition)?.common) {
+    dd.pool = dd.pool.filter(id => id !== cardId);
+  }
   dd.armies[seat] = [...(dd.armies[seat] ?? []), cardId];
   dd.spent[seat] = (dd.spent[seat] ?? 0) + cost;
   // Show the TEAM pool (shared) so team-mates see the common budget drain.

@@ -74,6 +74,12 @@ export type HSCardDef = {
    */
   species: string;
   unitClass: string;
+  /** Card RARITY (printed): a COMMON card may be drafted UNLIMITED times (field
+   *  multiple copies); a UNIQUE card only once. Absent ⇒ Unique — the entire
+   *  current roster is Unique (cards.md), so this is here for FUTURE Common cards.
+   *  The draft keeps a Common in the shared pool after it's picked; a Unique
+   *  leaves. Read via effectiveCardDef so it can vary by edition if ever needed. */
+  common?: boolean;
   /**
    * Special-power implementation status (slice 5; extended slice 6).
    *   • 'live' — the card's printed power(s) are implemented. slice 4:
@@ -406,8 +412,10 @@ export type HSPhase = 'lobby' | 'draft' | 'placement' | 'playing' | 'finished';
  * Draft state (slice 5; phase === 'draft'). The 2-player procedure from
  * docs/heroscape/extraction/resolutions.md (verified): both roll d20 (re-roll
  * ties); the HIGH roller picks 1 card, the OTHER picks 2, then alternate 1 each
- * starting back with the high roller (A, B, B, A, B, A, …). Each of the 16
- * cards is UNIQUE — drafting it removes it from `pool`. A player may not pick a
+ * starting back with the high roller (A, B, B, A, B, A, …). A UNIQUE card is
+ * removed from `pool` when drafted (once total); a COMMON card stays and can be
+ * re-drafted (whole current roster is Unique, so this only bites future Commons).
+ * A player may not pick a
  * card whose Points push their army over `pointBudget`; they MUST pass when no
  * affordable card remains, and MAY pass voluntarily under budget. Passing
  * permanently completes that army. Draft ends when BOTH have passed.

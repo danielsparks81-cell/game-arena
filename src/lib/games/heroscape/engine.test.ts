@@ -2941,6 +2941,32 @@ describe('slice 5: unique pool', () => {
   });
 });
 
+// ---- common pool (Common cards are repeatable) -----------------------------
+
+describe('slice 5: common pool (Common cards are repeatable)', () => {
+  // No card in the current roster is Common (all Unique per cards.md), so flag
+  // one for the test and restore it. Encodes the rule the user set: a Common card
+  // STAYS in the shared pool and can be drafted again; a Unique leaves once.
+  it('a Common card stays in the pool and can be drafted again', () => {
+    HS_CARDS.izumi_samurai.common = true;
+    try {
+      let s = inDraft('p1');
+      expect(s.draft!.pool).toContain('izumi_samurai');
+      s = draftCard(s, 'izumi_samurai'); // seat 0 takes a copy
+      expect(s.draft!.pool).toContain('izumi_samurai'); // COMMON → still available
+      expect(s.draft!.armies[0]).toEqual(['izumi_samurai']);
+      s = draftCard(s, 'izumi_samurai'); // the next picker takes another copy
+      expect(s.draft!.pool).toContain('izumi_samurai'); // still there
+    } finally {
+      delete HS_CARDS.izumi_samurai.common;
+    }
+  });
+
+  it('every current roster card is Unique (no Commons yet)', () => {
+    for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id].common).toBeFalsy();
+  });
+});
+
 // ---- budget + pass kinds + no-empty-army ----------------------------------
 
 describe('slice 5: budget enforcement and passing', () => {

@@ -566,6 +566,16 @@ function DraftCard({
           </span>
         )}
 
+        {/* Common cards can be drafted repeatedly (they never leave the pool). */}
+        {def.common && (
+          <span
+            className="absolute right-1.5 top-1.5 rounded bg-emerald-950/85 px-1 py-0.5 text-[9px] font-bold text-emerald-300"
+            title="Common card — draftable unlimited times (field multiple copies)"
+          >
+            Common ∞
+          </span>
+        )}
+
         {taken && (
           <div className="absolute inset-0 flex items-center justify-center bg-neutral-950/60 px-1 text-center">
             <span className="rounded bg-neutral-950/85 px-2 py-1 text-[11px] font-semibold text-neutral-100">
