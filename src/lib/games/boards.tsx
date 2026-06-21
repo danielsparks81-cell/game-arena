@@ -271,6 +271,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onSetLobbyConfig={(cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'set_lobby_config', ...cfg }); })}
       onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
       onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
+      onMoveStep={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_step', figureId, to }); })}
       onGrappleMove={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grapple_move', figureId, to }); })}
       onFireLine={(attackerId: string, dir: number) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'fire_line', attackerId, dir }); })}
       onExplosion={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'explosion', attackerId, targetId }); })}

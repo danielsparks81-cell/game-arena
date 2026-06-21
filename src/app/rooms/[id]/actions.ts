@@ -89,6 +89,7 @@ import {
   wildSwingDefenders as hsWildSwingDefenders,
   effectiveDefenseDice as hsEffectiveDefenseDice,
   moveConsequences as hsMoveConsequences,
+  stepConsequences as hsStepConsequences,
   getActiveCardUid as hsGetActiveCardUid,
   HS_GLYPHS,
   COMBAT_DIE_FACES as HS_COMBAT_DIE_FACES,
@@ -739,6 +740,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
+  | { game: 'heroscape'; kind: 'move_step'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'undo_move' }
   | { game: 'heroscape'; kind: 'end_move' }
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
@@ -1190,6 +1192,9 @@ type HSWireAction =
   | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
+  // STEP-BY-STEP move (tap each space). Like move_figure, the per-step swipe / fall
+  // dice are rolled server-side (the engine recomputes the need and re-validates).
+  | { kind: 'move_step'; figureId: string; to: string }
   // UNDO the last move this turn (repeatable, server-synced). No dice — passed
   // through verbatim; the engine validates (active seat, no attack yet) + restores
   // the pre-move snapshot.
@@ -1358,6 +1363,32 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       ...(cons.abandonedEnemyIds.length > 0
         ? {
             leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({
+              enemyFigureId,
+              roll: rollDie(),
+            })),
+          }
+        : {}),
+    };
+  } else if (action.kind === 'move_step') {
+    // Step-by-step movement: the same server-roll seam as move_figure, but for ONE
+    // step. stepConsequences yields the swipes this step provokes + the fall it
+    // drops; the engine re-validates. An illegal step yields no dice and is rejected.
+    const cons = hsStepConsequences(state, action.figureId, action.to);
+    const c = 'error' in cons
+      ? { tier: 'none' as const, fallDice: 0, leavingEnemyIds: [] as string[] }
+      : cons;
+    engineAction = {
+      kind: 'move_step',
+      figureId: action.figureId,
+      to: action.to,
+      ...(c.tier === 'extreme'
+        ? { extremeFallD20: d20() }
+        : c.fallDice > 0
+          ? { fallRoll: rollDice(c.fallDice) }
+          : {}),
+      ...(c.leavingEnemyIds.length > 0
+        ? {
+            leaveRolls: c.leavingEnemyIds.map(enemyFigureId => ({
               enemyFigureId,
               roll: rollDie(),
             })),

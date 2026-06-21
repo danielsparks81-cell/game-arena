@@ -31,6 +31,7 @@ import {
   MIN_POINT_BUDGET,
   MAX_POINT_BUDGET,
   legalDestinations,
+  legalStepHexes,
   grappleDestinations,
   canFireLine,
   fireLineSpaces,
@@ -164,6 +165,8 @@ type Props = {
   onSetLobbyConfig: (cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
+  /** Walk a figure ONE adjacent hex (tap-to-step movement). */
+  onMoveStep: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
   onFireLine: (attackerId: string, dir: number) => void;
   onExplosion: (attackerId: string, targetId: string) => void;
@@ -1138,7 +1141,7 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onGrappleMove, onFireLine, onExplosion, onOrient, onAttack,
+  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onOrient, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
@@ -1429,12 +1432,15 @@ export default function HeroScapeBoard({
   const canGrapple = grappleHexes.size > 0;
   // While Grapple-Gun mode is on, the move highlights ARE the grapple set; the
   // hex click routes to grapple_move instead of move_figure.
+  // Normal movement is now STEP-BY-STEP: the highlights are the figure's legal
+  // SINGLE steps right now (recomputed each render, so they update after every
+  // tapped step). Grapple Gun stays a one-space destination set.
   const destinations = useMemo(
     () =>
       canAct && selected && !fireLineMode
         ? grappleMode
           ? grappleHexes
-          : legalDestinations(state, selected.id)
+          : legalStepHexes(state, selected.id)
         : new Set<HexKey>(),
     [state, selected, canAct, grappleMode, grappleHexes, fireLineMode],
   );
@@ -1910,12 +1916,12 @@ export default function HeroScapeBoard({
       }
       return;
     }
-    // Move: a legal destination (the LEAD hex for a double-space figure, which
-    // may overlap the figure's own current footprint as it slides forward). In
-    // Grapple-Gun mode the destination set IS the grapple set.
+    // Move: tap an adjacent highlighted space to WALK there one step (the figure
+    // stays selected so you keep tapping; for a 2-hex figure the front leads to
+    // the tapped hex and the back follows). Grapple-Gun mode is a one-space jump.
     if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); }
-      else onMoveFigure(selected.id, key);
+      else onMoveStep(selected.id, key);
       return;
     }
     // Select / deselect one of my own figures (click either hex of a 2-hex one).

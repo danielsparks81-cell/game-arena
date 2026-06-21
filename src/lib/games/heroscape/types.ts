@@ -509,6 +509,12 @@ export type HSState = {
    *  special / end_turn / new active card / round rollover), which is the
    *  "before committing" boundary. Absent on pre-existing saves ⇒ treat as []. */
   moveHistory?: string[];
+  /** In-progress STEP-BY-STEP walk (tap each space). Absent when no walk is underway.
+   *  `engaged` = enemies engaged at the walk's START that have not yet taken their leaving
+   *  swipe (each fires once, the step it stops being adjacent). `usedCost` = Move points spent
+   *  so far (≤ effectiveMove). `stopped` once a water/glyph forced-stop step was taken. Cleared
+   *  when the walk finalizes (any other action / the mover dies) or at turn boundaries. */
+  stepMove?: { figureId: string; usedCost: number; startHex: HexKey; engaged: string[]; stopped?: boolean };
   /**
    * Per-turn attack log (slice 6) — one entry per attack resolved this turn,
    * in order. This is the SINGLE source of truth for "what has attacked":
@@ -686,6 +692,19 @@ export type HSAction =
        *  die per enemy this move ABANDONS (engaged at move start, no longer
        *  adjacent at the destination). The engine validates the set matches the
        *  abandoned enemies exactly. */
+      leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+    }
+  | {
+      // STEP-BY-STEP movement (one hex per tap). Walk the figure's FRONT a single adjacent hex
+      // to `to`; the figure keeps stepping (state.stepMove tracks the walk) until it stops.
+      // SERVER-rolled per-step leaving swipes (one die per start-engaged enemy this step leaves —
+      // each once across the walk) and fall dice if this step drops. A 2-hex figure SLITHERS:
+      // the front lobe leads to `to`, the back follows into the vacated hex.
+      kind: 'move_step';
+      figureId: string;
+      to: HexKey;
+      fallRoll?: CombatFace[];
+      extremeFallD20?: number;
       leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
     }
   | {

@@ -16,7 +16,7 @@ afterEach(cleanup);
 /** All HeroScapeBoard callbacks as spies; override the ones a test cares about. */
 function spies() {
   return {
-    onStart: vi.fn(), onSetLobbyConfig: vi.fn(), onPlaceMarkers: vi.fn(), onMoveFigure: vi.fn(),
+    onStart: vi.fn(), onSetLobbyConfig: vi.fn(), onPlaceMarkers: vi.fn(), onMoveFigure: vi.fn(), onMoveStep: vi.fn(),
     onGrappleMove: vi.fn(), onFireLine: vi.fn(), onExplosion: vi.fn(), onOrient: vi.fn(), onAttack: vi.fn(),
     onBerserkerCharge: vi.fn(), onWaterClone: vi.fn(), onMindShackle: vi.fn(), onChomp: vi.fn(),
     onGrenade: vi.fn(), onGrenadeThrow: vi.fn(), onIceShard: vi.fn(), onQueglix: vi.fn(),

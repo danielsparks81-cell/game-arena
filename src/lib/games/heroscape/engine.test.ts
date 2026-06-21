@@ -10,6 +10,7 @@ import {
   getActiveCardUid,
   projectStateForViewer,
   legalDestinations,
+  legalStepHexes,
   grappleDestinations,
   legalTargets,
   attackDiceRequirements,
@@ -19,6 +20,7 @@ import {
   effectiveMove,
   effectiveRange,
   moveConsequences,
+  stepConsequences,
   placeableHexes,
   placeable2Leads,
   orientationOptions,
@@ -1535,6 +1537,168 @@ describe('slice 3: engagement & leaving-engagement swipes', () => {
     const moved = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(1), to: at(1, 2) }));
     expect(fig(moved, MARRO(1)).at).toBe(at(1, 2));
     expect(fig(moved, MARRO(1)).wounds).toBe(0);
+  });
+});
+
+// --- step-by-step (tap-each-space) movement --------------------------------
+
+describe('step-by-step movement (move_step)', () => {
+  const TV = (n: number) => `s0-tarn_vikings-${n}`;
+  const ENEMY = 's1-finn-1';
+
+  /** Set a 2-hex figure's full footprint (the `place` helper only sets the lead). */
+  const place2 = (st: HSState, id: string, lead: string, tail: string): HSState => {
+    const c: HSState = JSON.parse(JSON.stringify(st));
+    const f = c.figures.find(x => x.id === id)!;
+    f.at = lead;
+    f.at2 = tail;
+    return c;
+  };
+
+  /** A flat, glyph-free battle with one Tarn squad isolated facing a parked enemy. */
+  function walker(): HSState {
+    let s = customBattle(['tarn_vikings'], ['finn'], 'p1');
+    s = clearExcept(s, TV(1), TV(2), ENEMY);
+    s = place(s, ENEMY, at(6, 7));
+    s = place(s, TV(1), at(3, 3));
+    s = place(s, TV(2), at(0, 0));
+    return s;
+  }
+
+  it('walks one hex per tap up to Move, and is not finalized until it stops', () => {
+    let s = walker();
+    const budget = effectiveMove(s, fig(s, TV(1))).dice;
+    let steps = 0;
+    for (;;) {
+      const opts = [...legalStepHexes(s, TV(1))];
+      if (opts.length === 0) break;
+      s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: opts[0] }));
+      expect(s.stepMove?.figureId).toBe(TV(1));
+      expect(s.movedFigureIds).not.toContain(TV(1)); // unfinalized mid-walk
+      if (++steps > budget + 4) throw new Error('walk did not terminate');
+    }
+    expect(steps).toBe(budget); // exactly Move single steps on the flat field
+    expect(s.stepMove?.usedCost).toBe(budget);
+  });
+
+  it('fires a leaving swipe the STEP a start-engaged enemy is left — once per enemy', () => {
+    let s = customBattle(['tarn_vikings'], ['marro_warriors'], 'p1');
+    const M = 's1-marro_warriors-1';
+    s = clearExcept(s, TV(1), M);
+    s = place(s, TV(1), at(3, 3));
+    s = place(s, M, at(3, 2)); // adjacent → engaged at the walk's start
+    const leaveHex = [...legalStepHexes(s, TV(1))].find(k => {
+      const c = stepConsequences(s, TV(1), k);
+      return !('error' in c) && c.leavingEnemyIds.includes(M);
+    })!;
+    expect(leaveHex).toBeDefined();
+    // The server must supply the swipe; omitting it is rejected.
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: leaveHex })))
+      .toMatch(/do not match the abandoned enemies/);
+    const afterLeave = unwrap(applyAction(s, 'p1', {
+      kind: 'move_step', figureId: TV(1), to: leaveHex,
+      leaveRolls: [{ enemyFigureId: M, roll: 'blank' }],
+    }));
+    expect(afterLeave.stepMove?.engaged).toEqual([]); // the Marro has spent its one swipe
+    expect(afterLeave.log.some(e => /swipes/.test(e.text))).toBe(true);
+    // Any further step needs NO swipe — even one re-approaching the Marro (it already fired).
+    const next = [...legalStepHexes(afterLeave, TV(1))][0];
+    const after2 = unwrap(applyAction(afterLeave, 'p1', { kind: 'move_step', figureId: TV(1), to: next }));
+    expect(after2.stepMove?.engaged).toEqual([]);
+  });
+
+  it('a swipe skull destroys the mover mid-walk and ends (finalizes) the move', () => {
+    let s = customBattle(['tarn_vikings'], ['marro_warriors'], 'p1');
+    const M = 's1-marro_warriors-1';
+    s = clearExcept(s, TV(1), M);
+    s = place(s, TV(1), at(3, 3));
+    s = place(s, M, at(3, 2));
+    const leaveHex = [...legalStepHexes(s, TV(1))].find(k => {
+      const c = stepConsequences(s, TV(1), k);
+      return !('error' in c) && c.leavingEnemyIds.includes(M);
+    })!;
+    const dead = unwrap(applyAction(s, 'p1', {
+      kind: 'move_step', figureId: TV(1), to: leaveHex,
+      leaveRolls: [{ enemyFigureId: M, roll: 'skull' }],
+    }));
+    expect(fig(dead, TV(1)).at).toBeNull();       // Life-1 Tarn dies to the swipe
+    expect(dead.stepMove).toBeUndefined();        // the walk ended
+    expect(dead.movedFigureIds).toContain(TV(1)); // and is locked as "moved"
+  });
+
+  it('end_move finalizes the walk; starting another figure finalizes the first', () => {
+    const s = walker();
+    const a = [...legalStepHexes(s, TV(1))][0];
+    const mid = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: a }));
+    expect(mid.stepMove?.figureId).toBe(TV(1));
+    // End move locks it in.
+    const ended = unwrap(applyAction(mid, 'p1', { kind: 'end_move' }));
+    expect(ended.stepMove).toBeUndefined();
+    expect(ended.movedFigureIds).toContain(TV(1));
+    // Alternatively, stepping a DIFFERENT figure finalizes the first.
+    const b = [...legalStepHexes(mid, TV(2))][0];
+    const switched = unwrap(applyAction(mid, 'p1', { kind: 'move_step', figureId: TV(2), to: b }));
+    expect(switched.movedFigureIds).toContain(TV(1));
+    expect(switched.stepMove?.figureId).toBe(TV(2));
+  });
+
+  it('undo_move rewinds the entire multi-step walk', () => {
+    let s = walker();
+    const start = at(3, 3);
+    const a = [...legalStepHexes(s, TV(1))][0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: a }));
+    const b = [...legalStepHexes(s, TV(1))][0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: b }));
+    expect(fig(s, TV(1)).at).toBe(b);
+    const undone = unwrap(applyAction(s, 'p1', { kind: 'undo_move' }));
+    expect(fig(undone, TV(1)).at).toBe(start); // all the way back to the walk's start
+    expect(undone.stepMove).toBeUndefined();
+    expect(undone.movedFigureIds).not.toContain(TV(1));
+  });
+
+  it('Ghost Walk steps THROUGH an enemy hex but cannot finalize on it (Agent Carr)', () => {
+    let s = customBattle(['agent_carr'], ['finn', 'thorgrim'], 'p1');
+    const CARR = 's0-agent_carr-1', E1 = 's1-finn-1', E2 = 's1-thorgrim-1';
+    s = clearExcept(s, CARR, E1, E2);
+    s = place(s, CARR, at(3, 3));
+    s = place(s, E1, at(3, 2)); // an enemy directly beside Carr
+    s = place(s, E2, at(6, 7)); // a second enemy alive, well out of the way
+    // Carr steps ONTO the enemy's hex (Ghost Walk); Disengage suppresses any swipe.
+    const onto = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: CARR, to: at(3, 2) }));
+    expect(fig(onto, CARR).at).toBe(at(3, 2)); // transiently shares the hex
+    expect(onto.stepMove?.figureId).toBe(CARR);
+    // He may NOT stop there.
+    expect(errOf(applyAction(onto, 'p1', { kind: 'end_move' }))).toMatch(/empty space/);
+    // Stepping back onto his own (now vacated) hex is empty → he can finalize.
+    const off = unwrap(applyAction(onto, 'p1', { kind: 'move_step', figureId: CARR, to: at(3, 3) }));
+    const done = unwrap(applyAction(off, 'p1', { kind: 'end_move' }));
+    expect(done.movedFigureIds).toContain(CARR);
+    expect(done.stepMove).toBeUndefined();
+  });
+
+  it('a 2-hex figure slithers: front leads to the tapped hex, back follows into the vacated hex (either lobe can lead)', () => {
+    let s = customBattle(['grimnak'], ['finn'], 'p1');
+    const G = 's0-grimnak-1';
+    s = clearExcept(s, G, ENEMY);
+    s = place(s, ENEMY, at(6, 7));
+    // A level peanut on the flat field: lead (3,3), tail (3,2) (proven-adjacent).
+    s = place2(s, G, at(3, 3), at(3, 2));
+    const opts = [...legalStepHexes(s, G)];
+    // Leading with the LEAD lobe: the back slithers into the old lead hex.
+    const leadStep = opts.find(k => {
+      const c = stepConsequences(s, G, k);
+      return !('error' in c) && c.newAt2 === at(3, 3);
+    })!;
+    expect(leadStep).toBeDefined();
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G, to: leadStep }));
+    expect(fig(moved, G).at).toBe(leadStep);  // front at the tapped hex
+    expect(fig(moved, G).at2).toBe(at(3, 3)); // back followed into the vacated lead
+    // EITHER lobe can be the front — a tail-led step also exists from the start.
+    const tailStep = opts.find(k => {
+      const c = stepConsequences(s, G, k);
+      return !('error' in c) && c.newAt2 === at(3, 2);
+    });
+    expect(tailStep).toBeDefined();
   });
 });
 

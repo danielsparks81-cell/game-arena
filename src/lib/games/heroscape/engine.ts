@@ -54,6 +54,7 @@ import {
   areEngaged,
   axialToOffset,
   computeFall,
+  dragStep,
   hasLineOfSight3D,
   hexLine,
   neighborKeys,
@@ -367,6 +368,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       return doTheDrop(state, me.seat, action.d20);
     // Turn actions — only the revealed-marker player acts.
     case 'move_figure':
+    case 'move_step':
     case 'grapple_move':
     case 'undo_move':
     case 'end_move':
@@ -390,9 +392,20 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
       // Movement UNDO (repeatable, full rewind) — pops the pre-move snapshot stack.
       if (action.kind === 'undo_move') return doUndoMove(state, me.seat);
+      // FINALIZE an in-progress tap-walk: anything other than continuing to step the SAME figure
+      // (a new figure, an attack/special, end move/turn) locks the walk in — the figure must be on
+      // an empty space (Agent Carr can't stop mid-pass-through). `state` is then post-finalize.
+      const sameStep = action.kind === 'move_step' && state.stepMove?.figureId === action.figureId;
+      if (state.stepMove && !sameStep) {
+        const fin = finalizeStepMove(state);
+        if ('error' in fin) return fin;
+        state = fin;
+      }
       let res: HSResult;
       if (action.kind === 'move_figure')
         res = doMove(state, action.figureId, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
+      else if (action.kind === 'move_step')
+        res = doMoveStep(state, me.seat, action);
       else if (action.kind === 'grapple_move')
         res = doGrappleMove(state, action.figureId, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
       else if (action.kind === 'attack') res = doAttack(state, action);
@@ -420,6 +433,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       // to take a move back, so the stack is cleared (see [[the undo design]]).
       if (!('error' in res)
           && action.kind !== 'move_figure'
+          && action.kind !== 'move_step'
           && action.kind !== 'grapple_move'
           && action.kind !== 'orient_figure') {
         res.moveHistory = [];
@@ -541,6 +555,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.turnAttacks = [];
+  s.stepMove = undefined;
   s.moveHistory = [];
   s.winnerSeat = null;
   s.winnerTeam = null;
@@ -1279,6 +1294,7 @@ function beginTurnOrSkip(s: HSState): void {
       s.turnSeat = seat;
       s.movedFigureIds = [];
       s.turnAttacks = [];
+      s.stepMove = undefined;
       s.moveHistory = [];
       delete s.waterClonedThisTurn;
       delete s.berserkerSpent;
@@ -1340,6 +1356,7 @@ function startNextRound(s: HSState): void {
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.turnAttacks = [];
+  s.stepMove = undefined;
   s.moveHistory = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
@@ -1969,6 +1986,303 @@ function applyValidatedMove(
   if (fig.at == null && fig.wounds >= cardDefFor(s, fig).life) {
     maybeQueueSpiritOnDestroy(s, fig);
   }
+  return s;
+}
+
+// ============================================================================
+// STEP-BY-STEP movement (tap each space) — walk one hex at a time.
+// A figure walks a single adjacent hex per `move_step`; `state.stepMove` tracks
+// the in-progress walk so it can keep going until it stops (any other action
+// finalizes it). Leaving-engagement swipes fire PER STEP — each enemy engaged at
+// the walk's START swipes the step it stops being adjacent (once each), so
+// leaving AND returning still provokes it. Agent Carr (Ghost Walk) may step
+// THROUGH an occupied hex but must finalize on an empty one. A 2-hex figure
+// SLITHERS: the front lobe (either end) leads to `to`, the back follows into the
+// just-vacated hex, staying on one level.
+// ============================================================================
+
+/** The footprint after stepping the figure's FRONT to `to`. 1-hex → just `to`.
+ *  2-hex → front lands `to`, back follows into the front's old hex; either lobe
+ *  may be the front (whichever `to` is adjacent to). null if `to` isn't a single
+ *  step from a lobe. */
+function stepFootprint(
+  state: HSState,
+  fig: Figure,
+  to: HexKey,
+): { newAt: HexKey; newAt2: HexKey | null; frontOld: HexKey } | null {
+  const def = cardDefFor(state, fig);
+  if (baseSizeOf(def) === 2) {
+    if (fig.at != null && fig.at !== to && fig.at2 !== to && neighborKeys(fig.at).includes(to)) {
+      return { newAt: to, newAt2: fig.at, frontOld: fig.at }; // lead with `at`
+    }
+    if (fig.at2 != null && fig.at2 !== to && fig.at !== to && neighborKeys(fig.at2).includes(to)) {
+      return { newAt: to, newAt2: fig.at2, frontOld: fig.at2 }; // lead with `at2`
+    }
+    return null;
+  }
+  if (fig.at != null && neighborKeys(fig.at).includes(to)) {
+    return { newAt: to, newAt2: null, frontOld: fig.at };
+  }
+  return null;
+}
+
+/** Per-STEP consequences of walking `figureId`'s front to `to`: the resulting
+ *  footprint, the step's cost + forced-stop, the start-engaged enemies this step
+ *  LEAVES (one swipe die each), and the fall this single step triggers. The ONE
+ *  source for the board's legal-step set, the server's dice need, and the engine
+ *  apply, so they can't disagree. Returns `{ error }` if the step is illegal. */
+export function stepConsequences(
+  state: HSState,
+  figureId: string,
+  to: HexKey,
+):
+  | {
+      newAt: HexKey;
+      newAt2: HexKey | null;
+      cost: number;
+      forcedStop: boolean;
+      leavingEnemyIds: string[];
+      tier: FallTier;
+      fallDice: number;
+    }
+  | { error: string } {
+  const fig = state.figures.find(f => f.id === figureId);
+  const map = MAPS[state.mapId];
+  if (!fig || fig.at == null || !map) return { error: 'No such figure on the battlefield' };
+  if (!map.cells[to]) return { error: 'There is no hex there' };
+  const def = cardDefFor(state, fig);
+  const is2 = baseSizeOf(def) === 2;
+  const fp = stepFootprint(state, fig, to);
+  if (!fp) return { error: 'That space is not a single step for this figure' };
+  // 2-hex slither stays on ONE level: the lead hex must match its (vacated) back.
+  if (is2 && heightOfKey(state, to) !== heightOfKey(state, fp.frontOld)) {
+    return { error: 'A double-space figure must stay level — pick a same-height space' };
+  }
+  const occ = occupancyLookup(state, fig);
+  // A peanut can't share a hex (no ghost-walk slither); the lead must be empty.
+  if (is2 && occ(to) !== null) return { error: 'That space is occupied' };
+  const sm = state.stepMove?.figureId === figureId ? state.stepMove : null;
+  const startHex = sm?.startHex ?? fp.frontOld;
+  const step = dragStep(map.cells, startHex, fp.frontOld, to, occ, def.height, {
+    glyphHexes: glyphHexSet(state),
+    flyer: !!def.flying,
+    ghostWalk: !!def.ghostWalk,
+  });
+  if (!step) return { error: 'You can’t step there' };
+  // Kelda admits only a WOUNDED figure as a stop; a forced-stop step onto it is illegal otherwise.
+  const g = glyphAt(state, to);
+  if (step.forcedStop && g && g.id === 'kelda' && g.faceUp && fig.wounds < 1) {
+    return { error: 'Only a wounded figure may stop on the Glyph of Kelda' };
+  }
+  // Leaving engagement: start-engaged enemies (not yet swiped) the new footprint abandons.
+  const engaged = sm
+    ? sm.engaged
+    : def.disengage
+      ? []
+      : enemiesEngagedWith(state, fig).map(e => e.id);
+  const figAtNew: Figure = { ...fig, at: fp.newAt, at2: fp.newAt2 };
+  const leavingEnemyIds = engaged.filter(id => {
+    const e = state.figures.find(f => f.id === id);
+    return e != null && e.at != null && !engagedPair(state, figAtNew, e);
+  });
+  // Fall: only a descending 1-hex step falls (the 2-hex slither is level; a flyer descends).
+  let tier: FallTier = 'none';
+  let fallDice = 0;
+  if (!def.flying && !is2) {
+    const drop = heightOfKey(state, fp.frontOld) - heightOfKey(state, to);
+    const intoWater = map.cells[to]?.terrain === 'water';
+    const f = computeFall(Math.max(0, drop), def.height, intoWater);
+    tier = f.tier;
+    fallDice = f.dice;
+  }
+  return {
+    newAt: fp.newAt,
+    newAt2: fp.newAt2,
+    cost: step.cost,
+    forcedStop: step.forcedStop,
+    leavingEnemyIds,
+    tier,
+    fallDice,
+  };
+}
+
+/** The hexes `figureId` may step to RIGHT NOW (one tap) — neighbours of each lobe
+ *  that pass `stepConsequences` within the REMAINING Move budget. The board
+ *  highlights these; recomputed every render so they update after each step. */
+export function legalStepHexes(state: HSState, figureId: string): Set<HexKey> {
+  const out = new Set<HexKey>();
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!fig || fig.at == null) return out;
+  const sm = state.stepMove?.figureId === figureId ? state.stepMove : null;
+  if (sm?.stopped) return out; // a water/glyph forced this figure to stop
+  // A different figure being mid-walk is fine — selecting this one finalizes that
+  // walk (it ended where it stands), so we still preview THIS figure's first steps.
+  if ('error' in movableFigure(state, figureId)) return out;
+  const budget = effectiveMove(state, fig).dice - (sm?.usedCost ?? 0);
+  const seen = new Set<HexKey>();
+  for (const lobe of figureHexes(fig)) {
+    for (const n of neighborKeys(lobe)) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      const c = stepConsequences(state, figureId, n);
+      if (!('error' in c) && c.cost <= budget) out.add(n);
+    }
+  }
+  return out;
+}
+
+/** Finalize the in-progress walk: lock the figure as "moved" (so it can't start a
+ *  new walk) and clear `stepMove`. Rejects if the figure is still mid-pass-through
+ *  on an occupied hex — Agent Carr must end on an empty space. */
+function finalizeStepMove(state: HSState): HSState | { error: string } {
+  const sm = state.stepMove;
+  if (!sm) return state;
+  const fig = state.figures.find(f => f.id === sm.figureId);
+  const s = clone(state);
+  delete s.stepMove;
+  if (fig && fig.at != null) {
+    const occ = occupancyLookup(state, fig);
+    if (figureHexes(fig).some(h => occ(h) !== null)) {
+      return { error: 'Finish the move on an empty space first' };
+    }
+    if (!s.movedFigureIds.includes(sm.figureId)) s.movedFigureIds.push(sm.figureId);
+  }
+  return s;
+}
+
+/** Walk a figure ONE adjacent hex (tap-to-step). Validates the step + the
+ *  server-rolled per-step swipe/fall dice, applies the swipes (a kill ends the
+ *  walk), the fall, then moves the figure and updates `stepMove`. Switching to a
+ *  different figure finalizes the one already walking. */
+function doMoveStep(
+  state: HSState,
+  seat: number,
+  action: {
+    figureId: string;
+    to: HexKey;
+    fallRoll?: CombatFace[];
+    extremeFallD20?: number;
+    leaveRolls?: { enemyFigureId: string; roll: CombatFace }[];
+  },
+): HSResult {
+  const { figureId, to } = action;
+  // A new figure ⇒ finalize the one mid-walk first (it stopped where it stands).
+  let base: HSState = state;
+  if (state.stepMove && state.stepMove.figureId !== figureId) {
+    const fin = finalizeStepMove(state);
+    if ('error' in fin) return fin;
+    base = fin;
+  }
+  const r = movableFigure(base, figureId);
+  if ('error' in r) return r;
+  const fig = r.fig;
+  const sm = base.stepMove?.figureId === figureId ? base.stepMove : null;
+  if (sm?.stopped) return { error: 'This figure has stopped — a water/glyph space ended its move' };
+
+  const cons = stepConsequences(base, figureId, to);
+  if ('error' in cons) return cons;
+
+  const def = cardDefFor(base, fig);
+  const usedCost = sm?.usedCost ?? 0;
+  if (usedCost + cons.cost > effectiveMove(base, fig).dice) {
+    return { error: 'That’s beyond this figure’s Move' };
+  }
+
+  // --- validate falling dice (mirror applyValidatedMove) ---
+  const { fallRoll, extremeFallD20, leaveRolls } = action;
+  if (cons.tier === 'extreme') {
+    if (fallRoll != null && fallRoll.length > 0) return { error: 'Unexpected fall dice for an extreme fall' };
+    if (!Number.isInteger(extremeFallD20) || extremeFallD20! < 1 || extremeFallD20! > 20) {
+      return { error: 'Extreme fall requires a d20 roll (1-20)' };
+    }
+  } else {
+    if (extremeFallD20 != null) return { error: 'Unexpected d20 roll — this is not an extreme fall' };
+    if (!validFaces(fallRoll ?? [], cons.fallDice)) {
+      return { error: cons.fallDice > 0 ? `This step requires ${cons.fallDice} fall die roll(s)` : 'Unexpected fall dice — no fall is due' };
+    }
+  }
+  // --- validate the leaving-engagement swipe set matches exactly ---
+  const want = new Set(cons.leavingEnemyIds);
+  const got = leaveRolls ?? [];
+  if (got.length !== want.size) return { error: 'Leaving-engagement rolls do not match the abandoned enemies' };
+  for (const lr of got) {
+    if (!want.has(lr.enemyFigureId)) return { error: `${lr.enemyFigureId} is not a leaving-engagement attacker for this step` };
+    if (lr.roll !== 'skull' && lr.roll !== 'shield' && lr.roll !== 'blank') return { error: 'Malformed leaving-engagement roll' };
+  }
+  if (new Set(got.map(lr => lr.enemyFigureId)).size !== got.length) return { error: 'Duplicate leaving-engagement attacker' };
+
+  const s = clone(base);
+  const firstStep = !sm;
+  if (firstStep) {
+    // Whole-move undo: snapshot the PRE-walk state (history + stepMove stripped so snapshots don't nest).
+    s.moveHistory = [...(base.moveHistory ?? []), JSON.stringify({ ...base, moveHistory: undefined, stepMove: undefined })];
+  }
+  const f = s.figures.find(x => x.id === figureId)!;
+  const moverLabel = figureLabel(s, f);
+  const fromKey = f.at!;
+  f.at = cons.newAt;
+  f.at2 = cons.newAt2;
+  pushLog(s, 'move', `${moverLabel} steps to ${hexLabel(cons.newAt)}.`);
+
+  // --- leaving-engagement swipes resolve as the figure steps away (1 unblockable
+  // wound per skull); a swipe that kills the mover ends the walk before any fall. ---
+  for (const lr of got) {
+    if (f.at == null) break;
+    const enemy = s.figures.find(x => x.id === lr.enemyFigureId);
+    const enemyLabel = enemy ? figureLabel(s, enemy) : 'an enemy';
+    if (lr.roll === 'skull') {
+      f.wounds += 1;
+      const dead = f.wounds >= cardDefFor(s, f).life;
+      if (dead) { f.at = null; f.at2 = null; }
+      pushLog(s, 'fall', `${enemyLabel} takes a leaving-engagement swipe at ${moverLabel} — 1 wound${dead ? `, ${moverLabel} is destroyed!` : '.'}`);
+    } else {
+      pushLog(s, 'fall', `${enemyLabel} swipes at ${moverLabel} as it leaves — miss.`);
+    }
+  }
+  if (got.length > 0) {
+    const dice = got.map(lr => lr.roll);
+    const sk = dice.filter(d => d === 'skull').length;
+    s.lastAttack = {
+      attackerId: got[0].enemyFigureId,
+      targetId: f.id,
+      attackerLabel: 'Leaving-engagement swipe',
+      targetLabel: moverLabel,
+      attackRoll: dice,
+      defenseRoll: [],
+      skulls: sk,
+      shields: 0,
+      wounds: sk,
+      destroyed: f.at == null,
+      seq: (s.lastAttack?.seq ?? 0) + 1,
+    };
+  }
+
+  // --- falling resolves after landing (skipped if a swipe already killed the mover). ---
+  if (f.at != null && cons.tier !== 'none') {
+    applyFall(s, f, fromKey, cons.newAt, cons.tier, fallRoll ?? [], extremeFallD20);
+  }
+  // --- glyph effect on stopping (a forced-stop step ends ON the glyph). ---
+  if (f.at != null && f.at === cons.newAt) applyGlyphOnStop(s, f);
+
+  // --- advance / finalize the walk ---
+  if (f.at == null) {
+    // Destroyed mid-walk → the move is over and locked.
+    delete s.stepMove;
+    if (!s.movedFigureIds.includes(figureId)) s.movedFigureIds.push(figureId);
+  } else {
+    const priorEngaged = sm ? sm.engaged : def.disengage ? [] : enemiesEngagedWith(base, fig).map(e => e.id);
+    const remaining = priorEngaged.filter(id => !cons.leavingEnemyIds.includes(id));
+    s.stepMove = {
+      figureId,
+      usedCost: usedCost + cons.cost,
+      startHex: sm?.startHex ?? fromKey,
+      engaged: remaining,
+      stopped: cons.forcedStop || undefined,
+    };
+  }
+
+  checkEliminationWin(s);
+  if (f.at == null && f.wounds >= cardDefFor(s, f).life) maybeQueueSpiritOnDestroy(s, f);
   return s;
 }
 
@@ -4469,6 +4783,7 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   s.turnSeat = null;
   s.movedFigureIds = [];
   s.turnAttacks = [];
+  s.stepMove = undefined;
   s.moveHistory = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
