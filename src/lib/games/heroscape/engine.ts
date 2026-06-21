@@ -425,7 +425,13 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       else if (action.kind === 'orient_figure') res = doOrientFigure(state, me.seat, action.figureId, action.dir);
       // "End move": a soft commit — the boundary below clears the undo stack so the move is
       // locked in. No other state change, so it stays clear of the Berserker/pending-choice flow.
-      else if (action.kind === 'end_move') res = clone(state);
+      else if (action.kind === 'end_move') {
+        // End move = leave the MOVE phase and enter the ATTACK phase; movement is now locked
+        // (movableFigure blocks it) and the board only lets the player attack.
+        const ended = clone(state);
+        ended.movementEnded = true;
+        res = ended;
+      }
       else res = doEndTurn(state, me.seat);
       // COMMIT BOUNDARY for movement-undo: a move/grapple PUSHES its own undo snapshot
       // (inside applyValidatedMove); orienting is a free reposition that leaves the stack
@@ -556,6 +562,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   s.movedFigureIds = [];
   s.turnAttacks = [];
   s.stepMove = undefined;
+  s.movementEnded = false;
   s.moveHistory = [];
   s.winnerSeat = null;
   s.winnerTeam = null;
@@ -1295,6 +1302,7 @@ function beginTurnOrSkip(s: HSState): void {
       s.movedFigureIds = [];
       s.turnAttacks = [];
       s.stepMove = undefined;
+      s.movementEnded = false;
       s.moveHistory = [];
       delete s.waterClonedThisTurn;
       delete s.berserkerSpent;
@@ -1357,6 +1365,7 @@ function startNextRound(s: HSState): void {
   s.movedFigureIds = [];
   s.turnAttacks = [];
   s.stepMove = undefined;
+  s.movementEnded = false;
   s.moveHistory = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;
@@ -1626,6 +1635,11 @@ function movableFigure(state: HSState, figureId: string): { fig: Figure } | { er
   if (cardErr) return { error: cardErr };
   if (state.turnAttacks.length > 0) {
     return { error: 'Movement is over once attacking begins' };
+  }
+  // "End move" was tapped — the player committed to the ATTACK phase, so no figure
+  // may move for the rest of this turn (Berserker Charge clears this to re-grant moves).
+  if (state.movementEnded) {
+    return { error: 'Movement is over — you ended your move step' };
   }
   // Water Clone is the card's attack-step action — once used, the turn's
   // movement is likewise over (slice 4).
@@ -2075,17 +2089,17 @@ export function stepConsequences(
   if (step.forcedStop && g && g.id === 'kelda' && g.faceUp && fig.wounds < 1) {
     return { error: 'Only a wounded figure may stop on the Glyph of Kelda' };
   }
-  // Leaving engagement: start-engaged enemies (not yet swiped) the new footprint abandons.
-  const engaged = sm
-    ? sm.engaged
-    : def.disengage
-      ? []
-      : enemiesEngagedWith(state, fig).map(e => e.id);
+  // Leaving engagement, judged PER STEP: enemies engaged with the figure's CURRENT footprint
+  // that this step LEAVES (no longer engaged after it), minus any that already swiped this walk.
+  // Evaluated fresh from the current position, so engaging an enemy MID-walk and then stepping
+  // away STILL draws its swipe. DISENGAGE (Agent Carr) suppresses every swipe.
   const figAtNew: Figure = { ...fig, at: fp.newAt, at2: fp.newAt2 };
-  const leavingEnemyIds = engaged.filter(id => {
-    const e = state.figures.find(f => f.id === id);
-    return e != null && e.at != null && !engagedPair(state, figAtNew, e);
-  });
+  const alreadySwiped = sm?.swiped ?? [];
+  const leavingEnemyIds = def.disengage
+    ? []
+    : enemiesEngagedWith(state, fig)
+        .filter(e => !alreadySwiped.includes(e.id) && !engagedPair(state, figAtNew, e))
+        .map(e => e.id);
   // Fall: only a descending 1-hex step falls (the 2-hex slither is level; a flyer descends).
   let tier: FallTier = 'none';
   let fallDice = 0;
@@ -2301,13 +2315,13 @@ function doMoveStep(
     delete s.stepMove;
     if (!s.movedFigureIds.includes(figureId)) s.movedFigureIds.push(figureId);
   } else {
-    const priorEngaged = sm ? sm.engaged : def.disengage ? [] : enemiesEngagedWith(base, fig).map(e => e.id);
-    const remaining = priorEngaged.filter(id => !cons.leavingEnemyIds.includes(id));
+    // Record this step's swiped enemies so each draws at most one swipe across the whole walk.
+    const swiped = [...(sm?.swiped ?? []), ...cons.leavingEnemyIds];
     s.stepMove = {
       figureId,
       usedCost: usedCost + cons.cost,
       startHex: sm?.startHex ?? fromKey,
-      engaged: remaining,
+      swiped,
       stopped: cons.forcedStop || undefined,
     };
   }
@@ -4760,6 +4774,7 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
         const f = s.figures.find(x => x.id === id);
         return !(f && f.cardUid === pc.cardUid);
       });
+      s.movementEnded = false; // re-grant movement even if the player had tapped End move
       pushLog(s, 'power', `${playerName(s, seat)} charges again — all Tarn Viking Warriors may move once more!`);
     } else {
       pushLog(s, 'power', `${playerName(s, seat)} declines the Berserker Charge re-move.`);
@@ -4815,6 +4830,7 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   s.movedFigureIds = [];
   s.turnAttacks = [];
   s.stepMove = undefined;
+  s.movementEnded = false;
   s.moveHistory = [];
   delete s.waterClonedThisTurn;
   delete s.berserkerSpent;

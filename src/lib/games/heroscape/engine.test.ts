@@ -1600,12 +1600,59 @@ describe('step-by-step movement (move_step)', () => {
       kind: 'move_step', figureId: TV(1), to: leaveHex,
       leaveRolls: [{ enemyFigureId: M, roll: 'blank' }],
     }));
-    expect(afterLeave.stepMove?.engaged).toEqual([]); // the Marro has spent its one swipe
+    expect(afterLeave.stepMove?.swiped).toContain(M); // the Marro has spent its one swipe
     expect(afterLeave.log.some(e => /swipes/.test(e.text))).toBe(true);
     // Any further step needs NO swipe — even one re-approaching the Marro (it already fired).
     const next = [...legalStepHexes(afterLeave, TV(1))][0];
     const after2 = unwrap(applyAction(afterLeave, 'p1', { kind: 'move_step', figureId: TV(1), to: next }));
-    expect(after2.stepMove?.engaged).toEqual([]);
+    expect(after2.stepMove?.swiped).toContain(M);
+  });
+
+  it('engaging an enemy MID-walk and then leaving still draws its swipe (per-step, not move-start only)', () => {
+    let s = customBattle(['tarn_vikings'], ['marro_warriors'], 'p1');
+    const M = 's1-marro_warriors-1';
+    const Mhex = at(3, 3);
+    s = clearExcept(s, TV(1), M);
+    s = place(s, M, Mhex);
+    const onMap = (k: string) => !!MAPS[s.mapId].cells[k];
+    const adjToM = (k: string) => neighborKeys(Mhex).includes(k);
+    // enterHex: a hex adjacent to the Marro. startHex: adjacent to enterHex but NOT to the Marro,
+    // so the walk BEGINS un-engaged with M.
+    const enterHex = neighborKeys(Mhex).find(onMap)!;
+    const startHex = neighborKeys(enterHex).find(k => onMap(k) && k !== Mhex && !adjToM(k))!;
+    s = place(s, TV(1), startHex);
+    // Step 1 onto enterHex — ENTERING the engagement draws NO swipe.
+    const enter = stepConsequences(s, TV(1), enterHex);
+    if ('error' in enter) throw new Error(enter.error);
+    expect(enter.leavingEnemyIds).toEqual([]);
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: enterHex }));
+    // Step 2 away from the Marro — leaving the MID-walk engagement → its swipe is now due.
+    const leaveHex = neighborKeys(enterHex).find(k => onMap(k) && k !== Mhex && !adjToM(k) && k !== startHex) ?? startHex;
+    const cons = stepConsequences(s, TV(1), leaveHex);
+    if ('error' in cons) throw new Error(cons.error);
+    expect(cons.leavingEnemyIds).toContain(M);
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: leaveHex })))
+      .toMatch(/do not match the abandoned enemies/);
+    const after = unwrap(applyAction(s, 'p1', {
+      kind: 'move_step', figureId: TV(1), to: leaveHex,
+      leaveRolls: [{ enemyFigureId: M, roll: 'blank' }],
+    }));
+    expect(after.stepMove?.swiped).toContain(M);
+  });
+
+  it('End move enters the ATTACK phase — no figure may move afterwards', () => {
+    let s = walker();
+    const a = [...legalStepHexes(s, TV(1))][0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: a }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+    expect(s.movementEnded).toBe(true);
+    expect(s.stepMove).toBeUndefined();        // the in-progress walk was finalized
+    expect(s.movedFigureIds).toContain(TV(1));
+    // Movement is over for EVERY figure now — the board offers none, and the engine refuses.
+    expect(legalStepHexes(s, TV(2)).size).toBe(0);
+    expect(movementRangeHexes(s, TV(2)).size).toBe(0);
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(2), to: at(1, 0) })))
+      .toMatch(/Movement is over/);
   });
 
   it('a swipe skull destroys the mover mid-walk and ends (finalizes) the move', () => {

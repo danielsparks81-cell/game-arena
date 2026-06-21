@@ -1338,7 +1338,7 @@ export default function HeroScapeBoard({
     const out = new Set<string>();
     // Glow only while moving is still possible: not after an attack, and not after an
     // "after-moving" power (Water Clone / Mind Shackle / Throw / Chomp) has ended the move step.
-    const moveOver = state.turnAttacks.length > 0
+    const moveOver = state.movementEnded || state.turnAttacks.length > 0
       || state.waterClonedThisTurn || state.mindShackleSpent || state.threwThisTurn || state.chompedThisTurn;
     if (state.phase === 'playing' && state.subPhase === 'turns' && activeCardUid && !moveOver) {
       for (const f of state.figures) {
@@ -1347,6 +1347,26 @@ export default function HeroScapeBoard({
     }
     return out;
   }, [state, activeCardUid]);
+
+  // ATTACK-PHASE glow: once the move step is over ("End move" tapped, or the first attack made),
+  // every active-card figure that can still attack a target lights up — and drops out the moment
+  // that figure attacks (legalTargets returns [] once its attack is spent). Mirrors the move glow.
+  const attackableFigureIds = useMemo(() => {
+    const out = new Set<string>();
+    const attackPhase = state.movementEnded || state.turnAttacks.length > 0;
+    if (state.phase === 'playing' && state.subPhase === 'turns' && activeCardUid && attackPhase && !state.pendingChoice) {
+      for (const f of state.figures) {
+        if (f.cardUid === activeCardUid && f.at != null && legalTargets(state, f.id).length > 0) out.add(f.id);
+      }
+    }
+    return out;
+  }, [state, activeCardUid]);
+  // One disc-glow set for the board: "to move" figures during the move phase, "to attack"
+  // figures during the attack phase (the two sets are mutually exclusive by phase).
+  const glowIds = useMemo(
+    () => new Set([...actionableFigureIds, ...attackableFigureIds]),
+    [actionableFigureIds, attackableFigureIds],
+  );
 
   // --- slice 4: pending choice + special-power availability (only mine) ------
   const pending = state.pendingChoice;
@@ -1455,8 +1475,10 @@ export default function HeroScapeBoard({
         : new Set<HexKey>(),
     [state, selected, canAct, grappleMode, fireLineMode],
   );
+  // Attackable enemies — only in the ATTACK PHASE (after "End move"), so red target rings and
+  // the attack click are inert while the player is still moving.
   const targets = useMemo(
-    () => (canAct && selected && !fireLineMode ? new Set(legalTargets(state, selected.id)) : new Set<string>()),
+    () => (canAct && selected && !fireLineMode && state.movementEnded ? new Set(legalTargets(state, selected.id)) : new Set<string>()),
     [state, selected, canAct, fireLineMode],
   );
   // slice 8: Mimring FIRE LINE — offered when his special attack is available
@@ -1915,9 +1937,10 @@ export default function HeroScapeBoard({
       if (occ && dwHeroId && explosionTargetSet.has(occ.id)) { onExplosion(dwHeroId, occ.id); setExplosionMode(false); }
       return;
     }
-    // Attack: the clicked hex holds an enemy I can currently target (a 2-hex
-    // enemy is targetable by clicking EITHER of its hexes).
-    if (occ && selected && occ.ownerSeat !== me!.seat) {
+    // Attack — ATTACK PHASE ONLY (after "End move"). During the move phase a tap on an enemy
+    // never attacks: it either steps there (Agent Carr ghost-walking through) or does nothing,
+    // so you can't accidentally attack while you think you're still moving.
+    if (state.movementEnded && occ && selected && occ.ownerSeat !== me!.seat) {
       if (targets.has(occ.id)) {
         onAttack(selected.id, occ.id);
         // slice 6: keep Syvarris selected after his first attack so his targets
@@ -3102,24 +3125,32 @@ export default function HeroScapeBoard({
 
         {/* UNDO MOVE — repeatable full rewind. Shown only while moves remain on the
             undo stack this turn and nothing has been committed (no attack yet). */}
-        {myTurn && !pending && (state.moveHistory?.length ?? 0) > 0 && state.turnAttacks.length === 0 && (
+        {myTurn && !pending && !state.movementEnded && state.turnAttacks.length === 0 && (
           <div className="flex gap-2">
-            <button
-              onClick={() => { onUndoMove(); setSelectedId(null); }}
-              disabled={disabled}
-              className="flex-1 rounded-lg border-2 border-sky-600 bg-neutral-950/85 px-3 py-2 text-sm font-semibold text-sky-300 backdrop-blur-sm transition hover:bg-sky-900/50 disabled:opacity-40"
-              title="Take back your last move (until you attack)"
-            >
-              ↶ Undo move ({state.moveHistory!.length})
-            </button>
+            {(state.moveHistory?.length ?? 0) > 0 && (
+              <button
+                onClick={() => { onUndoMove(); setSelectedId(null); }}
+                disabled={disabled}
+                className="flex-1 rounded-lg border-2 border-sky-600 bg-neutral-950/85 px-3 py-2 text-sm font-semibold text-sky-300 backdrop-blur-sm transition hover:bg-sky-900/50 disabled:opacity-40"
+                title="Take back your last move (until you end your move)"
+              >
+                ↶ Undo move ({state.moveHistory!.length})
+              </button>
+            )}
             <button
               onClick={() => { onEndMove(); setSelectedId(null); }}
               disabled={disabled}
               className="flex-1 rounded-lg border-2 border-emerald-600 bg-neutral-950/85 px-3 py-2 text-sm font-semibold text-emerald-300 backdrop-blur-sm transition hover:bg-emerald-900/50 disabled:opacity-40"
-              title="Lock in your move — you won't be able to undo after this"
+              title="Finish moving and switch to attacking — no figure can move again this turn"
             >
-              ✓ End move
+              ✓ End move → attack
             </button>
+          </div>
+        )}
+        {/* Attack-phase cue: after End move, before any attack, so the player knows taps now ATTACK. */}
+        {myTurn && !pending && state.movementEnded && state.turnAttacks.length === 0 && (
+          <div className="rounded-lg border border-rose-700/60 bg-rose-950/30 px-3 py-2 text-center text-xs font-semibold text-rose-300">
+            ⚔ Attack phase — tap a glowing figure’s target, or End turn
           </div>
         )}
 
@@ -3237,7 +3268,7 @@ export default function HeroScapeBoard({
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
-            actionableIds={actionableFigureIds}
+            actionableIds={glowIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
             dropHexes={throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet}

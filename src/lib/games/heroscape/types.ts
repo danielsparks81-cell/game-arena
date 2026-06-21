@@ -510,11 +510,16 @@ export type HSState = {
    *  "before committing" boundary. Absent on pre-existing saves ⇒ treat as []. */
   moveHistory?: string[];
   /** In-progress STEP-BY-STEP walk (tap each space). Absent when no walk is underway.
-   *  `engaged` = enemies engaged at the walk's START that have not yet taken their leaving
-   *  swipe (each fires once, the step it stops being adjacent). `usedCost` = Move points spent
-   *  so far (≤ effectiveMove). `stopped` once a water/glyph forced-stop step was taken. Cleared
-   *  when the walk finalizes (any other action / the mover dies) or at turn boundaries. */
-  stepMove?: { figureId: string; usedCost: number; startHex: HexKey; engaged: string[]; stopped?: boolean };
+   *  `swiped` = enemies that have ALREADY taken their one leaving-engagement swipe this walk
+   *  (so each swipes once even if you weave in and out). Leaving is judged PER STEP from the
+   *  figure's CURRENT footprint, so engaging an enemy mid-walk and then leaving still provokes
+   *  it. `usedCost` = Move points spent so far (≤ effectiveMove). `stopped` once a water/glyph
+   *  forced-stop step was taken. Cleared when the walk finalizes / the mover dies / turn ends. */
+  stepMove?: { figureId: string; usedCost: number; startHex: HexKey; swiped: string[]; stopped?: boolean };
+  /** Set true by "End move": the player has finished the MOVE phase and entered the ATTACK
+   *  phase. While true no figure may move (movableFigure blocks it) and the board only lets the
+   *  player attack. Cleared at each turn boundary and when Berserker Charge re-grants movement. */
+  movementEnded?: boolean;
   /**
    * Per-turn attack log (slice 6) — one entry per attack resolved this turn,
    * in order. This is the SINGLE source of truth for "what has attacked":
