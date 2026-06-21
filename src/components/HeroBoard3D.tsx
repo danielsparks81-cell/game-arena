@@ -60,6 +60,9 @@ type Interact = {
    *  a soft, static gold disc glow so the player can SEE an aura is live. Lowest-priority ring
    *  (selection / attack target / power target / "still to act" all override it). */
   auraIds?: Set<string>;
+  /** Figures a pending blast (Grenade aim) will hit — the armed target + its neighbours, friend or
+   *  foe — an ORANGE "blast zone" ring shown while aiming, above the fuchsia candidate-target ring. */
+  splashIds?: Set<string>;
   placeHexes?: Set<HexKey>;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
@@ -194,16 +197,16 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, actionable, aura, wounds, onClick }: {
+function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, wounds, onClick }: {
   lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; powerTarget: boolean; actionable: boolean; aura: boolean; wounds: number; onClick?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; wounds: number; onClick?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
   const aspect = img && img.width && img.height ? img.width / img.height : 0.62;
   // Disc glow priority: selection > attack target > power target > "still to move" (a softer
   // cyan glow on the now-acting card's un-moved figures, so the player sees who's left).
-  const strongRing = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
+  const strongRing = selected ? '#fbbf24' : target ? '#ef4444' : splash ? '#fb923c' : powerTarget ? '#e879f9' : null;
   // Aura is the LOWEST-priority glow (soft gold) — any stronger status overrides it.
   const ring = strongRing ?? (actionable ? '#67e8f9' : aura ? '#fde047' : null);
   const { bottomV, topV, baseCenterX, baseWidthFrac, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex), figureAnchor(cardId, figIndex));
@@ -475,7 +478,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             <Standee
               key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
-              powerTarget={!!it.powerTargetIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} wounds={f.wounds}
+              powerTarget={!!it.powerTargetIds?.has(f.id)} splash={!!it.splashIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
             />
           );

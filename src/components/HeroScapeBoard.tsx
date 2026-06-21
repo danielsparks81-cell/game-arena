@@ -45,6 +45,7 @@ import {
   chompTargets,
   canGrenade,
   grenadeTargets,
+  grenadeDefenders,
   // Airborne Elite THE DROP (slice 8).
   canTheDrop,
   theDropHexes,
@@ -1156,6 +1157,10 @@ export default function HeroScapeBoard({
   // Jotun THROW: after choosing whom to throw, the player CLICKS the landing hex on the board
   // ("you may throw it to any empty space within 4 spaces" — a real choice, never auto-picked).
   const [throwAim, setThrowAim] = useState<{ targetId: string } | null>(null);
+  // GRENADE splash preview: the first tap ARMS a target (the board shows the full blast — that
+  // figure + its neighbours), a second tap on it (or the Throw button) confirms. Prevents the
+  // old one-tap misfire and shows exactly who gets caught (friend or foe).
+  const [grenadeAim, setGrenadeAim] = useState<string | null>(null);
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
@@ -1226,6 +1231,7 @@ export default function HeroScapeBoard({
     setTargetPicker(null);
     setThrowAim(null);
     setExplosionMode(false);
+    setGrenadeAim(null);
   }, [state.round, state.phase]);
   // Drop Grapple / Fire-Line / Mind-Shackle / Chomp mode when the selection changes.
   useEffect(() => {
@@ -1236,6 +1242,7 @@ export default function HeroScapeBoard({
     setTargetPicker(null);
     setThrowAim(null);
     setExplosionMode(false);
+    setGrenadeAim(null);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -1569,6 +1576,14 @@ export default function HeroScapeBoard({
     () => (grenadeChoice ? new Set(grenadeTargets(state, grenadeChoice.throwers[0])) : new Set<string>()),
     [grenadeChoice, state],
   );
+  // The blast an armed grenade aim will hit (target + neighbours, friend or foe) — the orange
+  // "blast zone" ring. Uses the engine's own grenadeDefenders so the preview matches the resolution.
+  const grenadeSplashIds = useMemo(
+    () => (grenadeChoice && grenadeAim
+      ? new Set(grenadeDefenders(state, grenadeChoice.throwers[0], grenadeAim).map(d => d.figureId))
+      : new Set<string>()),
+    [grenadeChoice, grenadeAim, state],
+  );
 
   // slice 8b: Big-Hero special-power availability + target lists for the control
   // panel. The active card's living figure IS the Big Hero (Hero cards have one
@@ -1896,7 +1911,10 @@ export default function HeroScapeBoard({
     // current Elite's grenade at it (the server rolls; splash hits its neighbours).
     if (grenadeChoice && !disabled) {
       const occG = occupantAt(key);
-      if (occG && grenadeTargetSet.has(occG.id)) onGrenadeThrow(occG.id);
+      if (occG && grenadeTargetSet.has(occG.id)) {
+        if (grenadeAim === occG.id) { onGrenadeThrow(occG.id); setGrenadeAim(null); } // 2nd tap on the armed target throws
+        else setGrenadeAim(occG.id); // 1st tap arms it + previews the blast (target + neighbours)
+      }
       return;
     }
     // slice 8: The Drop landing selection (after a 13+ roll; works outside a turn).
@@ -3050,9 +3068,17 @@ export default function HeroScapeBoard({
         {grenadeChoice && (
           <div className="rounded-lg border-2 border-orange-500 bg-neutral-900/70 px-3 py-2">
             <div className="text-sm font-bold text-orange-300">💣 Grenade — {grenadeChoice.throwers.length} Elite{grenadeChoice.throwers.length === 1 ? '' : 's'} left to throw</div>
-            <div className="mt-0.5 text-[11px] text-neutral-400">
-              Click a highlighted figure within Range 5 — its neighbours are splashed too.
-            </div>
+            {grenadeAim ? (
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-orange-200">Blast hits {grenadeSplashIds.size} (orange) — tap it again or:</span>
+                <button onClick={() => { onGrenadeThrow(grenadeAim); setGrenadeAim(null); }} className="rounded border border-orange-500 px-2 py-0.5 font-semibold text-orange-200 hover:bg-orange-900/40">💥 Throw</button>
+                <button onClick={() => setGrenadeAim(null)} className="rounded border border-neutral-600 px-2 py-0.5 text-neutral-300 hover:bg-neutral-800">Cancel</button>
+              </div>
+            ) : (
+              <div className="mt-0.5 text-[11px] text-neutral-400">
+                Tap a highlighted figure within Range 5 to aim — you’ll see the blast (it + neighbours) before throwing.
+              </div>
+            )}
           </div>
         )}
         {/* slice 6: Double Attack hint — Syvarris may take one more attack. No
@@ -3284,6 +3310,7 @@ export default function HeroScapeBoard({
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
             actionableIds={glowIds}
             auraIds={auraIds}
+            splashIds={grenadeSplashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
             dropHexes={throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet}
