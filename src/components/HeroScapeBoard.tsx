@@ -58,6 +58,7 @@ import {
   throwLandingHexes,
   carryPassengers,
   legalTargets,
+  auraBuffedFigureIds,
   placeableHexes,
   placeable2Leads,
   orientationOptions,
@@ -1372,6 +1373,13 @@ export default function HeroScapeBoard({
   const glowIds = useMemo(
     () => new Set([...actionableFigureIds, ...attackableFigureIds]),
     [actionableFigureIds, attackableFigureIds],
+  );
+  // Figures currently buffed by a friendly position aura (Finn / Thorgrim / Raelin / Grimnak) —
+  // a soft gold disc glow so the player can SEE an aura is live. Shown for BOTH sides (it's
+  // battlefield information), whenever figures are on the board.
+  const auraIds = useMemo(
+    () => (state.phase === 'playing' ? auraBuffedFigureIds(state) : new Set<string>()),
+    [state],
   );
 
   // --- slice 4: pending choice + special-power availability (only mine) ------
@@ -3275,6 +3283,7 @@ export default function HeroScapeBoard({
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
             actionableIds={glowIds}
+            auraIds={auraIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
             dropHexes={throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet}

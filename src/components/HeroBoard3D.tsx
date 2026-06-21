@@ -56,6 +56,10 @@ type Interact = {
   /** Figures of the now-acting card that still have to move this turn — their base disc
    *  lights up to guide "move each one once"; an id drops out the moment that figure moves. */
   actionableIds?: Set<string>;
+  /** Figures currently buffed by a friendly position aura (Finn / Thorgrim / Raelin / Grimnak) —
+   *  a soft, static gold disc glow so the player can SEE an aura is live. Lowest-priority ring
+   *  (selection / attack target / power target / "still to act" all override it). */
+  auraIds?: Set<string>;
   placeHexes?: Set<HexKey>;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
@@ -190,9 +194,9 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, actionable, wounds, onClick }: {
+function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, actionable, aura, wounds, onClick }: {
   lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; powerTarget: boolean; actionable: boolean; wounds: number; onClick?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; actionable: boolean; aura: boolean; wounds: number; onClick?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
@@ -200,7 +204,8 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // Disc glow priority: selection > attack target > power target > "still to move" (a softer
   // cyan glow on the now-acting card's un-moved figures, so the player sees who's left).
   const strongRing = selected ? '#fbbf24' : target ? '#ef4444' : powerTarget ? '#e879f9' : null;
-  const ring = strongRing ?? (actionable ? '#67e8f9' : null);
+  // Aura is the LOWEST-priority glow (soft gold) — any stronger status overrides it.
+  const ring = strongRing ?? (actionable ? '#67e8f9' : aura ? '#fde047' : null);
   const { bottomV, topV, baseCenterX, baseWidthFrac, clip } = useOpaqueBoundsV(img, cropOverride(cardId, figIndex), figureAnchor(cardId, figIndex));
   // 2-hex peanut geometry — span (hex-centre distance) is needed BEFORE sizing.
   let span = 0, discRotY = 0;
@@ -271,7 +276,7 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // lobe radius is < the 1-hex disc so it doesn't read too "deep"; the waist pinch is
   // what makes it a peanut rather than a uniform pill.
   const peanut = useMemo(() => (span > 0 ? peanutShape(span / 2, SIZE * 0.62, SIZE * 0.34) : null), [span]);
-  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: strongRing ? 0.9 : actionable ? 0.5 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
+  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: strongRing ? 0.9 : actionable ? 0.5 : aura ? 0.4 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
   // 2-hex SWAY: a double-space figure must not billboard freely or its wide plane swings
   // perpendicular and hangs off the peanut. Keep its footprint along the peanut's long axis,
   // letting it sway toward the camera only up to the angle where its base edge still fits
@@ -470,7 +475,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             <Standee
               key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
-              powerTarget={!!it.powerTargetIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} wounds={f.wounds}
+              powerTarget={!!it.powerTargetIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
             />
           );

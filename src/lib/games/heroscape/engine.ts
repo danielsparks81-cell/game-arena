@@ -2806,6 +2806,30 @@ export function effectiveDefenseDice(
   return { dice, breakdown };
 }
 
+/** Figures CURRENTLY benefiting from a friendly POSITION aura — Finn (an adjacent friendly Range-1
+ *  figure, +1 attack), Thorgrim (any adjacent friendly, +1 defense), Raelin (a friendly within 6
+ *  clear-sight spaces, +1 defense, not herself), and Grimnak (an adjacent friendly Orc Warrior, +1
+ *  attack & defense). Reuses the SAME predicates the effective-stat folds use, so the board's
+ *  "aura active" ring can never disagree with the bonus actually applied. Excludes per-attack
+ *  effects (Zettian Targeting), self bonuses (Agent Carr's Sword of Reckoning), and the Krav/Izumi
+ *  defensive reactions — none are standing position auras. UI-only. */
+export function auraBuffedFigureIds(state: HSState): Set<string> {
+  const out = new Set<string>();
+  for (const f of state.figures) {
+    if (f.at == null) continue;
+    const def = cardDefFor(state, f);
+    const buffed =
+      (def.range === 1 && hasFiguresAdjacentLivingCard(state, f, FINN_CARD_ID, f.ownerSeat)) ||
+      hasFiguresAdjacentLivingCard(state, f, THORGRIM_CARD_ID, f.ownerSeat) ||
+      raelinAuraReaches(state, f) ||
+      (def.species === SPECIES_ORC &&
+        def.unitClass === CLASS_WARRIORS &&
+        hasFiguresAdjacentLivingCard(state, f, GRIMNAK_CARD_ID, f.ownerSeat));
+    if (buffed) out.add(f.id);
+  }
+  return out;
+}
+
 /**
  * Effective MOVE for `fig` (05-glyphs): printed Move + Glyph of Valda (+2 if the
  * figure's seat controls Valda). VALDA EXIT CAVEAT (resolutions): "Do not use

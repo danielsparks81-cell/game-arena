@@ -60,6 +60,7 @@ export {
   heightAdvantage,
   effectiveAttackDice,
   effectiveDefenseDice,
+  auraBuffedFigureIds,
   effectiveMove,
   effectiveRange,
   moveConsequences,

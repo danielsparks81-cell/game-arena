@@ -18,6 +18,7 @@ import {
   heightAdvantage,
   effectiveAttackDice,
   effectiveDefenseDice,
+  auraBuffedFigureIds,
   effectiveMove,
   effectiveRange,
   moveConsequences,
@@ -1787,6 +1788,49 @@ describe('step-by-step movement (move_step)', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: last }));
     expect(s.stepMove?.usedCost).toBe(budget);
     expect(movementRangeHexes(s, TV(1)).size).toBe(0); // Move exhausted → no range left
+  });
+});
+
+// --- aura-active indicators -------------------------------------------------
+
+describe('aura-active indicators (auraBuffedFigureIds)', () => {
+  const TV = (n: number) => `s0-tarn_vikings-${n}`;
+
+  it('Finn buffs an adjacent friendly Range-1 figure; an adjacent ENEMY and Finn himself get nothing', () => {
+    let s = customBattle(['finn', 'tarn_vikings'], ['marro_warriors'], 'p1');
+    const FINN = 's0-finn-1', M1 = 's1-marro_warriors-1';
+    s = clearExcept(s, FINN, TV(1), M1);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, TV(1), at(3, 2)); // friendly melee adjacent → Finn-buffed
+    s = place(s, M1, at(2, 3));    // ENEMY adjacent to Finn → gets nothing from your aura
+    const b = auraBuffedFigureIds(s);
+    expect(b.has(TV(1))).toBe(true);
+    expect(b.has(M1)).toBe(false);
+    expect(b.has(FINN)).toBe(false);
+  });
+
+  it('Thorgrim buffs any adjacent friendly, but not himself', () => {
+    let s = customBattle(['thorgrim', 'tarn_vikings'], ['finn'], 'p1');
+    const THOR = 's0-thorgrim-1';
+    s = clearExcept(s, THOR, TV(1), 's1-finn-1');
+    s = place(s, THOR, at(3, 3));
+    s = place(s, TV(1), at(3, 2));
+    s = place(s, 's1-finn-1', at(6, 7));
+    const b = auraBuffedFigureIds(s);
+    expect(b.has(TV(1))).toBe(true);
+    expect(b.has(THOR)).toBe(false);
+  });
+
+  it('Raelin buffs a friendly within 6 clear-sight spaces, excluding herself', () => {
+    let s = customBattle(['raelin', 'tarn_vikings'], ['finn'], 'p1');
+    const RAEL = 's0-raelin-1';
+    s = clearExcept(s, RAEL, TV(1), 's1-finn-1');
+    s = place(s, RAEL, at(3, 3));
+    s = place(s, TV(1), at(3, 5)); // 2 spaces away, clear sight → buffed
+    s = place(s, 's1-finn-1', at(6, 7));
+    const b = auraBuffedFigureIds(s);
+    expect(b.has(TV(1))).toBe(true);
+    expect(b.has(RAEL)).toBe(false);
   });
 });
 
