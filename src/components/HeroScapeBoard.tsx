@@ -898,6 +898,48 @@ function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: nu
   );
 }
 
+/** Glyphs panel — lists every glyph on the battlefield so all players know what's
+ *  out there. A glyph shows as "?" until a figure stops on it (faceUp), then it
+ *  reveals its letter, name, and effect. Hidden glyphs only reveal that SOMETHING
+ *  is there — faithful to the face-down marker (you see it, not which glyph). */
+function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
+  if (!glyphs || glyphs.length === 0) return null;
+  const revealed = glyphs.filter(g => g.faceUp).length;
+  // Revealed first (most informative), then unknowns; stable by hex key.
+  const sorted = [...glyphs].sort((a, b) => Number(b.faceUp) - Number(a.faceUp) || a.at.localeCompare(b.at));
+  return (
+    <div className="rounded-lg border-2 border-rose-900/70 bg-neutral-900/70 px-3 py-2">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-bold uppercase tracking-wider text-rose-300/90">Glyphs</div>
+        <div className="text-[10px] tabular-nums text-neutral-500">{revealed}/{glyphs.length} revealed</div>
+      </div>
+      <div className="mt-1.5 flex flex-col gap-1">
+        {sorted.map(g => {
+          const def = g.faceUp ? HS_GLYPHS[g.id] : null;
+          return (
+            <div key={g.at} className="flex items-center gap-2">
+              <span
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-black text-rose-50"
+                style={{ background: '#7f1d1d', borderColor: def ? '#fca5a5' : '#9f1239' }}
+              >
+                {def ? def.letter : '?'}
+              </span>
+              {def ? (
+                <div className="min-w-0 flex-1 leading-tight">
+                  <div className="truncate text-[11px] font-bold text-rose-100">{def.name}</div>
+                  <div className="text-[10px] text-neutral-400">{def.effect}</div>
+                </div>
+              ) : (
+                <div className="flex-1 text-[11px] font-semibold text-neutral-500">Unknown — stop a figure on it to reveal</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss: () => void }) {
   type DefenseGroup = NonNullable<LastAttack['defenseGroups']>[number];
   const PER_DIE = 520; // ms between dice (slowed slightly so each roll reads clearly)
@@ -970,17 +1012,17 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-      onClick={onDismiss}
+      className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-end p-2 sm:p-3"
       role="dialog"
       aria-label="Attack roll"
     >
       {/* The keyframe for each die's tumble/scale-in (file has no global CSS). */}
       <style>{`@keyframes hsDieIn { 0% { transform: scale(0.2) rotate(-120deg); opacity: 0; } 70% { transform: scale(1.12) rotate(8deg); opacity: 1; } 100% { transform: scale(1) rotate(0deg); } }`}</style>
-      <div
-        className="relative w-full max-w-lg rounded-2xl border-2 border-amber-700/80 bg-neutral-950/95 px-6 py-6 text-center shadow-2xl shadow-black/70"
-        onClick={e => e.stopPropagation()}
-      >
+      {/* Docked to the RIGHT (not a full-screen modal) so the board — and the
+          glyph "?" markers — stay visible, and a board click neither lands on the
+          panel nor dismisses it (pointer-events pass through the transparent
+          wrapper). Auto-dismisses on its timer; "Skip ▸" closes early. */}
+      <div className="pointer-events-auto relative max-h-[calc(100vh-1rem)] w-[min(92vw,21rem)] overflow-y-auto rounded-2xl border-2 border-amber-700/80 bg-neutral-950/97 px-5 py-5 text-center shadow-2xl shadow-black/80">
         <button
           onClick={onDismiss}
           className="absolute right-3 top-3 rounded-md border border-neutral-700 px-2 py-0.5 text-xs font-semibold text-neutral-400 transition hover:border-neutral-400 hover:text-neutral-200"
@@ -2841,6 +2883,9 @@ export default function HeroScapeBoard({
       {/* RIGHT RAIL — banner/status, initiative, last attack, choices, end turn.
           (DOM-first so it appears at the top on narrow screens; order-3 on lg+.) */}
       <div className="flex w-full shrink-0 flex-col gap-3 lg:order-3 lg:w-[290px] lg:min-h-0 lg:overflow-y-auto">
+        {/* Glyphs roster — what's on the field (hidden as "?" until revealed), so
+            every player can see them. Self-hides when the map has no glyphs. */}
+        <GlyphsPanel glyphs={state.glyphs} />
         {/* Placement status — the interactive assignment lives below the board,
             directly above your army cards. */}
         {placement ? (
