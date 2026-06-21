@@ -101,6 +101,7 @@ import {
   type OrderMarkerValue as HSOrderMarkerValue,
   type HSChoiceResolution,
   type HSMode,
+  type HSEdition,
 } from '@/lib/games/heroscape';
 
 /**
@@ -736,8 +737,8 @@ export type GameAction =
   // sends intent only; makeMoveHS rolls every die server-side (d20 initiative,
   // attack/defense dice, falling dice, leaving-engagement swipes) and injects
   // the values into the pure engine. The host picks the battlefield at start.
-  | { game: 'heroscape'; kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
-  | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
+  | { game: 'heroscape'; kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition }
+  | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'move_step'; figureId: string; to: string }
@@ -1188,8 +1189,8 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
  *  no roll_initiative on the wire at all — the server triggers it itself when
  *  the final player locks in their order markers. */
 type HSWireAction =
-  | { kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode }
-  | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
+  | { kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition }
+  | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   // STEP-BY-STEP move (tap each space). Like move_figure, the per-step swipe / fall
@@ -1537,7 +1538,7 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   } else if (action.kind === 'resolve_choice') {
     engineAction = { kind: 'resolve_choice', choice: action.choice };
   } else if (action.kind === 'start_game') {
-    engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode };
+    engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode, edition: action.edition };
   } else {
     // place_markers / draft_card / draft_pass / place_figure / unplace_figure /
     // placement_ready — no server-rolled dice; pass through verbatim.

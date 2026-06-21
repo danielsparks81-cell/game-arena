@@ -441,6 +441,12 @@ export type HSDraftState = {
 
 export type HSMode = 'draft' | 'quick';
 
+/** Card-stat edition (chosen in the lobby). 'modern' = the rebalanced printing in
+ *  HS_CARDS (the default everywhere). 'classic' applies CLASSIC_OVERRIDES (content.ts)
+ *  — the original 2004-era points / range / attack for the handful of cards that
+ *  differ. Absent on pre-edition saves → treated as 'modern' (current behaviour). */
+export type HSEdition = 'classic' | 'modern';
+
 /** Where a round stands while phase === 'playing' (02-rounds §The round):
  *  'place_markers' — all players simultaneously assign 1/2/3/X (ready-gated);
  *  'turns'         — initiative is rolled; players take turns 1→2→3. */
@@ -457,6 +463,9 @@ export type HSState = {
    *  + pick procedure; 'quick' auto-fills the preset armies. Absent on pre-
    *  slice-5 saves → treated as 'quick' (the old fixed-army behaviour). */
   mode: HSMode;
+  /** Card-stat edition chosen in the lobby (Classic vs Modern). Frozen at game
+   *  start; combat stats + draft budget resolve through it. Absent ⇒ 'modern'. */
+  edition?: HSEdition;
   /** Point budget for the draft. The default cap a drafted army may not exceed;
    *  a team with no `teamBudgets` entry uses this. Custom amounts allowed
    *  (lobby free-entry). Unused by quick mode. */
@@ -616,6 +625,8 @@ export type HSAction =
       /** Army-building mode (slice 5). Omitted → 'draft'. 'quick' skips the
        *  draft, auto-fills the preset armies, and auto-places them. */
       mode?: HSMode;
+      /** Card-stat edition. Omitted → 'modern'. */
+      edition?: HSEdition;
     }
   | {
       // Host changes the lobby settings (battlefield / budget / mode) BEFORE the
@@ -625,6 +636,8 @@ export type HSAction =
       mapId?: string;
       pointBudget?: number;
       mode?: HSMode;
+      /** Card-stat edition (Classic vs Modern). Stored in shared state. */
+      edition?: HSEdition;
       /** Team assignment (teams): seat → team id. Players sharing a team id are
        *  allies. Omitted seats fall back to their own seat (free-for-all). */
       teams?: Record<number, number>;

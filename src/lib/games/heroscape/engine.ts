@@ -42,6 +42,7 @@ import type {
   HSGlyphId,
   HSLogEntry,
   HSMode,
+  HSEdition,
   HSResult,
   HSState,
   InitiativeAttempt,
@@ -49,7 +50,7 @@ import type {
   OrderMarkerValue,
 } from './types';
 import { MAPS, type HSMap } from './maps';
-import { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, HS_GLYPHS } from './content';
+import { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, HS_GLYPHS, effectiveCardDef } from './content';
 import {
   areEngaged,
   axialToOffset,
@@ -187,8 +188,10 @@ const AGENT_CARR_CARD_ID = 'agent_carr';
 const GRIMNAK_CARD_ID = 'grimnak';
 const ZETTIAN_CARD_ID = 'zettian_guards';
 const SYVARRIS_CARD_ID = 'syvarris';
-/** Raelin's EXTENDED DEFENSIVE AURA radius — 6 CLEAR SIGHT spaces (cards.md). */
-const RAELIN_AURA_RANGE = 6;
+/** Raelin's DEFENSIVE AURA radius — 4 CLEAR SIGHT spaces (RotV card). */
+const RAELIN_AURA_RANGE = 4;
+/** Raelin's DEFENSIVE AURA bonus — +2 defense dice (RotV card). */
+const RAELIN_AURA_BONUS = 2;
 /** Agent Carr's SWORD OF RECKONING 4 — +4 attack dice vs an adjacent figure. */
 const SWORD_OF_RECKONING_BONUS = 4;
 /** Deathwalker 9000's RANGE ENHANCEMENT — +2 Range to adjacent Soulborg Guards. */
@@ -219,6 +222,7 @@ export function initialState(): HSState {
     players: [],
     mapId: DEFAULT_MAP_ID,
     mode: DEFAULT_MODE,
+    edition: 'modern',
     pointBudget: DEFAULT_POINT_BUDGET,
     cards: [],
     figures: [],
@@ -281,7 +285,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   if (action.kind === 'start_game') {
     // Host gating happens in the server action (room.host_id); the engine
     // validates the game shape (and the chosen battlefield).
-    return doStartGame(state, action.mapId, action.pointBudget, action.mode);
+    return doStartGame(state, action.mapId, action.pointBudget, action.mode, action.edition);
   }
   if (action.kind === 'set_lobby_config') {
     // Host changing the battlefield/budget/mode in the lobby — written to shared
@@ -291,6 +295,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       action.mapId,
       action.pointBudget,
       action.mode,
+      action.edition,
       action.teams,
       action.teamBudgets,
     );
@@ -589,6 +594,7 @@ function doSetLobbyConfig(
   mapId?: string,
   pointBudget?: number,
   mode?: HSMode,
+  edition?: HSEdition,
   teams?: Record<number, number>,
   teamBudgets?: Record<number, number>,
 ): HSResult {
@@ -599,6 +605,7 @@ function doSetLobbyConfig(
     s.mapId = mapId;
   }
   if (mode !== undefined) s.mode = mode;
+  if (edition !== undefined) s.edition = edition;
   if (pointBudget !== undefined) {
     if (!isValidBudget(pointBudget)) {
       return { error: `Budget must be ${MIN_POINT_BUDGET}–${MAX_POINT_BUDGET} points` };
@@ -623,7 +630,7 @@ function doSetLobbyConfig(
   return s;
 }
 
-function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode): HSResult {
+function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode, edition?: HSEdition): HSResult {
   if (state.phase !== 'lobby') return { error: 'The battle has already started' };
   if (state.players.length < 2) return { error: 'HeroScape needs at least 2 players' };
   if (state.players.length > MAX_SEATS) return { error: `HeroScape seats at most ${MAX_SEATS} players` };
@@ -656,6 +663,8 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
   const s = clone(state);
   s.mapId = chosenMapId;
   s.mode = chosenMode;
+  // Freeze the card-stat edition for the whole game (combat + budget read it).
+  s.edition = edition ?? state.edition ?? 'modern';
   s.pointBudget = chosenBudget;
   s.cards = [];
   s.figures = [];
@@ -704,9 +713,10 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
 // (docs/heroscape/extraction/resolutions.md). Pure; the server rolls the d20s.
 // ============================================================================
 
-/** Cost of a card id (its printed Points). 0 for an unknown id (defensive). */
-function cardPoints(cardId: string): number {
-  return HS_CARDS[cardId]?.points ?? 0;
+/** Cost of a card id under the active edition (Classic costs differ for several
+ *  cards). 0 for an unknown id (defensive). */
+function cardPoints(state: HSState, cardId: string): number {
+  return effectiveCardDef(cardId, state.edition)?.points ?? 0;
 }
 
 /** Points a seat's TEAM has spent so far (Σ team-mates' spend) — the shared
@@ -730,7 +740,7 @@ export function teamRemainingInDraft(state: HSState, seat: number): number {
 function hasAffordableCard(state: HSState, seat: number): boolean {
   const remaining = teamRemainingInDraft(state, seat);
   const d = state.draft!;
-  return d.pool.some(id => cardPoints(id) <= remaining);
+  return d.pool.some(id => cardPoints(state, id) <= remaining);
 }
 
 /** Hand the draft to the next active (un-passed) seat following a TRUE SNAKE:
@@ -841,7 +851,7 @@ function doDraftCard(state: HSState, seat: number, cardId: string): HSResult {
   if (!d || d.turnSeat == null) return { error: 'The draft is not awaiting a pick' };
   if (d.turnSeat !== seat) return { error: 'It is not your pick' };
   if (!d.pool.includes(cardId)) return { error: 'That card is no longer in the pool' };
-  const cost = cardPoints(cardId);
+  const cost = cardPoints(state, cardId);
   const remaining = teamRemainingInDraft(state, seat);
   if (cost > remaining) {
     return { error: `${HS_CARDS[cardId].name} costs ${cost} — only ${remaining} points left` };
@@ -1553,13 +1563,13 @@ function hasFiguresAdjacentLivingCard(
  * play rarely stack an aura source on a tall enough ledge for it to matter).
  */
 /**
- * Does Raelin's EXTENDED DEFENSIVE AURA reach `defender` (slice 6, cards.md):
- * "All figures YOU CONTROL within 6 clear sight spaces of Raelin add 1 to their
+ * Does Raelin's DEFENSIVE AURA reach `defender` (RotV card):
+ * "All figures YOU CONTROL within 4 clear sight spaces of Raelin add 2 to their
  * defense dice. … does not affect Raelin."
  *   • a LIVING Raelin owned by the DEFENDER's seat must exist (figures you
  *     control = same owner — NOT all friendly-player figures),
  *   • the defender is NOT that Raelin herself (explicit self-exclusion),
- *   • the defender is within 6 RANGE-spaces of Raelin (counted around gaps,
+ *   • the defender is within 4 RANGE-spaces of Raelin (counted around gaps,
  *     elevation-free — the rulebook's clear-sight-spaces measurement), AND
  *   • Raelin has a clear, elevation-aware LINE OF SIGHT to the defender.
  * Recomputed from positions on every call (no token); stacks additively with
@@ -2800,13 +2810,13 @@ export function effectiveDefenseDice(
     dice += 1;
     breakdown.push('+1 Thorgrim aura');
   }
-  // Raelin's EXTENDED DEFENSIVE AURA (slice 6): +1 defense die to every figure
-  // the same player controls within 6 clear-sight spaces of a living Raelin
-  // (Raelin herself excluded — handled in raelinAuraReaches). Recomputed from
-  // positions; stacks with Thorgrim / Gerda / height.
+  // Raelin's DEFENSIVE AURA (RotV card): +2 defense dice to every figure the
+  // same player controls within 4 clear-sight spaces of a living Raelin (Raelin
+  // herself excluded — handled in raelinAuraReaches). Recomputed from positions;
+  // stacks with Thorgrim / Gerda / height.
   if (raelinAuraReaches(state, defender)) {
-    dice += 1;
-    breakdown.push('+1 Raelin aura');
+    dice += RAELIN_AURA_BONUS;
+    breakdown.push(`+${RAELIN_AURA_BONUS} Raelin aura`);
   }
   // Grimnak's ORC WARRIOR ENHANCEMENT — the defense half: "… and an additional
   // defense die." Same gate as the attack half (Orc Warrior adjacent to a living
@@ -4984,7 +4994,9 @@ export function cardDef(cardId: string): HSCardDef {
 
 function cardDefFor(state: HSState, fig: Figure): HSCardDef {
   const card = state.cards.find(c => c.uid === fig.cardUid);
-  return HS_CARDS[card?.cardId ?? ''] ?? HS_CARDS.finn;
+  // Resolve through the active edition so Classic combat stats (e.g. Raelin/Marro
+  // Range, Izumi Attack) are what the engine actually fights with.
+  return effectiveCardDef(card?.cardId ?? '', state.edition) ?? HS_CARDS.finn;
 }
 
 /** The PERMANENT Spirit mods on `fig`'s army card (slice 4). Defaults to 0/0 if

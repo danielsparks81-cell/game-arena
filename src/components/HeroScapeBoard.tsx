@@ -21,8 +21,10 @@ import {
   type OrderMarkerValue,
   type HSChoiceResolution,
   type HSMode,
+  type HSEdition,
   MAPS,
   HS_CARDS,
+  effectiveCardDef,
   HS_DRAFT_POOL,
   HS_GLYPHS,
   POWER_DESCRIPTIONS,
@@ -166,7 +168,7 @@ type Props = {
   isHost: boolean;
   disabled?: boolean;
   onStart: (mapId?: string, pointBudget?: number, mode?: HSMode) => void;
-  onSetLobbyConfig: (cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => void;
+  onSetLobbyConfig: (cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   /** Walk a figure ONE adjacent hex (tap-to-step movement). */
@@ -494,16 +496,19 @@ function FigureStandee({
  *  fallback. Clicking an affordable, available card drafts it (when it's your
  *  pick). */
 function DraftCard({
-  cardId, taken, takenByLabel, affordable, clickable, onPick,
+  cardId, edition, taken, takenByLabel, affordable, clickable, onPick,
 }: {
   cardId: string;
+  edition: HSEdition;
   taken: boolean;
   takenByLabel?: string;
   affordable: boolean;
   clickable: boolean;
   onPick: () => void;
 }) {
-  const def = HS_CARDS[cardId];
+  // Points come from the active edition so the badge matches the draft budget;
+  // the scanned art (HybridCard) is the modern printing regardless.
+  const def = effectiveCardDef(cardId, edition) ?? HS_CARDS[cardId];
   const wip = def.power === 'wip';
   const dim = taken || !affordable;
   // Click SELECTS the card and shows a Confirm/Cancel overlay rather than drafting
@@ -1261,6 +1266,9 @@ export default function HeroScapeBoard({
   const lobbyMapId = state.mapId;
   const lobbyMode = state.mode;
   const lobbyBudget = state.pointBudget;
+  // Active card-stat edition (Classic vs Modern). Drives the draft-pool points and
+  // the budget so what players see matches what the engine enforces. Absent ⇒ modern.
+  const cardEdition: HSEdition = state.edition ?? 'modern';
   // Placement: the figure the player has picked up to drop next (click-to-place).
   const [placeFigureId, setPlaceFigureId] = useState<string | null>(null);
   // Marker-placement scratchpad: which card each chip sits on, and which chip
@@ -2407,6 +2415,36 @@ export default function HeroScapeBoard({
           </div>
         </div>
 
+        {/* Edition toggle: Classic (original points) vs Modern (rebalanced) */}
+        <div className="flex flex-col items-center gap-1">
+          <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Card edition</div>
+          <div className="flex gap-2">
+            {([['modern', 'Modern'], ['classic', 'Classic']] as const).map(([e, label]) => {
+              const active = cardEdition === e;
+              return (
+                <button
+                  key={e}
+                  onClick={() => isHost && onSetLobbyConfig({ edition: e })}
+                  disabled={!isHost || disabled}
+                  title={e === 'classic' ? 'Original 2004-era points for the cards that differ' : 'The rebalanced printing (default)'}
+                  className={
+                    'rounded-lg border-2 px-4 py-1.5 text-sm font-semibold transition ' +
+                    (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
+                    (isHost ? '' : ' cursor-default opacity-90')
+                  }
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[11px] text-neutral-500">
+            {cardEdition === 'classic'
+              ? 'Original points for the cards that differ (Raelin 80, Marro 50, Grimnak 120, Q9 180, Nilfheim 185)'
+              : 'The rebalanced printing (default)'}
+          </div>
+        </div>
+
         {/* Point-budget presets (draft mode only) */}
         {lobbyMode === 'draft' && (
           <div className="flex flex-col items-center gap-1">
@@ -2602,11 +2640,11 @@ export default function HeroScapeBoard({
     // Forced-pass detection (mirrors the engine): no remaining pool card fits my
     // remaining budget. An EMPTY army can't pass while something is affordable.
     const myArmyEmpty = myDraftSeat != null && (d.armies[myDraftSeat] ?? []).length === 0;
-    const anyAffordable = d.pool.some(id => HS_CARDS[id].points <= myRemaining);
+    const anyAffordable = d.pool.some(id => (effectiveCardDef(id, cardEdition)?.points ?? 0) <= myRemaining);
     const canPass = myTurnToPick && !disabled && !(myArmyEmpty && anyAffordable);
 
     // Pool sorted CHEAPEST → most expensive (user request).
-    const sortedPool = [...HS_DRAFT_POOL].sort((a, b) => HS_CARDS[a].points - HS_CARDS[b].points);
+    const sortedPool = [...HS_DRAFT_POOL].sort((a, b) => (effectiveCardDef(a, cardEdition)?.points ?? 0) - (effectiveCardDef(b, cardEdition)?.points ?? 0));
 
     // A drafter's panel for the top bar: name, REMAINING budget (prominent), and
     // their drafted cards as chips. Highlighted while it's their pick.
@@ -2643,7 +2681,7 @@ export default function HeroScapeBoard({
             ) : (
               ids.map(id => (
                 <span key={id} className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-200">
-                  {HS_CARDS[id].name} <span className="tabular-nums text-amber-300/80">{HS_CARDS[id].points}</span>
+                  {HS_CARDS[id].name} <span className="tabular-nums text-amber-300/80">{effectiveCardDef(id, cardEdition)?.points ?? 0}</span>
                 </span>
               ))
             )}
@@ -2705,12 +2743,13 @@ export default function HeroScapeBoard({
         <div className="grid items-stretch gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
           {sortedPool.map(id => {
             const taken = !d.pool.includes(id);
-            const affordable = HS_CARDS[id].points <= myRemaining;
+            const affordable = (effectiveCardDef(id, cardEdition)?.points ?? 0) <= myRemaining;
             const clickable = myTurnToPick && !taken && affordable && !disabled;
             return (
               <DraftCard
                 key={id}
                 cardId={id}
+                edition={cardEdition}
                 taken={taken}
                 takenByLabel={taken ? state.players.find(p => p.seat === takenBy[id])?.username : undefined}
                 affordable={affordable}

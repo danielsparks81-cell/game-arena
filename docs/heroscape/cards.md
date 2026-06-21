@@ -9,11 +9,15 @@
 - This PDF is a **rebalanced modern printing**, NOT the classic 2004 Rise of the
   Valkyrie set. Known deviations from classic values:
   - **Marro Warriors** — 105 points / Range 6 (classic: 50 points / Range 8).
-  - **Raelin the Kyrie Warrior** — Range 1 / 120 points (classic: Range 4 / 80 points).
-  - **Izumi Samurai** — Attack 2 (classic: 3).
-  - **Renamed/retuned powers** — Raelin's "Extended Defensive Aura" (6 clear-sight
-    spaces, +1 defense die) vs the 2004 rulebook's worked example "Defensive Aura"
-    (4 spaces, +2 dice). Name, radius, and bonus all differ.
+  - **Raelin the Kyrie Warrior** — 125 points (classic: 80). Figure **Range is 1
+    in BOTH editions**: an earlier note here said "classic Range 4", but the
+    user-supplied RotV card (Index_3x5 …-ROTV.pdf) shows Range 1 — the "4" is her
+    aura's REACH, not a Range stat. Engine: HS_CARDS raelin 125, CLASSIC_OVERRIDES 80.
+  - **Izumi Samurai** — Attack 2. (A prior "classic Attack 3" claim here is
+    UNVERIFIED against a card, so it is NOT applied — Classic mode is points-only.)
+  - **Raelin's DEFENSIVE AURA (RotV card)** — within **4** clear-sight spaces,
+    **+2** defense dice, excludes Raelin. An earlier scan said "Extended Defensive
+    Aura" 6 / +1 (plus a bogus Whirlwind Assault) — both wrong, corrected to the card.
 - All six squads print as **UNIQUE SQUAD** in this edition (recorded as printed).
 - **POLICY: cards win for card content** (stats, power names, power text); **the
   rulebook wins for core rules** (turn structure, range counting, line of sight,
@@ -35,7 +39,7 @@
 | Thorgrim the Viking Champion | Jandar | Champion | Unique Hero | 1 | 4 | 5 | 1 | 3 | 4 | Medium 5 | 80 |
 | Airborne Elite | Jandar | Soldiers | Unique Squad | 4 | 1 | 4 | 8 | 3 | 2 | Medium 5 | 110 |
 | Sgt. Drake Alexander | Jandar | Soldier | Unique Hero | 1 | 5 | 5 | 1 | 6 | 3 | Medium 5 | 110 |
-| Raelin the Kyrie Warrior | Jandar | Warrior | Unique Hero | 1 | 5 | 6 | 1 | 3 | 3 | Medium 5 | 120 |
+| Raelin the Kyrie Warrior | Jandar | Warrior | Unique Hero | 1 | 5 | 6 | 1 | 3 | 3 | Medium 5 | 125 |
 | Zettian Guards | Utgar | Guards | Unique Squad | 2 | 1 | 4 | 7 | 2 | 7 | Medium 5 | 70 |
 | Ne-Gok-Sa | Utgar | Warlord | Unique Hero | 1 | 5 | 5 | 1 | 3 | 6 | Medium 5 | 90 |
 | Marro Warriors | Utgar | Warriors | Unique Squad | 4 | 1 | 6 | 6 | 2 | 3 | Medium 4 | 105 |
@@ -150,30 +154,22 @@ Grapple Gun, all engagement rules still apply.
 space, up to 25 levels higher; engagement rules — including
 leaving-engagement swipes — explicitly still apply.*
 
-#### Raelin the Kyrie Warrior — 120 points
+#### Raelin the Kyrie Warrior — 125 points (RotV card)
 
-Unique Hero · Warrior · Kyrie · Resolute · Valhalla · Medium 5
+Unique Hero · Warrior · Kyrie · Merciful · Valhalla · Medium 5
 Life 5 · Move 6 · Range 1 · Attack 3 · Defense 3
-*Range 1 is as printed (verified at high res — unambiguously a "1", not a "4").
-External-knowledge caveat from the extraction, NOT from the scan: official
-RotV/SotM printings list Raelin's Range as 4, so this PDF deviates here —
-recorded as printed.*
+*Authoritative source: the user-supplied RotV index card
+(Index_3x5_Raelin_The__Kyrie_Warrior-ROTV.pdf). Range is 1 (the "4" some notes
+cite is her aura's REACH, not a Range stat). Points 125; Classic edition = 80.*
 
-**WHIRLWIND ASSAULT** — Raelin may attack any or all figures adjacent to her.
-Roll each attack separately.
-*Permission "may". Targets: any or all ADJACENT figures — the card says
-"figures", not "enemy figures". Each attack is rolled separately.*
-
-**EXTENDED DEFENSIVE AURA** — All figures you control within 6 clear sight
-spaces of Raelin add 1 to their defense dice. Raelin's Extended Defensive Aura
-does not affect Raelin.
-*Scope: figures YOU CONTROL — not all friendly-player figures. Radius: 6 clear
-sight spaces. Bonus: +1 defense die. Explicit self-exclusion. Cross-check
-mismatch kept as recorded: the rulebook's worked examples describe a
-"Defensive Aura" of radius 4 clear-sight spaces granting +2 defense dice —
-name, radius, and bonus all differ; the card wins. The rulebook's
-clear-sight-spaces measurement rule (from the source figure's Target Point;
-any visible part of the figure counts) still applies.*
+**DEFENSIVE AURA** — All figures you control within 4 clear sight spaces of
+Raelin add 2 to their defense dice. Raelin's Defensive Aura does not affect Raelin.
+*Scope: figures YOU CONTROL. Radius: 4 clear sight spaces. Bonus: +2 defense
+dice. Explicit self-exclusion. (Supersedes an earlier scan that recorded an
+"Extended Defensive Aura" of 6 spaces / +1 die plus a Whirlwind Assault — both
+were from a different/incorrect card and have been removed.) The rulebook's
+clear-sight-spaces measurement (from the source figure's Target Point; any
+visible part of the figure counts) applies.*
 
 **FLYING** — When counting spaces for Raelin's movement, ignore elevations.
 Raelin may fly over water without stopping, pass over figures without becoming

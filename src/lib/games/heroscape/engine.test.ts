@@ -42,7 +42,7 @@ import {
 } from './engine';
 import { hexKey, offsetToAxial, rangeDistance, neighborKeys } from './board';
 import { MAPS, parseMap } from './maps';
-import { HS_CARDS, HS_DRAFT_POOL } from './content';
+import { HS_CARDS, HS_DRAFT_POOL, CLASSIC_OVERRIDES, effectiveCardDef } from './content';
 import type {
   CombatFace,
   HSGlyph,
@@ -1904,16 +1904,72 @@ describe('aura-active indicators (auraBuffedFigureIds)', () => {
     expect(b.has(THOR)).toBe(false);
   });
 
-  it('Raelin buffs a friendly within 6 clear-sight spaces, excluding herself', () => {
+  it('Raelin buffs a friendly within 4 clear-sight spaces, excluding herself', () => {
     let s = customBattle(['raelin', 'tarn_vikings'], ['finn'], 'p1');
     const RAEL = 's0-raelin-1';
     s = clearExcept(s, RAEL, TV(1), 's1-finn-1');
     s = place(s, RAEL, at(3, 3));
-    s = place(s, TV(1), at(3, 5)); // 2 spaces away, clear sight → buffed
+    s = place(s, TV(1), at(3, 5)); // 2 spaces away (≤4), clear sight → buffed
     s = place(s, 's1-finn-1', at(6, 7));
     const b = auraBuffedFigureIds(s);
     expect(b.has(TV(1))).toBe(true);
     expect(b.has(RAEL)).toBe(false);
+  });
+});
+
+// --- Raelin's DEFENSIVE AURA (RotV card: within 4 clear sight, +2 defense) ---
+
+describe('Raelin Defensive Aura (RotV card)', () => {
+  const TV = (n: number) => `s0-tarn_vikings-${n}`;
+  it('adds +2 defense dice to a friendly within 4 clear-sight spaces', () => {
+    let s = noGlyphs(customBattle(['raelin', 'tarn_vikings'], ['finn'], 'p1'));
+    const RAEL = 's0-raelin-1';
+    s = clearExcept(s, RAEL, TV(1), 's1-finn-1');
+    s = place(s, RAEL, at(3, 4));
+    s = place(s, TV(1), at(3, 5)); // 1 space from Raelin (≤4) → +2 defense
+    s = place(s, 's1-finn-1', at(3, 6)); // p2 attacker beside the Tarn
+    const eff = effectiveDefenseDice(s, fig(s, TV(1)), fig(s, 's1-finn-1'));
+    expect(eff.dice).toBe(6); // Tarn Defense 4 + 2 Raelin aura
+    expect(eff.breakdown).toContain('+2 Raelin aura');
+  });
+
+  it('does NOT reach a friendly beyond 4 spaces', () => {
+    let s = noGlyphs(customBattle(['raelin', 'tarn_vikings'], ['finn'], 'p1'));
+    const RAEL = 's0-raelin-1';
+    s = clearExcept(s, RAEL, TV(1), 's1-finn-1');
+    s = place(s, RAEL, at(0, 1));
+    s = place(s, TV(1), at(6, 8)); // opposite corner (>4) → no aura
+    s = place(s, 's1-finn-1', at(5, 8));
+    const eff = effectiveDefenseDice(s, fig(s, TV(1)), fig(s, 's1-finn-1'));
+    expect(eff.dice).toBe(4); // Tarn Defense 4, no aura
+    expect(eff.breakdown).not.toContain('+2 Raelin aura');
+  });
+});
+
+// --- Card editions (Classic vs Modern) --------------------------------------
+
+describe('card editions (Classic vs Modern)', () => {
+  it('effectiveCardDef folds Classic point overrides; Modern is the printed card', () => {
+    expect(effectiveCardDef('raelin', 'modern')!.points).toBe(125);
+    expect(effectiveCardDef('marro_warriors', 'modern')!.points).toBe(105);
+    expect(effectiveCardDef('raelin', 'classic')!.points).toBe(80);
+    expect(effectiveCardDef('marro_warriors', 'classic')!.points).toBe(50);
+    expect(effectiveCardDef('grimnak', 'classic')!.points).toBe(120);
+    expect(effectiveCardDef('major_q9', 'classic')!.points).toBe(180);
+    expect(effectiveCardDef('nilfheim', 'classic')!.points).toBe(185);
+  });
+
+  it('Classic is POINTS-ONLY — every other stat matches Modern', () => {
+    for (const id of Object.keys(CLASSIC_OVERRIDES)) {
+      const m = effectiveCardDef(id, 'modern')!;
+      const c = effectiveCardDef(id, 'classic')!;
+      expect({ ...c, points: m.points }).toEqual(m); // only points may differ
+    }
+  });
+
+  it('an absent edition defaults to Modern (back-compat for old saves)', () => {
+    expect(effectiveCardDef('raelin', undefined)!.points).toBe(125);
+    expect(effectiveCardDef('raelin', undefined)).toEqual(HS_CARDS.raelin);
   });
 });
 
@@ -3091,7 +3147,7 @@ describe('slice 5: full roster (16 base + 5 Big Heroes)', () => {
     expect(HS_CARDS.mimring).toMatchObject({ life: 5, attack: 4, defense: 3, height: 9, points: 150 });
     expect(HS_CARDS.grimnak).toMatchObject({ attack: 2, defense: 4, height: 11, points: 160 });
     expect(HS_CARDS.syvarris).toMatchObject({ range: 9, attack: 3, defense: 2, points: 100 });
-    expect(HS_CARDS.raelin).toMatchObject({ life: 5, move: 6, range: 1, defense: 3, points: 120 });
+    expect(HS_CARDS.raelin).toMatchObject({ life: 5, move: 6, range: 1, defense: 3, points: 125 }); // RotV card
     expect(HS_CARDS.izumi_samurai).toMatchObject({ figures: 3, attack: 2, defense: 5, points: 60 });
     expect(HS_CARDS.krav_maga).toMatchObject({ figures: 3, move: 6, range: 7, points: 100 });
     expect(HS_CARDS.ne_gok_sa).toMatchObject({ life: 5, defense: 6, points: 90 });
@@ -3291,10 +3347,10 @@ function customBattle(
 
 // ---- Raelin — EXTENDED DEFENSIVE AURA --------------------------------------
 
-describe('slice 6: Raelin Extended Defensive Aura', () => {
+describe('slice 6: Raelin Defensive Aura (RotV card)', () => {
   // p1: Raelin + Zettian Guards (a squad to receive the aura). p2: Marro (an
-  // enemy attacker). Raelin's aura is +1 defense to figures SHE controls within
-  // 6 clear spaces, excluding herself. Flat field → no height to muddy it.
+  // enemy attacker). Raelin's aura is +2 defense to figures SHE controls within
+  // 4 clear spaces, excluding herself. Flat field → no height to muddy it.
   const RAELIN = 's0-raelin-1';
   const ZG = (n: number) => `s0-zettian_guards-${n}`;
   const ENEMY = 's1-marro_warriors-1';
@@ -3307,23 +3363,21 @@ describe('slice 6: Raelin Extended Defensive Aura', () => {
     return s;
   }
 
-  it('a controlled figure within 6 clear spaces of Raelin gets +1 defense', () => {
+  it('a controlled figure within 4 clear spaces of Raelin gets +2 defense', () => {
     const s = aura();
     const eff = effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY));
-    expect(eff.dice).toBe(8); // Zettian Defense 7 + 1 Raelin aura
-    expect(eff.breakdown).toContain('+1 Raelin aura');
-    // Folds through requirements: an enemy attacking the Guard rolls 8 def dice.
-    expect(attackDiceRequirements(s, ENEMY, ZG(1))!.defense).toBe(8);
+    expect(eff.dice).toBe(9); // Zettian Defense 7 + 2 Raelin aura
+    expect(eff.breakdown).toContain('+2 Raelin aura');
+    // Folds through requirements: an enemy attacking the Guard rolls 9 def dice.
+    expect(attackDiceRequirements(s, ENEMY, ZG(1))!.defense).toBe(9);
   });
 
-  it('does NOT apply beyond 6 range-spaces', () => {
+  it('does NOT apply beyond 4 range-spaces', () => {
     let s = aura();
-    s = place(s, ZG(1), at(3, 1)); // (3,3)→(3,1) is 2; move Raelin far instead
-    s = place(s, RAELIN, at(3, 7)); // now Raelin↔Guard distance is 6? make it 7
-    // (3,7) to (3,1): straight column = 6 spaces. Push one more out of range.
-    s = place(s, ZG(1), at(3, 0)); // (3,7)→(3,0) = 7 spaces > 6
+    s = place(s, RAELIN, at(3, 7));
+    s = place(s, ZG(1), at(3, 1)); // (3,7)→(3,1) = 6 spaces > 4 → out of range
     expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(7); // no aura
-    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).breakdown).not.toContain('+1 Raelin aura');
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).breakdown).not.toContain('+2 Raelin aura');
   });
 
   it('is NOT broken by a figure between Raelin and the unit (figures do not block sight)', () => {
@@ -3336,18 +3390,18 @@ describe('slice 6: Raelin Extended Defensive Aura', () => {
     s = place(s, ZG(1), at(5, 3)); // 4 spaces away, in range
     s = place(s, ZG(2), at(3, 3)); // a friendly body dead-center on the line
     s = place(s, ENEMY, at(1, 6)); // attacker arg — off the Raelin↔Guard line
-    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(8); // aura reaches through the body
+    expect(effectiveDefenseDice(s, fig(s, ZG(1)), fig(s, ENEMY)).dice).toBe(9); // aura reaches through the body
   });
 
   it('does NOT affect Raelin herself', () => {
     const s = aura();
     // Raelin's own defense: printed 3, no self-aura.
     expect(effectiveDefenseDice(s, fig(s, RAELIN), fig(s, ENEMY)).dice).toBe(3);
-    expect(effectiveDefenseDice(s, fig(s, RAELIN), fig(s, ENEMY)).breakdown).not.toContain('+1 Raelin aura');
+    expect(effectiveDefenseDice(s, fig(s, RAELIN), fig(s, ENEMY)).breakdown).not.toContain('+2 Raelin aura');
   });
 
   it('only buffs figures the SAME player controls (not the enemy)', () => {
-    // The enemy Marro is within 6 clear spaces of p1's Raelin but is NOT
+    // The enemy Marro is within 4 clear spaces of p1's Raelin but is NOT
     // controlled by Raelin's owner → no aura.
     let s = aura();
     s = place(s, ENEMY, at(3, 4)); // right beside Raelin at (3,3), clear sight
@@ -3364,7 +3418,7 @@ describe('slice 6: Raelin Extended Defensive Aura', () => {
     // On The Knoll: a friendly Marro on the R4 summit (3,3) — adjacent to a
     // friendly Thorgrim AND in a friendly Raelin's aura — defended against an
     // enemy Finn on the lower R3 (2,3). Defense = printed 3 + Thorgrim 1 +
-    // Raelin 1 + height 1 = 6, all four lines in the breakdown.
+    // Raelin 2 + height 1 = 7, all four lines in the breakdown.
     let s = customBattle(['raelin', 'thorgrim', 'marro_warriors'], ['finn'], 'p1', 'the_knoll');
     const MARRO1 = 's0-marro_warriors-1';
     const THORG = 's0-thorgrim-1';
@@ -3373,14 +3427,14 @@ describe('slice 6: Raelin Extended Defensive Aura', () => {
     s = clearExcept(s, MARRO1, THORG, RA, FENEMY);
     s = place(s, MARRO1, at(3, 3)); // R4 summit — the beneficiary
     s = place(s, THORG, at(4, 3)); // R4, adjacent → +1 Thorgrim
-    s = place(s, RA, at(3, 2)); // adjacent → clear sight → +1 Raelin
+    s = place(s, RA, at(3, 2)); // adjacent → clear sight → +2 Raelin
     s = place(s, FENEMY, at(2, 3)); // R3, lower & adjacent → attacker, defender +1 height
     // Confirm the height geometry first.
     expect(heightAdvantage(s, fig(s, FENEMY), fig(s, MARRO1))).toEqual({ attacker: 0, defender: 1 });
     const eff = effectiveDefenseDice(s, fig(s, MARRO1), fig(s, FENEMY));
-    expect(eff.dice).toBe(6); // Marro Def 3 + Thorgrim 1 + Raelin 1 + height 1
+    expect(eff.dice).toBe(7); // Marro Def 3 + Thorgrim 1 + Raelin 2 + height 1
     expect(eff.breakdown).toEqual(
-      expect.arrayContaining(['Defense 3 printed', '+1 height', '+1 Thorgrim aura', '+1 Raelin aura']),
+      expect.arrayContaining(['Defense 3 printed', '+1 height', '+1 Thorgrim aura', '+2 Raelin aura']),
     );
   });
 });

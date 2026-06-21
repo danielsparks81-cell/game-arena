@@ -32,7 +32,45 @@
 // (cards.md §Roster summary): Tarn 4, Marro 4, Airborne Elite 4, Zettian 2,
 // Krav Maga 3, Izumi 3.
 
-import type { CombatFace, HSCardDef, HSGlyphId } from './types';
+import type { CombatFace, HSCardDef, HSEdition, HSGlyphId } from './types';
+
+// ============================================================================
+// Card editions — Classic (original 2004-era) vs Modern (the rebalanced printing
+// in HS_CARDS, the default). Only a handful of cards differ; each entry lists
+// ONLY the Classic value for the fields that change.
+//
+// SOURCE DISCIPLINE: these are POINTS-ONLY, taken straight from the user's
+// confirmed Classic-vs-Modern points table. We deliberately do NOT carry the
+// range / attack "reversions" docs/heroscape/cards.md once listed — reading the
+// real RotV Raelin card showed that doc had conflated her aura's reach (4) with
+// her figure Range (which is 1 in BOTH editions), so its stat claims are not
+// trustworthy without the actual card. When the user supplies a Classic card
+// that genuinely changes a stat line, add it here then.
+//
+// NOTE: the card ART (HybridCard scans) is the modern printing, so in Classic
+// mode the scanned image still shows modern numbers — only the points badge,
+// the draft budget, and combat stats (resolved through effectiveCardDef) become
+// Classic. Fixing the art itself would need classic card scans.
+export const CLASSIC_OVERRIDES: Record<string, Partial<HSCardDef>> = {
+  major_q9: { points: 180 },
+  nilfheim: { points: 185 },
+  raelin: { points: 80 },
+  marro_warriors: { points: 50 },
+  grimnak: { points: 120 },
+};
+
+/** The card definition for `cardId` under the active `edition`. Modern (or any
+ *  absent/unknown edition) returns the printed HS_CARDS entry unchanged; Classic
+ *  folds CLASSIC_OVERRIDES over it. Mirrors `HS_CARDS[cardId]` semantics —
+ *  returns undefined for an unknown id so existing `?.` call sites still work.
+ *  This is the SINGLE source the engine (combat + draft budget) and the UI both
+ *  read through, so the number shown can never disagree with the number enforced. */
+export function effectiveCardDef(cardId: string, edition?: HSEdition): HSCardDef | undefined {
+  const base = HS_CARDS[cardId];
+  if (!base || edition !== 'classic') return base;
+  const ov = CLASSIC_OVERRIDES[cardId];
+  return ov ? { ...base, ...ov } : base;
+}
 
 export const HS_CARDS: Record<string, HSCardDef> = {
   // ---- Jandar ----
@@ -140,11 +178,11 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     attack: 3,
     defense: 3,
     height: 5,
-    points: 120,
+    points: 125, // RotV card (Index_3x5 …-ROTV.pdf), verified vs the printed card
     letter: 'R',
     species: 'Kyrie',
     unitClass: 'Warrior',
-    power: 'live', // slice 6: Extended Defensive Aura; slice 7: Flying (Whirlwind → slice 8)
+    power: 'live', // DEFENSIVE AURA (within 4 clear sight, +2 def) + FLYING — per the RotV card
     flying: true, // slice 7: FLYING — ignore elevation/water/figures, no fall
   },
   // ---- Utgar ----
