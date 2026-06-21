@@ -1456,10 +1456,13 @@ export default function HeroScapeBoard({
   const canOrientNow =
     !!selected && !!me && selected.ownerSeat === me.seat && !disabled &&
     (canAct || (placement && !iPlacementReady));
-  const orientInfo = useMemo(
-    () => (canOrientNow && selected ? orientationOptions(state, selected.id) : null),
-    [canOrientNow, selected, state],
-  );
+  // Only DOUBLE-SPACE figures get the control — to FLIP (swing their trailing hex to the other
+  // side). A 1-hex figure's facing is purely cosmetic with no rule effect, so it has no control.
+  const orientInfo = useMemo(() => {
+    if (!canOrientNow || !selected) return null;
+    const o = orientationOptions(state, selected.id);
+    return o && o.baseSize === 2 ? o : null;
+  }, [canOrientNow, selected, state]);
   const rotateBlocked = !!orientInfo && orientInfo.baseSize === 2 && orientInfo.engagedBlocked && !placement;
   const rotateFig = useCallback(
     (delta: 1 | -1) => {
@@ -2847,9 +2850,7 @@ export default function HeroScapeBoard({
             during placement AND on your turn (orientInfo encodes that gate). */}
         {orientInfo && (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-sky-700 bg-neutral-900/70 px-3 py-2">
-            <span className="text-xs font-semibold text-sky-300">
-              {orientInfo.baseSize === 2 ? '⟳ Rotate figure' : '⟳ Facing'}
-            </span>
+            <span className="text-xs font-semibold text-sky-300">⟲ Flip figure</span>
             <div className="ml-auto flex items-center gap-1.5">
               <button
                 onClick={() => rotateFig(-1)}
