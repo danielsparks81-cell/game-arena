@@ -12,10 +12,10 @@
 // Coordinate model: pointy-top axial (q,r) → world (x,z); elevation → y. Board
 // recentered on the origin so camera/orbit target sit at (0,0,0).
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Billboard, Edges } from '@react-three/drei';
+import { OrbitControls, Billboard, Edges, Html } from '@react-three/drei';
 import { Suspense, useMemo, useState, useEffect, useRef } from 'react';
 import * as THREE from 'three';
-import { MAPS, HS_CARDS } from '@/lib/games/heroscape';
+import { MAPS, HS_CARDS, HS_GLYPHS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
 
@@ -28,6 +28,8 @@ const STANDEE_H = 1.9; // legacy height-stat scale, still used for 2-hex figures
 // shorter/taller minis vary naturally. One knob — raise/lower to scale the whole roster.
 const BASE_DISC_W = SIZE * 1.28;
 const DISC_H = 0.14; // thickness of the player-colour base disc that sits on the hex
+const GLYPH_RAISE = 0.16; // a glyph's whole hex sits slightly higher than its neighbours
+const GLYPH_MAROON = '#7f1d1d'; // glyph hex tint + rune colour (maroon)
 // BASE_CROP / BASE_CROP_BY_CARD now live in figureBase.ts (shared with the 2D gallery).
 
 const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
@@ -82,11 +84,12 @@ type Interact = {
  *  (the same call a click on that hex makes). The engine is unchanged. */
 /** One hexagonal-prism terrain tile + thin seam edges; tinted (emissive) when it
  *  is a highlighted move/place/Drop target. */
-function HexTile({ x, z, height, terrain, highlight, onClick }: {
-  x: number; z: number; height: number; terrain: string; highlight: { color: string; dim?: boolean } | null; onClick?: () => void;
+function HexTile({ x, z, height, terrain, highlight, glyph, onClick }: {
+  x: number; z: number; height: number; terrain: string; highlight: { color: string; dim?: boolean } | null; glyph?: boolean; onClick?: () => void;
 }) {
   const isWater = terrain === 'water';
-  const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1);
+  // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
+  const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1) + (glyph ? GLYPH_RAISE : 0);
   return (
     <mesh
       position={[x, h / 2, z]} castShadow receiveShadow
@@ -94,7 +97,7 @@ function HexTile({ x, z, height, terrain, highlight, onClick }: {
     >
       <cylinderGeometry args={[SIZE * 1.02, SIZE * 1.02, h, 6]} />
       <meshStandardMaterial
-        color={TERRAIN_COLOR[terrain] ?? '#666'}
+        color={glyph ? GLYPH_MAROON : (TERRAIN_COLOR[terrain] ?? '#666')}
         emissive={highlight?.color ?? '#000000'}
         emissiveIntensity={highlight ? (highlight.dim ? 0.2 : 0.55) : 0}
         roughness={isWater ? 0.2 : 0.9}
@@ -384,20 +387,37 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   );
 }
 
-/** A power GLYPH on the board — a glowing gold rune-ring lying flat on the hex
- *  top (under any figure standing on it), so glyphs read clearly in 3D the way
- *  they do on the 2D board. */
-function GlyphMarker({ x, z, topY }: { x: number; z: number; topY: number }) {
+/** A power GLYPH on the board — a MAROON rune-disc lying flat on its (raised) hex top. It glows
+ *  brighter once ACTIVATED (a figure is standing on it), and its ring is wide enough to show
+ *  AROUND that figure. Hovering it pops a tooltip with the glyph's name + what it does. */
+function GlyphMarker({ x, z, topY, active, name, effect }: {
+  x: number; z: number; topY: number; active: boolean; name: string; effect: string;
+}) {
+  const [hover, setHover] = useState(false);
   return (
-    <group position={[x, topY + 0.03, z]} rotation={[-Math.PI / 2, 0, 0]}>
-      <mesh>
-        <ringGeometry args={[SIZE * 0.3, SIZE * 0.62, 28]} />
-        <meshStandardMaterial color="#fcd34d" emissive="#f59e0b" emissiveIntensity={0.9} side={THREE.DoubleSide} transparent opacity={0.92} metalness={0.3} roughness={0.4} />
+    <group
+      position={[x, topY + 0.04, z]}
+      onPointerOver={e => { e.stopPropagation(); setHover(true); }}
+      onPointerOut={e => { e.stopPropagation(); setHover(false); }}
+    >
+      {/* Wide rune ring — its outer edge rings AROUND a standing figure's disc, so an active
+          glyph stays visible. Brighter emissive when a figure controls it. */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[SIZE * 0.5, SIZE * 0.84, 28]} />
+        <meshStandardMaterial color={GLYPH_MAROON} emissive="#b91c1c" emissiveIntensity={active ? 1.15 : 0.5} side={THREE.DoubleSide} transparent opacity={0.95} metalness={0.3} roughness={0.4} />
       </mesh>
-      <mesh position={[0, 0, -0.01]}>
-        <circleGeometry args={[SIZE * 0.3, 28]} />
-        <meshStandardMaterial color="#1c1407" emissive="#a16207" emissiveIntensity={0.35} side={THREE.DoubleSide} transparent opacity={0.6} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
+        <circleGeometry args={[SIZE * 0.5, 28]} />
+        <meshStandardMaterial color="#3b0a0a" emissive={GLYPH_MAROON} emissiveIntensity={active ? 0.6 : 0.25} side={THREE.DoubleSide} transparent opacity={0.85} />
       </mesh>
+      {hover && (
+        <Html center position={[0, 0.55, 0]} style={{ pointerEvents: 'none' }}>
+          <div style={{ width: 172, borderRadius: 8, border: '1px solid #b91c1c', background: 'rgba(24,10,10,0.96)', padding: '6px 9px', color: '#fecaca', fontSize: 11, lineHeight: 1.35, textAlign: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.55)' }}>
+            <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>{name}{active ? ' · active' : ''}</div>
+            <div>{effect}</div>
+          </div>
+        </Html>
+      )}
     </group>
   );
 }
@@ -405,6 +425,8 @@ function GlyphMarker({ x, z, topY }: { x: number; z: number; topY: number }) {
 function Scene({ state, it }: { state: HSState; it: Interact }) {
   const map = MAPS[state.mapId];
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
+  // Hexes that hold a glyph — their tiles render raised + maroon, and figures on them sit higher.
+  const glyphSet = useMemo(() => new Set((state.glyphs ?? []).map(g => g.at)), [state.glyphs]);
   const [cx, cz] = useMemo(() => {
     if (!cells.length) return [0, 0];
     let sx = 0, sz = 0;
@@ -454,6 +476,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           <HexTile
             key={key} x={x} z={z} height={c.height} terrain={c.terrain}
             highlight={tileHighlight(key)}
+            glyph={glyphSet.has(key)}
             onClick={it.onHexClick ? () => it.onHexClick!(key) : undefined}
           />
         );
@@ -463,15 +486,17 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const gc = map?.cells[g.at];
         if (!gc) return null;
         const [gx, gz] = worldXZ(...parseQR(g.at));
-        const gTop = Math.max(0.2, gc.height * LEVEL) * (gc.terrain === 'water' ? 0.6 : 1);
-        return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} />;
+        const gTop = Math.max(0.2, gc.height * LEVEL) * (gc.terrain === 'water' ? 0.6 : 1) + GLYPH_RAISE;
+        const active = state.figures.some(f => f.at === g.at); // a figure stands on it → activated
+        const def = HS_GLYPHS[g.id];
+        return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} name={def?.name ?? 'Glyph'} effect={def?.effect ?? ''} />;
       })}
       <Suspense fallback={null}>
         {state.figures.filter(f => f.at != null).map(f => {
           const lead = worldXZ(...parseQR(f.at!));
           const trail = f.at2 ? worldXZ(...parseQR(f.at2)) : null;
           const cell = map?.cells[f.at!];
-          const topY = Math.max(0.2, (cell?.height ?? 1) * LEVEL) * (cell?.terrain === 'water' ? 0.6 : 1);
+          const topY = Math.max(0.2, (cell?.height ?? 1) * LEVEL) * (cell?.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(f.at!) ? GLYPH_RAISE : 0);
           const cardId = cardOf(f.cardUid);
           if (!cardId) return null;
           return (
