@@ -1277,6 +1277,12 @@ export default function HeroScapeBoard({
       if (la.attackRoll.length > 0 || la.defenseRoll.length > 0 || (la.defenseGroups?.length ?? 0) > 0) setRollAttack(la);
     }
   }, [state.lastAttack]);
+  // Broadcast whether the dramatic dice-roll overlay is on screen, so the room shell can hold the
+  // "Rematch?" prompt back until the FINAL (game-winning) roll has fully played out (no spoiler).
+  // Pure UI signal; harmless when nothing is listening.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('hs:dice-overlay', { detail: { active: rollAttack != null } }));
+  }, [rollAttack]);
   useEffect(() => {
     const lr = state.lastRoll;
     if (!lr) return;

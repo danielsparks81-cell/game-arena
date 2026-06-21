@@ -202,12 +202,26 @@ export default function RoomClient({
   // promptly — there's no animation to wait for.)
   const [showRematch, setShowRematch] = useState(finished);
   const wasFinishedOnMount = useRef(finished);
+  // The HeroScape board broadcasts while its dice-roll overlay is on screen; hold the prompt
+  // until the final (game-winning) roll has finished playing instead of spoiling it mid-roll.
+  const [diceBusy, setDiceBusy] = useState(false);
+  const sawOverlayRef = useRef(false);
   useEffect(() => {
-    if (!finished) { setShowRematch(false); return; }
+    const onDice = (e: Event) => setDiceBusy(!!(e as CustomEvent).detail?.active);
+    window.addEventListener('hs:dice-overlay', onDice);
+    return () => window.removeEventListener('hs:dice-overlay', onDice);
+  }, []);
+  useEffect(() => { if (diceBusy) sawOverlayRef.current = true; }, [diceBusy]);
+  useEffect(() => {
+    if (!finished) { setShowRematch(false); sawOverlayRef.current = false; return; }
     if (wasFinishedOnMount.current) { setShowRematch(true); return; }
-    const t = setTimeout(() => setShowRematch(true), 2800);
+    if (diceBusy) { setShowRematch(false); return; } // a final dice-roll overlay is still playing
+    // Show just after the winning roll's overlay ends; with no overlay (other games / a non-attack
+    // finish) keep the original grace period so their own end animations aren't spoiled.
+    const delay = sawOverlayRef.current ? 700 : 2800;
+    const t = setTimeout(() => setShowRematch(true), delay);
     return () => clearTimeout(t);
-  }, [finished]);
+  }, [finished, diceBusy]);
 
   // Ping the player when the turn cycles back to them (and the tab is in the
   // background). No-op if they haven't granted browser-notification permission.
