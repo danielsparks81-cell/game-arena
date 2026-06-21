@@ -130,10 +130,10 @@ describe('Big-Hero powers — board UI panel', () => {
     const { s, hero, ring } = stage('braxas');
     put(s, 's1-marro_warriors-1', ring[0]); // small/medium in range
     const cb = spies();
-    renderBoard(s, cb);
-    expect(screen.getByRole('button', { name: /Breathe/ })).toBeTruthy(); // panel rendered
-    // toggle the target (its button label is the figure name), then Breathe
-    fireEvent.click(screen.getByRole('button', { name: /Marro Warrior/ }));
+    const { container } = renderBoard(s, cb);
+    // Board-click: arm Acid Breath, tap the target on the board, then Breathe.
+    fireEvent.click(screen.getByRole('button', { name: 'aim →' }));
+    fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!);
     fireEvent.click(screen.getByRole('button', { name: /Breathe/ }));
     expect(cb.onAcidBreath).toHaveBeenCalledWith(hero, ['s1-marro_warriors-1']);
   });

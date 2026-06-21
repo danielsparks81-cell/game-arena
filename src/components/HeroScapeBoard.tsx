@@ -1169,6 +1169,7 @@ export default function HeroScapeBoard({
     | { kind: 'ice' }
     | { kind: 'queglix'; dice: 1 | 2 | 3 }
     | { kind: 'wild'; target?: string }
+    | { kind: 'acid'; picks: string[] }
     | null
   >(null);
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
@@ -1621,7 +1622,9 @@ export default function HeroScapeBoard({
       : new Set<string>()),
     [bhAim, bhHeroId, state],
   );
-  const splashIds = useMemo(() => new Set([...grenadeSplashIds, ...wildSplashIds]), [grenadeSplashIds, wildSplashIds]);
+  // Acid Breath picks also wear the orange "will be hit" ring while aiming.
+  const acidPickIds = useMemo(() => (bhAim?.kind === 'acid' ? new Set(bhAim.picks) : new Set<string>()), [bhAim]);
+  const splashIds = useMemo(() => new Set([...grenadeSplashIds, ...wildSplashIds, ...acidPickIds]), [grenadeSplashIds, wildSplashIds, acidPickIds]);
 
   // Tap a power on the "Now acting" card → reveal + briefly flash its controls in
   // the Special Power panel below (where the activation entry point lives).
@@ -2000,6 +2003,13 @@ export default function HeroScapeBoard({
         else if (bhAim.kind === 'wild' && wildList.includes(occ.id)) {
           if (bhAim.target === occ.id) { onWildSwing(bhHeroId, occ.id); setBhAim(null); }
           else setBhAim({ kind: 'wild', target: occ.id });
+        }
+        else if (bhAim.kind === 'acid' && acidList.includes(occ.id)) {
+          // Toggle up to 3 small/medium figures (any owner) for the breath; confirm via "Breathe".
+          const picks = bhAim.picks.includes(occ.id)
+            ? bhAim.picks.filter(x => x !== occ.id)
+            : bhAim.picks.length < 3 ? [...bhAim.picks, occ.id] : bhAim.picks;
+          setBhAim({ kind: 'acid', picks });
         }
       }
       return;
@@ -3042,20 +3052,21 @@ export default function HeroScapeBoard({
                   )}
                 </div>
               )}
-              {/* Braxas — Poisonous Acid Breath (up to 3 small/medium) */}
-              {acidList.length > 0 && bhHeroId && (() => {
-                const picks = (bh.acid ?? []).filter(id => acidList.includes(id));
-                const toggle = (id: string) => patchBh({ acid: picks.includes(id) ? picks.filter(x => x !== id) : picks.length < 3 ? [...picks, id] : picks });
-                return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-lime-300">☣ Acid Breath (pick ≤3):</span>
-                    {acidList.map(id => (
-                      <button key={id} onClick={() => toggle(id)} className={'rounded border px-2 py-0.5 ' + (picks.includes(id) ? 'border-lime-400 bg-lime-900/50 text-lime-100' : 'border-neutral-700 text-neutral-300 hover:bg-neutral-800')}>{figName(id)}</button>
-                    ))}
-                    <button disabled={picks.length === 0} onClick={() => { onAcidBreath(bhHeroId, picks); patchBh({ acid: [] }); }} className="rounded border border-lime-600 px-2 py-0.5 font-semibold text-lime-300 hover:bg-lime-900/40 disabled:opacity-40">Breathe ({picks.length})</button>
-                  </div>
-                );
-              })()}
+              {/* Braxas — Poisonous Acid Breath (≤3 small/medium) — aim, tap up to 3 on the board */}
+              {acidList.length > 0 && bhHeroId && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-lime-300">☣ Acid Breath (pick ≤3):</span>
+                  {bhAim?.kind === 'acid' ? (
+                    <>
+                      <span className="text-[11px] text-orange-200">{bhAim.picks.length}/3 picked — tap figures (orange)</span>
+                      <button disabled={bhAim.picks.length === 0} onClick={() => { onAcidBreath(bhHeroId, bhAim.picks); setBhAim(null); }} className="rounded border border-lime-600 px-2 py-0.5 font-semibold text-lime-300 hover:bg-lime-900/40 disabled:opacity-40">☣ Breathe ({bhAim.picks.length})</button>
+                      <button onClick={() => setBhAim(null)} className="rounded border border-neutral-600 px-2 py-0.5 text-neutral-300 hover:bg-neutral-800">Cancel</button>
+                    </>
+                  ) : (
+                    <button onClick={() => setBhAim({ kind: 'acid', picks: [] })} className="rounded border border-lime-600 px-2 py-0.5 font-semibold text-lime-300 hover:bg-lime-900/40">aim →</button>
+                  )}
+                </div>
+              )}
               {/* Jotun — Throw 14 (reposition + damage) */}
               {throwList.length > 0 && bhHeroId && (() => {
                 const tgt = bh.throwTgt && throwList.includes(bh.throwTgt) ? bh.throwTgt : throwList[0];
