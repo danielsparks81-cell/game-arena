@@ -1642,6 +1642,28 @@ describe('step-by-step movement (move_step)', () => {
     expect(switched.stepMove?.figureId).toBe(TV(2));
   });
 
+  it('figures move ONE AT A TIME in any order: starting the next declares the previous done, and there is no going back', () => {
+    let s = walker();
+    // ANY ORDER — move the second figure first.
+    const b1 = [...legalStepHexes(s, TV(2))][0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(2), to: b1 }));
+    expect(s.stepMove?.figureId).toBe(TV(2));
+    expect(s.movedFigureIds).not.toContain(TV(2)); // mid-walk, not yet locked
+    // Starting a DIFFERENT figure DECLARES the first one done.
+    const a1 = [...legalStepHexes(s, TV(1))][0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: a1 }));
+    expect(s.movedFigureIds).toContain(TV(2)); // the first figure is now locked
+    expect(s.stepMove?.figureId).toBe(TV(1));   // the second is the active walk
+    // NO GOING BACK to the locked figure: the board offers it nothing, the engine refuses.
+    expect(legalStepHexes(s, TV(2)).size).toBe(0);
+    const a2 = [...legalStepHexes(s, TV(1))][0];
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(2), to: a2 })))
+      .toMatch(/already moved/);
+    // The active figure keeps stepping freely (one at a time).
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: a2 }));
+    expect(fig(s, TV(1)).at).toBe(a2);
+  });
+
   it('undo_move rewinds the entire multi-step walk', () => {
     let s = walker();
     const start = at(3, 3);
