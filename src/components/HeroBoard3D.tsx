@@ -534,19 +534,35 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
   // Tap-to-step movement: a tap on a figure selects it (its legal single steps light up green),
   // and a tap on a highlighted neighbour walks it there one hex — all routed through `it.onHexClick`,
   // the same handler a tile/standee click uses, so the engine stays the single source of truth.
+  // Frame the camera to the ACTUAL map size. The board is recentred on the origin, so its radius
+  // (centroid → farthest hex) drives the start distance, how far you can zoom out, and the shadow
+  // frustum — small maps stay as before; the big Star Field starts framed and can pull way back.
+  const fit = useMemo(() => {
+    const map = MAPS[state.mapId];
+    const cells = map ? Object.values(map.cells) : [];
+    if (!cells.length) return { dist: 20.6, max: 40, shadow: 20 };
+    let sx = 0, sz = 0;
+    for (const c of cells) { const [x, z] = worldXZ(c.q, c.r); sx += x; sz += z; }
+    const cx = sx / cells.length, cz = sz / cells.length;
+    let R = 0;
+    for (const c of cells) { const [x, z] = worldXZ(c.q, c.r); R = Math.max(R, Math.hypot(x - cx, z - cz)); }
+    const dist = Math.min(160, Math.max(18, R * 2.5));
+    return { dist, max: Math.max(40, dist * 1.8), shadow: Math.max(20, R + 6) };
+  }, [state.mapId]);
+  const camPos: [number, number, number] = [0, fit.dist * 0.63, fit.dist * 0.776];
   return (
     <div className={`h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
-      <Canvas shadows camera={{ position: [0, 13, 16], fov: 45 }} dpr={[1, 2]}>
+      <Canvas shadows camera={{ position: camPos, fov: 45 }} dpr={[1, 2]}>
         <hemisphereLight args={['#cfe3ff', '#3a3320', 0.7]} />
         <ambientLight intensity={0.25} />
         <directionalLight
           position={[8, 16, 6]} intensity={1.5} castShadow
           shadow-mapSize={[2048, 2048]}
-          shadow-camera-left={-20} shadow-camera-right={20} shadow-camera-top={20} shadow-camera-bottom={-20}
+          shadow-camera-left={-fit.shadow} shadow-camera-right={fit.shadow} shadow-camera-top={fit.shadow} shadow-camera-bottom={-fit.shadow}
           shadow-bias={-0.0004}
         />
         <Scene state={state} it={it} />
-        <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={40} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0]} />
+        <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={fit.max} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0]} />
       </Canvas>
     </div>
   );
