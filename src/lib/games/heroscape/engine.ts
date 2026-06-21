@@ -133,7 +133,7 @@ function seatIsAlive(state: HSState, seat: number): boolean {
  *  goes on (its team-mates fight on), and an eliminated seat neither places
  *  order markers nor rolls initiative nor takes turns. In a 1-v-1 a wipe ends
  *  the game, so living seats always equals all seats — unchanged. */
-function livingSeats(state: HSState): number[] {
+export function livingSeats(state: HSState): number[] {
   return state.players.map(p => p.seat).filter(seat => seatIsAlive(state, seat));
 }
 
@@ -274,6 +274,37 @@ export function removePlayer(state: HSState, playerId: string): HSState {
   return { ...state, players: state.players.filter(p => p.playerId !== playerId) };
 }
 
+/** Thematic AI names — the HeroScape generals, assigned in add order. */
+const BOT_NAMES = ['Utgar', 'Jandar', 'Vydar', 'Ullar', 'Einar', 'Aquilla'];
+
+/** Add an AI opponent to the lowest empty seat (lobby only). Synthetic playerId
+ *  "bot-<seat>"; the server drives its draft / placement / turns via ai_step.
+ *  Optional `team` assigns it to a side (so you can ally WITH a bot). */
+function doAddBot(state: HSState, team?: number): HSResult {
+  if (state.phase !== 'lobby') return { error: 'AI opponents can only be added in the lobby' };
+  if (state.players.length >= MAX_SEATS) return { error: `HeroScape seats at most ${MAX_SEATS} players` };
+  const used = new Set(state.players.map(p => p.seat));
+  let seat = 0;
+  while (used.has(seat)) seat += 1;
+  const botCount = state.players.filter(p => p.bot).length;
+  const player = {
+    seat,
+    playerId: `bot-${seat}`,
+    username: `${BOT_NAMES[botCount % BOT_NAMES.length]} (AI)`,
+    bot: true,
+    ...(team !== undefined ? { team } : {}),
+  };
+  const players = [...state.players, player].sort((a, b) => a.seat - b.seat);
+  return { ...state, players };
+}
+
+function doRemoveBot(state: HSState, seat: number): HSResult {
+  if (state.phase !== 'lobby') return { error: 'AI opponents can only be removed in the lobby' };
+  const p = state.players.find(x => x.seat === seat);
+  if (!p?.bot) return { error: 'That seat is not an AI' };
+  return { ...state, players: state.players.filter(x => x.seat !== seat) };
+}
+
 // ============================================================================
 // Apply action
 // ============================================================================
@@ -300,6 +331,8 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       action.teamBudgets,
     );
   }
+  if (action.kind === 'add_bot') return doAddBot(state, action.team);
+  if (action.kind === 'remove_bot') return doRemoveBot(state, action.seat);
   if (state.phase === 'lobby') return { error: 'The battle has not started yet' };
   if (state.phase === 'finished') return { error: 'The battle is over' };
   const me = state.players.find(p => p.playerId === playerId)!;
@@ -4906,6 +4939,255 @@ function doEndTurn(state: HSState, seat: number): HSResult {
 // ============================================================================
 // Registry contract
 // ============================================================================
+
+// ============================================================================
+// AI OPPONENT (deterministic). `aiNextAction` returns the next INTENT for a bot
+// `seat` given the phase; the SERVER (ai_step) rolls any dice and applies it,
+// exactly like a human action. Pure — no Math.random — so it is reproducible
+// and testable. Never throws; returns null when the seat has nothing to do (the
+// driver then advances / ends the turn). A first FUNCTIONAL pass: draft a strong
+// army, deploy, then advance on the enemy and attack the best target. Special
+// powers / fancier strategy come later — it only takes normal moves + attacks.
+// ============================================================================
+
+/** Living enemy figures of `seat` (a different team) that are on the board. */
+function aiEnemies(state: HSState, seat: number): Figure[] {
+  const myTeam = teamOfSeat(state, seat);
+  return state.figures.filter(f => f.at != null && figureAlive(f) && teamOfSeat(state, f.ownerSeat) !== myTeam);
+}
+
+/** Path distance from `from` to the nearest enemy (Infinity if none/unreachable). */
+function aiNearestEnemyDist(state: HSState, from: HexKey, enemies: Figure[]): number {
+  const cells = MAPS[state.mapId]?.cells;
+  if (!cells) return Infinity;
+  let best = Infinity;
+  for (const e of enemies) {
+    const d = rangeDistance(cells, from, e.at!);
+    if (d != null && d < best) best = d;
+  }
+  return best;
+}
+
+/** Rough value of an attack: expected unblocked skulls (half the attack dice
+ *  minus half the defence dice), with a bonus for a likely kill and the target's
+ *  point value. -Infinity if the attack is illegal. */
+function aiAttackScore(state: HSState, attacker: Figure, target: Figure): number {
+  const req = attackDiceRequirements(state, attacker.id, target.id);
+  if (!req) return -Infinity;
+  const expDmg = Math.max(0, req.attack * 0.5 - req.defense * 0.5);
+  const tdef = cardDefFor(state, target);
+  const remainingLife = tdef.life - (target.wounds ?? 0);
+  const killBonus = expDmg >= remainingLife ? 5 : 0;
+  return expDmg * 2 + killBonus + tdef.points / 100;
+}
+
+function aiDraft(state: HSState, seat: number): HSAction {
+  const d = state.draft!;
+  const ptsOf = (id: string) => effectiveCardDef(id, state.edition)?.points ?? 0;
+  const remaining = teamRemainingInDraft(state, seat);
+  // Skip Airborne Elite — the v1 AI can't run The Drop, so its figures would sit
+  // unused in reserve. Only fall back to it if nothing else is affordable.
+  let affordable = d.pool.filter(id => id !== 'airborne_elite' && ptsOf(id) <= remaining);
+  if (affordable.length === 0) affordable = d.pool.filter(id => ptsOf(id) <= remaining);
+  if (affordable.length === 0) return { kind: 'draft_pass' };
+  const poolPts = d.pool.map(ptsOf).filter(p => p > 0);
+  const cheapest = poolPts.length ? Math.min(...poolPts) : 0;
+  const sorted = [...affordable].sort((a, b) => ptsOf(b) - ptsOf(a));
+  // Greedy toward a strong army (priciest affordable), but for the first two picks
+  // leave room for at least one more unit so the army isn't a single model.
+  let pick = sorted[0];
+  if ((d.armies[seat] ?? []).length < 2) {
+    const leavesRoom = sorted.find(id => remaining - ptsOf(id) >= cheapest);
+    if (leavesRoom) pick = leavesRoom;
+  }
+  return { kind: 'draft_card', cardId: pick };
+}
+
+function aiPlace(state: HSState, seat: number): HSAction {
+  const hand = state.hand?.[seat] ?? [];
+  const free = [...placeableHexes(state, seat)];
+  if (hand.length === 0 || free.length === 0) return { kind: 'placement_ready' };
+  // placeableHexes only returns leads with a valid tail, so this works for 1- and
+  // 2-hex figures alike (the engine fills the trailing hex).
+  return { kind: 'place_figure', figureId: hand[0], to: free[0] };
+}
+
+function aiPlaceMarkers(state: HSState, seat: number): HSAction {
+  // Put 1/2/3 on the strongest living cards (by points); X (decoy) on the best.
+  // "Living" counts any non-destroyed figure (incl. reserve), so a card whose
+  // figures aren't on the board yet can still hold a marker. Fall back to all of
+  // the seat's cards so we never index into an empty list.
+  const live = state.cards.filter(c =>
+    c.ownerSeat === seat && state.figures.some(f => f.cardUid === c.uid && figureAlive(f)));
+  const mine = live.length ? live : state.cards.filter(c => c.ownerSeat === seat);
+  const ranked = [...mine].sort((a, b) =>
+    (effectiveCardDef(b.cardId, state.edition)?.points ?? 0) - (effectiveCardDef(a.cardId, state.edition)?.points ?? 0));
+  const at = (i: number) => (ranked[i] ?? ranked[ranked.length - 1] ?? mine[0]).uid;
+  return {
+    kind: 'place_markers',
+    assignments: [
+      { marker: '1', cardUid: at(0) },
+      { marker: '2', cardUid: at(1) },
+      { marker: '3', cardUid: at(2) },
+      { marker: 'X', cardUid: at(0) },
+    ],
+  };
+}
+
+function aiResolveChoice(state: HSState, seat: number): HSAction | null {
+  const pc = state.pendingChoice;
+  if (!pc || pc.seat !== seat) return null;
+  if (pc.kind === 'spirit_placement') {
+    const ptsOfUid = (uid: string) =>
+      effectiveCardDef(state.cards.find(c => c.uid === uid)?.cardId ?? '', state.edition)?.points ?? 0;
+    const mine = pc.options.filter(uid => state.cards.find(c => c.uid === uid)?.ownerSeat === seat);
+    const pool = mine.length ? mine : pc.options;
+    const best = pool.reduce((b, uid) => (ptsOfUid(uid) > ptsOfUid(b) ? uid : b), pool[0]);
+    return { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: best } };
+  }
+  if (pc.kind === 'berserker_charge') {
+    return { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: false } }; // decline the bonus move (v1)
+  }
+  if (pc.kind === 'water_clone_place') {
+    const hex = pc.placements[0]?.options[0];
+    if (hex) return { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex } };
+  }
+  // grenade_throw / airborne_drop only arise from powers the v1 AI doesn't initiate.
+  return null;
+}
+
+function aiTurn(state: HSState, seat: number): HSAction {
+  // Only the card holding the current turn's order marker may act.
+  const active = state.cards.find(c =>
+    c.ownerSeat === seat && c.orderMarkers.some(m => m.marker === String(state.turnNumber)));
+  if (!active) return { kind: 'end_turn' };
+  const myFigs = state.figures.filter(f => f.cardUid === active.uid && f.at != null && figureAlive(f));
+  const enemies = aiEnemies(state, seat);
+  if (myFigs.length === 0 || enemies.length === 0) return { kind: 'end_turn' };
+
+  // legalTargets enforces range / line-of-sight / adjacency, but it also includes
+  // ALLIES (friendly fire is legal in the rules) — filter to the other team so the
+  // bot never shoots its own side.
+  const enemyIds = new Set(enemies.map(e => e.id));
+  const enemyTargets = (f: Figure) => legalTargets(state, f.id).filter(id => enemyIds.has(id));
+
+  // ATTACK PHASE (after End Move): take the single best legal attack, else end.
+  if (state.movementEnded) {
+    let best: { attackerId: string; targetId: string; score: number } | null = null;
+    for (const f of myFigs) {
+      for (const tid of enemyTargets(f)) {
+        const target = state.figures.find(x => x.id === tid);
+        if (!target) continue;
+        const score = aiAttackScore(state, f, target);
+        if (!best || score > best.score) best = { attackerId: f.id, targetId: tid, score };
+      }
+    }
+    if (best) return { kind: 'attack', attackerId: best.attackerId, targetId: best.targetId, attackRoll: [], defenseRoll: [] };
+    return { kind: 'end_turn' };
+  }
+
+  // MOVE PHASE: advance each out-of-range figure toward the nearest enemy, ONE at a
+  // time to completion, then end the move. A figure already in range stays put to
+  // attack. We only step onto EMPTY hexes (skip Ghost Walk's pass-through onto
+  // occupied spaces) so a figure always rests on a free hex — switching figures or
+  // ending the move finalizes the prior one, which the engine requires to be empty.
+  const occupied = new Set<HexKey>();
+  for (const f of state.figures) { if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
+  const wantsMove = (f: Figure) => enemyTargets(f).length === 0;
+  const bestStepFor = (f: Figure): { to: HexKey; gain: number } | null => {
+    const cur = aiNearestEnemyDist(state, f.at!, enemies);
+    let best: { to: HexKey; gain: number } | null = null;
+    for (const to of legalStepHexes(state, f.id)) {
+      if (occupied.has(to)) continue;
+      const gain = cur - aiNearestEnemyDist(state, to, enemies);
+      if (gain > 0 && (!best || gain > best.gain)) best = { to, gain };
+    }
+    return best;
+  };
+  // Finish the in-progress figure's walk before switching to another.
+  const movingFig = state.stepMove ? myFigs.find(f => f.id === state.stepMove!.figureId) : null;
+  if (movingFig && wantsMove(movingFig)) {
+    const step = bestStepFor(movingFig);
+    if (step) return { kind: 'move_step', figureId: movingFig.id, to: step.to };
+  }
+  let bestMove: { figureId: string; to: HexKey; gain: number } | null = null;
+  for (const f of myFigs) {
+    if (!wantsMove(f)) continue;
+    const step = bestStepFor(f);
+    if (step && (!bestMove || step.gain > bestMove.gain)) bestMove = { figureId: f.id, to: step.to, gain: step.gain };
+  }
+  if (bestMove) return { kind: 'move_step', figureId: bestMove.figureId, to: bestMove.to };
+  return { kind: 'end_move' };
+}
+
+/** Turn an AI INTENT into the full engine action, rolling any dice it needs via
+ *  the injected `rollers` (so the engine itself stays RNG-free). Mirrors the
+ *  server's human attack / move_step dice seam; every other intent passes through
+ *  unchanged. Used by both the server's ai_step and the AI simulation test. */
+export function aiEngineAction(
+  state: HSState,
+  intent: HSAction,
+  rollers: { rollDie: () => CombatFace; rollDice: (n: number) => CombatFace[]; d20: () => number },
+): HSAction {
+  if (intent.kind === 'attack') {
+    const req = attackDiceRequirements(state, intent.attackerId, intent.targetId);
+    return {
+      kind: 'attack',
+      attackerId: intent.attackerId,
+      targetId: intent.targetId,
+      attackRoll: rollers.rollDice(req?.attack ?? 0),
+      defenseRoll: rollers.rollDice(req?.defense ?? 0),
+    };
+  }
+  if (intent.kind === 'move_step') {
+    const cons = stepConsequences(state, intent.figureId, intent.to);
+    const c = 'error' in cons ? { tier: 'none' as const, fallDice: 0, leavingEnemyIds: [] as string[] } : cons;
+    return {
+      kind: 'move_step',
+      figureId: intent.figureId,
+      to: intent.to,
+      ...(c.tier === 'extreme' ? { extremeFallD20: rollers.d20() } : c.fallDice > 0 ? { fallRoll: rollers.rollDice(c.fallDice) } : {}),
+      ...(c.leavingEnemyIds.length > 0
+        ? { leaveRolls: c.leavingEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollers.rollDie() })) }
+        : {}),
+    };
+  }
+  return intent;
+}
+
+/** A BOT seat that currently owes an action (drives the server ai_step loop), or
+ *  null when every pending action belongs to a human. */
+export function aiPendingSeat(state: HSState): number | null {
+  const isBot = (seat: number) => state.players.find(p => p.seat === seat)?.bot === true;
+  if (state.pendingChoice && isBot(state.pendingChoice.seat)) return state.pendingChoice.seat;
+  if (state.phase === 'draft') {
+    const ts = state.draft?.turnSeat;
+    return ts != null && isBot(ts) ? ts : null;
+  }
+  if (state.phase === 'placement') {
+    const ready = state.placementReady ?? [];
+    return state.players.find(p => p.bot && !ready.includes(p.seat))?.seat ?? null;
+  }
+  if (state.phase !== 'playing') return null;
+  if (state.subPhase === 'place_markers') {
+    const ready = state.markersReady ?? [];
+    const living = livingSeats(state);
+    return state.players.find(p => p.bot && living.includes(p.seat) && !ready.includes(p.seat))?.seat ?? null;
+  }
+  if (state.turnSeat != null && isBot(state.turnSeat)) return state.turnSeat;
+  return null;
+}
+
+/** The next intent for an AI `seat`, or null if it has nothing to do right now. */
+export function aiNextAction(state: HSState, seat: number): HSAction | null {
+  if (state.pendingChoice?.seat === seat) return aiResolveChoice(state, seat);
+  if (state.phase === 'draft') return state.draft?.turnSeat === seat ? aiDraft(state, seat) : null;
+  if (state.phase === 'placement') return (state.placementReady ?? []).includes(seat) ? null : aiPlace(state, seat);
+  if (state.phase !== 'playing') return null;
+  if (state.subPhase === 'place_markers') return (state.markersReady ?? []).includes(seat) ? null : aiPlaceMarkers(state, seat);
+  if (state.turnSeat === seat) return aiTurn(state, seat);
+  return null;
+}
 
 export function getActivePlayerId(state: HSState): string | null {
   // Draft (slice 5): the hourglass follows the current drafter; null once both

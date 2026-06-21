@@ -211,6 +211,10 @@ export type HSPlayer = {
    *  game is always 1-v-1 and every pre-teams save loads unchanged. Assigned by
    *  the host in the lobby (by colour). See `teamOfSeat` / `teamBudgetFor`. */
   team?: number;
+  /** AI opponent. A bot seat is filled by the engine (not a human join); its
+   *  `playerId` is synthetic ("bot-<seat>"). The server drives its draft /
+   *  placement / turns via `ai_step` (see ai.ts). Absent ⇒ a human player. */
+  bot?: boolean;
 };
 
 export type HSLogEntry = {
@@ -652,6 +656,17 @@ export type HSAction =
       /** Per-team budgets (teams): team id → points. Merged into state.
        *  A team absent here uses `pointBudget`. */
       teamBudgets?: Record<number, number>;
+    }
+  | {
+      // Host adds an AI opponent to the next empty seat (lobby only). Optional
+      // team assigns it to a side. The bot drafts / places / plays via ai_step.
+      kind: 'add_bot';
+      team?: number;
+    }
+  | {
+      // Host removes an AI from a seat (lobby only).
+      kind: 'remove_bot';
+      seat: number;
     }
   | {
       // SERVER-rolled draft roll-off (slice 5): both seats' d20 attempts, ties
