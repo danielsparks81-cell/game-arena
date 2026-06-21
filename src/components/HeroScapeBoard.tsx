@@ -3505,17 +3505,18 @@ export default function HeroScapeBoard({
                     standee stays legible. */}
                 {glyph && (() => {
                   const def = HS_GLYPHS[glyph.id];
-                  const badge = GLYPH_BADGE[def.letter] ?? GLYPH_BADGE.B;
-                  const lit = occupied;
+                  const revealed = glyph.faceUp; // hidden (face-down) until a figure stops on it
+                  const badge = revealed ? (GLYPH_BADGE[def.letter] ?? GLYPH_BADGE.B) : { bg: '#7f1d1d', ring: '#fca5a5' };
+                  const lit = occupied; // occupied ⇒ already revealed (stopping reveals it)
                   const gx = occupied ? ctr.x - HEX * 0.42 : ctr.x;
                   const gy = occupied ? ctr.y + HEX * 0.16 : ctr.y;
                   const gr = occupied ? HEX * 0.22 : HEX * 0.3;
                   return (
                     <g onClick={() => clickHex(key)} style={{ pointerEvents: occupied ? 'none' : undefined }} className={canAct && !occupied ? 'cursor-pointer' : ''}>
-                      <title>{`${def.name}${lit ? ' (active)' : ''} — ${def.effect}`}</title>
-                      <circle cx={gx} cy={gy} r={gr} fill={badge.bg} stroke={lit ? badge.ring : '#0a0a0a'} strokeWidth={lit ? 2.5 : 1.5} opacity={lit ? 1 : 0.6} />
+                      <title>{revealed ? `${def.name}${lit ? ' (active)' : ''} — ${def.effect}` : 'Unknown glyph — step a figure onto it to reveal.'}</title>
+                      <circle cx={gx} cy={gy} r={gr} fill={badge.bg} stroke={lit ? badge.ring : (revealed ? '#0a0a0a' : badge.ring)} strokeWidth={lit ? 2.5 : 1.5} opacity={lit ? 1 : revealed ? 0.6 : 0.8} />
                       <text x={gx} y={gy + 0.5} textAnchor="middle" dominantBaseline="middle" fontSize={gr * 1.1} fontWeight={900} fill="#fafafa" opacity={lit ? 1 : 0.85} style={{ userSelect: 'none', pointerEvents: 'none' }}>
-                        {def.letter}
+                        {revealed ? def.letter : '?'}
                       </text>
                     </g>
                   );

@@ -549,7 +549,9 @@ function autoPlaceQuickArmy(map: { startZones: Record<number, HexKey[]>; cells: 
  *  placement → playing transition. Assumes s.cards/s.figures are already built
  *  and (for the quick/placement entry) figures are placed. */
 function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId; at: HexKey }[] }): void {
-  s.glyphs = (map.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: true }));
+  // Glyphs start HIDDEN (face-down): unknown + inert until a figure stops on one — then
+  // applyGlyphOnStop flips it face-up and it takes effect (05-glyphs: placed power-side-DOWN).
+  s.glyphs = (map.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: false }));
   s.phase = 'playing';
   s.subPhase = 'place_markers';
   s.round = 1;
@@ -2418,17 +2420,27 @@ function doGrappleMove(
  */
 function applyGlyphOnStop(s: HSState, fig: Figure): void {
   const g = glyphAt(s, fig.at);
-  if (!g || !g.faceUp) return;
+  if (!g) return;
+  // A glyph starts HIDDEN (face-down); the instant a figure stops on it, flip it face-up — only
+  // then can it take effect (the stat helpers + seatControlsGlyph all gate on faceUp).
+  if (!g.faceUp) {
+    g.faceUp = true;
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals a hidden glyph — the ${HS_GLYPHS[g.id].name}!`);
+  }
   const def = HS_GLYPHS[g.id];
   if (g.id === 'kelda') {
-    const healed = fig.wounds;
-    fig.wounds = 0;
-    s.glyphs = s.glyphs.filter(x => x.at !== g.at);
-    pushLog(
-      s,
-      'glyph',
-      `${figureLabel(s, fig)} stops on the Glyph of Kelda — healed of ${healed} wound${healed === 1 ? '' : 's'}; the glyph fades.`,
-    );
+    // Kelda heals a WOUNDED figure once, then fades. An unwounded figure that happened to reveal it
+    // leaves it in play (face-up) for a wounded figure to use later.
+    if (fig.wounds > 0) {
+      const healed = fig.wounds;
+      fig.wounds = 0;
+      s.glyphs = s.glyphs.filter(x => x.at !== g.at);
+      pushLog(
+        s,
+        'glyph',
+        `${figureLabel(s, fig)} stops on the Glyph of Kelda — healed of ${healed} wound${healed === 1 ? '' : 's'}; the glyph fades.`,
+      );
+    }
     return;
   }
   if (def.kind === 'permanent' && def.active) {

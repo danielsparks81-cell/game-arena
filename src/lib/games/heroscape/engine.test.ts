@@ -2502,6 +2502,25 @@ describe('slice 4: glyph forced stop', () => {
   });
 });
 
+describe('slice 4: hidden glyphs (face-down until stepped on)', () => {
+  it('a glyph is HIDDEN until a figure stops on it, then flips face-up and grants its bonus', () => {
+    let s = inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' });
+    s = noGlyphs(s);
+    const glyphHex = at(3, 1); // adjacent to Finn at (3,0)
+    s = setGlyphs(s, [{ id: 'astrid', at: glyphHex, faceUp: false }]); // a HIDDEN Astrid
+    s = place(s, MARRO(1), at(3, 5)); // a target so we can read Finn's attack dice
+    // While hidden, Astrid grants nothing — even with Finn standing on it (teleported, not stepped).
+    const hidden = place(s, FINN, glyphHex);
+    const baseDice = effectiveAttackDice(hidden, fig(hidden, FINN), fig(hidden, MARRO(1))).dice;
+    expect(effectiveAttackDice(hidden, fig(hidden, FINN), fig(hidden, MARRO(1))).breakdown.some(b => /Astrid/.test(b))).toBe(false);
+    // STEPPING onto the glyph flips it face-up; now Finn controls Astrid → +1 attack.
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    expect(moved.glyphs.find(g => g.at === glyphHex)?.faceUp).toBe(true);
+    expect(effectiveAttackDice(moved, fig(moved, FINN), fig(moved, MARRO(1))).dice).toBe(baseDice + 1);
+    expect(moved.log.some(e => e.tag === 'glyph' && /reveals a hidden glyph/.test(e.text))).toBe(true);
+  });
+});
+
 describe('slice 4: permanent glyphs fold into the single-source helpers', () => {
   it('Astrid: +1 attack die while occupied, gone when vacated', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));

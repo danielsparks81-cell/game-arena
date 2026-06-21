@@ -387,34 +387,50 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   );
 }
 
-/** A power GLYPH on the board — a MAROON rune-disc lying flat on its (raised) hex top. It glows
- *  brighter once ACTIVATED (a figure is standing on it), and its ring is wide enough to show
- *  AROUND that figure. Hovering it pops a tooltip with the glyph's name + what it does. */
-function GlyphMarker({ x, z, topY, active, name, effect }: {
-  x: number; z: number; topY: number; active: boolean; name: string; effect: string;
+/** A power GLYPH on the board — a MAROON rune-disc lying flat on its (raised) hex top. It starts
+ *  HIDDEN (face-down): a dim disc with a "?" and no identity, until a figure stops on it and flips
+ *  it face-up. Once revealed it glows brighter while a figure CONTROLS it, and its ring is wide
+ *  enough to show AROUND that figure. Hovering pops a tooltip — its name + effect once revealed,
+ *  or "Unknown glyph" while still hidden. */
+function GlyphMarker({ x, z, topY, active, faceUp, name, effect }: {
+  x: number; z: number; topY: number; active: boolean; faceUp: boolean; name: string; effect: string;
 }) {
   const [hover, setHover] = useState(false);
+  const lit = faceUp && active; // brightest only when REVEALED and currently controlled
   return (
     <group
       position={[x, topY + 0.04, z]}
       onPointerOver={e => { e.stopPropagation(); setHover(true); }}
       onPointerOut={e => { e.stopPropagation(); setHover(false); }}
     >
-      {/* Wide rune ring — its outer edge rings AROUND a standing figure's disc, so an active
-          glyph stays visible. Brighter emissive when a figure controls it. */}
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[SIZE * 0.5, SIZE * 0.84, 28]} />
-        <meshStandardMaterial color={GLYPH_MAROON} emissive="#b91c1c" emissiveIntensity={active ? 1.15 : 0.5} side={THREE.DoubleSide} transparent opacity={0.95} metalness={0.3} roughness={0.4} />
+        <meshStandardMaterial color={GLYPH_MAROON} emissive="#b91c1c" emissiveIntensity={lit ? 1.15 : faceUp ? 0.5 : 0.28} side={THREE.DoubleSide} transparent opacity={faceUp ? 0.95 : 0.82} metalness={0.3} roughness={0.4} />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
         <circleGeometry args={[SIZE * 0.5, 28]} />
-        <meshStandardMaterial color="#3b0a0a" emissive={GLYPH_MAROON} emissiveIntensity={active ? 0.6 : 0.25} side={THREE.DoubleSide} transparent opacity={0.85} />
+        <meshStandardMaterial color="#3b0a0a" emissive={GLYPH_MAROON} emissiveIntensity={lit ? 0.6 : 0.22} side={THREE.DoubleSide} transparent opacity={0.85} />
       </mesh>
+      {/* A hidden glyph wears a persistent "?" so its location is known but its power isn't. */}
+      {!faceUp && (
+        <Html center position={[0, 0.06, 0]} style={{ pointerEvents: 'none' }}>
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#fca5a5', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>?</div>
+        </Html>
+      )}
       {hover && (
         <Html center position={[0, 0.55, 0]} style={{ pointerEvents: 'none' }}>
           <div style={{ width: 172, borderRadius: 8, border: '1px solid #b91c1c', background: 'rgba(24,10,10,0.96)', padding: '6px 9px', color: '#fecaca', fontSize: 11, lineHeight: 1.35, textAlign: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.55)' }}>
-            <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>{name}{active ? ' · active' : ''}</div>
-            <div>{effect}</div>
+            {faceUp ? (
+              <>
+                <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>{name}{active ? ' · active' : ''}</div>
+                <div>{effect}</div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>Unknown glyph</div>
+                <div>Hidden — step a figure onto it to reveal.</div>
+              </>
+            )}
           </div>
         </Html>
       )}
@@ -489,7 +505,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const gTop = Math.max(0.2, gc.height * LEVEL) * (gc.terrain === 'water' ? 0.6 : 1) + GLYPH_RAISE;
         const active = state.figures.some(f => f.at === g.at); // a figure stands on it → activated
         const def = HS_GLYPHS[g.id];
-        return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} name={def?.name ?? 'Glyph'} effect={def?.effect ?? ''} />;
+        return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} faceUp={g.faceUp} name={def?.name ?? 'Glyph'} effect={def?.effect ?? ''} />;
       })}
       <Suspense fallback={null}>
         {state.figures.filter(f => f.at != null).map(f => {
