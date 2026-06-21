@@ -843,6 +843,46 @@ function BigDie({ face, landed }: { face: CombatFace; landed: boolean }) {
  *  immediately. All timers are cleaned up on unmount (so a superseding attack —
  *  which remounts this via a new key — cancels the old sequence). Driven purely
  *  by the shared lastAttack, so BOTH players see it. */
+/** Split a combined attack/defense breakdown into BASE (printed) counts + BONUS terms, so the roll
+ *  overlay can show which dice are printed vs from height / auras / glyphs. e.g.
+ *  ["Attack 3 printed","+1 height","Defense 4 printed"] → {atkBase:3, atkBonus:["+1 height"], defBase:4, defBonus:[]}. */
+export function splitBreakdown(breakdown: string[] | undefined): { atkBase: number; atkBonus: string[]; defBase: number; defBonus: string[] } {
+  let atkBase = 0, defBase = 0;
+  const atkBonus: string[] = [], defBonus: string[] = [];
+  let sect: 'atk' | 'def' = 'atk';
+  for (const b of breakdown ?? []) {
+    const am = b.match(/^Attack (\d+) printed/);
+    const dm = b.match(/^Defense (\d+) printed/);
+    if (am) { atkBase = +am[1]; sect = 'atk'; }
+    else if (dm) { defBase = +dm[1]; sect = 'def'; }
+    else if (/^[+-]/.test(b)) { (sect === 'atk' ? atkBonus : defBonus).push(b); }
+  }
+  return { atkBase, atkBonus, defBase, defBonus };
+}
+
+/** A row of rolled dice split into BASE (printed) | BONUS (height/aura/glyph) groups — a divider
+ *  between them and a "N base · +1 height" caption, so players SEE where the extra dice came from.
+ *  Falls back to a plain row when there's no bonus. `shown` drives the one-at-a-time reveal. */
+function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: number; base: number; bonus: string[] }) {
+  const split = bonus.length > 0 && base > 0 && base < roll.length;
+  const b = split ? base : roll.length;
+  return (
+    <>
+      <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
+        {roll.slice(0, Math.min(shown, b)).map((f, i) => <BigDie key={'b' + i} face={f} landed />)}
+        {split && <div className="mx-1 h-12 self-center border-l-2 border-amber-500/50" />}
+        {split && roll.slice(b, shown).map((f, i) => <BigDie key={'x' + i} face={f} landed />)}
+        {roll.length === 0 && <span className="text-sm text-neutral-500">no defense dice</span>}
+      </div>
+      {split && (
+        <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
+          {b} base <span className="text-amber-400">· {bonus.join(' · ')}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
 function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss: () => void }) {
   type DefenseGroup = NonNullable<LastAttack['defenseGroups']>[number];
   const PER_DIE = 520; // ms between dice (slowed slightly so each roll reads clearly)
@@ -904,6 +944,9 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
   const runningShields = curGroup ? curGroup.roll.slice(0, shownD).filter(f => f === 'shield').length : 0;
   const curResolved = curGroup != null && resolved > groupIdx;
   const showDefense = stage === 'defense' || stage === 'result';
+  // Base (printed) vs bonus (height / aura / glyph) split, parsed from the roll's breakdown,
+  // so the overlay can show players where the extra dice came from.
+  const { atkBase, atkBonus, defBase, defBonus } = splitBreakdown(attack.breakdown);
   // The figure currently rolling stays visible into the RESULT stage for a single
   // attack; for a splash the result stage instead shows the full per-figure tally.
   const showCurrent = curGroup != null && (stage === 'defense' || (stage === 'result' && !grouped));
@@ -940,11 +983,7 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
         {/* ATTACK row */}
         <div className="mt-5">
           <div className="text-xs font-bold uppercase tracking-wider text-orange-300/90">Attack</div>
-          <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
-            {attack.attackRoll.slice(0, shownA).map((f, i) => (
-              <BigDie key={i} face={f} landed />
-            ))}
-          </div>
+          <SplitDice roll={attack.attackRoll} shown={shownA} base={atkBase} bonus={atkBonus} />
           <div className="mt-2 text-3xl font-black tabular-nums text-orange-300">
             💀 {runningSkulls}
             {stage !== 'attack' && (
@@ -979,14 +1018,14 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
             {showCurrent && curGroup && (
               <div className="mt-2">
                 {grouped && <div className="text-sm font-semibold text-neutral-200">{curGroup.label}</div>}
-                <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
-                  {curGroup.roll.slice(0, shownD).map((f, i) => (
-                    <BigDie key={i} face={f} landed />
-                  ))}
-                  {curGroup.roll.length === 0 && (
-                    <span className="text-sm text-neutral-500">no defense dice</span>
-                  )}
-                </div>
+                {/* For a splash each figure rolls its own defense, so the main breakdown's base/bonus
+                    only maps cleanly to the single-target case — group rolls render unsplit. */}
+                <SplitDice
+                  roll={curGroup.roll}
+                  shown={shownD}
+                  base={grouped ? curGroup.roll.length : defBase}
+                  bonus={grouped ? [] : defBonus}
+                />
                 <div className="mt-2 text-3xl font-black tabular-nums text-sky-300">
                   🛡 {runningShields}
                   {!grouped && stage === 'result' && (
