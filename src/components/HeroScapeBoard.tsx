@@ -54,6 +54,7 @@ import {
   queglixTargets,
   queglixDiceLeft,
   wildSwingTargets,
+  wildSwingDefenders,
   acidBreathTargets,
   throwTargets,
   throwLandingHexes,
@@ -1161,6 +1162,15 @@ export default function HeroScapeBoard({
   // figure + its neighbours), a second tap on it (or the Throw button) confirms. Prevents the
   // old one-tap misfire and shows exactly who gets caught (friend or foe).
   const [grenadeAim, setGrenadeAim] = useState<string | null>(null);
+  // Big-Hero single-target powers (Ice Shard / Queglix / Wild Swing): armed from the panel, then
+  // fired by TAPPING a highlighted enemy on the board — board-click like every other power. Wild
+  // Swing arms the target first so its splash previews; a 2nd tap (or the Swing button) confirms.
+  const [bhAim, setBhAim] = useState<
+    | { kind: 'ice' }
+    | { kind: 'queglix'; dice: 1 | 2 | 3 }
+    | { kind: 'wild'; target?: string }
+    | null
+  >(null);
   // slice 7: Sgt. Drake's GRAPPLE GUN toggle. When on, his highlights switch to
   // the 1-space climb-anywhere set and a hex click routes to grapple_move.
   const [grappleMode, setGrappleMode] = useState(false);
@@ -1232,6 +1242,7 @@ export default function HeroScapeBoard({
     setThrowAim(null);
     setExplosionMode(false);
     setGrenadeAim(null);
+    setBhAim(null);
   }, [state.round, state.phase]);
   // Drop Grapple / Fire-Line / Mind-Shackle / Chomp mode when the selection changes.
   useEffect(() => {
@@ -1243,6 +1254,7 @@ export default function HeroScapeBoard({
     setThrowAim(null);
     setExplosionMode(false);
     setGrenadeAim(null);
+    setBhAim(null);
   }, [selectedId, state.turnNumber, state.turnSeat]);
 
   // --- dramatic dice-roll overlay (UI only) ---------------------------------
@@ -1601,6 +1613,15 @@ export default function HeroScapeBoard({
   const carryList = canAct && me && bhId === 'theracus' ? carryPassengers(state, me.seat) : [];
   const anyBigHeroPower =
     iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
+  // Wild Swing's blast (armed target + its neighbours) — the SAME orange "blast zone" ring as the
+  // grenade, merged into one splashIds set for the board (only one is ever active at a time).
+  const wildSplashIds = useMemo(
+    () => (bhAim?.kind === 'wild' && bhAim.target && bhHeroId
+      ? new Set(wildSwingDefenders(state, bhHeroId, bhAim.target).map(d => d.figureId))
+      : new Set<string>()),
+    [bhAim, bhHeroId, state],
+  );
+  const splashIds = useMemo(() => new Set([...grenadeSplashIds, ...wildSplashIds]), [grenadeSplashIds, wildSplashIds]);
 
   // Tap a power on the "Now acting" card → reveal + briefly flash its controls in
   // the Special Power panel below (where the activation entry point lives).
@@ -1967,6 +1988,20 @@ export default function HeroScapeBoard({
     // splash hits every figure adjacent to it (the server rolls 3 attack dice once).
     if (explosionMode) {
       if (occ && dwHeroId && explosionTargetSet.has(occ.id)) { onExplosion(dwHeroId, occ.id); setExplosionMode(false); }
+      return;
+    }
+    // Big-Hero single-target powers (board-click). Armed from the panel; tap a highlighted enemy to
+    // fire. Ice Shard / Queglix fire on the tap; Wild Swing arms the target (splash previews orange)
+    // then a 2nd tap on it (or the Swing button) confirms.
+    if (bhAim && bhHeroId) {
+      if (occ) {
+        if (bhAim.kind === 'ice' && iceList.includes(occ.id)) { onIceShard(bhHeroId, occ.id); setBhAim(null); }
+        else if (bhAim.kind === 'queglix' && qList.includes(occ.id)) { onQueglix(bhHeroId, occ.id, bhAim.dice); setBhAim(null); }
+        else if (bhAim.kind === 'wild' && wildList.includes(occ.id)) {
+          if (bhAim.target === occ.id) { onWildSwing(bhHeroId, occ.id); setBhAim(null); }
+          else setBhAim({ kind: 'wild', target: occ.id });
+        }
+      }
       return;
     }
     // Attack — ATTACK PHASE ONLY (after "End move"). During the move phase a tap on an enemy
@@ -2956,50 +2991,57 @@ export default function HeroScapeBoard({
           >
             <div className="mb-1 text-sm font-bold text-violet-300">⚡ {activeCardDef?.name} — Special Power</div>
             <div className="flex flex-col gap-2 text-xs text-neutral-200">
-              {/* Nilfheim — Ice Shard Breath (up to 3 shots) */}
-              {iceList.length > 0 && bhHeroId && (() => {
-                const tgt = bh.ice && iceList.includes(bh.ice) ? bh.ice : iceList[0];
-                return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-sky-300">❄ Ice Shard (R5 A4, ≤3×):</span>
-                    <select value={tgt} onChange={e => patchBh({ ice: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {iceList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
-                    </select>
-                    <button onClick={() => onIceShard(bhHeroId, tgt)} className="rounded border border-sky-600 px-2 py-0.5 font-semibold text-sky-300 hover:bg-sky-900/40">Fire</button>
-                  </div>
-                );
-              })()}
-              {/* Major Q9 — Queglix Gun (9-die pool, 1-3 per shot) */}
+              {/* Nilfheim — Ice Shard Breath (≤3 shots) — tap "aim", then tap a highlighted enemy */}
+              {iceList.length > 0 && bhHeroId && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-sky-300">❄ Ice Shard (R5 A4, ≤3×):</span>
+                  <button
+                    onClick={() => setBhAim(bhAim?.kind === 'ice' ? null : { kind: 'ice' })}
+                    className={'rounded border px-2 py-0.5 font-semibold ' + (bhAim?.kind === 'ice' ? 'border-sky-300 bg-sky-900/60 text-sky-100' : 'border-sky-600 text-sky-300 hover:bg-sky-900/40')}
+                  >
+                    {bhAim?.kind === 'ice' ? 'tap a target…' : 'aim →'}
+                  </button>
+                </div>
+              )}
+              {/* Major Q9 — Queglix Gun (9-die pool) — pick how many dice, then tap a highlighted enemy */}
               {qList.length > 0 && bhHeroId && (() => {
-                const tgt = bh.q && qList.includes(bh.q) ? bh.q : qList[0];
                 const maxDice = Math.min(3, qLeft) as 1 | 2 | 3;
-                const dice = (bh.qDice && bh.qDice <= maxDice ? bh.qDice : maxDice) as 1 | 2 | 3;
+                const dice = (bhAim?.kind === 'queglix' ? bhAim.dice : (bh.qDice && bh.qDice <= maxDice ? bh.qDice : maxDice)) as 1 | 2 | 3;
                 return (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-amber-300">🔫 Queglix ({qLeft} dice left):</span>
-                    <select value={dice} onChange={e => patchBh({ qDice: Number(e.target.value) as 1 | 2 | 3 })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                    <select value={dice} onChange={e => { const d = Number(e.target.value) as 1 | 2 | 3; patchBh({ qDice: d }); if (bhAim?.kind === 'queglix') setBhAim({ kind: 'queglix', dice: d }); }} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
                       {[1, 2, 3].filter(n => n <= maxDice).map(n => <option key={n} value={n}>{n} {n === 1 ? 'die' : 'dice'}</option>)}
                     </select>
-                    <select value={tgt} onChange={e => patchBh({ q: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {qList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
-                    </select>
-                    <button onClick={() => onQueglix(bhHeroId, tgt, dice)} className="rounded border border-amber-600 px-2 py-0.5 font-semibold text-amber-300 hover:bg-amber-900/40">Fire</button>
+                    <button
+                      onClick={() => setBhAim(bhAim?.kind === 'queglix' ? null : { kind: 'queglix', dice })}
+                      className={'rounded border px-2 py-0.5 font-semibold ' + (bhAim?.kind === 'queglix' ? 'border-amber-300 bg-amber-900/60 text-amber-100' : 'border-amber-600 text-amber-300 hover:bg-amber-900/40')}
+                    >
+                      {bhAim?.kind === 'queglix' ? 'tap a target…' : 'aim →'}
+                    </button>
                   </div>
                 );
               })()}
-              {/* Jotun — Wild Swing (splash) */}
-              {wildList.length > 0 && bhHeroId && (() => {
-                const tgt = bh.wild && wildList.includes(bh.wild) ? bh.wild : wildList[0];
-                return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-red-300">🪓 Wild Swing (R1 A4, splash):</span>
-                    <select value={tgt} onChange={e => patchBh({ wild: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {wildList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
-                    </select>
-                    <button onClick={() => onWildSwing(bhHeroId, tgt)} className="rounded border border-red-600 px-2 py-0.5 font-semibold text-red-300 hover:bg-red-900/40">Swing</button>
-                  </div>
-                );
-              })()}
+              {/* Jotun — Wild Swing (splash) — aim, tap an adjacent enemy to preview the blast, confirm */}
+              {wildList.length > 0 && bhHeroId && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold text-red-300">🪓 Wild Swing (R1 A4, splash):</span>
+                  {bhAim?.kind === 'wild' && bhAim.target ? (
+                    <>
+                      <span className="text-[11px] text-orange-200">blast hits {splashIds.size} (orange)</span>
+                      <button onClick={() => { onWildSwing(bhHeroId, bhAim.target!); setBhAim(null); }} className="rounded border border-orange-500 px-2 py-0.5 font-semibold text-orange-200 hover:bg-orange-900/40">💥 Swing</button>
+                      <button onClick={() => setBhAim(null)} className="rounded border border-neutral-600 px-2 py-0.5 text-neutral-300 hover:bg-neutral-800">Cancel</button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setBhAim(bhAim?.kind === 'wild' ? null : { kind: 'wild' })}
+                      className={'rounded border px-2 py-0.5 font-semibold ' + (bhAim?.kind === 'wild' ? 'border-red-300 bg-red-900/60 text-red-100' : 'border-red-600 text-red-300 hover:bg-red-900/40')}
+                    >
+                      {bhAim?.kind === 'wild' ? 'tap a target…' : 'aim →'}
+                    </button>
+                  )}
+                </div>
+              )}
               {/* Braxas — Poisonous Acid Breath (up to 3 small/medium) */}
               {acidList.length > 0 && bhHeroId && (() => {
                 const picks = (bh.acid ?? []).filter(id => acidList.includes(id));
@@ -3310,7 +3352,7 @@ export default function HeroScapeBoard({
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
             actionableIds={glowIds}
             auraIds={auraIds}
-            splashIds={grenadeSplashIds}
+            splashIds={splashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             placeHexes={placeHexes}
             dropHexes={throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet}
