@@ -177,6 +177,7 @@ function inTurnsOn(
  *  no climb limit blocks a descent). Registered into MAPS (a mutable record)
  *  for the test process only; production maps are untouched. */
 const CLIFF_MAP_ID = 'test_cliffs';
+const WATER_MAP_ID = 'test_water';
 beforeAll(() => {
   MAPS[CLIFF_MAP_ID] = parseMap(
     CLIFF_MAP_ID,
@@ -189,6 +190,16 @@ beforeAll(() => {
     row5:   G1 G1  G1 G1  G1 G1 G1
     row6:   G1 G1  G1 G1  G1 G1 G1
     row7@2: G1 G1  G1 G1  G1 G1 G1
+    `,
+  );
+  // A flat map with a horizontal WATER strip (cols 2-4 of the middle row) for 2-hex water-stop tests.
+  MAPS[WATER_MAP_ID] = parseMap(
+    WATER_MAP_ID,
+    'Test Water',
+    `
+    row1@1: G1 G1 G1 G1 G1
+    row2:   G1 G1 W1 W1 W1
+    row3@2: G1 G1 G1 G1 G1
     `,
   );
 });
@@ -1791,6 +1802,57 @@ describe('step-by-step movement (move_step)', () => {
     expect(legalStepHexes(s, M).size).toBeGreaterThan(0); // NOT blocked by the surrounding elevation
     const c = stepConsequences(s, M, pillar);
     expect('error' in c).toBe(false); // flies up onto the higher pillar despite the height gap
+  });
+
+  it('a GROUND 2-hex (Grimnak) may climb mid-move but must STOP on two level spaces', () => {
+    let s = customBattle(['grimnak'], ['finn'], 'p1', CLIFF_MAP_ID);
+    const G = 's0-grimnak-1';
+    s = clearExcept(s, G, 's1-finn-1');
+    s = place(s, 's1-finn-1', at(6, 6));
+    const cells = MAPS[CLIFF_MAP_ID].cells;
+    const climbCap = 1 + HS_CARDS.grimnak.height; // a ground figure may rise up to its Height
+    // A grass lead beside a pillar it CAN climb (R5), plus a grass tail.
+    let lead = '', tail = '', pillar = '';
+    for (const k of Object.keys(cells)) {
+      if (cells[k].height !== 1) continue;
+      const hi = neighborKeys(k).find(n => cells[n] && cells[n].height > 1 && cells[n].height <= climbCap);
+      const lo = neighborKeys(k).find(n => cells[n] && cells[n].height === 1 && n !== k);
+      if (hi && lo) { lead = k; tail = lo; pillar = hi; break; }
+    }
+    expect(lead).toBeTruthy();
+    s = place2(s, G, lead, tail);
+    // Climb up onto the pillar — a cross-level footprint MID-move is allowed for a ground 2-hex.
+    const up = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G, to: pillar }));
+    expect(fig(up, G).at).toBe(pillar);
+    // …but it cannot STOP cross-level — finishing the move with mismatched lobe heights is rejected.
+    expect(errOf(applyAction(up, 'p1', { kind: 'end_move' }))).toMatch(/level/i);
+  });
+
+  it('a 2-hex stops for water only when BOTH lobes are in it (one lobe keeps moving)', () => {
+    let s = customBattle(['grimnak'], ['finn'], 'p1', WATER_MAP_ID);
+    const G = 's0-grimnak-1';
+    s = clearExcept(s, G, 's1-finn-1');
+    s = place(s, 's1-finn-1', at(0, 0));
+    const cells = MAPS[WATER_MAP_ID].cells;
+    // lead = grass beside a water hex W1 that has a SECOND water neighbour W2, plus a grass tail.
+    let lead = '', tail = '', w1 = '', w2 = '';
+    for (const wk of Object.keys(cells).filter(k => cells[k].terrain === 'water')) {
+      const w2cand = neighborKeys(wk).find(n => cells[n]?.terrain === 'water');
+      const grass = neighborKeys(wk).find(n => cells[n]?.terrain === 'grass');
+      const t = grass && neighborKeys(grass).find(n => cells[n]?.terrain === 'grass' && n !== grass);
+      if (w2cand && grass && t) { w1 = wk; w2 = w2cand; lead = grass; tail = t; break; }
+    }
+    expect(lead).toBeTruthy();
+    s = place2(s, G, lead, tail);
+    // Front into the FIRST water hex — only one lobe in water → NOT a forced stop.
+    const c1 = stepConsequences(s, G, w1);
+    if ('error' in c1) throw new Error(c1.error);
+    expect(c1.forcedStop).toBe(false);
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G, to: w1 }));
+    // Front into the SECOND water hex — now BOTH lobes are in water → forced stop.
+    const c2 = stepConsequences(s, G, w2);
+    if ('error' in c2) throw new Error(c2.error);
+    expect(c2.forcedStop).toBe(true);
   });
 
   it('the "max distance" range reflects REMAINING Move — full at the start, gone once it is spent', () => {

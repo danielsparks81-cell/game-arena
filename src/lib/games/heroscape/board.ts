@@ -140,6 +140,10 @@ export type ReachOptions = {
    *  wounded figure). Returns false → the hex is not a legal endpoint, but it
    *  may still be transited if it is otherwise passable. Defaults to allow. */
   canEndOn?: (key: HexKey) => boolean;
+  /** DOUBLE-SPACE (2-hex) mover: water is NOT a single-step forced stop and a water→water front
+   *  step is allowed — a 2-hex figure only STOPS for water when BOTH lobes are in it, which the
+   *  caller decides from the full footprint. (No effect on a flyer, which never water-stops.) */
+  doubleSpace?: boolean;
   /**
    * FLYING (slice 7 — Raelin, Mimring; cards.md). A flyer counts spaces, not
    * levels: every step costs 1 (no climb cost), the climb LIMIT is waived
@@ -294,15 +298,16 @@ export function dragStep(
   if (!neighborKeys(prev).includes(to)) return null; // must be an adjacent hex
   const flyer = !!options.flyer;
   const ghostWalk = flyer || !!options.ghostWalk;
+  const huge = !!options.doubleSpace; // a 2-hex mover: water-stop is the caller's call (both lobes)
   const isWater = (k: HexKey) => !flyer && cells[k]?.terrain === 'water';
-  if (prev !== start && isWater(prev) && isWater(to)) return null; // no water→water transit
+  if (!huge && prev !== start && isWater(prev) && isWater(to)) return null; // 1-hex: no water→water transit
   const occ = occupancyOf(to);
   if (occ === 'enemy' && !ghostWalk) return null; // can't step onto / through an enemy
   const hFrom = cells[prev]?.height ?? 0;
   const hTo = cells[to]?.height ?? 0;
   if (!flyer && !canStepUp(hFrom, hTo, cardHeight)) return null; // climb limit
   const cost = flyer ? 1 : stepCost(hFrom, hTo);
-  const forcedStop = isWater(to) || (to !== start && !!options.glyphHexes?.has(to));
+  const forcedStop = (!huge && isWater(to)) || (to !== start && !!options.glyphHexes?.has(to));
   return { cost, forcedStop };
 }
 

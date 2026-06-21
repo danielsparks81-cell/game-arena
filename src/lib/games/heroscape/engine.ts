@@ -1699,8 +1699,7 @@ function movementDestinations2(
     if (!isFree(lead)) continue;
     const lh = map.cells[lead].height;
     for (const t of neighborKeys(lead)) {
-      if (t === lead || !map.cells[t] || !isFree(t)) continue;
-      if (!def.flying && map.cells[t].height !== lh) continue; // ground figures rest level; a flyer needn't
+      if (t === lead || !map.cells[t] || map.cells[t].height !== lh || !isFree(t)) continue; // all 2-hex REST level
       if ((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)) continue; // not the current placement
       out.leads.add(lead);
       out.tailOf.set(lead, t);
@@ -2070,13 +2069,9 @@ export function stepConsequences(
   const is2 = baseSizeOf(def) === 2;
   const fp = stepFootprint(state, fig, to);
   if (!fp) return { error: 'That space is not a single step for this figure' };
-  // 2-hex slither stays on ONE level (the lead must match its vacated back) — UNLESS the figure
-  // FLIES, which ignores elevation for movement (a flyer never falls and isn't bound to a level
-  // footprint mid-flight). Without this a 2-hex flyer (Mimring) can't move at all on a map with
-  // any elevation/water around it.
-  if (is2 && !def.flying && heightOfKey(state, to) !== heightOfKey(state, fp.frontOld)) {
-    return { error: 'A double-space figure must stay level — pick a same-height space' };
-  }
+  // A 2-hex figure may climb/descend DURING a move — a ground figure within its normal climb limit
+  // (enforced by dragStep below), a flyer ignoring elevation entirely. It only has to be LEVEL when
+  // it STOPS, which is checked at finalize (finalizeStepMove), NOT per step. So no same-level gate here.
   const occ = occupancyLookup(state, fig);
   // A peanut can't share a hex (no ghost-walk slither); the lead must be empty.
   if (is2 && occ(to) !== null) return { error: 'That space is occupied' };
@@ -2086,6 +2081,7 @@ export function stepConsequences(
     glyphHexes: glyphHexSet(state),
     flyer: !!def.flying,
     ghostWalk: !!def.ghostWalk,
+    doubleSpace: is2, // a 2-hex front may traverse water; the water-STOP is decided below (both lobes)
   });
   if (!step) return { error: 'You can’t step there' };
   // Kelda admits only a WOUNDED figure as a stop; a forced-stop step onto it is illegal otherwise.
@@ -2104,7 +2100,7 @@ export function stepConsequences(
     : enemiesEngagedWith(state, fig)
         .filter(e => !alreadySwiped.includes(e.id) && !engagedPair(state, figAtNew, e))
         .map(e => e.id);
-  // Fall: only a descending 1-hex step falls (the 2-hex slither is level; a flyer descends).
+  // Fall: only a descending 1-hex step falls (2-hex falling is deferred; a flyer descends, never falls).
   let tier: FallTier = 'none';
   let fallDice = 0;
   if (!def.flying && !is2) {
@@ -2114,11 +2110,16 @@ export function stepConsequences(
     tier = f.tier;
     fallDice = f.dice;
   }
+  // A 2-hex figure stops for water only when BOTH new lobes end in water (the front entering water
+  // alone keeps moving). A flyer never water-stops. (1-hex water-stop is already in step.forcedStop.)
+  const bothWater = is2 && !def.flying
+    && map.cells[fp.newAt]?.terrain === 'water'
+    && fp.newAt2 != null && map.cells[fp.newAt2]?.terrain === 'water';
   return {
     newAt: fp.newAt,
     newAt2: fp.newAt2,
     cost: step.cost,
-    forcedStop: step.forcedStop,
+    forcedStop: step.forcedStop || bothWater,
     leavingEnemyIds,
     tier,
     fallDice,
@@ -2193,6 +2194,10 @@ function finalizeStepMove(state: HSState): HSState | { error: string } {
     const occ = occupancyLookup(state, fig);
     if (figureHexes(fig).some(h => occ(h) !== null)) {
       return { error: 'Finish the move on an empty space first' };
+    }
+    // A 2-hex figure may climb/descend mid-move but must STOP on two LEVEL spaces.
+    if (fig.at2 != null && heightOfKey(state, fig.at) !== heightOfKey(state, fig.at2)) {
+      return { error: 'Finish a double-space figure on two level spaces' };
     }
     if (!s.movedFigureIds.includes(sm.figureId)) s.movedFigureIds.push(sm.figureId);
   }
