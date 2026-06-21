@@ -45,6 +45,10 @@ type Interact = {
   onHexClick?: (key: HexKey) => void;
   selectedId?: string | null;
   moveHexes?: Set<HexKey>;
+  /** The faint "max distance" backdrop — every hex the selected figure could still
+   *  reach with its REMAINING Move; the bright moveHexes (one-tap steps) sit on top
+   *  and it shrinks as the figure walks. */
+  rangeHexes?: Set<HexKey>;
   targetIds?: Set<string>;
   /** Figures targetable by an active special power (Chomp / Grenade / Mind
    *  Shackle) — glow fuchsia, distinct from the red normal-attack target. */
@@ -72,7 +76,7 @@ type Interact = {
 /** One hexagonal-prism terrain tile + thin seam edges; tinted (emissive) when it
  *  is a highlighted move/place/Drop target. */
 function HexTile({ x, z, height, terrain, highlight, onClick }: {
-  x: number; z: number; height: number; terrain: string; highlight: string | null; onClick?: () => void;
+  x: number; z: number; height: number; terrain: string; highlight: { color: string; dim?: boolean } | null; onClick?: () => void;
 }) {
   const isWater = terrain === 'water';
   const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1);
@@ -84,8 +88,8 @@ function HexTile({ x, z, height, terrain, highlight, onClick }: {
       <cylinderGeometry args={[SIZE * 1.02, SIZE * 1.02, h, 6]} />
       <meshStandardMaterial
         color={TERRAIN_COLOR[terrain] ?? '#666'}
-        emissive={highlight ?? '#000000'}
-        emissiveIntensity={highlight ? 0.55 : 0}
+        emissive={highlight?.color ?? '#000000'}
+        emissiveIntensity={highlight ? (highlight.dim ? 0.2 : 0.55) : 0}
         roughness={isWater ? 0.2 : 0.9}
         metalness={isWater ? 0.1 : 0}
         transparent={isWater}
@@ -421,14 +425,16 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     return state.players[idx]?.accent_color || SEAT_COLORS[idx] || '#a3a3a3';
   };
   // Highlight priority for a tile: Drop picks/targets, then the Grapple climb set,
-  // then the green legal SINGLE-STEP set, then placement.
-  const tileHighlight = (key: HexKey): string | null =>
-    (it.dropPicks?.has(key) ? '#f97316'
-      : it.dropHexes?.has(key) ? '#fb923c'
-        : it.climbHexes?.has(key) ? '#a855f7' // Grapple Gun climb target — distinct from a normal move
-          : it.moveHexes?.has(key) ? '#22c55e'
-            : it.placeHexes?.has(key) ? '#38bdf8'
-              : null);
+  // then the BRIGHT one-tap step set, then the FAINT remaining-Move range backdrop,
+  // then placement. Bright green = tap to step here; faint green = still in reach.
+  const tileHighlight = (key: HexKey): { color: string; dim?: boolean } | null =>
+    (it.dropPicks?.has(key) ? { color: '#f97316' }
+      : it.dropHexes?.has(key) ? { color: '#fb923c' }
+        : it.climbHexes?.has(key) ? { color: '#a855f7' } // Grapple Gun climb target — distinct from a normal move
+          : it.moveHexes?.has(key) ? { color: '#22c55e' } // bright = a legal one-tap step
+            : it.rangeHexes?.has(key) ? { color: '#22c55e', dim: true } // faint = within remaining Move
+              : it.placeHexes?.has(key) ? { color: '#38bdf8' }
+                : null);
 
   return (
     <group rotation={[0, faceAngle, 0]}>

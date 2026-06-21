@@ -13,6 +13,7 @@ export {
   getActiveCardUid,
   legalDestinations,
   legalStepHexes,
+  movementRangeHexes,
   grappleDestinations,
   legalTargets,
   canFireLine,

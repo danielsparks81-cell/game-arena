@@ -1667,12 +1667,13 @@ export function legalDestinations(state: HSState, figureId: string): Set<HexKey>
 function movementDestinations2(
   state: HSState,
   fig: Figure,
+  moveOverride?: number,
 ): { leads: Set<HexKey>; tailOf: Map<HexKey, HexKey> } {
   const out = { leads: new Set<HexKey>(), tailOf: new Map<HexKey, HexKey>() };
   const map = MAPS[state.mapId];
   if (!map || fig.at == null) return out;
   const def = cardDefFor(state, fig);
-  const move = effectiveMove(state, fig).dice;
+  const move = moveOverride ?? effectiveMove(state, fig).dice;
   const occ = occupancyLookup(state, fig); // excludes the mover's BOTH hexes
   const opts = { glyphHexes: glyphHexSet(state), flyer: !!def.flying, ghostWalk: !!def.ghostWalk };
   const reach = new Set<HexKey>();
@@ -2129,6 +2130,36 @@ export function legalStepHexes(state: HSState, figureId: string): Set<HexKey> {
     }
   }
   return out;
+}
+
+/** The full set of hexes `figureId` could still reach with its REMAINING Move from
+ *  where it currently stands — the dim "max distance" backdrop the board paints
+ *  behind the bright single-step targets. It SHRINKS as the figure walks (current
+ *  hex + `effectiveMove − stepMove.usedCost`). Empty when the figure can't move, a
+ *  forced-stop ended its walk, or it has no Move left. Reuses the same Dijkstra
+ *  reach as a normal full-Move destination preview. */
+export function movementRangeHexes(state: HSState, figureId: string): Set<HexKey> {
+  const fig = state.figures.find(f => f.id === figureId);
+  const map = MAPS[state.mapId];
+  if (!fig || fig.at == null || !map) return new Set();
+  if ('error' in movableFigure(state, figureId)) return new Set();
+  const sm = state.stepMove?.figureId === figureId ? state.stepMove : null;
+  if (sm?.stopped) return new Set();
+  const remaining = effectiveMove(state, fig).dice - (sm?.usedCost ?? 0);
+  if (remaining <= 0) return new Set();
+  const def = cardDefFor(state, fig);
+  if (baseSizeOf(def) === 2) return movementDestinations2(state, fig, remaining).leads;
+  const canEndOn = (key: HexKey): boolean => {
+    const g = glyphAt(state, key);
+    if (g && g.id === 'kelda' && g.faceUp && fig.wounds < 1) return false;
+    return true;
+  };
+  return reachableDestinations(map.cells, fig.at, remaining, occupancyLookup(state, fig), def.height, {
+    glyphHexes: glyphHexSet(state),
+    canEndOn,
+    flyer: !!def.flying,
+    ghostWalk: !!def.ghostWalk,
+  });
 }
 
 /** Finalize the in-progress walk: lock the figure as "moved" (so it can't start a

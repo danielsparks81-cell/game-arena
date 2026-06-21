@@ -11,6 +11,7 @@ import {
   projectStateForViewer,
   legalDestinations,
   legalStepHexes,
+  movementRangeHexes,
   grappleDestinations,
   legalTargets,
   attackDiceRequirements,
@@ -1721,6 +1722,24 @@ describe('step-by-step movement (move_step)', () => {
       return !('error' in c) && c.newAt2 === at(3, 2);
     });
     expect(tailStep).toBeDefined();
+  });
+
+  it('the "max distance" range reflects REMAINING Move — full at the start, gone once it is spent', () => {
+    let s = walker();
+    const budget = effectiveMove(s, fig(s, TV(1))).dice;
+    expect(movementRangeHexes(s, TV(1)).size).toBeGreaterThan(0); // full reach at the start
+    // Spend all but the last point of Move.
+    for (let i = 0; i < budget - 1; i++) {
+      const opts = [...legalStepHexes(s, TV(1))];
+      if (opts.length === 0) break;
+      s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: opts[0] }));
+    }
+    expect(movementRangeHexes(s, TV(1)).size).toBeGreaterThan(0); // a step of reach still shown
+    // Spend the final point — now nothing more is in reach.
+    const last = [...legalStepHexes(s, TV(1))][0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: last }));
+    expect(s.stepMove?.usedCost).toBe(budget);
+    expect(movementRangeHexes(s, TV(1)).size).toBe(0); // Move exhausted → no range left
   });
 });
 

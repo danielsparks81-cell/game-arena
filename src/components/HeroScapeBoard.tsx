@@ -32,6 +32,7 @@ import {
   MAX_POINT_BUDGET,
   legalDestinations,
   legalStepHexes,
+  movementRangeHexes,
   grappleDestinations,
   canFireLine,
   fireLineSpaces,
@@ -1443,6 +1444,16 @@ export default function HeroScapeBoard({
           : legalStepHexes(state, selected.id)
         : new Set<HexKey>(),
     [state, selected, canAct, grappleMode, grappleHexes, fireLineMode],
+  );
+  // The faint "max distance" backdrop — how far the selected figure could still
+  // travel with its REMAINING Move (shrinks as it steps). Normal moves only:
+  // Grapple is a one-space jump and Fire Line is a targeting mode.
+  const moveRange = useMemo(
+    () =>
+      canAct && selected && !fireLineMode && !grappleMode
+        ? movementRangeHexes(state, selected.id)
+        : new Set<HexKey>(),
+    [state, selected, canAct, grappleMode, fireLineMode],
   );
   const targets = useMemo(
     () => (canAct && selected && !fireLineMode ? new Set(legalTargets(state, selected.id)) : new Set<string>()),
@@ -3222,6 +3233,7 @@ export default function HeroScapeBoard({
             onHexClick={clickHex}
             selectedId={selectedId}
             moveHexes={destinations}
+            rangeHexes={moveRange}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
