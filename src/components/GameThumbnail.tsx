@@ -13,7 +13,69 @@ export function GameThumbnail({ gameId, className }: { gameId: string; className
   if (gameId === 'spellduel')  return <SpellduelThumb className={className} />;
   if (gameId === 'legendary')  return <LegendaryThumb className={className} />;
   if (gameId === 'heroquest')  return <HeroQuestThumb className={className} />;
+  if (gameId === 'heroscape')  return <HeroScapeThumb className={className} />;
   return <PlaceholderThumb className={className} />;
+}
+
+function HeroScapeThumb({ className }: { className?: string }) {
+  // The game in one frame: an isometric hex battlefield with ELEVATION — a red
+  // figure holds the high ground (height advantage) over a blue figure below —
+  // plus the signature skull combat die. Built from extruded flat-top hexes.
+  const a = 15;   // hex half-width (centre → left/right vertex)
+  const b = 6;    // hex half-depth (isometric squash)
+  const TIER = 9; // px of column height per elevation level
+  const ROCK = { top: '#a8a29e', left: '#57534e', right: '#736b64' };
+  const GRASS = { top: '#65a30d', left: '#3f6212', right: '#4d7c0f' };
+  const hex = (cx: number, cy: number, tiers: number, c: { top: string; left: string; right: string }, key: string) => {
+    const H = tiers * TIER;
+    const Lx = cx - a, Rx = cx + a, TLx = cx - a / 2, TRx = cx + a / 2;
+    return (
+      <g key={key}>
+        <polygon points={`${Lx},${cy} ${TLx},${cy + b} ${TLx},${cy + b + H} ${Lx},${cy + H}`} fill={c.left} />
+        <polygon points={`${TLx},${cy + b} ${TRx},${cy + b} ${TRx},${cy + b + H} ${TLx},${cy + b + H}`} fill={c.left} />
+        <polygon points={`${Rx},${cy} ${TRx},${cy + b} ${TRx},${cy + b + H} ${Rx},${cy + H}`} fill={c.right} />
+        <polygon points={`${Lx},${cy} ${TLx},${cy - b} ${TRx},${cy - b} ${Rx},${cy} ${TRx},${cy + b} ${TLx},${cy + b}`} fill={c.top} stroke="#0a0a0a" strokeWidth="0.5" strokeOpacity="0.3" />
+      </g>
+    );
+  };
+  const standee = (cx: number, cy: number, color: string, key: string) => (
+    <g key={key}>
+      <ellipse cx={cx} cy={cy} rx="9" ry="3.6" fill={color} stroke="#0a0a0a" strokeWidth="0.6" />
+      <ellipse cx={cx} cy={cy} rx="4.5" ry="1.8" fill="#0a0a0a" opacity="0.25" />
+      <path d={`M ${cx - 4.5},${cy - 1} Q ${cx - 5.5},${cy - 14} ${cx},${cy - 16} Q ${cx + 5.5},${cy - 14} ${cx + 4.5},${cy - 1} Z`} fill="#1c1917" stroke="#0a0a0a" strokeWidth="0.4" />
+      <circle cx={cx} cy={cy - 16} r="3.2" fill="#292524" stroke="#0a0a0a" strokeWidth="0.4" />
+      <path d={`M ${cx - 3},${cy - 3} Q ${cx},${cy - 12} ${cx + 3},${cy - 3}`} fill="none" stroke={color} strokeWidth="1" opacity="0.7" />
+    </g>
+  );
+  return (
+    <svg viewBox="0 0 140 100" className={className} role="img" aria-label="HeroScape">
+      <defs>
+        <linearGradient id="hs-sky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#1e3a8a" />
+          <stop offset="0.6" stopColor="#1e293b" />
+          <stop offset="1" stopColor="#0c0a09" />
+        </linearGradient>
+      </defs>
+      <rect width="140" height="100" fill="url(#hs-sky)" />
+      {/* distant sun glow */}
+      <circle cx="106" cy="30" r="26" fill="#f59e0b" opacity="0.13" />
+      {/* battlefield — painter's order: back/high column first, then the front row */}
+      {hex(70, 42, 2, ROCK, 'hill')}
+      {hex(46, 60, 1, GRASS, 'gL')}
+      {hex(94, 60, 1, GRASS, 'gR')}
+      {hex(70, 66, 1, GRASS, 'gC')}
+      {/* figures: red holds the high ground (height advantage) over blue below */}
+      {standee(70, 42, '#dc2626', 'red')}
+      {standee(46, 60, '#2563eb', 'blue')}
+      {/* skull combat die, top-right */}
+      <g transform="translate(112 7)">
+        <rect width="20" height="20" rx="3.5" fill="#fafafa" stroke="#a3a3a3" strokeWidth="0.6" />
+        <text x="10" y="15.5" textAnchor="middle" fontSize="13">💀</text>
+      </g>
+      {/* title */}
+      <text x="68" y="97" textAnchor="middle" fill="#fbbf24" fontSize="11" fontWeight="bold" fontFamily="serif" letterSpacing="0.5">HEROSCAPE</text>
+    </svg>
+  );
 }
 
 function HeroQuestThumb({ className }: { className?: string }) {
