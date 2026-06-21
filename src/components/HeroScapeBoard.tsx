@@ -898,6 +898,62 @@ function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: nu
   );
 }
 
+/** Teams / standings panel (3+ player games). Groups players by TEAM — allies
+ *  share a colour — and shows each side's living-figure count, whose turn it is,
+ *  and who's been eliminated, so a 3-6 player or 2v2v2 game is legible at a glance.
+ *  Hidden in 1-v-1 (the army rows already say it) and outside the playing phase. */
+function TeamsPanel({ state, seatColor }: { state: HSState; seatColor: (seat: number) => string }) {
+  if (state.players.length < 3 || state.phase !== 'playing') return null;
+  const hasTeams = state.players.some(p => p.team !== undefined);
+  const effTeam = (p: HSState['players'][number]) => p.team ?? -1 - p.seat;
+  const groups: { team: number; members: HSState['players'] }[] = [];
+  for (const p of [...state.players].sort((a, b) => a.seat - b.seat)) {
+    const t = effTeam(p);
+    const g = groups.find(x => x.team === t);
+    if (g) g.members.push(p); else groups.push({ team: t, members: [p] });
+  }
+  groups.sort((a, b) => a.team - b.team);
+  const livingFor = (seat: number) => state.figures.filter(f => f.ownerSeat === seat && f.at != null).length;
+  return (
+    <div className="rounded-lg border-2 border-neutral-700 bg-neutral-900/70 px-3 py-2">
+      <div className="text-xs font-bold uppercase tracking-wider text-neutral-300">{hasTeams ? 'Teams' : 'Standings'}</div>
+      <div className="mt-1.5 flex flex-col gap-1.5">
+        {groups.map(({ team, members }) => {
+          const living = members.reduce((n, m) => n + livingFor(m.seat), 0);
+          const out = living === 0;
+          const color = seatColor(members[0].seat);
+          const hasTurn = state.subPhase === 'turns' && members.some(m => m.seat === state.turnSeat);
+          return (
+            <div key={team} className={'rounded-md border px-2 py-1 ' + (hasTurn ? 'border-amber-600/70 bg-amber-950/25' : 'border-neutral-800')}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: out ? '#525252' : color }} />
+                  <span className="truncate text-[11px] font-bold" style={{ color: out ? '#737373' : color }}>
+                    {hasTeams ? `Team ${String.fromCharCode(64 + team)}` : members[0].username}
+                  </span>
+                  {hasTurn && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
+                </span>
+                <span className={'shrink-0 text-[11px] font-bold tabular-nums ' + (out ? 'text-red-400' : 'text-neutral-300')}>
+                  {out ? 'eliminated' : `${living} fig${living === 1 ? '' : 's'}`}
+                </span>
+              </div>
+              {hasTeams && (
+                <div className="mt-0.5 flex flex-wrap gap-x-2 pl-4 text-[10px] leading-tight">
+                  {members.map(m => (
+                    <span key={m.seat} className={livingFor(m.seat) === 0 ? 'text-neutral-600 line-through' : 'text-neutral-400'}>
+                      {m.username}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /** Glyphs panel — lists every glyph on the battlefield so all players know what's
  *  out there. A glyph shows as "?" until a figure stops on it (faceUp), then it
  *  reveals its letter, name, and effect. Hidden glyphs only reveal that SOMETHING
@@ -2883,6 +2939,8 @@ export default function HeroScapeBoard({
       {/* RIGHT RAIL — banner/status, initiative, last attack, choices, end turn.
           (DOM-first so it appears at the top on narrow screens; order-3 on lg+.) */}
       <div className="flex w-full shrink-0 flex-col gap-3 lg:order-3 lg:w-[290px] lg:min-h-0 lg:overflow-y-auto">
+        {/* Teams / standings (3+ players) — who's allied + each side's strength. */}
+        <TeamsPanel state={state} seatColor={seatColor} />
         {/* Glyphs roster — what's on the field (hidden as "?" until revealed), so
             every player can see them. Self-hides when the map has no glyphs. */}
         <GlyphsPanel glyphs={state.glyphs} />
@@ -3460,7 +3518,9 @@ export default function HeroScapeBoard({
           <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:inset-x-0 lg:top-0 lg:z-20 lg:p-1.5">
             {state.players
               .filter(p => !me || p.seat !== me.seat)
-              .sort((a, b) => a.seat - b.seat)
+              // Group allies together (by team), then by seat — a 2v2v2 reads as
+              // teams rather than a seat jumble.
+              .sort((a, b) => ((a.team ?? -1 - a.seat) - (b.team ?? -1 - b.seat)) || (a.seat - b.seat))
               .map(p => (
                 <div key={p.seat} className="lg:pointer-events-auto">{renderArmyRow(p.seat)}</div>
               ))}
