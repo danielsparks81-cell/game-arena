@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, MAPS } from './maps';
+import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, STAR_FIELD, MAPS } from './maps';
 import { hexKey, offsetToAxial, axialToOffset, neighborKeys } from './board';
 
 const at = (col: number, row: number) => {
@@ -208,5 +208,22 @@ describe('parseMap notation', () => {
     expect(() => parseMap('bad1', 'Bad', 'row1: X9')).toThrow(/bad token/);
     expect(() => parseMap('bad2', 'Bad', 'line1: G1')).toThrow(/unparseable/);
     expect(() => parseMap('bad3', 'Bad', 'row1: G')).toThrow(/bad token/);
+  });
+});
+
+describe('Star Field — every player count 2-6', () => {
+  it('defines start zones for all counts 2 through 6', () => {
+    for (let n = 2; n <= 6; n++) {
+      const zones = STAR_FIELD.zonesByCount![n];
+      expect(zones, `count ${n}`).toBeDefined();
+      expect(Object.keys(zones!)).toHaveLength(n); // one zone per seat
+      for (let seat = 0; seat < n; seat++) expect(zones![seat].length).toBeGreaterThan(0);
+    }
+  });
+
+  it('the 2-player zones are the opposite tips and disjoint', () => {
+    const zones = STAR_FIELD.zonesByCount![2]!;
+    const set0 = new Set(zones[0]);
+    expect(zones[1].some(h => set0.has(h))).toBe(false); // no shared hex
   });
 });

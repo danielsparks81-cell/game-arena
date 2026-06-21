@@ -253,9 +253,8 @@ describe('multiplayer: the 6-point star battlefield', () => {
     }
   });
 
-  it('mapSupportsCount: the star is 3-6, the rectangles are 2', () => {
-    expect(mapSupportsCount(star, 2)).toBe(false);
-    for (const n of [3, 4, 5, 6]) expect(mapSupportsCount(star, n)).toBe(true);
+  it('mapSupportsCount: the star supports every count 2-6, the rectangles are 2-only', () => {
+    for (const n of [2, 3, 4, 5, 6]) expect(mapSupportsCount(star, n)).toBe(true);
     expect(mapSupportsCount(MAPS['training_field'], 2)).toBe(true);
     expect(mapSupportsCount(MAPS['training_field'], 4)).toBe(false);
   });

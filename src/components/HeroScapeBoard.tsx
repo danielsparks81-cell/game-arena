@@ -2475,14 +2475,14 @@ export default function HeroScapeBoard({
     const startHint =
       count < 2 ? 'Waiting for at least 2 players…'
         : lobbyMode === 'quick' && !quickOk ? 'Quick battle is a 2-player preset — switch to Draft for 3-6 players.'
-          : lobbyMode === 'draft' && !selectedMapOk ? `${MAPS[lobbyMapId].name} doesn't fit ${count} players — pick the Star Field (3-6).`
+          : lobbyMode === 'draft' && !selectedMapOk ? `${MAPS[lobbyMapId].name} doesn't fit ${count} players — pick the Star Field.`
             : teamsInUse && !teamsValid ? 'All players are on one team — assign at least two sides.'
               : '';
     const mapBlurb: Record<string, string> = {
       training_field: 'Flat grass — learn the ropes. (2 players)',
       the_knoll: 'A 3-tier rock hill — climb for height advantage. (2 players)',
       ford_crossing: 'A water river split by a narrow ford. (2 players)',
-      star_field: 'A giant 6-point star — a deploy zone per point. (3-6 players)',
+      star_field: 'A giant 6-point star — a deploy zone per point. (2-6 players)',
     };
     return (
       <div className="flex flex-col items-center gap-4 p-6">

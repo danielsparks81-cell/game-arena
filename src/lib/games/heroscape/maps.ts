@@ -197,6 +197,7 @@ export const FORD_CROSSING: HSMap = parseMap(
  *  occupied points (2-3 avoid adjacency entirely; 4-6 must take adjacent points,
  *  which is why the board has to be large). */
 const STAR_POINTS_BY_COUNT: Record<number, number[]> = {
+  2: [0, 3], // opposite tips — farthest apart; makes the Star Field a valid 2-player map too
   3: [0, 2, 4],
   4: [0, 1, 3, 4],
   5: [0, 1, 2, 3, 4],
