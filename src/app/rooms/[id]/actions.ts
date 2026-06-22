@@ -85,6 +85,7 @@ import {
   aiPendingSeat as hsAiPendingSeat,
   aiNextAction as hsAiNextAction,
   aiEngineAction as hsAiEngineAction,
+  initiativeReadySeats as hsInitiativeReadySeats,
   attackDiceRequirements as hsAttackDiceRequirements,
   fireLineDefenders as hsFireLineDefenders,
   explosionDefenders as hsExplosionDefenders,
@@ -1592,11 +1593,14 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   // sequence through the engine. The engine re-validates everything (ready
   // gate, attempt shapes, the tie discipline), so a bug here fails loudly
   // instead of corrupting the round.
-  if (
-    next.phase === 'playing' &&
-    next.subPhase === 'place_markers' &&
-    next.markersReady.length === next.players.length
-  ) {
+  // Only LIVING seats place markers + roll initiative + take turns. With 3+
+  // players a whole seat can be wiped out while its team-mates fight on; that
+  // eliminated seat never locks in, so gating on `players.length` would wait
+  // forever (a soft-lock). `initiativeReadySeats` returns the living seats to
+  // roll for once they've all locked in (else null) — and the engine's
+  // roll_initiative validates the attempt covers EXACTLY those seats.
+  const livingForRound = hsInitiativeReadySeats(next);
+  if (livingForRound) {
     // Glyph of Dagmar (slice 4): +8 to its controller's initiative. Determine
     // control from the post-placement state (a living figure of that seat on a
     // power-side-up Dagmar glyph), then carry raw+bonus so the engine re-checks.
@@ -1614,12 +1618,12 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // Re-roll everyone on any tie for highest (Dagmar's +8 carries into re-rolls).
     const attempts: HSInitiativeAttempt[] = [];
     for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
-      const attempt = next.players.map(p => {
+      const attempt = livingForRound.map(seat => {
         const raw = d20();
-        const bonus = dagmarBonus(p.seat);
+        const bonus = dagmarBonus(seat);
         return bonus > 0
-          ? { seat: p.seat, roll: raw + bonus, raw, bonus }
-          : { seat: p.seat, roll: raw };
+          ? { seat, roll: raw + bonus, raw, bonus }
+          : { seat, roll: raw };
       });
       attempts.push(attempt);
       const max = Math.max(...attempt.map(a => a.roll));

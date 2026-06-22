@@ -10,6 +10,7 @@ export {
   aiPendingSeat,
   aiEngineAction,
   livingSeats,
+  initiativeReadySeats,
   getActivePlayerId,
   getOrderedPlayerIds,
   computeHistory,

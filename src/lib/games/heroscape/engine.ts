@@ -137,6 +137,21 @@ export function livingSeats(state: HSState): number[] {
   return state.players.map(p => p.seat).filter(seat => seatIsAlive(state, seat));
 }
 
+/** When it's time to roll initiative this round, the LIVING seats to roll for;
+ *  otherwise null. The round's order-marker step is complete once every living
+ *  seat has locked in — an eliminated seat (3+ players, its team fighting on)
+ *  never places, so the round must NOT wait on it. The server calls this to
+ *  decide both WHEN to roll and FOR WHOM, keeping the "living seats, not all
+ *  players" rule in one tested place so an eliminated seat can't soft-lock the
+ *  round (and so the attempt it builds matches what `doRollInitiative` demands —
+ *  exactly the living seats). */
+export function initiativeReadySeats(state: HSState): number[] | null {
+  if (state.phase !== 'playing' || state.subPhase !== 'place_markers') return null;
+  const living = livingSeats(state);
+  if (living.length === 0) return null;
+  return living.every(seat => (state.markersReady ?? []).includes(seat)) ? living : null;
+}
+
 /** The point budget a SEAT's team drafts within: its team's override, else the
  *  global `pointBudget`. Team-mates share one pool, so callers sum a team's
  *  spend against this single value. */

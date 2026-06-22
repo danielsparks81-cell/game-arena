@@ -26,6 +26,7 @@ import {
   HS_CARDS,
   effectiveCardDef,
   aiPendingSeat,
+  livingSeats,
   HS_DRAFT_POOL,
   HS_GLYPHS,
   POWER_DESCRIPTIONS,
@@ -909,6 +910,9 @@ function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: nu
  *  and who's been eliminated, so a 3-6 player or 2v2v2 game is legible at a glance.
  *  Hidden in 1-v-1 (the army rows already say it) and outside the playing phase. */
 function TeamsPanel({ state, seatColor }: { state: HSState; seatColor: (seat: number) => string }) {
+  // Collapsible so it can fold to a single header when the rail is tight — it sits
+  // directly below the turn/status panel ([order:-1], just under that panel's -2).
+  const [collapsed, setCollapsed] = useState(false);
   if (state.players.length < 3 || state.phase !== 'playing') return null;
   const hasTeams = state.players.some(p => p.team !== undefined);
   const effTeam = (p: HSState['players'][number]) => p.team ?? -1 - p.seat;
@@ -920,9 +924,22 @@ function TeamsPanel({ state, seatColor }: { state: HSState; seatColor: (seat: nu
   }
   groups.sort((a, b) => a.team - b.team);
   const livingFor = (seat: number) => state.figures.filter(f => f.ownerSeat === seat && f.at != null).length;
+  const aliveTeams = groups.filter(g => g.members.some(m => livingFor(m.seat) > 0)).length;
   return (
-    <div className="rounded-lg border-2 border-neutral-700 bg-neutral-900/70 px-3 py-2">
-      <div className="text-xs font-bold uppercase tracking-wider text-neutral-300">{hasTeams ? 'Teams' : 'Standings'}</div>
+    <div className="[order:-1] rounded-lg border-2 border-neutral-700 bg-neutral-900/70 px-3 py-2">
+      <button
+        type="button"
+        onClick={() => setCollapsed(c => !c)}
+        className="flex w-full items-center justify-between text-xs font-bold uppercase tracking-wider text-neutral-300"
+        title={collapsed ? 'Expand' : 'Collapse'}
+      >
+        <span>{hasTeams ? 'Teams' : 'Standings'}</span>
+        <span className="flex items-center gap-1.5">
+          {collapsed && <span className="text-[10px] font-normal text-neutral-500">{aliveTeams}/{groups.length} alive</span>}
+          <span className="text-neutral-500">{collapsed ? '▸' : '▾'}</span>
+        </span>
+      </button>
+      {!collapsed && (
       <div className="mt-1.5 flex flex-col gap-1.5">
         {groups.map(({ team, members }) => {
           const living = members.reduce((n, m) => n + livingFor(m.seat), 0);
@@ -956,6 +973,7 @@ function TeamsPanel({ state, seatColor }: { state: HSState; seatColor: (seat: nu
           );
         })}
       </div>
+      )}
     </div>
   );
 }
@@ -1430,6 +1448,13 @@ export default function HeroScapeBoard({
   // Same freshness mechanism for non-combat d20 rolls (initiative + d20 powers).
   const [rollD20, setRollD20] = useState<LastRoll | null>(null);
   const lastSeenRollSeqRef = useRef<number>(state.lastRoll?.seq ?? 0);
+  // Keep a just-KILLED figure on the board until its dice overlay finishes, so the
+  // defender's roll is seen LANDING before the figure vanishes — otherwise the new
+  // state (figure already gone) spoils the result the instant it arrives. When an
+  // attack overlay opens we snapshot the figures that just left the board and render
+  // them as "ghosts" (via displayState) until the overlay dismisses.
+  const [dyingFigures, setDyingFigures] = useState<Figure[]>([]);
+  const prevFiguresRef = useRef<Figure[]>(state.figures);
 
   // --- board ZOOM / PAN: scroll-wheel zooms toward the cursor, drag pans, the
   // overlay buttons zoom on the center / reset. The view is a sub-rectangle of
@@ -1456,9 +1481,34 @@ export default function HeroScapeBoard({
       // Only animate when there are dice to show (defensive — a real attack
       // always rolls ≥1 attack die; a splash special carries per-figure groups
       // even when the flat defenseRoll is empty).
-      if (la.attackRoll.length > 0 || la.defenseRoll.length > 0 || (la.defenseGroups?.length ?? 0) > 0) setRollAttack(la);
+      if (la.attackRoll.length > 0 || la.defenseRoll.length > 0 || (la.defenseGroups?.length ?? 0) > 0) {
+        setRollAttack(la);
+        // Figures that stood on the board a moment ago but are gone now were just
+        // killed by THIS attack — hold them as ghosts until the overlay dismisses
+        // so the kill reveals WITH the dice, not before them.
+        const prev = prevFiguresRef.current;
+        setDyingFigures(
+          prev.filter(pf => pf.at != null && !state.figures.some(cf => cf.id === pf.id && cf.at != null)),
+        );
+      }
     }
   }, [state.lastAttack]);
+  // Trail the previous render's figures by ONE commit. Defined AFTER the effect
+  // above so on the killing render it still reads the PRE-kill snapshot, then
+  // advances to the new one for next time.
+  useEffect(() => {
+    prevFiguresRef.current = state.figures;
+  }, [state.figures]);
+  // Board-only figure list: the live figures, with any just-killed figure swapped
+  // back in (at its last hex) while its overlay plays. Game logic keeps using
+  // `state`; only the rendered board sees the ghosts.
+  const displayState = useMemo(() => {
+    if (dyingFigures.length === 0) return state;
+    const ghostById = new Map(dyingFigures.map(g => [g.id, g] as const));
+    const figures = state.figures.map(f => (f.at == null && ghostById.has(f.id) ? ghostById.get(f.id)! : f));
+    for (const g of dyingFigures) if (!figures.some(f => f.id === g.id)) figures.push(g);
+    return { ...state, figures };
+  }, [state, dyingFigures]);
   // Broadcast whether the dramatic dice-roll overlay is on screen, so the room shell can hold the
   // "Rematch?" prompt back until the FINAL (game-winning) roll has fully played out (no spoiler).
   // Pure UI signal; harmless when nothing is listening.
@@ -2973,7 +3023,7 @@ export default function HeroScapeBoard({
         <DiceRollOverlay
           key={rollAttack.seq}
           attack={rollAttack}
-          onDismiss={() => setRollAttack(null)}
+          onDismiss={() => { setRollAttack(null); setDyingFigures([]); }}
         />
       )}
       {/* d20 overlay for initiative + special powers (same freshness mechanism). */}
@@ -2995,7 +3045,7 @@ export default function HeroScapeBoard({
         {/* Placement status — the interactive assignment lives below the board,
             directly above your army cards. */}
         {placement ? (
-          <div className="rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2 text-center">
+          <div className="[order:-2] rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2 text-center">
             <div className="text-sm font-bold text-amber-300">Deploy your army</div>
             <div className="mt-1 text-xs text-neutral-400">
               {me
@@ -3031,7 +3081,7 @@ export default function HeroScapeBoard({
             )}
           </div>
         ) : placing ? (
-          <div className="rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2 text-center">
+          <div className="[order:-2] rounded-lg border-2 border-amber-700 bg-neutral-900/70 px-3 py-2 text-center">
             <div className="text-sm font-bold text-amber-300">
               Round {state.round} — place order markers
             </div>
@@ -3043,7 +3093,11 @@ export default function HeroScapeBoard({
                 : 'Players are placing markers…'}
             </div>
             <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-800 pt-1.5 text-[11px]">
-              {state.players.filter(p => p.playerId !== currentUserId).map(p => (
+              {/* Only LIVING seats place markers — an eliminated player is out and
+                  must not show as "placing…" (the round never waits on them). */}
+              {state.players
+                .filter(p => p.playerId !== currentUserId && livingSeats(state).includes(p.seat))
+                .map(p => (
                 <div key={p.seat} className="flex items-center justify-between">
                   <span style={{ color: seatColor(p.seat) }}>{p.username}</span>
                   <span className={state.markersReady.includes(p.seat) ? 'text-emerald-400' : 'text-neutral-500'}>
@@ -3595,7 +3649,7 @@ export default function HeroScapeBoard({
         </div>
         {can3D ? (
           <HeroBoard3D
-            state={state}
+            state={displayState}
             onHexClick={clickHex}
             selectedId={selectedId}
             moveHexes={destinations}
