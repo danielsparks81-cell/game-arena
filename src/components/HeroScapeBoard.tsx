@@ -3971,11 +3971,19 @@ export default function HeroScapeBoard({
             per-viewer flip puts my start zone). Markers above each card; during
             placement my strip is interactive. Compact + shrink-0 so the board
             stays the biggest element. */}
-        {/* My army strip — on lg it OVERLAYS the bottom of the board; on mobile it
-            sits below as before. */}
+        {/* My army strip — in normal play it OVERLAYS the bottom of the board (lg)
+            to save vertical space; on mobile it sits below. But during PLACEMENT the
+            in-hand tray already sits at the column bottom, so the overlay collided
+            with it (chips printed over the cards). During placement keep the strip in
+            NORMAL FLOW so it stacks cleanly below the tray. */}
         {me && (
-          <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:inset-x-0 lg:bottom-0 lg:z-20 lg:p-1.5">
-            <div className="lg:pointer-events-auto">{renderArmyRow(me.seat)}</div>
+          <div
+            className={
+              'flex flex-col items-start gap-1 ' +
+              (placement ? '' : 'lg:pointer-events-none lg:absolute lg:inset-x-0 lg:bottom-0 lg:z-20 lg:p-1.5')
+            }
+          >
+            <div className={placement ? '' : 'lg:pointer-events-auto'}>{renderArmyRow(me.seat)}</div>
           </div>
         )}
       </div>
