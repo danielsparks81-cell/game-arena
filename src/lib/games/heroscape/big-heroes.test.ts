@@ -711,3 +711,45 @@ describe('AI powers — Marro Water Clone', () => {
     expect(aiNextAction(s, 0)?.kind).toBe('water_clone');
   });
 });
+
+// ===========================================================================
+// Glyphs — a 2-hex figure's FULL footprint counts (both lobes), not just `at`.
+// Reported in play: Braxas with only its back lobe on a glyph didn't trigger it.
+// ===========================================================================
+describe('Glyphs — both lobes of a 2-hex figure count', () => {
+  it('a 2-hex figure controls a glyph under its BACK lobe (at2), not just the lead hex', () => {
+    let { s, hero } = stage('grimnak'); // s0-finn-1 → Grimnak (2-hex)
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const cells = Object.keys(MAPS[s.mapId].cells);
+    const back = cells.find(k => neighborKeys(k).some(n => cells.includes(n)))!;
+    const lead = neighborKeys(back).find(n => cells.includes(n))!;
+    const g = s.figures.find(f => f.id === hero)!;
+    g.at = lead; g.at2 = back; // footprint: lead + back; the glyph sits under the BACK lobe
+    const atk = s.figures.find(f => f.id === 's1-thorgrim-1')!;
+    atk.at = cells.find(k => k !== lead && k !== back)!; atk.at2 = null;
+    // Baseline: Gerda present but FACE-DOWN grants nothing.
+    s.glyphs = [{ id: 'gerda', at: back, faceUp: false }];
+    const base = effectiveDefenseDice(s, g, atk).dice;
+    // Face-up: the back lobe occupies Gerda → +1 defense. (Before the footprint fix,
+    // seatControlsGlyph only checked `at`, so a back-lobe glyph granted nothing.)
+    s.glyphs = [{ id: 'gerda', at: back, faceUp: true }];
+    expect(effectiveDefenseDice(s, g, atk).dice).toBe(base + 1);
+  });
+
+  it('orienting a 2-hex figure so its tail swings onto a hidden glyph reveals + claims it', () => {
+    let { s, hero } = stage('grimnak');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const cells = Object.keys(MAPS[s.mapId].cells);
+    const lead = cells.find(k => neighborKeys(k).filter(n => cells.includes(n)).length >= 2)!;
+    const dirs = neighborKeys(lead).map((n, i) => ({ n, i })).filter(x => cells.includes(x.n));
+    const startTail = dirs[0], glyphDir = dirs[1];
+    const g = s.figures.find(f => f.id === hero)!;
+    g.at = lead; g.at2 = startTail.n; g.facing = startTail.i;
+    s.figures.find(f => f.id === 's1-marro_warriors-4')!.at = cells[cells.length - 1]; // park far → not engaged
+    s.glyphs = [{ id: 'astrid', at: glyphDir.n, faceUp: false }]; // hidden glyph on the OTHER neighbour
+    const oriented = unwrap(applyAction(s, 'p1', { kind: 'orient_figure', figureId: hero, dir: glyphDir.i }));
+    expect(oriented.figures.find(f => f.id === hero)!.at2).toBe(glyphDir.n); // tail swung onto it
+    expect(oriented.glyphs.find(x => x.at === glyphDir.n)?.faceUp).toBe(true); // revealed by the swing
+    expect(oriented.log.some(e => e.tag === 'glyph' && /reveals a hidden glyph/.test(e.text))).toBe(true);
+  });
+});

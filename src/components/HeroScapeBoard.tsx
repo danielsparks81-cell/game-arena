@@ -997,7 +997,7 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
   // Revealed first (most informative), then unknowns; stable by hex key.
   const sorted = [...glyphs].sort((a, b) => Number(b.faceUp) - Number(a.faceUp) || a.at.localeCompare(b.at));
   return (
-    <div className="rounded-lg border-2 border-rose-900/70 bg-neutral-900/70 px-3 py-2">
+    <div className="rounded-lg border-2 border-rose-900/70 bg-neutral-900/85 px-3 py-2 shadow-lg shadow-black/50 backdrop-blur-sm">
       <div className="flex items-center justify-between">
         <div className="text-xs font-bold uppercase tracking-wider text-rose-300/90">Glyphs</div>
         <div className="text-[10px] tabular-nums text-neutral-500">{revealed}/{glyphs.length} revealed</div>
@@ -1584,12 +1584,19 @@ export default function HeroScapeBoard({
     // phase, before End Move), deploying figures, drafting, or laying order markers —
     // so a multi-hex move doesn't crawl one slow hex at a time. NORMAL once it's in the
     // attack phase (where rolls happen), and SLOWER still while a dice roll is on screen.
+    // HOLD the bot entirely while the dramatic dice overlay is on screen — don't just
+    // slow it. Otherwise it can end its turn (advancing the game to the next player)
+    // before the player has watched the defense roll finish. When the overlay dismisses
+    // (auto ~1.6s after the result, or the player taps Skip ▸), rollAttack clears, this
+    // effect re-runs, and the bot proceeds. (Setting rollAttack re-runs this effect and
+    // cancels any step already scheduled this commit, so the bot never slips a move in.)
+    if (rollAttack) return;
     const fast =
       state.phase === 'draft' ||
       state.phase === 'placement' ||
       state.subPhase === 'place_markers' ||
       (state.subPhase === 'turns' && !state.movementEnded && !state.pendingChoice);
-    const delay = rollAttack ? AI_STEP_MS * 2 : fast ? AI_STEP_FAST_MS : AI_STEP_MS;
+    const delay = fast ? AI_STEP_FAST_MS : AI_STEP_MS;
     const t = setTimeout(() => onAiStep(), delay);
     return () => clearTimeout(t);
   }, [state, onAiStep, isHost, rollAttack]);
@@ -3176,9 +3183,7 @@ export default function HeroScapeBoard({
       <div className="flex w-full shrink-0 flex-col gap-3 lg:order-3 lg:w-[290px] lg:min-h-0 lg:overflow-y-auto">
         {/* Teams / standings (3+ players) — who's allied + each side's strength. */}
         <TeamsPanel state={state} seatColor={seatColor} />
-        {/* Glyphs roster — what's on the field (hidden as "?" until revealed), so
-            every player can see them. Self-hides when the map has no glyphs. */}
-        <GlyphsPanel glyphs={state.glyphs} />
+        {/* (Glyphs roster moved onto the board — see the right-centered overlay there.) */}
         {/* Placement status — the interactive assignment lives below the board,
             directly above your army cards. */}
         {placement ? (
@@ -3783,6 +3788,15 @@ export default function HeroScapeBoard({
             </>
           )}
         </div>
+        {/* Glyphs roster — overlaid on the RIGHT edge of the board, vertically centered,
+            so it reads as a battlefield HUD instead of living in the side rail. Hidden as
+            "?" until revealed. pointer-events-none so it never eats a board tap/drag;
+            renders only when the map actually has glyphs. */}
+        {state.glyphs && state.glyphs.length > 0 && (
+          <div className="pointer-events-none absolute right-2 top-1/2 z-20 w-52 -translate-y-1/2 sm:w-56">
+            <GlyphsPanel glyphs={state.glyphs} />
+          </div>
+        )}
         {can3D ? (
           <HeroBoard3D
             state={displayState}

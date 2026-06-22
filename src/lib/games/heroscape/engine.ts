@@ -1101,6 +1101,9 @@ function doOrientFigure(state: HSState, seat: number, figureId: string, dir: num
   f.at2 = tail;
   f.facing = dir;
   pushLog(s, 'move', `${playerName(s, seat)} turns ${figureLabel(s, fig)} to face ${hexLabel(tail)}.`);
+  // Swinging the trailing lobe onto a glyph puts the figure ON it — reveal + claim it
+  // (footprint-aware), so a 2-hex figure controls a glyph under either half. (05-glyphs)
+  applyGlyphOnStop(s, f);
   return s;
 }
 
@@ -1693,7 +1696,8 @@ function seatControlsGlyph(state: HSState, seat: number, glyphId: HSGlyphId): bo
     g =>
       g.id === glyphId &&
       g.faceUp &&
-      state.figures.some(f => f.at === g.at && f.ownerSeat === seat),
+      // EITHER lobe of a 2-hex figure standing on the glyph controls it (footprint, not just lead hex).
+      state.figures.some(f => f.ownerSeat === seat && figureHexes(f).includes(g.at)),
   );
 }
 
@@ -2516,7 +2520,9 @@ function doGrappleMove(
  * is visible) per the slice-4 "treat as inert, still a forced stop" rule.
  */
 function applyGlyphOnStop(s: HSState, fig: Figure): void {
-  const g = glyphAt(s, fig.at);
+  // A 2-hex figure claims a glyph under EITHER lobe — both halves of its footprint
+  // count (e.g. Braxas ending with only its BACK lobe on the glyph still reveals it).
+  const g = figureHexes(fig).map(h => glyphAt(s, h)).find((x): x is HSGlyph => x != null);
   if (!g) return;
   // A glyph starts HIDDEN (face-down); the instant a figure stops on it, flip it face-up — only
   // then can it take effect (the stat helpers + seatControlsGlyph all gate on faceUp).
