@@ -27,6 +27,7 @@ import {
   effectiveCardDef,
   aiPendingSeat,
   livingSeats,
+  initiativeReadySeats,
   HS_DRAFT_POOL,
   HS_GLYPHS,
   POWER_DESCRIPTIONS,
@@ -1537,9 +1538,13 @@ export default function HeroScapeBoard({
   // ONE action at a time (so its moves + dice animate). The server no-ops once no
   // bot is pending, and only the host drives → no double-stepping. Waits a little
   // longer while an attack roll is on screen so the result is readable.
+  // ALSO tick when initiative is OWED but unrolled (every living seat has placed its
+  // markers): no one then owes an action, so without this nudge a round left in that
+  // state — by a race or an older build — would wedge forever. The server's ai_step
+  // rolls the owed initiative even with no bot action, so this self-heals the round.
   useEffect(() => {
     if (!onAiStep || !isHost) return;
-    if (aiPendingSeat(state) == null) return;
+    if (aiPendingSeat(state) == null && initiativeReadySeats(state) == null) return;
     const t = setTimeout(() => onAiStep(), rollAttack ? AI_STEP_MS * 2 : AI_STEP_MS);
     return () => clearTimeout(t);
   }, [state, onAiStep, isHost, rollAttack]);

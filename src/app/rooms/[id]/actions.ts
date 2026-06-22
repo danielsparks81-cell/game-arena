@@ -1312,14 +1312,23 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   // Idempotent under races — if no bot owes an action (someone already moved it),
   // it's a no-op.
   let actorId = user.id;
-  let engineAction: HSAction;
+  let engineAction: HSAction | null = null;
   if (action.kind === 'ai_step') {
     const seat = hsAiPendingSeat(state);
     const bot = seat == null ? undefined : state.players.find(p => p.seat === seat);
     const intent = bot?.bot ? hsAiNextAction(state, seat!) : null;
-    if (!bot?.bot || !intent) { await notifyRoom(roomId); return; }
-    actorId = bot.playerId;
-    engineAction = hsAiEngineAction(state, intent, { rollDie, rollDice, d20 });
+    if (!bot?.bot || !intent) {
+      // No bot owes an action. If initiative is nonetheless OWED — every living seat
+      // has locked in its order markers but the roll never fired — fall through with
+      // NO engine action so the shared trigger below rolls it and the round
+      // self-heals. This is the safety net for a state left wedged by a race or an
+      // older build (nothing else re-triggers the roll once all living seats are
+      // ready, since no one then owes an action). Otherwise there's nothing to do.
+      if (!hsInitiativeReadySeats(state)) { await notifyRoom(roomId); return; }
+    } else {
+      actorId = bot.playerId;
+      engineAction = hsAiEngineAction(state, intent, { rollDie, rollDice, d20 });
+    }
   } else if (action.kind === 'attack') {
     // Roll exactly the required Attack/Defense dice counts (printed stat +
     // height advantage — the engine's single-source helper). Unknown figure
@@ -1573,7 +1582,9 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     engineAction = action;
   }
 
-  let next = applyActionHS(state, actorId, engineAction);
+  // `engineAction` is null only on the self-heal path above (no action to apply —
+  // we just run the initiative trigger on the current state).
+  let next: ReturnType<typeof applyActionHS> = engineAction ? applyActionHS(state, actorId, engineAction) : state;
   if ('error' in next) {
     // A bot proposed an illegal move (rare). Recover so a bot can NEVER hard-lock
     // the game (a stalled ai_step doesn't change state, so the host's drive timer
