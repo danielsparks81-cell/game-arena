@@ -21,6 +21,7 @@ import { cropOverride, analyzeCut, figureAnchor, figureSpan2 } from '@/lib/games
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
+const FLY_ARC_HEIGHT = 2.2; // peak altitude (world units) a flyer rises to mid-flight
 const BASE_H = 0.14;
 const STANDEE_H = 1.9; // legacy height-stat scale, still used for 2-hex figures
 // Base-as-ruler sizing: a 1-hex figure is scaled so its detected base width renders at this
@@ -229,9 +230,9 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, wounds, onClick }: {
+function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, wounds, flying, onClick }: {
   lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; wounds: number; onClick?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; wounds: number; flying: boolean; onClick?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
@@ -363,18 +364,31 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // origin) and on a board-spanning jump (Airborne drop / reseat), which aren't walks.
   const rootRef = useRef<THREE.Group>(null);
   const placedRef = useRef(false);
+  // FLYERS lift off, cross at altitude, and land: while the figure is easing toward its
+  // hex (and for a beat after) it rises to FLY_ARC_HEIGHT; once it settles it eases back to
+  // the ground. Because move_step commits one hex at a time, a multi-hex move stays aloft
+  // ACROSS the steps — reading as one continuous flight (take off → cruise → set down)
+  // rather than a per-hex hop. A walker just snaps to ground height (unchanged).
+  const settledRef = useRef(99); // seconds since the last horizontal move (99 = grounded at rest)
   useFrame((_, delta) => {
     const g = rootRef.current;
     if (!g) return;
     if (!placedRef.current) { g.position.set(cx, topY, cz); placedRef.current = true; return; }
-    g.position.y = topY; // height changes snap; only the horizontal walk eases
     const dx = cx - g.position.x, dz = cz - g.position.z;
     const dist = Math.hypot(dx, dz);
-    if (dist < 1e-4) return;
-    if (dist > 22) { g.position.x = cx; g.position.z = cz; return; } // teleport, not a walk → snap
-    const step = Math.min(dist, 20 * delta); // ~20 world units/sec — a quick walk
-    g.position.x += (dx / dist) * step;
-    g.position.z += (dz / dist) * step;
+    let moving = false;
+    if (dist > 22) { g.position.x = cx; g.position.z = cz; } // teleport (Drop / reseat) → snap horizontally
+    else if (dist > 1e-4) {
+      moving = true;
+      const step = Math.min(dist, (flying ? 24 : 20) * delta); // world units/sec — flyers swoop a touch faster
+      g.position.x += (dx / dist) * step;
+      g.position.z += (dz / dist) * step;
+    }
+    if (!flying) { g.position.y = topY; return; } // walkers: height snaps, only the walk eases
+    settledRef.current = moving ? 0 : settledRef.current + delta;
+    const aloft = settledRef.current < 0.25; // moved within the last beat → still in flight
+    const targetY = topY + (aloft ? FLY_ARC_HEIGHT : 0);
+    g.position.y += (targetY - g.position.y) * Math.min(1, delta * 8); // ease up to take off, down to land
   });
   const pips = Math.min(wounds, 8);
   return (
@@ -576,6 +590,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           return (
             <Standee
               key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
+              flying={!!HS_CARDS[cardId]?.flying}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
               powerTarget={!!it.powerTargetIds?.has(f.id)} splash={!!it.splashIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
