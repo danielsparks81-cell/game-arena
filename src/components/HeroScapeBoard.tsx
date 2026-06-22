@@ -113,8 +113,11 @@ const SEAT_COLORS = [
 // Team colours (allies share one) — index = team id − 1 (lobby assigns ids 1/2/3).
 const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80']; // Team A / B / C
 const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
-/** Beat between an AI's actions (ms) — slow enough to watch its moves + rolls. */
+/** Beat between an AI's actions (ms). Combat is paced slow enough to read the dice;
+ *  the repetitive no-dice phases (walking a path one hex at a time, deploying, drafting,
+ *  placing markers) tick FAST so the bot doesn't crawl across the board. */
 const AI_STEP_MS = 850;
+const AI_STEP_FAST_MS = 240;
 const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
 type Assignment = { marker: OrderMarkerValue; cardUid: string };
@@ -1573,7 +1576,17 @@ export default function HeroScapeBoard({
   useEffect(() => {
     if (!onAiStep || !isHost) return;
     if (aiPendingSeat(state) == null && initiativeReadySeats(state) == null) return;
-    const t = setTimeout(() => onAiStep(), rollAttack ? AI_STEP_MS * 2 : AI_STEP_MS);
+    // FAST while the bot is doing repetitive, no-dice work — walking a path (move
+    // phase, before End Move), deploying figures, drafting, or laying order markers —
+    // so a multi-hex move doesn't crawl one slow hex at a time. NORMAL once it's in the
+    // attack phase (where rolls happen), and SLOWER still while a dice roll is on screen.
+    const fast =
+      state.phase === 'draft' ||
+      state.phase === 'placement' ||
+      state.subPhase === 'place_markers' ||
+      (state.subPhase === 'turns' && !state.movementEnded && !state.pendingChoice);
+    const delay = rollAttack ? AI_STEP_MS * 2 : fast ? AI_STEP_FAST_MS : AI_STEP_MS;
+    const t = setTimeout(() => onAiStep(), delay);
     return () => clearTimeout(t);
   }, [state, onAiStep, isHost, rollAttack]);
 
@@ -2477,15 +2490,16 @@ export default function HeroScapeBoard({
           )}
         </div>
         {/* LEVEL 1 — army names + life status, stacked thin, with each card's ORDER
-            MARKERS to the LEFT of its name. Face-down (hidden) opponent markers are
-            dropped so it stays compact — you see your own placement and any revealed
-            enemy marker. */}
+            MARKERS to the LEFT of its name (user request). ALL markers show — your own
+            with their number, an opponent's as anonymous FACE-DOWN bubbles (same as
+            levels 2/3) — so every card visibly carries its order-marker slots; a
+            revealed marker (the turn that came up) lights amber. */}
         {level === 1 && (
           <div className="mt-1 flex flex-col gap-0.5">
             {cards.map(({ uid, def, alive, heroWounds, markers }) => {
               const dead = alive === 0;
               const active = uid === activeCardUid && state.subPhase === 'turns';
-              const shownMarkers = (markers ?? []).filter(m => m.marker !== 'hidden');
+              const shownMarkers = markers ?? [];
               return (
                 <div key={uid} className={'group relative flex items-center justify-between gap-3 rounded px-1.5 py-0.5 text-[11px] ' + (active ? 'bg-amber-900/30 ring-1 ring-amber-600 ' : '') + (dead ? 'opacity-45' : '')}>
                   <span className="flex min-w-0 items-center gap-1.5">
