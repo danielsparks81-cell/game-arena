@@ -82,6 +82,9 @@ import {
 } from '@/lib/games/heroquest';
 import {
   applyAction as applyActionHS,
+  aiPendingSeat as hsAiPendingSeat,
+  aiNextAction as hsAiNextAction,
+  aiEngineAction as hsAiEngineAction,
   attackDiceRequirements as hsAttackDiceRequirements,
   fireLineDefenders as hsFireLineDefenders,
   explosionDefenders as hsExplosionDefenders,
@@ -739,6 +742,9 @@ export type GameAction =
   // the values into the pure engine. The host picks the battlefield at start.
   | { game: 'heroscape'; kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition }
   | { game: 'heroscape'; kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
+  | { game: 'heroscape'; kind: 'add_bot'; team?: number }
+  | { game: 'heroscape'; kind: 'remove_bot'; seat: number }
+  | { game: 'heroscape'; kind: 'ai_step' }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'move_step'; figureId: string; to: string }
@@ -1191,6 +1197,9 @@ export async function makeMoveHQ(roomId: string, action: HQAction) {
 type HSWireAction =
   | { kind: 'start_game'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition }
   | { kind: 'set_lobby_config'; mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }
+  | { kind: 'add_bot'; team?: number }
+  | { kind: 'remove_bot'; seat: number }
+  | { kind: 'ai_step' }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
   | { kind: 'move_figure'; figureId: string; to: string }
   // STEP-BY-STEP move (tap each space). Like move_figure, the per-step swipe / fall
@@ -1278,8 +1287,13 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   if (error || !room) throw new Error('Room not found');
   if (room.game_type !== 'heroscape') throw new Error('Wrong game type');
 
-  if (action.kind === 'start_game' || action.kind === 'set_lobby_config') {
-    // Both happen in the waiting lobby and are host-only.
+  if (
+    action.kind === 'start_game' ||
+    action.kind === 'set_lobby_config' ||
+    action.kind === 'add_bot' ||
+    action.kind === 'remove_bot'
+  ) {
+    // Lobby setup — host-only.
     if (room.host_id !== user.id) throw new Error('Only the host can change the battle settings');
   } else if (room.status !== 'playing') {
     throw new Error('Battle not in progress');
@@ -1291,8 +1305,21 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   const rollDice = (n: number): HSCombatFace[] => Array.from({ length: n }, rollDie);
   const d20 = () => 1 + Math.floor(Math.random() * 20);
 
+  // AI STEP: any seated player ticks the bot whose action is pending. We compute
+  // the bot's intent (pure engine), roll its dice, and apply it AS THE BOT, then
+  // fall through to the same initiative/save orchestration as a human move.
+  // Idempotent under races — if no bot owes an action (someone already moved it),
+  // it's a no-op.
+  let actorId = user.id;
   let engineAction: HSAction;
-  if (action.kind === 'attack') {
+  if (action.kind === 'ai_step') {
+    const seat = hsAiPendingSeat(state);
+    const bot = seat == null ? undefined : state.players.find(p => p.seat === seat);
+    const intent = bot?.bot ? hsAiNextAction(state, seat!) : null;
+    if (!bot?.bot || !intent) { await notifyRoom(roomId); return; }
+    actorId = bot.playerId;
+    engineAction = hsAiEngineAction(state, intent, { rollDie, rollDice, d20 });
+  } else if (action.kind === 'attack') {
     // Roll exactly the required Attack/Defense dice counts (printed stat +
     // height advantage — the engine's single-source helper). Unknown figure
     // ids get empty rolls — the engine then rejects with its own clearer error.
@@ -1545,8 +1572,20 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     engineAction = action;
   }
 
-  let next = applyActionHS(state, user.id, engineAction);
-  if ('error' in next) throw new Error(next.error);
+  let next = applyActionHS(state, actorId, engineAction);
+  if ('error' in next) {
+    // A bot proposed an illegal move (rare). If it's the bot's turn, end it so the
+    // game can never stall; otherwise surface the error.
+    const ts = state.turnSeat;
+    const turnBot = ts != null ? state.players.find(p => p.seat === ts) : undefined;
+    if (action.kind === 'ai_step' && turnBot?.bot) {
+      const ended = applyActionHS(state, turnBot.playerId, { kind: 'end_turn' });
+      if ('error' in ended) throw new Error(ended.error);
+      next = ended;
+    } else {
+      throw new Error(next.error);
+    }
+  }
 
   // The LAST lock-in triggers initiative in the same request: roll a d20 per
   // seat, re-roll everyone on any tie for highest, and apply the tie-free
@@ -1554,7 +1593,7 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   // gate, attempt shapes, the tie discipline), so a bug here fails loudly
   // instead of corrupting the round.
   if (
-    action.kind === 'place_markers' &&
+    next.phase === 'playing' &&
     next.subPhase === 'place_markers' &&
     next.markersReady.length === next.players.length
   ) {

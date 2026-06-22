@@ -25,6 +25,7 @@ import {
   MAPS,
   HS_CARDS,
   effectiveCardDef,
+  aiPendingSeat,
   HS_DRAFT_POOL,
   HS_GLYPHS,
   POWER_DESCRIPTIONS,
@@ -108,6 +109,8 @@ const SEAT_COLORS = [
 // Team colours (allies share one) — index = team id − 1 (lobby assigns ids 1/2/3).
 const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80']; // Team A / B / C
 const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
+/** Beat between an AI's actions (ms) — slow enough to watch its moves + rolls. */
+const AI_STEP_MS = 850;
 const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
 type Assignment = { marker: OrderMarkerValue; cardUid: string };
@@ -169,6 +172,9 @@ type Props = {
   disabled?: boolean;
   onStart: (mapId?: string, pointBudget?: number, mode?: HSMode) => void;
   onSetLobbyConfig: (cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => void;
+  onAddBot?: (team?: number) => void;
+  onRemoveBot?: (seat: number) => void;
+  onAiStep?: () => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
   onMoveFigure: (figureId: string, to: HexKey) => void;
   /** Walk a figure ONE adjacent hex (tap-to-step movement). */
@@ -1297,7 +1303,7 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onSetLobbyConfig, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onOrient, onAttack,
+  onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onOrient, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
@@ -1467,6 +1473,17 @@ export default function HeroScapeBoard({
       if (lr.dice.length > 0) setRollD20(lr);
     }
   }, [state.lastRoll]);
+
+  // Drive the AI: while a bot owes an action, the HOST's client ticks `ai_step`
+  // ONE action at a time (so its moves + dice animate). The server no-ops once no
+  // bot is pending, and only the host drives → no double-stepping. Waits a little
+  // longer while an attack roll is on screen so the result is readable.
+  useEffect(() => {
+    if (!onAiStep || !isHost) return;
+    if (aiPendingSeat(state) == null) return;
+    const t = setTimeout(() => onAiStep(), rollAttack ? AI_STEP_MS * 2 : AI_STEP_MS);
+    return () => clearTimeout(t);
+  }, [state, onAiStep, isHost, rollAttack]);
 
   const map = MAPS[state.mapId];
   // The effective per-seat start zones: the multiplayer STAR assigns its six
@@ -2552,6 +2569,37 @@ export default function HeroScapeBoard({
               : 'The rebalanced printing (default)'}
           </div>
         </div>
+
+        {/* AI opponents (host, draft mode) — bots draft + play on their own. Add
+            several to face a team of them, or assign one to your side. */}
+        {isHost && lobbyMode === 'draft' && (
+          <div className="flex flex-col items-center gap-1">
+            <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">AI opponents</div>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {state.players.filter(p => p.bot).map(p => (
+                <span key={p.seat} className="flex items-center gap-1 rounded-md border-2 border-fuchsia-700/60 bg-fuchsia-950/30 px-2 py-0.5 text-xs font-semibold text-fuchsia-200">
+                  🤖 {p.username}
+                  <button
+                    onClick={() => onRemoveBot?.(p.seat)}
+                    disabled={disabled}
+                    className="ml-0.5 rounded px-0.5 text-fuchsia-400 transition hover:text-red-300 disabled:opacity-40"
+                    title="Remove this AI"
+                  >✕</button>
+                </span>
+              ))}
+              {state.players.length < 6 && (
+                <button
+                  onClick={() => onAddBot?.()}
+                  disabled={disabled}
+                  className="rounded-md border-2 border-fuchsia-600 bg-fuchsia-900/30 px-3 py-1 text-xs font-bold text-fuchsia-200 transition hover:bg-fuchsia-800/50 disabled:opacity-40"
+                >
+                  + Add AI
+                </button>
+              )}
+            </div>
+            <div className="text-[11px] text-neutral-500">They draft an army and play their own turns. Set teams below to ally with one.</div>
+          </div>
+        )}
 
         {/* Point-budget presets (draft mode only) */}
         {lobbyMode === 'draft' && (

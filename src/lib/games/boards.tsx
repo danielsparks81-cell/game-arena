@@ -269,6 +269,9 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       disabled={pending}
       onStart={(mapId?: string, pointBudget?: number, mode?: HSMode) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game', mapId, pointBudget, mode }); })}
       onSetLobbyConfig={(cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'set_lobby_config', ...cfg }); })}
+      onAddBot={(team?: number) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'add_bot', team }); })}
+      onRemoveBot={(seat: number) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'remove_bot', seat }); })}
+      onAiStep={() => { gameMove(roomId, { game: 'heroscape', kind: 'ai_step' }); }}
       onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
       onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
       onMoveStep={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_step', figureId, to }); })}
