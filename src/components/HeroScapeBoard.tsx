@@ -2310,13 +2310,31 @@ export default function HeroScapeBoard({
     // when a big army would overflow (max-w-full).
     return (
       <div className={'w-fit max-w-full rounded-lg border bg-neutral-900/40 px-2 py-1 ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* detail-level control (1/2/3) — global; applies to every player's strip.
+              Placed to the LEFT of the name (user request) so it reads like an order
+              tab beside the player. */}
+          {!placingMine && (
+            <span className="flex items-center gap-0.5 rounded border border-neutral-700 p-0.5" title="Army-panel detail (applies to all players)">
+              {([1, 2, 3] as const).map(lv => (
+                <button
+                  key={lv}
+                  type="button"
+                  onClick={() => setArmyDetail(lv)}
+                  title={lv === 1 ? 'Names + life' : lv === 2 ? 'Compact cards' : 'Full cards'}
+                  className={'rounded px-1.5 text-[10px] font-bold leading-4 transition ' + (armyDetail === lv ? 'bg-neutral-200 text-neutral-900' : 'text-neutral-400 hover:bg-neutral-800')}
+                >
+                  {lv}
+                </button>
+              ))}
+            </span>
+          )}
           <span className="flex items-center gap-1.5">
             <span className="text-xs font-bold" style={{ color: seatColor(pl.seat) }}>{pl.username}{isMe ? ' (you)' : ''}</span>
             {isActive && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
           </span>
           {placingMine && (
-            <span className="flex items-center gap-1">
+            <span className="ml-auto flex items-center gap-1">
               {MARKERS.map(v => (
                 <button
                   key={v}
@@ -2350,22 +2368,6 @@ export default function HeroScapeBoard({
               >
                 🔒 Lock in
               </button>
-            </span>
-          )}
-          {/* detail-level control — global; applies to every player's strip */}
-          {!placingMine && (
-            <span className="flex items-center gap-0.5 rounded border border-neutral-700 p-0.5" title="Army-panel detail (applies to all players)">
-              {([1, 2, 3] as const).map(lv => (
-                <button
-                  key={lv}
-                  type="button"
-                  onClick={() => setArmyDetail(lv)}
-                  title={lv === 1 ? 'Names + life' : lv === 2 ? 'Compact cards' : 'Full cards'}
-                  className={'rounded px-1.5 text-[10px] font-bold leading-4 transition ' + (armyDetail === lv ? 'bg-neutral-200 text-neutral-900' : 'text-neutral-400 hover:bg-neutral-800')}
-                >
-                  {lv}
-                </button>
-              ))}
             </span>
           )}
         </div>
