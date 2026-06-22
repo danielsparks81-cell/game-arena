@@ -1510,17 +1510,36 @@ export default function HeroScapeBoard({
   useEffect(() => {
     prevFiguresRef.current = state.figures;
   }, [state.figures]);
+  // BRIDGE the one-frame gap: the effect above sets `frozenFigures` only AFTER this
+  // render commits, so on the very frame the kill state arrives the figure would
+  // render as GONE for ~1 frame before the effect re-adds it as a ghost — a visible
+  // "blink" right as the dice start. Recompute the freeze DURING render here (same
+  // pre-attack snapshot) so the ghost is in place on the SAME frame. Computed inline
+  // (not memoised) so it falls back to [] the instant the effect catches up — seq seen
+  // — and hands off to `frozenFigures` for the rest of the overlay.
+  const freshLa = state.lastAttack;
+  const freshFrozen: Figure[] =
+    freshLa && freshLa.seq > lastSeenSeqRef.current &&
+    (freshLa.attackRoll.length > 0 || freshLa.defenseRoll.length > 0 || (freshLa.defenseGroups?.length ?? 0) > 0)
+      ? prevFiguresRef.current.filter(pf => {
+          if (pf.at == null) return false;
+          const cur = state.figures.find(cf => cf.id === pf.id);
+          if (!cur || cur.at == null) return true; // killed
+          return (cur.wounds ?? 0) > (pf.wounds ?? 0); // newly wounded
+        })
+      : [];
   // Board-only figure list: the live figures, with any attack-affected figure swapped
   // for its frozen pre-attack version (old hex + old wounds) while the overlay plays,
   // so a kill doesn't vanish and a wound doesn't show until the dice land. Game logic
   // keeps using `state`; only the rendered board sees the frozen figures.
+  const frozenShown = freshFrozen.length ? freshFrozen : frozenFigures;
   const displayState = useMemo(() => {
-    if (frozenFigures.length === 0) return state;
-    const frozenById = new Map(frozenFigures.map(g => [g.id, g] as const));
+    if (frozenShown.length === 0) return state;
+    const frozenById = new Map(frozenShown.map(g => [g.id, g] as const));
     const figures = state.figures.map(f => frozenById.get(f.id) ?? f);
-    for (const g of frozenFigures) if (!figures.some(f => f.id === g.id)) figures.push(g);
+    for (const g of frozenShown) if (!figures.some(f => f.id === g.id)) figures.push(g);
     return { ...state, figures };
-  }, [state, frozenFigures]);
+  }, [state, frozenShown]);
   // Broadcast whether the dramatic dice-roll overlay is on screen, so the room shell can hold the
   // "Rematch?" prompt back until the FINAL (game-winning) roll has fully played out (no spoiler).
   // Pure UI signal; harmless when nothing is listening.
