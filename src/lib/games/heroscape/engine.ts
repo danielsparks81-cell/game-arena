@@ -5229,7 +5229,9 @@ function aiTurn(state: HSState, seat: number): HSAction {
       if (bestDir >= 0) return { kind: 'fire_line', attackerId: hero.id, dir: bestDir, attackRoll: [], defenseRolls: [] };
     }
     // Deathwalker 9000 EXPLOSION — the Range-7 target whose blast catches the most enemies.
-    if (aid === 'deathwalker_9000') {
+    // Gate on canExplosion (NOT explosionTargets alone): it enforces "instead of attacking"
+    // (turnAttacks === 0), so the bot doesn't try to blast again after it has already fired.
+    if (aid === 'deathwalker_9000' && canExplosion(state, seat)) {
       const scored = explosionTargets(state, hero.id).map(id => {
         const aff = explosionDefenders(state, hero.id, id);
         const foes = aff.filter(x => isEnemy(x.figureId)).length;
@@ -5298,7 +5300,10 @@ function aiTurn(state: HSState, seat: number): HSAction {
       const deadMarro = state.figures.some(f => f.cardUid === active.uid && f.at == null);
       const movedThisCard = state.movedFigureIds.some(id => { const f = state.figures.find(x => x.id === id); return f != null && f.cardUid === active.uid; });
       const canAttack = myFigs.some(f => enemyTargets(f).length > 0);
-      if (deadMarro && movedThisCard && !canAttack) return { kind: 'water_clone', rolls: [] };
+      // turnAttacks === 0 is REQUIRED: Water Clone is "instead of attacking", so it is only
+      // legal before any Marro has swung. Without this, once some Marro attacked and the rest
+      // ran out of targets the bot tried to clone illegally (engine reject → frozen turn).
+      if (deadMarro && movedThisCard && state.turnAttacks.length === 0 && !canAttack) return { kind: 'water_clone', rolls: [] };
     }
 
     let best: { attackerId: string; targetId: string; score: number } | null = null;
@@ -5351,9 +5356,18 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const range = effectiveRange(state, f).dice;
     const canHitFrom = (hex: HexKey): boolean =>
       !!cells && enemies.some(e => { const d = rangeDistance(cells!, hex, e.at!); return d != null && d >= 1 && d <= range; });
+    // A DOUBLE-SPACE figure slithers and must FINISH on two LEVEL spaces. The engine
+    // permits a mid-slither climb, but the bot ends its move as soon as no better step
+    // exists — which would strand the peanut on a non-level footprint (engine reject →
+    // frozen turn). So keep a 2-hex figure on ONE level: only step onto hexes at its
+    // current height, so every footprint it ever rests on is already level. (Climbing a
+    // peanut is a deferred feature; on flat ground this filter is a no-op.)
+    const is2hex = f.at2 != null;
+    const curH = heightOfKey(state, f.at!);
     let best: { to: HexKey; score: number } | null = null;
     for (const to of legalStepHexes(state, f.id)) {
       if (occupied.has(to)) continue;
+      if (is2hex && heightOfKey(state, to) !== curH) continue;
       const enemyGain = curEnemy - aiNearestEnemyDist(state, to, enemies);
       const onGlyph = openGlyphs.some(g => g.at === to);
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(to) : 0;
