@@ -5157,6 +5157,21 @@ function aiTurn(state: HSState, seat: number): HSAction {
 
   // ATTACK PHASE (after End Move): take the single best legal attack, else end.
   if (state.movementEnded) {
+    // Grimnak CHOMP first — a FREE auto-kill of an adjacent figure that does NOT use his
+    // normal attack (he still swings after, next tick, once chomp is spent). Pure
+    // aggression: a Squad figure is devoured for certain, a Hero on a d20 of 16+. Always
+    // take it; prefer a Squad (guaranteed kill) over a Hero, then by point value.
+    const chomps = chompTargets(state, seat);
+    if (chomps.length > 0) {
+      const figOf = (id: string) => state.figures.find(x => x.id === id)!;
+      const isSquad = (id: string) => cardDefFor(state, figOf(id)).type === 'squad';
+      const pts = (id: string) => cardDefFor(state, figOf(id)).points;
+      const target = chomps.reduce((b, id) => {
+        if (isSquad(id) !== isSquad(b)) return isSquad(id) ? id : b; // a guaranteed squad kill wins
+        return pts(id) > pts(b) ? id : b;
+      }, chomps[0]);
+      return { kind: 'chomp', targetId: target, d20: 0 }; // d20 rolled by aiEngineAction
+    }
     let best: { attackerId: string; targetId: string; score: number } | null = null;
     for (const f of myFigs) {
       for (const tid of enemyTargets(f)) {
@@ -5272,6 +5287,11 @@ export function aiEngineAction(
         ? { leaveRolls: c.leavingEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollers.rollDie() })) }
         : {}),
     };
+  }
+  // Grimnak CHOMP — the engine is RNG-free, so the d20 (only used for a Hero target)
+  // is rolled here, matching the server's chomp seam.
+  if (intent.kind === 'chomp') {
+    return { ...intent, d20: rollers.d20() };
   }
   return intent;
 }

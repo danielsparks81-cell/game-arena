@@ -16,6 +16,7 @@ import {
   applyAction,
   effectiveDefenseDice,
   carryPassengers,
+  aiNextAction,
   iceShardTargets,
   queglixDiceLeft,
   throwLandingHexes,
@@ -639,5 +640,18 @@ describe('Airborne Elite — The Drop', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: hero, targetId: 's1-marro_warriors-1', attackRoll: F('kkk'), defenseRoll: def(s, 's1-marro_warriors-1', hero) }));
     expect(at(s, 's1-marro_warriors-1')).toBeNull(); // dead
     expect(s.phase).toBe('playing'); // NOT finished — reserve Airborne is alive
+  });
+});
+
+describe('AI powers — Grimnak Chomp', () => {
+  it('the bot chomps an adjacent enemy squad figure (a free kill) in the attack phase', () => {
+    let { s, hero, park } = stage('grimnak'); // s0-finn-1 relabelled to Grimnak; park = an enemy Marro
+    const here = at(s, hero)!;
+    const adj = neighborKeys(here).find(k => MAPS[s.mapId].cells[k] && k !== here);
+    s = put(s, park, adj!); // enemy squad figure right next to Grimnak
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_move' })); // into the attack phase
+    const intent = aiNextAction(s, 0);
+    expect(intent?.kind).toBe('chomp');
+    if (intent?.kind === 'chomp') expect(intent.targetId).toBe(park);
   });
 });

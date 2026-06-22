@@ -1588,6 +1588,7 @@ describe('slice 3: engagement & leaving-engagement swipes', () => {
     expect(atk?.kind).toBe('attack');
   });
 
+
   it('a sufficient height gap breaks engagement (Example 14): no swipe leaving a non-engaged enemy', () => {
     // Test Cliffs: a Tarn Viking (Height 5, enemy) stands on the R5 pillar
     // (h5); a Marro (Height 4) sits on the adjacent grass (h1). Gap 4 ≥ the
