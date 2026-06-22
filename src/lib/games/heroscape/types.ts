@@ -577,6 +577,10 @@ export type HSState = {
   /** The last non-combat d20 roll (initiative + d20 special powers), for the
    *  dice overlay. Absent on pre-existing saves ⇒ treat as null. */
   lastRoll?: LastRoll | null;
+  /** Transient spatial VFX for the 3D board — a breath/line special attack's SOURCE hex
+   *  and the hexes it HITS, with a seq so every viewer's board replays the effect exactly
+   *  once. Purely cosmetic; the projection passes it through (the attack is public). */
+  lastEffect?: { kind: 'fire_line' | 'acid_breath' | 'ice_shard'; from: HexKey; to: HexKey[]; seq: number };
   /** Winning SEAT — a representative living seat of the winning team (for FFA /
    *  2-player this is simply the survivor). Null until the game finishes. */
   winnerSeat: number | null;

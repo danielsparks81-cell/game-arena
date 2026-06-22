@@ -3239,6 +3239,7 @@ function doFireLine(
     'attack',
     `${figureLabel(s, mover)} unleashes the Fire Line (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no figures in the line'}.`,
   );
+  setEffect(s, 'fire_line', mover.at, fireLineSpaces(state, attacker.id, action.dir)); // tunnel of fire down the line
   checkEliminationWin(s); // a lethal line can remove a seat's last figures
   return s;
 }
@@ -4369,6 +4370,7 @@ function doIceShard(
     'attack',
     `Ice Shard Breath ${shotNo}/${ICE_SHARD_MAX_ATTACKS} — ${figureLabel(s, nilf)} hits ${figureLabel(s, t)}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${destroyed ? 'destroyed!' : wounds > 0 ? `${wounds} wound${wounds === 1 ? '' : 's'}` : 'blocked'}.`,
   );
+  setEffect(s, 'ice_shard', nilf.at, [target.at]); // a shard streaks from Nilfheim to the target (pre-destroy hex)
   checkEliminationWin(s);
   return s;
 }
@@ -4641,6 +4643,8 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
     success: results.some(r => r.includes('destroyed')),
     detail: results.join('; '),
   });
+  // Acid blobs fly from Braxas to each gassed figure (their PRE-destroy hexes).
+  setEffect(s, 'acid_breath', braxas.at, rolls.map(r => state.figures.find(f => f.id === r.targetId)?.at ?? null));
   checkEliminationWin(s);
   return s;
 }
@@ -5812,6 +5816,14 @@ function pushLog(s: HSState, tag: HSLogEntry['tag'], text: string): void {
  *  a fresh monotonic `seq` the UI watches. */
 function setLastRoll(s: HSState, roll: Omit<LastRoll, 'seq'>): void {
   s.lastRoll = { ...roll, seq: (s.lastRoll?.seq ?? 0) + 1 };
+}
+
+/** Record a transient breath/line VFX (3D board only) — source hex + hit hexes, with a
+ *  fresh seq so every viewer replays it once. Drop empty target sets (nothing to show). */
+function setEffect(s: HSState, kind: NonNullable<HSState['lastEffect']>['kind'], from: HexKey | null, to: (HexKey | null)[]): void {
+  const hits = to.filter((h): h is HexKey => h != null);
+  if (from == null || hits.length === 0) return;
+  s.lastEffect = { kind, from, to: hits, seq: (s.lastEffect?.seq ?? 0) + 1 };
 }
 
 export function cardDef(cardId: string): HSCardDef {

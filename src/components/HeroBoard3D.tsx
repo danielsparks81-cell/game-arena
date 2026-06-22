@@ -500,6 +500,65 @@ function GlyphMarker({ x, z, topY, active, faceUp, name, effect }: {
   );
 }
 
+const FX_DUR: Record<'fire_line' | 'acid_breath' | 'ice_shard', number> = { fire_line: 1.3, acid_breath: 1.2, ice_shard: 0.85 };
+
+/** A transient breath/line special-attack effect (emissive, additive-blended meshes that
+ *  animate then fade, self-removing via onDone after FX_DUR):
+ *   • fire_line  — a wave of flame rolls outward from the dragon down the line of hexes;
+ *   • acid_breath — green blobs arc from the dragon and burst on each gassed figure;
+ *   • ice_shard  — an ice-blue crystal streaks to the target and shatters.
+ *  Coords are in the board wrapper's local space (same as worldXZ for figures). */
+function BreathFx({ kind, from, to, onDone }: {
+  kind: 'fire_line' | 'acid_breath' | 'ice_shard'; from: [number, number, number]; to: [number, number, number][]; onDone: () => void;
+}) {
+  const t = useRef(0);
+  const meshes = useRef<(THREE.Mesh | null)[]>([]);
+  const dur = FX_DUR[kind];
+  useFrame((_, delta) => {
+    t.current += delta;
+    const p = t.current / dur;
+    if (p >= 1) { onDone(); return; }
+    meshes.current.forEach((m, i) => {
+      if (!m) return;
+      const mat = m.material as THREE.MeshBasicMaterial;
+      if (kind === 'fire_line') {
+        // each hex ignites staggered (a wave from the dragon outward), flickers, then fades
+        const ignite = (i / Math.max(1, to.length)) * 0.45;
+        const local = (p - ignite) / 0.55;
+        if (local <= 0) { mat.opacity = 0; return; }
+        const k = Math.min(1, local);
+        const flick = 0.8 + 0.35 * Math.sin(t.current * 28 + i * 1.7);
+        m.scale.setScalar(Math.max(0.001, (1.1 - k) * flick));
+        m.position.y = from[1] + k * 0.7;
+        mat.opacity = 1 - k;
+      } else {
+        // a projectile arcs from the caster to its target, then bursts + fades on arrival
+        const tgt = to[i] ?? to[0];
+        const fly = Math.min(1, p / 0.6);
+        m.position.set(
+          from[0] + (tgt[0] - from[0]) * fly,
+          from[1] + (tgt[1] - from[1]) * fly + Math.sin(fly * Math.PI) * 1.3,
+          from[2] + (tgt[2] - from[2]) * fly,
+        );
+        m.rotation.y += delta * 6; m.rotation.x += delta * 4;
+        if (p < 0.6) { m.scale.setScalar(1); mat.opacity = 0.95; }
+        else { const b = (p - 0.6) / 0.4; m.scale.setScalar(1 + b * 1.6); mat.opacity = 0.95 * (1 - b); }
+      }
+    });
+  });
+  const color = kind === 'fire_line' ? '#ff6a1a' : kind === 'acid_breath' ? '#86ff3a' : '#a8ecff';
+  return (
+    <group>
+      {to.map((n, i) => (
+        <mesh key={i} ref={el => { meshes.current[i] = el; }} position={kind === 'fire_line' ? [n[0], from[1], n[2]] : from}>
+          {kind === 'ice_shard' ? <octahedronGeometry args={[0.4]} /> : <sphereGeometry args={[kind === 'fire_line' ? 0.5 : 0.42, 12, 12]} />}
+          <meshBasicMaterial color={color} transparent opacity={0} blending={THREE.AdditiveBlending} depthWrite={false} toneMapped={false} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 function Scene({ state, it }: { state: HSState; it: Interact }) {
   const map = MAPS[state.mapId];
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
@@ -552,6 +611,27 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   // In range but line-of-sight blocked (a wall is between) → flat grey, not shootable.
   const isBlocked = (key: HexKey): boolean => hasShoot && !!it.shootBlockedHexes?.has(key);
 
+  // Breath/line special-attack VFX: when state.lastEffect bumps its seq, spawn a transient
+  // BreathFx at the caster's + targets' hexes (it self-removes when done). Skip whatever
+  // effect is already present at mount so it doesn't replay on page load.
+  const fxAt = (key: HexKey): [number, number, number] => {
+    const [x, z] = worldXZ(...parseQR(key));
+    const c = map?.cells[key];
+    const y = Math.max(0.2, (c?.height ?? 1) * LEVEL) * (c?.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 1.1;
+    return [x, y, z];
+  };
+  const [fx, setFx] = useState<{ id: number; kind: 'fire_line' | 'acid_breath' | 'ice_shard'; from: [number, number, number]; to: [number, number, number][] }[]>([]);
+  const fxSeqRef = useRef<number | null>(null);
+  useEffect(() => {
+    const e = state.lastEffect;
+    const seq = e?.seq ?? 0;
+    if (fxSeqRef.current === null) { fxSeqRef.current = seq; return; } // ignore the effect present at mount
+    if (!e || seq <= fxSeqRef.current) return;
+    fxSeqRef.current = seq;
+    setFx(list => [...list, { id: seq, kind: e.kind, from: fxAt(e.from), to: e.to.map(fxAt) }]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.lastEffect?.seq]);
+
   return (
     <group rotation={[0, faceAngle, 0]}>
     <group position={[-cx, 0, -cz]}>
@@ -598,6 +678,10 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           );
         })}
       </Suspense>
+      {/* Breath/line special-attack VFX (fire line / acid / ice shard), in board space. */}
+      {fx.map(e => (
+        <BreathFx key={e.id} kind={e.kind} from={e.from} to={e.to} onDone={() => setFx(list => list.filter(x => x.id !== e.id))} />
+      ))}
     </group>
     </group>
   );

@@ -122,6 +122,9 @@ describe('Nilfheim — Ice Shard Breath', () => {
     s = put(s, 's1-marro_warriors-2', ring[2]);
     s = put(s, 's1-marro_warriors-3', ring[3]);
     s = unwrap(applyAction(s, 'p1', { kind: 'ice_shard', attackerId: hero, targetId: 's1-thorgrim-1', attackRoll: F('kbbb'), defenseRoll: def(s, 's1-thorgrim-1', hero) }));
+    // 3D VFX: the shard records a board effect from Nilfheim to the target's hex.
+    expect(s.lastEffect?.kind).toBe('ice_shard');
+    expect(s.lastEffect?.to).toEqual([ring[0]]);
     s = unwrap(applyAction(s, 'p1', { kind: 'ice_shard', attackerId: hero, targetId: 's1-marro_warriors-1', attackRoll: F('kbbb'), defenseRoll: def(s, 's1-marro_warriors-1', hero) }));
     s = unwrap(applyAction(s, 'p1', { kind: 'ice_shard', attackerId: hero, targetId: 's1-marro_warriors-2', attackRoll: F('kbbb'), defenseRoll: def(s, 's1-marro_warriors-2', hero) }));
     expect(at(s, 's1-thorgrim-1')).toBe(ring[0]); // 1 wound, survives
