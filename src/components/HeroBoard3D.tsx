@@ -624,6 +624,38 @@ function BlastFx({ to, onDone }: { to: [number, number, number][]; onDone: () =>
   );
 }
 
+/** Izumi Samurai's COUNTER STRIKE — a steel blade chops down at the attacker with a
+ *  bright diagonal slash flash, then fades. Centred on the attacker's hex (to[0]),
+ *  oriented to swing along the Samurai→attacker line. */
+function SwordFx({ from, to, onDone }: { from: [number, number, number]; to: [number, number, number][]; onDone: () => void }) {
+  const t = useRef(0);
+  const DUR = 0.55;
+  const tgt = to[0];
+  const ang = Math.atan2(tgt[0] - from[0], tgt[2] - from[2]); // yaw toward the attacker
+  const blade = useMemo(() => new THREE.MeshBasicMaterial({ color: '#dfe7ee', transparent: true, opacity: 0, toneMapped: false }), []);
+  const slash = useMemo(() => new THREE.MeshBasicMaterial({ color: '#eaf6ff', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }), []);
+  const swing = useRef<THREE.Group>(null);
+  const slashRef = useRef<THREE.Mesh>(null);
+  useFrame((_, delta) => {
+    t.current += delta;
+    const p = t.current / DUR;
+    if (p >= 1) { onDone(); return; }
+    const k = Math.min(1, p / 0.45);
+    if (swing.current) swing.current.rotation.z = -1.2 + k * 2.4; // chop down-and-across
+    blade.opacity = p < 0.5 ? 0.95 : Math.max(0, 0.95 * (1 - (p - 0.5) / 0.5));
+    slash.opacity = Math.max(0, 0.9 * Math.sin(Math.min(1, p / 0.5) * Math.PI)); // flash brightest mid-swing
+    if (slashRef.current) slashRef.current.scale.setScalar(1 + k * 0.9);
+  });
+  return (
+    <group position={tgt} rotation={[0, ang, 0]}>
+      <group ref={swing}>
+        <mesh material={blade} position={[0, 0.6, 0]}><boxGeometry args={[0.08, 1.2, 0.06]} /></mesh>
+      </group>
+      <mesh ref={slashRef} material={slash} rotation={[0, 0, Math.PI / 4]}><planeGeometry args={[1.9, 0.16]} /></mesh>
+    </group>
+  );
+}
+
 function Scene({ state, it }: { state: HSState; it: Interact }) {
   const map = MAPS[state.mapId];
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
@@ -748,6 +780,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const done = () => setFx(list => list.filter(x => x.id !== e.id));
         if (e.kind === 'chomp') return <FangsFx key={e.id} to={e.to} onDone={done} />;
         if (e.kind === 'blast') return <BlastFx key={e.id} to={e.to} onDone={done} />;
+        if (e.kind === 'counter_strike') return <SwordFx key={e.id} from={e.from} to={e.to} onDone={done} />;
         return <BreathFx key={e.id} kind={e.kind} from={e.from} to={e.to} onDone={done} />;
       })}
     </group>

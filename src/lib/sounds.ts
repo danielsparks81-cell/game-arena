@@ -114,6 +114,8 @@ export const sounds = {
   theyreOff: () => speak("And they're off!", { rate: 1.1, pitch: 1.05 }),
   /** Spoken cue after the host rolls: "When the [N] horse moves". */
   whenHorseMoves: (n: number) => speak(`When the ${n} horse moves`, { rate: 1.05, pitch: 1.0 }),
+  /** HeroScape Ne-Gok-Sa Mind Shackle — a sinister "Mind Freak!" (deep + slow). */
+  mindFreak: () => speak('Mind Freak!', { rate: 0.85, pitch: 0.5 }),
 
   // -------- Spellduel feedback cues --------
   // Each is mapped 1:1 to an SDEvent kind by SpellduelBoard's event-diff effect.

@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
+import { sounds } from '@/lib/sounds';
 import {
   type HSState,
   type Figure,
@@ -1564,6 +1565,7 @@ export default function HeroScapeBoard({
     if (lr.seq > lastSeenRollSeqRef.current) {
       lastSeenRollSeqRef.current = lr.seq;
       if (lr.dice.length > 0) setRollD20(lr);
+      if (lr.title === 'Mind Shackle') sounds.mindFreak(); // Ne-Gok-Sa's seize attempt → "Mind Freak!"
     }
   }, [state.lastRoll]);
 

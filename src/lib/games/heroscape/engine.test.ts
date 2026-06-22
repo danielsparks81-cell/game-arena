@@ -4244,6 +4244,8 @@ describe('slice 7: Counter Strike (Izumi Samurai)', () => {
     expect(fig(hit, FINN).at).toBe(at(3, 3)); // survives (Life 4)
     expect(hit.lastAttack!.counterWounds).toBe(3);
     expect(hit.log.some(e => /Counter Strike/.test(e.text))).toBe(true);
+    expect(hit.lastEffect?.kind).toBe('counter_strike'); // 3D VFX: a blade swipe back at the attacker
+    expect(hit.lastEffect?.to).toEqual([at(3, 3)]); // toward Finn (the attacker)
   });
 
   it('Counter Strike can DESTROY the attacker (and run the finish check)', () => {

@@ -3698,6 +3698,7 @@ function doAttack(
       'power',
       `Counter Strike — ${targetLabel} reflects ${counterWounds} unblockable wound${counterWounds === 1 ? '' : 's'} onto ${attackerLabel}${counterDestroyed ? `, ${attackerLabel} is destroyed!` : '.'}`,
     );
+    setEffect(s, 'counter_strike', target.at, [attacker.at]); // 3D VFX: a blade swipe from the Samurai back at the attacker
   }
 
   // Elimination win: the last player with figures remaining wins. Resolve this
