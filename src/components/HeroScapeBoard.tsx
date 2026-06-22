@@ -36,9 +36,9 @@ import {
   MIN_POINT_BUDGET,
   MAX_POINT_BUDGET,
   legalDestinations,
-  legalStepHexes,
   movementRangeHexes,
   shootingRangeHexes,
+  disengageMoveHexes,
   grappleDestinations,
   canFireLine,
   fireLineSpaces,
@@ -1729,25 +1729,34 @@ export default function HeroScapeBoard({
   // Normal movement is now STEP-BY-STEP: the highlights are the figure's legal
   // SINGLE steps right now (recomputed each render, so they update after every
   // tapped step). Grapple Gun stays a one-space destination set.
+  // SMART MOVEMENT: the clickable set is the figure's WHOLE reachable range — click
+  // any hex to walk there in one go (doMove finds the route + rolls any swipe/fall).
+  // Grapple Gun stays its own one-space climb set.
   const destinations = useMemo(
     () =>
       canAct && selected && !fireLineMode
         ? grappleMode
           ? grappleHexes
-          : legalStepHexes(state, selected.id)
+          : movementRangeHexes(state, selected.id)
         : new Set<HexKey>(),
     [state, selected, canAct, grappleMode, grappleHexes, fireLineMode],
   );
-  // The faint "max distance" backdrop — how far the selected figure could still
-  // travel with its REMAINING Move (shrinks as it steps). Normal moves only:
-  // Grapple is a one-space jump and Fire Line is a targeting mode.
-  const moveRange = useMemo(
+  // Reachable destinations whose ENDPOINT would leave a start-engaged enemy — a
+  // leaving-engagement swipe fires on arrival, so the board marks them RED. Empty
+  // while grappling / aiming, or when the figure isn't engaged (then all green).
+  const disengageHexes = useMemo(
     () =>
       canAct && selected && !fireLineMode && !grappleMode
-        ? movementRangeHexes(state, selected.id)
+        ? disengageMoveHexes(state, selected.id)
         : new Set<HexKey>(),
     [state, selected, canAct, grappleMode, fireLineMode],
   );
+  // GREEN (safe) destinations = the reachable set minus the ones that provoke a swipe.
+  const safeMoveHexes = useMemo(() => {
+    const s = new Set<HexKey>();
+    for (const k of destinations) if (!disengageHexes.has(k)) s.add(k);
+    return s;
+  }, [destinations, disengageHexes]);
   // Shooting-range envelope: while a RANGED figure of mine is MOVING, the hexes it
   // could still shoot from where it currently stands (its effective Range, around
   // gaps). The board keeps these bright and dims everything beyond, so the edge
@@ -2278,12 +2287,13 @@ export default function HeroScapeBoard({
       }
       return;
     }
-    // Move: tap an adjacent highlighted space to WALK there one step (the figure
-    // stays selected so you keep tapping; for a 2-hex figure the front leads to
-    // the tapped hex and the back follows). Grapple-Gun mode is a one-space jump.
+    // SMART MOVE: click ANY highlighted space in range to walk straight there (the
+    // engine routes it + rolls any leaving-engagement swipe / fall on arrival). A RED
+    // space still moves — it just warns the swipe will happen. Grapple-Gun mode is a
+    // one-space jump. For a 2-hex figure the front leads to the clicked hex.
     if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); }
-      else onMoveStep(selected.id, key);
+      else onMoveFigure(selected.id, key);
       return;
     }
     // Select / deselect one of my own figures (click either hex of a 2-hex one).
@@ -3680,8 +3690,8 @@ export default function HeroScapeBoard({
             state={displayState}
             onHexClick={clickHex}
             selectedId={selectedId}
-            moveHexes={destinations}
-            rangeHexes={moveRange}
+            moveHexes={grappleMode ? destinations : safeMoveHexes}
+            dangerHexes={disengageHexes}
             shootHexes={shootRange}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}

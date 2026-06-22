@@ -2248,6 +2248,25 @@ export function movementRangeHexes(state: HSState, figureId: string): Set<HexKey
   });
 }
 
+/** "Smart movement" classifier: among a figure's reachable destinations, the ones
+ *  whose ENDPOINT leaves at least one enemy it is engaged with at the start of the
+ *  move — reaching them provokes a leaving-engagement swipe (03-movement §8: a figure
+ *  that ends "no longer adjacent" to a start-engaged enemy is attacked). The board
+ *  marks these RED and the rest GREEN. Empty when the figure isn't engaged or has
+ *  Disengage (Agent Carr never provokes). Reuses `moveConsequences`, so the red
+ *  warning matches EXACTLY the swipes `doMove` will roll on arrival. */
+export function disengageMoveHexes(state: HSState, figureId: string): Set<HexKey> {
+  const out = new Set<HexKey>();
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!fig || fig.at == null) return out;
+  if (cardDefFor(state, fig).disengage) return out; // Agent Carr — never swiped
+  if (enemiesEngagedWith(state, fig).length === 0) return out; // not engaged → every hex safe
+  for (const to of movementRangeHexes(state, figureId)) {
+    if (moveConsequences(state, fig, to).abandonedEnemyIds.length > 0) out.add(to);
+  }
+  return out;
+}
+
 /** Finalize the in-progress walk: lock the figure as "moved" (so it can't start a
  *  new walk) and clear `stepMove`. Rejects if the figure is still mid-pass-through
  *  on an occupied hex — Agent Carr must end on an empty space. */

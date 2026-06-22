@@ -22,6 +22,7 @@ import {
   effectiveMove,
   effectiveRange,
   moveConsequences,
+  disengageMoveHexes,
   stepConsequences,
   placeableHexes,
   placeable2Leads,
@@ -1532,6 +1533,30 @@ describe('slice 3: engagement & leaving-engagement swipes', () => {
     expect(cons.abandonedEnemyIds).toEqual([]); // no enemy abandoned
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: TARN(1), to: stillAdj }));
     expect(fig(moved, TARN(1)).at).toBe(stillAdj);
+  });
+
+  // SMART MOVEMENT: the board marks a reachable hex RED iff arriving there abandons a
+  // start-engaged enemy (a swipe). disengageMoveHexes is that red set; green = the rest.
+  it('disengageMoveHexes flags exactly the reachable hexes that provoke a swipe', () => {
+    let s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    s = place(s, TARN(1), at(3, 3));
+    s = place(s, MARRO(1), at(3, 2)); // adjacent → engaged
+    const red = disengageMoveHexes(s, TARN(1));
+    const all = movementRangeHexes(s, TARN(1));
+    expect(red.has(at(2, 2))).toBe(false); // stays adjacent to the Marro → SAFE (green)
+    expect(red.has(at(3, 4))).toBe(true); // leaves the Marro → RED (swipe on arrival)
+    for (const k of red) expect(all.has(k)).toBe(true); // red ⊆ reachable; green = reachable \ red
+    // The red set matches moveConsequences exactly (the same source the swipe roll uses).
+    for (const k of all) {
+      const abandons = moveConsequences(s, fig(s, TARN(1)), k).abandonedEnemyIds.length > 0;
+      expect(red.has(k)).toBe(abandons);
+    }
+  });
+
+  it('disengageMoveHexes is empty when the figure is not engaged (every hex green)', () => {
+    let s = inTurns('p1', { p1: 's0-tarn_vikings' });
+    s = place(s, TARN(1), at(3, 3)); // no enemy adjacent
+    expect(disengageMoveHexes(s, TARN(1)).size).toBe(0);
   });
 
   it('a sufficient height gap breaks engagement (Example 14): no swipe leaving a non-engaged enemy', () => {

@@ -55,6 +55,9 @@ type Interact = {
    *  (plus its own footprint). When present, every hex OUTSIDE this set is dimmed so
    *  the bright island's edge shows the furthest hex the figure could shoot from. */
   shootHexes?: Set<HexKey>;
+  /** Reachable move destinations that PROVOKE a leaving-engagement swipe — rendered
+   *  RED ("smart movement" warning). Disjoint from the green moveHexes. */
+  dangerHexes?: Set<HexKey>;
   targetIds?: Set<string>;
   /** Figures targetable by an active special power (Chomp / Grenade / Mind
    *  Shackle) — glow fuchsia, distinct from the red normal-attack target. */
@@ -487,10 +490,11 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     (it.dropPicks?.has(key) ? { color: '#f97316' }
       : it.dropHexes?.has(key) ? { color: '#fb923c' }
         : it.climbHexes?.has(key) ? { color: '#a855f7' } // Grapple Gun climb target — distinct from a normal move
-          : it.moveHexes?.has(key) ? { color: '#22c55e' } // bright = a legal one-tap step
-            : it.rangeHexes?.has(key) ? { color: '#22c55e', dim: true } // faint = within remaining Move
-              : it.placeHexes?.has(key) ? { color: '#38bdf8' }
-                : null);
+          : it.dangerHexes?.has(key) ? { color: '#ef4444' } // RED = reachable, but moving here provokes a swipe
+            : it.moveHexes?.has(key) ? { color: '#22c55e' } // green = a safe move destination
+              : it.rangeHexes?.has(key) ? { color: '#22c55e', dim: true } // (legacy) faint within-Move backdrop
+                : it.placeHexes?.has(key) ? { color: '#38bdf8' }
+                  : null);
   // When a moving ranged figure's shooting envelope is present, darken every hex
   // OUTSIDE it so the bright reach island stands out and its edge reads as the
   // furthest targetable hex.
