@@ -4666,6 +4666,8 @@ describe('Chomp (Grimnak)', () => {
     s = place(s, MW(1), at(4, 3));
     s = unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: MW(1), d20: 1 })); // even a 1
     expect(fig(s, MW(1)).at).toBeNull(); // destroyed regardless of the roll
+    expect(s.lastEffect?.kind).toBe('chomp'); // 3D VFX: fangs snap at the target's hex
+    expect(s.lastEffect?.to).toEqual([at(4, 3)]);
   });
 
   it('a Hero is devoured on 16+, survives below', () => {
@@ -4737,11 +4739,14 @@ describe('Explosion Special Attack (Deathwalker 9000)', () => {
   it('one attack roll hits the target AND every adjacent figure; each defends', () => {
     let s = staged();
     const defs = explosionDefenders(s, DW, MW(1));
+    const tHex = fig(s, MW(1)).at; // blast centre, captured before destruction
     s = unwrap(applyAction(s, 'p1', {
       kind: 'explosion', attackerId: DW, targetId: MW(1),
       attackRoll: F('kkk'), // 3 skulls
       defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: F('b'.repeat(d.defense)) })),
     }));
+    expect(s.lastEffect?.kind).toBe('blast'); // 3D VFX: a blast at the target hex
+    expect(s.lastEffect?.to).toEqual([tHex]);
     expect(fig(s, MW(1)).at).toBeNull(); // target destroyed (Marro Life 1)
     expect(fig(s, MW(2)).at).toBeNull(); // adjacent splash destroyed too
     expect(s.turnAttacks.length).toBe(1); // the special IS the attack

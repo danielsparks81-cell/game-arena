@@ -559,6 +559,71 @@ function BreathFx({ kind, from, to, onDone }: {
   );
 }
 
+/** Grimnak's CHOMP — a set of white fangs (upper + lower jaw) snaps shut at the target
+ *  with a red flash, then fades. Centred on to[0]. */
+function FangsFx({ to, onDone }: { to: [number, number, number][]; onDone: () => void }) {
+  const t = useRef(0);
+  const DUR = 0.7;
+  const [cx, cy, cz] = to[0];
+  const white = useMemo(() => new THREE.MeshBasicMaterial({ color: '#fdfdf3', transparent: true, opacity: 0, toneMapped: false }), []);
+  const red = useMemo(() => new THREE.MeshBasicMaterial({ color: '#dd1111', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), []);
+  const upper = useRef<THREE.Group>(null);
+  const lower = useRef<THREE.Group>(null);
+  useFrame((_, delta) => {
+    t.current += delta;
+    const p = t.current / DUR;
+    if (p >= 1) { onDone(); return; }
+    const close = Math.min(1, p / 0.3); // jaws shut over the first 30%
+    const gap = 0.85 * (1 - close);
+    if (upper.current) upper.current.position.y = 0.6 + gap;
+    if (lower.current) lower.current.position.y = -0.6 - gap;
+    const fade = p < 0.45 ? 1 : Math.max(0, 1 - (p - 0.45) / 0.55);
+    white.opacity = fade;
+    red.opacity = 0.5 * (p < 0.3 ? close : fade); // red flash brightest at the bite
+  });
+  const N = 5;
+  const jaw = (up: boolean) => Array.from({ length: N }, (_, i) => (
+    <mesh key={i} position={[(i - (N - 1) / 2) * 0.32, 0, 0]} rotation={[up ? 0 : Math.PI, 0, 0]} material={white}>
+      <coneGeometry args={[0.11, 0.5, 6]} />
+    </mesh>
+  ));
+  return (
+    <group position={[cx, cy, cz]}>
+      <mesh material={red}><sphereGeometry args={[0.95, 14, 14]} /></mesh>
+      <group ref={upper} position={[0, 0.6, 0]}>{jaw(false)}</group>
+      <group ref={lower} position={[0, -0.6, 0]}>{jaw(true)}</group>
+    </group>
+  );
+}
+
+/** Explosion / Grenade blast — a fireball expands to ~3 world units (covering the target
+ *  hex AND its neighbours) with a ground-level shockwave ring, then fades. Centred on to[0]. */
+function BlastFx({ to, onDone }: { to: [number, number, number][]; onDone: () => void }) {
+  const t = useRef(0);
+  const DUR = 0.9;
+  const [cx, cy, cz] = to[0];
+  const ball = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ff8a1e', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), []);
+  const ring = useMemo(() => new THREE.MeshBasicMaterial({ color: '#ffd36b', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }), []);
+  const ballRef = useRef<THREE.Mesh>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
+  useFrame((_, delta) => {
+    t.current += delta;
+    const p = t.current / DUR;
+    if (p >= 1) { onDone(); return; }
+    const grow = Math.min(1, p / 0.28);
+    if (ballRef.current) ballRef.current.scale.setScalar(0.4 + grow * 2.6); // ~3u radius → covers adjacent hexes
+    ball.opacity = p < 0.28 ? 0.9 : Math.max(0, 0.9 * (1 - (p - 0.28) / 0.72));
+    if (ringRef.current) ringRef.current.scale.setScalar(0.5 + p * 3.8);
+    ring.opacity = Math.max(0, 0.85 * (1 - p));
+  });
+  return (
+    <group position={[cx, cy, cz]}>
+      <mesh ref={ballRef} material={ball}><sphereGeometry args={[1, 16, 16]} /></mesh>
+      <mesh ref={ringRef} material={ring} rotation={[-Math.PI / 2, 0, 0]} position={[0, -1, 0]}><ringGeometry args={[0.78, 1, 40]} /></mesh>
+    </group>
+  );
+}
+
 function Scene({ state, it }: { state: HSState; it: Interact }) {
   const map = MAPS[state.mapId];
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
@@ -620,7 +685,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     const y = Math.max(0.2, (c?.height ?? 1) * LEVEL) * (c?.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 1.1;
     return [x, y, z];
   };
-  const [fx, setFx] = useState<{ id: number; kind: 'fire_line' | 'acid_breath' | 'ice_shard'; from: [number, number, number]; to: [number, number, number][] }[]>([]);
+  const [fx, setFx] = useState<{ id: number; kind: NonNullable<HSState['lastEffect']>['kind']; from: [number, number, number]; to: [number, number, number][] }[]>([]);
   const fxSeqRef = useRef<number | null>(null);
   useEffect(() => {
     const e = state.lastEffect;
@@ -678,10 +743,13 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           );
         })}
       </Suspense>
-      {/* Breath/line special-attack VFX (fire line / acid / ice shard), in board space. */}
-      {fx.map(e => (
-        <BreathFx key={e.id} kind={e.kind} from={e.from} to={e.to} onDone={() => setFx(list => list.filter(x => x.id !== e.id))} />
-      ))}
+      {/* Special-attack VFX (in board space): breath/line, Chomp fangs, or a blast. */}
+      {fx.map(e => {
+        const done = () => setFx(list => list.filter(x => x.id !== e.id));
+        if (e.kind === 'chomp') return <FangsFx key={e.id} to={e.to} onDone={done} />;
+        if (e.kind === 'blast') return <BlastFx key={e.id} to={e.to} onDone={done} />;
+        return <BreathFx key={e.id} kind={e.kind} from={e.from} to={e.to} onDone={done} />;
+      })}
     </group>
     </group>
   );

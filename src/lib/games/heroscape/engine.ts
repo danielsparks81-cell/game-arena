@@ -3390,6 +3390,7 @@ function doExplosion(
     'attack',
     `${figureLabel(s, mover)} detonates an Explosion (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no figures affected'}.`,
   );
+  setEffect(s, 'blast', attacker.at, [state.figures.find(f => f.id === action.targetId)?.at ?? null]); // blast at the target (covers adjacent)
   checkEliminationWin(s);
   return s;
 }
@@ -3558,6 +3559,7 @@ function doGrenadeThrow(
     seq: s.logSeq + 1,
   };
   pushLog(s, 'attack', `Grenade (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no effect'}.`);
+  setEffect(s, 'blast', thrower.at, [state.figures.find(f => f.id === action.targetId)?.at ?? null]); // grenade blast at the target (covers adjacent)
   checkEliminationWin(s); // a splash can remove a seat's last figures
   if (s.phase !== 'playing') {
     delete s.pendingChoice;
@@ -4076,6 +4078,7 @@ function doChomp(state: HSState, seat: number, targetId: string, d20: number): H
     );
     setLastRoll(s, { title: 'Chomp', dice: [d20], success: false, detail: `${d20} (<${CHOMP_HERO_THRESHOLD}) — ${tdef.name} survives.` });
   }
+  setEffect(s, 'chomp', grimnak.at, [target.at]); // jaws snap shut at the target (hit or miss)
   return s;
 }
 
