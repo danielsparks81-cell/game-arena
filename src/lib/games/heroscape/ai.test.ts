@@ -232,3 +232,38 @@ describe('HeroScape round flow — eliminated seats', () => {
     expect([0, 2]).toContain(s.turnSeat); // a living seat acts — never the wiped seat 1
   });
 });
+
+describe('HeroScape AI — synergy draft', () => {
+  // A draft state with seat 0 to pick, an injected owned army + a 2-card pool. Budget is
+  // ample (spend stays 0), so the pick is decided purely by the synergy SCORE, not cost.
+  function draftWith(owned: string[], pool: string[]): HSState {
+    let s = createInitialStateForHost({ userId: 'host', username: 'Host' });
+    s = unwrap(applyAction(s, 'host', { kind: 'add_bot' }));
+    s = unwrap(applyAction(s, 'host', { kind: 'start_game', mode: 'draft', pointBudget: 500 }));
+    s = unwrap(applyAction(s, 'host', { kind: 'draft_roll', attempts: [decisive([0, 1])] }));
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.draft!.turnSeat = 0;
+    s.draft!.armies[0] = owned;
+    s.draft!.pool = pool;
+    return s;
+  }
+
+  it('drafts the Soulborg Guards (Zettian) for an owned Deathwalker over a pricier non-synergy squad', () => {
+    // Range Enhancement: owning Deathwalker lifts Zettian (70) above krav_maga (100).
+    const s = draftWith(['deathwalker_9000', 'izumi_samurai'], ['zettian_guards', 'krav_maga']);
+    expect(aiNextAction(s, 0)).toEqual({ kind: 'draft_card', cardId: 'zettian_guards' });
+  });
+
+  it('with NO enhancer it just takes the pricier squad (nothing to synergise with)', () => {
+    // Same pool, but a Dragon (buffs neither) owned → cost decides → krav_maga (100 > 70).
+    const s = draftWith(['nilfheim', 'izumi_samurai'], ['zettian_guards', 'krav_maga']);
+    expect(aiNextAction(s, 0)).toEqual({ kind: 'draft_card', cardId: 'krav_maga' });
+  });
+
+  it('an owned squad pulls in a Defence-Aura hero (Raelin) over a pricier loner', () => {
+    // Raelin (125) shields the owned squad → 125 + 40 = 165, beating agent_carr (100) and
+    // even outscoring the pricier mimring (150) which buffs nothing here.
+    const s = draftWith(['marro_warriors', 'ne_gok_sa'], ['raelin', 'mimring']);
+    expect(aiNextAction(s, 0)).toEqual({ kind: 'draft_card', cardId: 'raelin' });
+  });
+});

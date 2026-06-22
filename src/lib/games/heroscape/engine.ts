@@ -5066,7 +5066,8 @@ function aiAttackScore(state: HSState, attacker: Figure, target: Figure): number
 
 function aiDraft(state: HSState, seat: number): HSAction {
   const d = state.draft!;
-  const ptsOf = (id: string) => effectiveCardDef(id, state.edition)?.points ?? 0;
+  const def = (id: string) => effectiveCardDef(id, state.edition);
+  const ptsOf = (id: string) => def(id)?.points ?? 0;
   const remaining = teamRemainingInDraft(state, seat);
   // Skip Airborne Elite — the v1 AI can't run The Drop, so its figures would sit
   // unused in reserve. Only fall back to it if nothing else is affordable.
@@ -5074,22 +5075,59 @@ function aiDraft(state: HSState, seat: number): HSAction {
   if (affordable.length === 0) affordable = d.pool.filter(id => ptsOf(id) <= remaining);
   if (affordable.length === 0) return { kind: 'draft_pass' };
   const army = d.armies[seat] ?? [];
-  const isSquad = (id: string) => effectiveCardDef(id, state.edition)?.type === 'squad';
+  const isSquad = (id: string) => def(id)?.type === 'squad';
   // Bodies win — grab a strong SQUAD early if the army has none yet, so it isn't a
   // fragile, easily-outnumbered hero-only force.
   if (army.length <= 2 && !army.some(isSquad)) {
     const squads = affordable.filter(isSquad);
     if (squads.length) return { kind: 'draft_card', cardId: squads.reduce((b, id) => (ptsOf(id) > ptsOf(b) ? id : b), squads[0]) };
   }
+  // SYNERGY — tilt the pick toward cards that COMBINE with what's already drafted,
+  // grounded in the ACTUAL powers (data-driven on species / class / range) so the army
+  // hangs together instead of being a pile of unrelated models:
+  //   • Range Enhancement — Deathwalker 9000 boosts adjacent Soulborg GUARDS (Zettian).
+  //   • Orc Warrior Enh.  — Grimnak boosts adjacent Orc WARRIORS (none in the roster yet
+  //                         → scores 0, correctly: there is nothing to enhance).
+  //   • Attack Aura       — Finn boosts adjacent friendly Range-1 (melee) squads.
+  //   • Defence Aura      — Thorgrim / Raelin shield clustered friendlies (squads gain most).
+  // Plus a small SAME-SPECIES cohesion nudge (Marro+Marro, a Soulborg or Dragon core).
+  // The score is raw strength (points) PLUS synergy, so the bot still values strong units
+  // but, between comparable picks, builds the army that actually works together.
+  const buffs = (sourceId: string, target: ReturnType<typeof def>): boolean => {
+    if (!target) return false;
+    switch (sourceId) {
+      case 'deathwalker_9000': return target.species === 'Soulborg' && target.unitClass === 'Guards';
+      case 'grimnak': return target.species === 'Orc' && target.unitClass === 'Warriors';
+      case 'finn': return target.type === 'squad' && target.range <= 1;
+      case 'thorgrim':
+      case 'raelin': return target.type === 'squad';
+      default: return false;
+    }
+  };
+  const SYN_PTS = 40; // one power synergy ≈ 40 pts of pick value; a species match ≈ 10.
+  const synergyOf = (id: string): number => {
+    const cDef = def(id);
+    let s = 0;
+    for (const m of army) {
+      const mDef = def(m);
+      if (buffs(m, cDef)) s += 1;   // an owned buff-source would enhance this pick
+      if (buffs(id, mDef)) s += 1;  // this pick (a buff-source) would enhance an owned unit
+      if (cDef && mDef && cDef.species === mDef.species) s += 0.25; // same-species core
+    }
+    return s;
+  };
+
   const poolPts = d.pool.map(ptsOf).filter(p => p > 0);
   const cheapest = poolPts.length ? Math.min(...poolPts) : 0;
-  const sorted = [...affordable].sort((a, b) => ptsOf(b) - ptsOf(a));
-  // Greedy toward a strong army (priciest affordable), but for the first two picks
-  // leave room for at least one more unit so the army isn't a single model.
-  let pick = sorted[0];
-  if ((d.armies[seat] ?? []).length < 2) {
-    const leavesRoom = sorted.find(id => remaining - ptsOf(id) >= cheapest);
-    if (leavesRoom) pick = leavesRoom;
+  const scored = affordable
+    .map(id => ({ id, score: ptsOf(id) + synergyOf(id) * SYN_PTS, pts: ptsOf(id) }))
+    .sort((a, b) => b.score - a.score || b.pts - a.pts);
+  let pick = scored[0].id;
+  // First two picks: leave room for at least one more unit so the army isn't a single
+  // model — among the room-leaving options, still take the highest-scoring.
+  if (army.length < 2) {
+    const leavesRoom = scored.find(s => remaining - s.pts >= cheapest);
+    if (leavesRoom) pick = leavesRoom.id;
   }
   return { kind: 'draft_card', cardId: pick };
 }
