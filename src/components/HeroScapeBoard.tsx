@@ -250,7 +250,9 @@ function DieFace({ face, size = 22 }: { face: CombatFace; size?: number }) {
 
 /** One order-marker chip. A projected 'hidden' marker renders as the same
  *  anonymous face-down chip every time — the X decoy must be visually
- *  indistinguishable from 1/2/3 (slice-2 spec §Projection). */
+ *  indistinguishable from 1/2/3 (slice-2 spec §Projection). A face-down chip is a
+ *  clearly VISIBLE hollow amber ring (no number) so players can see which cards
+ *  still hold a pending marker — i.e. who might act next — without revealing its value. */
 function MarkerChip({ m, size = 16 }: { m: OrderMarker; size?: number }) {
   const faceDown = m.marker === 'hidden';
   return (
@@ -258,7 +260,7 @@ function MarkerChip({ m, size = 16 }: { m: OrderMarker; size?: number }) {
       className={
         'inline-flex shrink-0 items-center justify-center rounded-full border font-bold ' +
         (faceDown
-          ? 'border-neutral-600 bg-neutral-800 text-neutral-800'
+          ? 'border-amber-600/80 bg-neutral-800 text-transparent'
           : m.revealed
             ? 'border-amber-400 bg-amber-500/90 text-neutral-950'
             : 'border-amber-700/70 bg-neutral-900 text-amber-300/90')
@@ -1399,7 +1401,7 @@ export default function HeroScapeBoard({
   // players; the user can toggle any). Keyed by seat; absent → default.
   // Global army-panel DETAIL LEVEL: 1 = names + life stacked, 2 = compact stat
   // tiles (default), 3 = full cards. Toggled from any player strip's header.
-  const [armyDetail, setArmyDetail] = useState<1 | 2 | 3>(2);
+  const [armyDetail, setArmyDetail] = useState<1 | 2 | 3>(1); // default to the thin names+life strip (with order-marker bubbles) for everyone
   // The battle log is collapsible and minimized by default so the map/cards own
   // the space; expand it (a thin toggle on the far left) to read/scroll history.
   const [logOpen, setLogOpen] = useState(false);
