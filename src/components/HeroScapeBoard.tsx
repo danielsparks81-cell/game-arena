@@ -1022,7 +1022,7 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
   );
 }
 
-function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss: () => void }) {
+function DiceRollOverlay({ attack, onDismiss, final }: { attack: LastAttack; onDismiss: () => void; final?: boolean }) {
   type DefenseGroup = NonNullable<LastAttack['defenseGroups']>[number];
   const PER_DIE = 520; // ms between dice (slowed slightly so each roll reads clearly)
   const attackN = attack.attackRoll.length;
@@ -1070,8 +1070,10 @@ function DiceRollOverlay({ attack, onDismiss }: { attack: LastAttack; onDismiss:
     // 3) RESULT.
     t += 250;
     timers.push(setTimeout(() => setStage('result'), t));
-    // 4) Auto-dismiss after the result settles.
-    t += 1700;
+    // 4) Auto-dismiss after the result settles. The GAME-WINNING blow holds longer —
+    //    ≥4s after the defense roll — so the killing roll fully lands before the
+    //    figure vanishes and the win banner / rematch prompt appear (no spoiler).
+    t += final ? 3000 : 1700;
     timers.push(setTimeout(onDismiss, t));
     return () => { for (const id of timers) clearTimeout(id); };
     // attack is fixed for this mount (parent re-keys on seq); run once.
@@ -2407,15 +2409,26 @@ export default function HeroScapeBoard({
             </span>
           )}
         </div>
-        {/* LEVEL 1 — just the army names + life status, stacked thin. */}
+        {/* LEVEL 1 — army names + life status, stacked thin, with each card's ORDER
+            MARKERS to the LEFT of its name. Face-down (hidden) opponent markers are
+            dropped so it stays compact — you see your own placement and any revealed
+            enemy marker. */}
         {level === 1 && (
           <div className="mt-1 flex flex-col gap-0.5">
-            {cards.map(({ uid, def, alive, heroWounds }) => {
+            {cards.map(({ uid, def, alive, heroWounds, markers }) => {
               const dead = alive === 0;
               const active = uid === activeCardUid && state.subPhase === 'turns';
+              const shownMarkers = (markers ?? []).filter(m => m.marker !== 'hidden');
               return (
                 <div key={uid} className={'group relative flex items-center justify-between gap-3 rounded px-1.5 py-0.5 text-[11px] ' + (active ? 'bg-amber-900/30 ring-1 ring-amber-600 ' : '') + (dead ? 'opacity-45' : '')}>
-                  <span className={'font-semibold ' + (dead ? 'line-through' : '')} style={{ color: colorFor(dead) }}>{def.name}</span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    {shownMarkers.length > 0 && (
+                      <span className="flex shrink-0 items-center gap-0.5">
+                        {shownMarkers.map((m, i) => <MarkerChip key={i} m={m} size={14} />)}
+                      </span>
+                    )}
+                    <span className={'truncate font-semibold ' + (dead ? 'line-through' : '')} style={{ color: colorFor(dead) }}>{def.name}</span>
+                  </span>
                   <span className="flex shrink-0 items-center tabular-nums text-neutral-400">
                     {def.type === 'hero' ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} /> : `${alive}/${def.figures}`}
                   </span>
@@ -3061,6 +3074,7 @@ export default function HeroScapeBoard({
         <DiceRollOverlay
           key={rollAttack.seq}
           attack={rollAttack}
+          final={state.phase === 'finished'}
           onDismiss={() => { setRollAttack(null); setFrozenFigures([]); }}
         />
       )}
@@ -3145,7 +3159,11 @@ export default function HeroScapeBoard({
               ))}
             </div>
           </div>
-        ) : state.phase === 'finished' ? (
+        ) : state.phase === 'finished' && !rollAttack ? (
+          // Hold the win banner until the game-winning dice overlay has fully played
+          // out (rollAttack clears on its dismiss, ≥4s after the killing roll) so the
+          // result isn't spoiled mid-roll. On a reload of a finished game rollAttack
+          // is already null, so it shows promptly.
           <div className="[order:-2] rounded-lg border-2 border-amber-400 bg-neutral-900/70 px-3 py-2 text-center text-sm font-bold text-amber-200">
             🏆 {winnerLabel} wins the battle!
           </div>
