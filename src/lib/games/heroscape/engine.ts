@@ -5199,18 +5199,28 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const onGlyphNow = (state.glyphs ?? []).some(g => figureHexes(f).includes(g.at));
     const curGlyph = onGlyphNow ? Infinity : nearestGlyphDist(f.at!);
     const chaseGlyph = curGlyph <= GLYPH_CHASE_RANGE;
+    // AGGRESSION: a hex this figure could ATTACK an enemy from (within its Range,
+    // counted around gaps — melee = adjacent) is worth far more than shaving a hex off
+    // the gap. This is what makes the bot MOVE UP TO STRIKE — routing around a friendly
+    // to reach a firing/melee spot — instead of just tucking in behind it. (Range only;
+    // an LOS-blocked hex simply yields no real target so the figure keeps closing.)
+    const range = effectiveRange(state, f).dice;
+    const canHitFrom = (hex: HexKey): boolean =>
+      !!cells && enemies.some(e => { const d = rangeDistance(cells!, hex, e.at!); return d != null && d >= 1 && d <= range; });
     let best: { to: HexKey; score: number } | null = null;
     for (const to of legalStepHexes(state, f.id)) {
       if (occupied.has(to)) continue;
       const enemyGain = curEnemy - aiNearestEnemyDist(state, to, enemies);
       const onGlyph = openGlyphs.some(g => g.at === to);
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(to) : 0;
-      // Make progress toward SOMETHING — the enemy, or a nearby glyph (incl. stepping
-      // right onto it). A pure sideways/backward step is skipped so we never stall.
-      if (enemyGain <= 0 && glyphGain <= 0 && !onGlyph) continue;
-      // Prefer higher ground (+1 attack & +1 defence die). Landing on the glyph is a
-      // big, decisive payoff; otherwise weight closing on the enemy and the glyph.
-      const score = enemyGain * 4 + (chaseGlyph ? glyphGain * 5 : 0) + (onGlyph ? 30 : 0) + heightOfKey(state, to);
+      const canHit = canHitFrom(to);
+      // Make progress toward SOMETHING — a hex to attack from, the enemy, or a nearby
+      // glyph (incl. stepping onto it). A pure sideways/backward step with no payoff is
+      // skipped so we never stall — but a lateral step that REACHES a strike hex counts.
+      if (enemyGain <= 0 && glyphGain <= 0 && !onGlyph && !canHit) continue;
+      // Reaching a strike hex dominates; then higher ground (+1 attack & +1 defence
+      // die), grabbing a glyph, and closing the gap.
+      const score = (canHit ? 50 : 0) + enemyGain * 4 + (chaseGlyph ? glyphGain * 5 : 0) + (onGlyph ? 30 : 0) + heightOfKey(state, to);
       if (!best || score > best.score) best = { to, score };
     }
     return best;

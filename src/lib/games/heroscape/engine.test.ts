@@ -23,6 +23,8 @@ import {
   effectiveRange,
   moveConsequences,
   disengageMoveHexes,
+  aiNextAction,
+  aiEngineAction,
   stepConsequences,
   placeableHexes,
   placeable2Leads,
@@ -1557,6 +1559,33 @@ describe('slice 3: engagement & leaving-engagement swipes', () => {
     let s = inTurns('p1', { p1: 's0-tarn_vikings' });
     s = place(s, TARN(1), at(3, 3)); // no enemy adjacent
     expect(disengageMoveHexes(s, TARN(1)).size).toBe(0);
+  });
+
+  // AGGRESSION: the bot must MOVE UP TO STRIKE — reach a hex it can attack from — not just
+  // close the gap and tuck in behind a friendly (the reported testing bug).
+  it('AI aggression: a melee figure routes AROUND a friendly to reach a strike hex', () => {
+    let s = inTurns('p1', { p1: 's0-tarn_vikings', p2: 's1-marro_warriors' });
+    s = clearExcept(s, TARN(1), TARN(2), MARRO(1));
+    s = place(s, MARRO(1), at(3, 3)); // the enemy
+    s = place(s, TARN(2), at(3, 4)); // a friendly Tarn already adjacent — blocks the direct lane
+    s = place(s, TARN(1), at(3, 5)); // two hexes back, directly behind the friendly
+    const roll = {
+      rollDie: () => 'blank' as CombatFace,
+      rollDice: (n: number) => Array.from({ length: n }, () => 'blank' as CombatFace),
+      d20: () => 1,
+    };
+    // Drive the bot's MOVE phase (it activates the Tarn card holding order marker 1).
+    for (let i = 0; i < 40; i++) {
+      const intent = aiNextAction(s, 0);
+      if (!intent || intent.kind !== 'move_step') break;
+      s = unwrap(applyAction(s, 'p1', aiEngineAction(s, intent, roll)));
+    }
+    // It ends ADJACENT to the enemy (a strike hex) — moved up and around, not behind the friendly.
+    expect(rangeDistance(MAPS[s.mapId].cells, fig(s, TARN(1)).at!, at(3, 3))).toBe(1);
+    // And from there the bot's attack phase actually takes the swing.
+    const afterEnd = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+    const atk = aiNextAction(afterEnd, 0);
+    expect(atk?.kind).toBe('attack');
   });
 
   it('a sufficient height gap breaks engagement (Example 14): no swipe leaving a non-engaged enemy', () => {
