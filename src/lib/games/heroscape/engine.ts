@@ -5243,13 +5243,15 @@ function aiPlace(state: HSState, seat: number): HSAction {
 }
 
 function aiPlaceMarkers(state: HSState, seat: number): HSAction {
-  // Put 1/2/3 on the strongest living cards (by points); X (decoy) on the best.
-  // "Living" counts any non-destroyed figure (incl. reserve), so a card whose
-  // figures aren't on the board yet can still hold a marker. Fall back to all of
-  // the seat's cards so we never index into an empty list.
-  const live = state.cards.filter(c =>
+  // Put 1/2/3 on the strongest cards (by points); X (decoy) on the best. Prefer cards
+  // with figures ON THE BOARD — a reserve-only card (e.g. Airborne Elite that missed The
+  // Drop this round, rolled BEFORE markers) can't take a turn, so a marker on it is wasted.
+  // Fall back to any living card, then to all owned cards, so the 4 markers always land.
+  const onBoard = state.cards.filter(c =>
+    c.ownerSeat === seat && state.figures.some(f => f.cardUid === c.uid && f.at != null));
+  const living = state.cards.filter(c =>
     c.ownerSeat === seat && state.figures.some(f => f.cardUid === c.uid && figureAlive(f)));
-  const mine = live.length ? live : state.cards.filter(c => c.ownerSeat === seat);
+  const mine = onBoard.length ? onBoard : living.length ? living : state.cards.filter(c => c.ownerSeat === seat);
   const ranked = [...mine].sort((a, b) =>
     (effectiveCardDef(b.cardId, state.edition)?.points ?? 0) - (effectiveCardDef(a.cardId, state.edition)?.points ?? 0));
   const at = (i: number) => (ranked[i] ?? ranked[ranked.length - 1] ?? mine[0]).uid;

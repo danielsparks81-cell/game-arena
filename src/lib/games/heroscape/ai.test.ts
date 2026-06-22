@@ -278,3 +278,33 @@ describe('HeroScape AI — synergy draft', () => {
     expect(aiNextAction(s, 0)).toEqual({ kind: 'draft_card', cardId: 'airborne_elite' });
   });
 });
+
+describe('HeroScape AI — order markers skip a reserve-only card', () => {
+  it("doesn't waste an order marker on Airborne Elite still in reserve (missed The Drop)", () => {
+    // place_markers, AFTER The Drop already rolled + missed this round (airborneDropRound ===
+    // round → canTheDrop is false, so aiNextAction goes straight to marker placement). The
+    // Airborne are in reserve; a marker on them can't act, so all 4 go to the on-board Finn.
+    let s = createInitialStateForHost({ userId: 'host', username: 'Host' });
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.phase = 'playing';
+    s.subPhase = 'place_markers';
+    s.round = 1;
+    s.airborneDropRound = 1;
+    s.markersReady = [];
+    s.cards = [
+      { uid: 'a', cardId: 'airborne_elite', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 },
+      { uid: 'f', cardId: 'finn', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 },
+    ];
+    s.figures = [
+      { id: 'a-1', cardUid: 'a', ownerSeat: 0, at: null, index: 1, wounds: 0, reserve: true },
+      { id: 'a-2', cardUid: 'a', ownerSeat: 0, at: null, index: 2, wounds: 0, reserve: true },
+      { id: 'f-1', cardUid: 'f', ownerSeat: 0, at: '0,0', index: 1, wounds: 0 },
+    ];
+    const act = aiNextAction(s, 0);
+    expect(act?.kind).toBe('place_markers');
+    if (act?.kind === 'place_markers') {
+      expect(act.assignments.some(m => m.cardUid === 'a')).toBe(false); // never the reserve Airborne
+      expect(act.assignments.every(m => m.cardUid === 'f')).toBe(true); // all markers on the on-board card
+    }
+  });
+});
