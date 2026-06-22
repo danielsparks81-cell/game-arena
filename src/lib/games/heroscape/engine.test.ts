@@ -12,6 +12,8 @@ import {
   legalDestinations,
   legalStepHexes,
   movementRangeHexes,
+  shootingRangeHexes,
+  shootBlockedHexes,
   grappleDestinations,
   legalTargets,
   attackDiceRequirements,
@@ -4826,5 +4828,62 @@ describe('Grenade Special Attack (Airborne Elite)', () => {
     const s = staged();
     expect(grenadeTargets(s, A(1))).not.toContain(M(3)); // far corner
     expect(grenadeTargets(s, A(1))).not.toContain(M(4));
+  });
+});
+
+describe('shootBlockedHexes — the shooting envelope minus blocked line of sight', () => {
+  // A flat map with one height-15 WALL in the middle row. A ranged shooter at that
+  // row's left end sights straight DOWN the row, so every hex beyond the wall is in
+  // Range but has no line of sight (the wall towers over the sightline). Start zones
+  // are two rows top + bottom so the quick-game deploy succeeds before we hand-place.
+  const WALL_MAP = 'test_los_wall';
+  beforeAll(() => {
+    MAPS[WALL_MAP] = parseMap(
+      WALL_MAP,
+      'LOS Wall',
+      `
+      row1@1: G1 G1 G1 G1 G1 G1 G1
+      row2@1: G1 G1 G1 G1 G1 G1 G1
+      row3:   G1 G1 G1 R15 G1 G1 G1
+      row4:   G1 G1 G1 G1 G1 G1 G1
+      row5@2: G1 G1 G1 G1 G1 G1 G1
+      row6@2: G1 G1 G1 G1 G1 G1 G1
+      `,
+    );
+  });
+
+  /** Quick game on the wall map, board cleared, with one ranged Marro Warrior placed
+   *  at the LEFT end of the wall's row (so the wall lies on its line of fire). */
+  function withShooter(): { s: HSState; shooter: string } {
+    let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mapId: WALL_MAP, mode: 'quick' }));
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    for (const f of s.figures) { f.at = null; f.at2 = null; }
+    const cells = MAPS[WALL_MAP].cells;
+    const wallKey = Object.keys(cells).find(k => cells[k].height === 15)!;
+    const wr = cells[wallKey].r;
+    const rowKeys = Object.keys(cells).filter(k => cells[k].r === wr);
+    const shooterKey = rowKeys.reduce((a, b) => (cells[a].q < cells[b].q ? a : b)); // leftmost in the wall's row
+    const marro = s.figures.find(f => f.cardUid === 's1-marro_warriors')!; // range 6
+    marro.at = shooterKey;
+    return { s, shooter: marro.id };
+  }
+
+  it('greys the in-range hexes a wall hides, keeps the clear ones', () => {
+    const { s, shooter } = withShooter();
+    const reach = shootingRangeHexes(s, shooter);
+    const blocked = shootBlockedHexes(s, shooter);
+    expect(blocked.size).toBeGreaterThan(0); // the wall hides something within range
+    expect([...blocked].every(k => reach.has(k))).toBe(true); // blocked ⊆ in range
+    expect(blocked.size).toBeLessThan(reach.size); // open directions stay clear
+    const at = s.figures.find(f => f.id === shooter)!.at!;
+    expect(blocked.has(at)).toBe(false); // never the shooter's own hex
+  });
+
+  it('is empty for a melee figure (Range 1) — nothing to preview', () => {
+    const { s } = withShooter();
+    const finn = s.figures.find(f => f.cardUid === 's0-finn')!; // Finn, Range 1
+    finn.at = Object.keys(MAPS[WALL_MAP].cells)[0];
+    expect(shootingRangeHexes(s, finn.id).size).toBe(0);
+    expect(shootBlockedHexes(s, finn.id).size).toBe(0);
   });
 });

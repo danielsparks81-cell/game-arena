@@ -20,6 +20,7 @@ export {
   legalStepHexes,
   movementRangeHexes,
   shootingRangeHexes,
+  shootBlockedHexes,
   disengageMoveHexes,
   grappleDestinations,
   legalTargets,

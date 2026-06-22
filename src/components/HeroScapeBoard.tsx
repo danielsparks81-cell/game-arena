@@ -38,6 +38,7 @@ import {
   legalDestinations,
   movementRangeHexes,
   shootingRangeHexes,
+  shootBlockedHexes,
   disengageMoveHexes,
   grappleDestinations,
   canFireLine,
@@ -1793,6 +1794,16 @@ export default function HeroScapeBoard({
     () =>
       canAct && selected && !state.movementEnded && !fireLineMode && !grappleMode
         ? shootingRangeHexes(state, selected.id)
+        : new Set<HexKey>(),
+    [state, selected, canAct, fireLineMode, grappleMode],
+  );
+  // The blocked SUBSET of that envelope: in range, but a wall/column breaks the line
+  // of sight (terrain-only). The board greys these so "in range" no longer reads as
+  // "can shoot" now that the Star Field has height-15 walls.
+  const shootBlocked = useMemo(
+    () =>
+      canAct && selected && !state.movementEnded && !fireLineMode && !grappleMode
+        ? shootBlockedHexes(state, selected.id)
         : new Set<HexKey>(),
     [state, selected, canAct, fireLineMode, grappleMode],
   );
@@ -3762,6 +3773,7 @@ export default function HeroScapeBoard({
             moveHexes={carryDestSet ?? (grappleMode ? destinations : safeMoveHexes)}
             dangerHexes={disengageHexes}
             shootHexes={shootRange}
+            shootBlockedHexes={shootBlocked}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? []), ...(carryPassSet ?? [])])}

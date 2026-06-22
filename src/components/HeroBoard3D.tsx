@@ -55,6 +55,9 @@ type Interact = {
    *  (plus its own footprint). When present, every hex OUTSIDE this set is dimmed so
    *  the bright island's edge shows the furthest hex the figure could shoot from. */
   shootHexes?: Set<HexKey>;
+  /** The BLOCKED subset of shootHexes — in range, but no line of sight (a wall/column
+   *  is between). Rendered flat grey/desaturated so "in range" ≠ "can shoot". */
+  shootBlockedHexes?: Set<HexKey>;
   /** Reachable move destinations that PROVOKE a leaving-engagement swipe — rendered
    *  RED ("smart movement" warning). Disjoint from the green moveHexes. */
   dangerHexes?: Set<HexKey>;
@@ -94,15 +97,28 @@ type Interact = {
  *  (the same call a click on that hex makes). The engine is unchanged. */
 /** One hexagonal-prism terrain tile + thin seam edges; tinted (emissive) when it
  *  is a highlighted move/place/Drop target. */
-function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, onClick }: {
-  x: number; z: number; height: number; terrain: string; highlight: { color: string; dim?: boolean } | null; glyph?: boolean; dimmed?: boolean; onClick?: () => void;
+function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onClick }: {
+  x: number; z: number; height: number; terrain: string; highlight: { color: string; dim?: boolean } | null; glyph?: boolean; dimmed?: boolean; blocked?: boolean; onClick?: () => void;
 }) {
   const isWater = terrain === 'water';
   // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
   const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1) + (glyph ? GLYPH_RAISE : 0);
   // Out of a moving ranged figure's reach → darken the base so the in-range island pops.
   const baseColor = glyph ? GLYPH_MAROON : (TERRAIN_COLOR[terrain] ?? '#666');
-  const color = dimmed ? '#' + new THREE.Color(baseColor).multiplyScalar(0.34).getHexString() : baseColor;
+  // `blocked` = in range but no line of sight (a wall is between): flat, desaturated
+  // grey so it's clearly NOT a shootable hex, distinct from both the bright clear-shot
+  // tiles and the darkened out-of-range ones. (dimmed/blocked are mutually exclusive —
+  // a blocked hex is in-range, so it is never also dimmed.)
+  const greyOf = (hex: string) => {
+    const c = new THREE.Color(hex);
+    const l = (0.3 * c.r + 0.59 * c.g + 0.11 * c.b) * 0.78; // luminance, muted
+    return '#' + new THREE.Color(l, l, l).getHexString();
+  };
+  const color = dimmed
+    ? '#' + new THREE.Color(baseColor).multiplyScalar(0.34).getHexString()
+    : blocked
+      ? greyOf(baseColor)
+      : baseColor;
   return (
     <mesh
       position={[x, h / 2, z]} castShadow receiveShadow
@@ -519,6 +535,8 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   // furthest targetable hex.
   const hasShoot = (it.shootHexes?.size ?? 0) > 0;
   const isDimmed = (key: HexKey): boolean => hasShoot && !it.shootHexes!.has(key);
+  // In range but line-of-sight blocked (a wall is between) → flat grey, not shootable.
+  const isBlocked = (key: HexKey): boolean => hasShoot && !!it.shootBlockedHexes?.has(key);
 
   return (
     <group rotation={[0, faceAngle, 0]}>
@@ -532,6 +550,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             highlight={tileHighlight(key)}
             glyph={glyphSet.has(key)}
             dimmed={isDimmed(key)}
+            blocked={isBlocked(key)}
             onClick={it.onHexClick ? () => it.onHexClick!(key) : undefined}
           />
         );

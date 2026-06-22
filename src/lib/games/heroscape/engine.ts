@@ -3011,6 +3011,31 @@ export function shootingRangeHexes(state: HSState, figureId: string): Set<HexKey
   return out;
 }
 
+/** The BLOCKED subset of a ranged figure's shooting envelope: hexes within Range
+ *  (so they're in `shootingRangeHexes`) but with NO clear line of sight from the
+ *  figure — a wall or tall column sits between. The board greys these so "in range"
+ *  no longer implies "can shoot". LOS is TERRAIN-ONLY (occupiedKeys = []), so the
+ *  overlay tracks the map's walls and doesn't flicker as figures shuffle around (it
+ *  is a reach preview, not a live to-hit check). A double-space figure sees from the
+ *  BETTER of its two hexes (matches Range, which is measured from either end). Empty
+ *  for a melee figure. Mirrors `shootingRangeHexes`'s reach so the two sets align. */
+export function shootBlockedHexes(state: HSState, figureId: string): Set<HexKey> {
+  const out = new Set<HexKey>();
+  const fig = state.figures.find(f => f.id === figureId);
+  const map = MAPS[state.mapId];
+  if (!fig || fig.at == null || !map) return out;
+  const range = effectiveRange(state, fig).dice;
+  if (range <= 1) return out;
+  const foot = figureHexes(fig);
+  const footSet = new Set(foot);
+  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  for (const k of rangeFlood(map.cells, foot, range)) {
+    if (footSet.has(k)) continue; // the figure's own hexes are always "clear"
+    if (!foot.some(jk => hasLineOfSight3D(map.cells, jk, k, [], eye))) out.add(k);
+  }
+  return out;
+}
+
 /**
  * Dice the server must roll for an attack: the effective Attack/Defense numbers
  * (printed + Spirit + height + auras + glyphs) from the SINGLE source of truth —
