@@ -341,10 +341,29 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
       planeRef.current.position.x = flipped ? -baseShiftX : baseShiftX;
     }
   });
+  // SMART-MOVEMENT WALK: glide the figure toward its hex at a constant speed instead
+  // of snapping, so a click-to-move (and each AI step) reads as the figure walking the
+  // direct line to its destination. Snaps on first placement (no drift in from the
+  // origin) and on a board-spanning jump (Airborne drop / reseat), which aren't walks.
+  const rootRef = useRef<THREE.Group>(null);
+  const placedRef = useRef(false);
+  useFrame((_, delta) => {
+    const g = rootRef.current;
+    if (!g) return;
+    if (!placedRef.current) { g.position.set(cx, topY, cz); placedRef.current = true; return; }
+    g.position.y = topY; // height changes snap; only the horizontal walk eases
+    const dx = cx - g.position.x, dz = cz - g.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 1e-4) return;
+    if (dist > 22) { g.position.x = cx; g.position.z = cz; return; } // teleport, not a walk → snap
+    const step = Math.min(dist, 20 * delta); // ~20 world units/sec — a quick walk
+    g.position.x += (dx / dist) * step;
+    g.position.z += (dz / dist) * step;
+  });
   const pips = Math.min(wounds, 8);
   return (
     <group
-      position={[cx, topY, cz]}
+      ref={rootRef}
       onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}
     >
       {/* The player-colour 3D disc IS the base: the cropped figure butts straight onto
