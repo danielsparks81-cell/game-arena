@@ -227,3 +227,32 @@ describe('Star Field — every player count 2-6', () => {
     expect(zones[1].some(h => set0.has(h))).toBe(false); // no shared hex
   });
 });
+
+describe('Star Field — symmetric terrain (mound + walls + arm ridges)', () => {
+  const rot60 = (q: number, r: number): [number, number] => [-r, q + r];
+
+  it('terrain is 6-fold rotationally symmetric — every hex equals its 60° images', () => {
+    for (const c of Object.values(STAR_FIELD.cells)) {
+      let q = c.q, r = c.r;
+      for (let i = 0; i < 6; i++) {
+        [q, r] = rot60(q, r);
+        const img = STAR_FIELD.cells[hexKey(q, r)];
+        expect(img).toBeDefined();
+        expect(img.height).toBe(c.height); // same height under every rotation
+      }
+    }
+  });
+
+  it('has height-15 walls and minor (2/3) elevation, with flat grass deploy tips', () => {
+    const heights = new Set(Object.values(STAR_FIELD.cells).map(c => c.height));
+    expect(heights.has(15)).toBe(true); // walls
+    expect(heights.has(2)).toBe(true); // minor elevation
+    expect(heights.has(3)).toBe(true);
+    // there are exactly six walls of each rotated feature (6-fold)
+    expect(Object.values(STAR_FIELD.cells).filter(c => c.height === 15).length % 6).toBe(0);
+    // every start-zone tip hex stays flat grass (fair deployment)
+    for (const zone of Object.values(STAR_FIELD.startZones)) {
+      for (const k of zone) expect(STAR_FIELD.cells[k]).toMatchObject({ height: 1, terrain: 'grass' });
+    }
+  });
+});

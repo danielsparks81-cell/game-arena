@@ -215,12 +215,40 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
   };
   const centerDist = (q: number, r: number): number => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
   const px = (q: number, r: number) => ({ x: Math.sqrt(3) * (q + r / 2), y: 1.5 * r });
+  // 6-FOLD SYMMETRIC TERRAIN so the star isn't a flat plain: a low central mound, a
+  // ring of impassable height-15 WALL pillars around it (cover + line-of-sight
+  // breakers), and a small height-2/3 ridge partway down each arm. Every feature is a
+  // seed replicated to its six 60° rotations (rot60), so all six players face an
+  // IDENTICAL battlefield. The neutral interior (centreDist ≤ tipCut) carries the
+  // terrain; the start-zone tips stay flat grass for fair deployment.
+  const rot60 = (q: number, r: number): [number, number] => [-r, q + r];
+  const orbit = (q: number, r: number): string[] => {
+    const out: string[] = [];
+    let cq = q, cr = r;
+    for (let i = 0; i < 6; i++) { out.push(hexKey(cq, cr)); [cq, cr] = rot60(cq, cr); }
+    return out;
+  };
+  const walls = new Set(orbit(5, 0)); // 6 height-15 pillars ringing the centre
+  const peaks = new Set(orbit(8, -4)); // each arm's hill peak (height 3)
+  const slopes = new Set([...orbit(7, -3), ...orbit(9, -5)]); // ridge either side of each peak (height 2)
+  const starHeight = (q: number, r: number): number => {
+    const d = centerDist(q, r);
+    if (d > tipCut) return 1; // deploy tips stay flat
+    const k = hexKey(q, r);
+    if (walls.has(k)) return 15;
+    if (peaks.has(k)) return 3;
+    if (slopes.has(k)) return 2;
+    if (d === 0) return 3; // central peak
+    if (d <= 2) return 2; // central mound
+    return 1;
+  };
   const cells: Record<HexKey, HexCell> = {};
   const all: { q: number; r: number }[] = [];
   for (let q = -2 * R; q <= 2 * R; q++) {
     for (let r = -2 * R; r <= 2 * R; r++) {
       if (!inStar(q, r)) continue;
-      cells[hexKey(q, r)] = { q, r, height: 1, terrain: 'grass' };
+      const height = starHeight(q, r);
+      cells[hexKey(q, r)] = { q, r, height, terrain: height === 15 ? 'rock' : 'grass' };
       all.push({ q, r });
     }
   }
