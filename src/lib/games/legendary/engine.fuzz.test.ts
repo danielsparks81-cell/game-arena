@@ -233,7 +233,7 @@ describe('legendary: full-game fuzzer (every Mastermind × Scheme)', () => {
       it(`plays ${mm.name} / ${scheme.name} (${numPlayers}p) to a valid finish`, () => {
         const out = playToCompletion(mm.cardId, scheme.cardId, numPlayers, seed);
         expect(['win', 'loss', 'tie']).toContain(out.result);
-      });
+      }, 30_000); // a full 5-player game can run ~6s — over vitest's 5s default under load
     }
   }
 });
@@ -249,7 +249,7 @@ describe('legendary: fuzzer — extra randomized games', () => {
       const numPlayers = 1 + Math.floor(rng() * 5);
       const out = playToCompletion(mm.cardId, scheme.cardId, numPlayers, 60000 + i);
       expect(['win', 'loss', 'tie']).toContain(out.result);
-    });
+    }, 30_000); // heavy random games can exceed vitest's 5s default under load
   }
 });
 

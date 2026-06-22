@@ -1422,6 +1422,19 @@ function advanceSlot(s: HSState): boolean {
  *  questions reads unrevealed markers as never flipped). */
 function startNextRound(s: HSState): void {
   s.round += 1;
+  // No-progress stalemate backstop: track the living-figure count; if it hasn't
+  // changed (no kills, no clones) for STALEMATE_ROUNDS rounds, the armies can't engage
+  // — end the game by surviving army rather than hang forever.
+  const living = s.figures.filter(figureAlive).length;
+  if (s.staleLiving == null || living !== s.staleLiving) {
+    s.staleLiving = living;
+    s.staleSinceRound = s.round;
+  }
+  const noProgress = s.staleSinceRound != null && s.round - s.staleSinceRound >= STALEMATE_ROUNDS;
+  if (noProgress || s.round >= HARD_ROUND_CAP) {
+    stalemateResolve(s);
+    if (s.phase === 'finished') return; // game over — don't open another round
+  }
   s.subPhase = 'place_markers';
   s.turnNumber = 1;
   s.turnPointer = 0;
@@ -3774,6 +3787,40 @@ function checkEliminationWin(s: HSState): void {
   pushLog(s, 'win', `${who} — all rival armies are destroyed!`);
 }
 
+const STALEMATE_ROUNDS = 15;
+// Absolute backstop — no real game runs anywhere near this many rounds (typical: 8-15).
+// Catches an oscillating grind (e.g. Water Clone reviving + losing a figure every few
+// rounds) that the no-progress counter alone keeps resetting.
+const HARD_ROUND_CAP = 80;
+
+/** Stalemate backstop (digital-only): if NO figure is gained or lost for
+ *  STALEMATE_ROUNDS straight rounds, the surviving armies can't reach each other
+ *  (e.g. a 2-hex figure stranded on a peak it can't slither off varied terrain, or a
+ *  ranged pair walled apart with no line of sight). End the game so it never hangs —
+ *  the team with the most surviving FIGURES wins, ties broken by remaining life then
+ *  lowest seat. A normal game takes casualties every few rounds, so this never fires
+ *  in real play; it is purely a no-progress safety net. */
+function stalemateResolve(s: HSState): void {
+  if (s.phase !== 'playing') return;
+  const seatsAlive = [...new Set(s.figures.filter(figureAlive).map(f => f.ownerSeat))];
+  const teams = [...new Set(seatsAlive.map(seat => teamOfSeat(s, seat)))];
+  if (teams.length <= 1) return; // checkEliminationWin owns the single-team case
+  const score = (team: number) => {
+    const figs = s.figures.filter(f => figureAlive(f) && teamOfSeat(s, f.ownerSeat) === team);
+    const life = figs.reduce((sum, f) => sum + Math.max(0, cardDefFor(s, f).life - f.wounds), 0);
+    return figs.length * 1000 + life; // figures dominate; remaining life breaks ties
+  };
+  const bestTeam = teams.reduce((b, t) => (score(t) > score(b) ? t : b), teams[0]);
+  const winnerSeat = seatsAlive.filter(seat => teamOfSeat(s, seat) === bestTeam).sort((a, b) => a - b)[0];
+  const teamSeats = s.players.filter(p => teamOfSeat(s, p.seat) === bestTeam);
+  s.phase = 'finished';
+  s.winnerSeat = winnerSeat;
+  s.winnerTeam = bestTeam;
+  s.turnSeat = null;
+  const who = teamSeats.length > 1 ? `${teamSeats.map(p => playerName(s, p.seat)).join(' & ')} win` : `${playerName(s, winnerSeat)} wins`;
+  pushLog(s, 'win', `Stalemate — ${STALEMATE_ROUNDS} rounds with no losses; ${who} on the larger surviving army.`);
+}
+
 // ============================================================================
 // Special powers — Berserker Charge, Water Clone (slice 4)
 // ============================================================================
@@ -5046,6 +5093,35 @@ function aiNearestEnemyDist(state: HSState, from: HexKey, enemies: Figure[]): nu
   return best;
 }
 
+/** Movement-aware step distance to the nearest enemy, as a BFS field flooded from
+ *  every enemy hex over edges a figure can WALK (height step < its Height, so a
+ *  height-15 wall is impassable) — UNLIKE rangeDistance, which counts straight
+ *  THROUGH walls and traps the greedy mover against one (it never takes the step
+ *  AROUND because that briefly raises the through-wall distance). The mover then
+ *  steps to cut its own field value, routing around walls. A flyer ignores height
+ *  (all edges open); unreachable hexes are absent (the caller reads Infinity). */
+function aiMoveDistField(state: HSState, enemies: Figure[], cardHeight: number, flying: boolean): Map<HexKey, number> {
+  const cells = MAPS[state.mapId]?.cells;
+  const dist = new Map<HexKey, number>();
+  if (!cells) return dist;
+  let frontier: HexKey[] = [];
+  for (const e of enemies) for (const h of figureHexes(e)) if (cells[h] && !dist.has(h)) { dist.set(h, 0); frontier.push(h); }
+  for (let d = 1; frontier.length; d++) {
+    const next: HexKey[] = [];
+    for (const k of frontier) {
+      const hk = cells[k].height ?? 0;
+      for (const n of neighborKeys(k)) {
+        if (dist.has(n) || !cells[n]) continue;
+        if (!flying && Math.abs((cells[n].height ?? 0) - hk) >= cardHeight) continue; // a wall is impassable
+        dist.set(n, d);
+        next.push(n);
+      }
+    }
+    frontier = next;
+  }
+  return dist;
+}
+
 /** Rough value of an attack: expected unblocked skulls (half the attack dice
  *  minus half the defence dice), with a bonus for a likely kill and the target's
  *  point value. -Infinity if the attack is illegal. */
@@ -5069,10 +5145,9 @@ function aiDraft(state: HSState, seat: number): HSAction {
   const def = (id: string) => effectiveCardDef(id, state.edition);
   const ptsOf = (id: string) => def(id)?.points ?? 0;
   const remaining = teamRemainingInDraft(state, seat);
-  // Skip Airborne Elite — the v1 AI can't run The Drop, so its figures would sit
-  // unused in reserve. Only fall back to it if nothing else is affordable.
-  let affordable = d.pool.filter(id => id !== 'airborne_elite' && ptsOf(id) <= remaining);
-  if (affordable.length === 0) affordable = d.pool.filter(id => ptsOf(id) <= remaining);
+  // Airborne Elite is now fully playable by the bot (The Drop deploys them each round,
+  // Grenade is its squad special), so it drafts like any other card.
+  const affordable = d.pool.filter(id => ptsOf(id) <= remaining);
   if (affordable.length === 0) return { kind: 'draft_pass' };
   const army = d.armies[seat] ?? [];
   const isSquad = (id: string) => def(id)?.type === 'squad';
@@ -5181,6 +5256,34 @@ function aiPlaceMarkers(state: HSState, seat: number): HSAction {
   };
 }
 
+/** Greedy Drop landing plan: from the legal landing hexes, take `count` that are
+ *  CLOSEST to the enemy (Airborne drop in aggressively) while staying mutually
+ *  NON-adjacent (the engine rejects adjacent drops). Returns fewer than `count` only
+ *  if the board can't fit them — callers guard on the length so a Drop is never rolled
+ *  when its placement couldn't complete (a rejected action would freeze the turn). */
+function airborneDropPlan(state: HSState, seat: number, legal: HexKey[]): HexKey[] {
+  const count = reserveAirborne(state, seat).length;
+  const cells = MAPS[state.mapId]?.cells;
+  const enemies = aiEnemies(state, seat).filter(e => e.at != null);
+  const distToEnemy = (k: HexKey): number => {
+    if (!cells || enemies.length === 0) return 0;
+    let best = Infinity;
+    for (const e of enemies) { const d = rangeDistance(cells, k, e.at!); if (d != null && d < best) best = d; }
+    return best;
+  };
+  // Precompute distToEnemy ONCE per hex — calling it inside the sort comparator reran a
+  // rangeDistance flood O(n log n) times over the 661-hex Star Field (seconds per plan).
+  const scored = legal.map(k => ({ k, d: distToEnemy(k) })).sort((a, b) => a.d - b.d);
+  const sorted = scored.map(x => x.k);
+  const chosen: HexKey[] = [];
+  for (const k of sorted) {
+    if (chosen.length >= count) break;
+    if (chosen.some(c => neighborKeys(c).includes(k))) continue;
+    chosen.push(k);
+  }
+  return chosen;
+}
+
 function aiResolveChoice(state: HSState, seat: number): HSAction | null {
   const pc = state.pendingChoice;
   if (!pc || pc.seat !== seat) return null;
@@ -5201,7 +5304,27 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     const hex = pc.placements[0]?.options[0];
     if (hex) return { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex } };
   }
-  // grenade_throw / airborne_drop only arise from powers the v1 AI doesn't initiate.
+  // Airborne Elite THE DROP — land all reserve Airborne on the planned non-adjacent hexes
+  // (closest to the enemy). aiNextAction only rolled The Drop when this plan fills, so
+  // placements.length === reserve.length holds.
+  if (pc.kind === 'airborne_drop') {
+    return { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: airborneDropPlan(state, seat, theDropHexes(state, seat)) } };
+  }
+  // Airborne Elite GRENADE — resolve the CURRENT Elite's throw at the target whose splash
+  // catches the most enemies (net of friendly fire). The engine advances the queue + skips
+  // target-less Elites, so the head thrower always has ≥1 target here.
+  if (pc.kind === 'grenade_throw') {
+    const throwerId = pc.throwers[0];
+    const foeIds = new Set(aiEnemies(state, seat).map(e => e.id));
+    const scored = grenadeTargets(state, throwerId)
+      .map(tid => {
+        const aff = grenadeDefenders(state, throwerId, tid);
+        const foes = aff.filter(x => foeIds.has(x.figureId)).length;
+        return { tid, net: foes - (aff.length - foes) };
+      })
+      .sort((a, b) => b.net - a.net);
+    if (scored[0]) return { kind: 'grenade_throw', targetId: scored[0].tid, attackRoll: [], defenseRolls: [] };
+  }
   return null;
 }
 
@@ -5343,6 +5466,21 @@ function aiTurn(state: HSState, seat: number): HSAction {
       // ran out of targets the bot tried to clone illegally (engine reject → frozen turn).
       if (deadMarro && movedThisCard && state.turnAttacks.length === 0 && !canAttack) return { kind: 'water_clone', rolls: [] };
     }
+    // Airborne Elite GRENADE — a once-per-game squad special that REPLACES the attack.
+    // Pull it only when the best throw's splash catches ≥2 enemies (real AoE value);
+    // otherwise the squad attacks normally and saves the grenade. doGrenade opens the
+    // per-Elite throw queue, resolved in aiResolveChoice.
+    if (aid === 'airborne_elite' && canGrenade(state, seat)) {
+      let bestFoes = 0;
+      for (const f of myFigs) {
+        for (const tid of grenadeTargets(state, f.id)) {
+          if (!isEnemy(tid)) continue;
+          const foes = grenadeDefenders(state, f.id, tid).filter(x => isEnemy(x.figureId)).length;
+          if (foes > bestFoes) bestFoes = foes;
+        }
+      }
+      if (bestFoes >= 2) return { kind: 'grenade' };
+    }
 
     let best: { attackerId: string; targetId: string; score: number } | null = null;
     for (const f of myFigs) {
@@ -5380,7 +5518,12 @@ function aiTurn(state: HSState, seat: number): HSAction {
   };
   const wantsMove = (f: Figure) => enemyTargets(f).length === 0;
   const bestStepFor = (f: Figure): { to: HexKey; score: number } | null => {
-    const curEnemy = aiNearestEnemyDist(state, f.at!, enemies);
+    // Movement-aware distance (routes AROUND height-15 walls) so the mover never gets
+    // stuck against a wall it can't see past — the old rangeDistance counted through walls.
+    const fDef = cardDefFor(state, f);
+    const distField = aiMoveDistField(state, enemies, fDef.height, !!fDef.flying);
+    const pathDist = (k: HexKey): number => distField.get(k) ?? Infinity;
+    const curEnemy = pathDist(f.at!);
     // Don't pull a figure that already holds a glyph off it to chase another — it
     // only leaves its post to actually close on an enemy.
     const onGlyphNow = (state.glyphs ?? []).some(g => figureHexes(f).includes(g.at));
@@ -5406,7 +5549,8 @@ function aiTurn(state: HSState, seat: number): HSAction {
     for (const to of legalStepHexes(state, f.id)) {
       if (occupied.has(to)) continue;
       if (is2hex && heightOfKey(state, to) !== curH) continue;
-      const enemyGain = curEnemy - aiNearestEnemyDist(state, to, enemies);
+      const toDist = pathDist(to);
+      const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
       const onGlyph = openGlyphs.some(g => g.at === to);
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(to) : 0;
       const canHit = canHitFrom(to);
@@ -5523,6 +5667,18 @@ export function aiEngineAction(
     const livingMarro = state.figures.filter(f => f.cardUid === activeUid && f.at != null);
     return { kind: 'water_clone', rolls: livingMarro.map(f => ({ marroFigureId: f.id, d20: rollers.d20() })) };
   }
+  // Airborne Elite THE DROP — the global d20 (13+ opens the landing placement).
+  if (intent.kind === 'the_drop') {
+    return { ...intent, d20: rollers.d20() };
+  }
+  // Airborne Elite GRENADE THROW — 2 attack dice ONCE + each splashed figure's defense.
+  // The thrower is the head of the pending throw queue (mirrors the server seam).
+  if (intent.kind === 'grenade_throw') {
+    const pc = state.pendingChoice;
+    const throwerId = pc && pc.kind === 'grenade_throw' ? pc.throwers[0] : '';
+    const defs = grenadeDefenders(state, throwerId, intent.targetId);
+    return { ...intent, attackRoll: rollers.rollDice(2), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollers.rollDice(d.defense) })) };
+  }
   return intent;
 }
 
@@ -5555,7 +5711,18 @@ export function aiNextAction(state: HSState, seat: number): HSAction | null {
   if (state.phase === 'draft') return state.draft?.turnSeat === seat ? aiDraft(state, seat) : null;
   if (state.phase === 'placement') return (state.placementReady ?? []).includes(seat) ? null : aiPlace(state, seat);
   if (state.phase !== 'playing') return null;
-  if (state.subPhase === 'place_markers') return (state.markersReady ?? []).includes(seat) ? null : aiPlaceMarkers(state, seat);
+  if (state.subPhase === 'place_markers') {
+    if ((state.markersReady ?? []).includes(seat)) return null;
+    // THE DROP first (it must come before order markers): roll only when the landing
+    // plan can place ALL reserve Airborne, so the follow-up placement is never rejected.
+    if (canTheDrop(state, seat)) {
+      const legal = Object.keys(MAPS[state.mapId]?.cells ?? {}).filter(k => dropHexLegal(state, k));
+      if (airborneDropPlan(state, seat, legal).length === reserveAirborne(state, seat).length) {
+        return { kind: 'the_drop', d20: 0 };
+      }
+    }
+    return aiPlaceMarkers(state, seat);
+  }
   if (state.turnSeat === seat) return aiTurn(state, seat);
   return null;
 }

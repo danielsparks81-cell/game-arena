@@ -505,6 +505,12 @@ export type HSState = {
   subPhase: HSSubPhase;
   /** 1-based round counter (the Round Marker Track). */
   round: number;
+  /** Stalemate backstop (digital-only): the living-figure count at the last round
+   *  where it CHANGED, and that round. If it stays unchanged for too many rounds the
+   *  armies can't engage and the engine ends the game by surviving army. Absent until
+   *  the first round advance. */
+  staleLiving?: number;
+  staleSinceRound?: number;
   /** Which of your 3 turns the current slot is (the marker being resolved). */
   turnNumber: 1 | 2 | 3;
   /** Seats in this round's acting order: the initiative winner first, then

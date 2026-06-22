@@ -221,8 +221,12 @@ describe('HeroScape round flow — eliminated seats', () => {
     s = { ...s, figures: s.figures.map(f => (f.ownerSeat === 1 ? { ...f, at: null, at2: null, reserve: false } : f)) };
     expect(livingSeats(s)).toEqual([0, 2]);
 
-    // The two living seats lock in their markers (the dead seat is never prompted).
-    for (const seat of [0, 2]) {
+    // Drive the living seats' round-start actions until initiative is owed — a seat that
+    // drafted Airborne rolls The Drop (and resolves the landing) BEFORE its markers, so
+    // it's no longer one action per seat. The dead seat 1 is never pending.
+    for (let i = 0; i < 50 && initiativeReadySeats(s) == null; i++) {
+      const seat = anyPendingSeat(s);
+      if (seat == null) break;
       s = unwrap(applyAction(s, idOf(s, seat), aiEngineAction(s, aiNextAction(s, seat)!, rollers)));
     }
     const seats = initiativeReadySeats(s);
@@ -265,5 +269,12 @@ describe('HeroScape AI — synergy draft', () => {
     // even outscoring the pricier mimring (150) which buffs nothing here.
     const s = draftWith(['marro_warriors', 'ne_gok_sa'], ['raelin', 'mimring']);
     expect(aiNextAction(s, 0)).toEqual({ kind: 'draft_card', cardId: 'raelin' });
+  });
+
+  it('drafts Airborne Elite now that the bot runs The Drop (no longer skipped)', () => {
+    // Was filtered out of the pool entirely (the v1 AI couldn't deploy them); now it's a
+    // normal pick — the priciest squad, so bodies-first grabs it over a cheaper one.
+    const s = draftWith([], ['airborne_elite', 'tarn_vikings']);
+    expect(aiNextAction(s, 0)).toEqual({ kind: 'draft_card', cardId: 'airborne_elite' });
   });
 });

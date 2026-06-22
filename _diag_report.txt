@@ -1,0 +1,19 @@
+
+===== AIRBORNE DIAGNOSTIC =====
+games: 32  finished: 32  FAILED: 0
+--- specials fired ---
+  the_drop         86
+  grenade          30
+  grenade_throw    114
+  chomp            10
+  mind_shackle     0
+  fire_line        7
+  explosion        33
+  ice_shard        64
+  queglix          156
+  wild_swing       0
+  acid_breath      0
+  throw_figure     0
+  berserker_charge 47
+  water_clone      3
+==============================
