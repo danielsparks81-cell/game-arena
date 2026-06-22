@@ -4995,6 +4995,14 @@ function aiDraft(state: HSState, seat: number): HSAction {
   let affordable = d.pool.filter(id => id !== 'airborne_elite' && ptsOf(id) <= remaining);
   if (affordable.length === 0) affordable = d.pool.filter(id => ptsOf(id) <= remaining);
   if (affordable.length === 0) return { kind: 'draft_pass' };
+  const army = d.armies[seat] ?? [];
+  const isSquad = (id: string) => effectiveCardDef(id, state.edition)?.type === 'squad';
+  // Bodies win — grab a strong SQUAD early if the army has none yet, so it isn't a
+  // fragile, easily-outnumbered hero-only force.
+  if (army.length <= 2 && !army.some(isSquad)) {
+    const squads = affordable.filter(isSquad);
+    if (squads.length) return { kind: 'draft_card', cardId: squads.reduce((b, id) => (ptsOf(id) > ptsOf(b) ? id : b), squads[0]) };
+  }
   const poolPts = d.pool.map(ptsOf).filter(p => p > 0);
   const cheapest = poolPts.length ? Math.min(...poolPts) : 0;
   const sorted = [...affordable].sort((a, b) => ptsOf(b) - ptsOf(a));
