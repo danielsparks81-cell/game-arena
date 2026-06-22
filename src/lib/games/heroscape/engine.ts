@@ -4974,11 +4974,16 @@ function aiNearestEnemyDist(state: HSState, from: HexKey, enemies: Figure[]): nu
 function aiAttackScore(state: HSState, attacker: Figure, target: Figure): number {
   const req = attackDiceRequirements(state, attacker.id, target.id);
   if (!req) return -Infinity;
+  // `req.attack` already folds in the attacker's HEIGHT advantage (effectiveAttackDice),
+  // so attacks from high ground naturally score higher.
   const expDmg = Math.max(0, req.attack * 0.5 - req.defense * 0.5);
   const tdef = cardDefFor(state, target);
   const remainingLife = tdef.life - (target.wounds ?? 0);
-  const killBonus = expDmg >= remainingLife ? 5 : 0;
-  return expDmg * 2 + killBonus + tdef.points / 100;
+  // A likely KILL is worth a lot (removes the enemy for good). Otherwise weight by
+  // expected wounds, the enemy's THREAT (its Attack — kill dangerous units first),
+  // and its point value (trade up).
+  const likelyKill = expDmg >= remainingLife;
+  return expDmg * 2 + (likelyKill ? 8 : 0) + tdef.attack * 0.6 + tdef.points / 80;
 }
 
 function aiDraft(state: HSState, seat: number): HSAction {
@@ -5096,13 +5101,17 @@ function aiTurn(state: HSState, seat: number): HSAction {
   const wantsMove = (f: Figure) => enemyTargets(f).length === 0;
   const bestStepFor = (f: Figure): { to: HexKey; gain: number } | null => {
     const cur = aiNearestEnemyDist(state, f.at!, enemies);
-    let best: { to: HexKey; gain: number } | null = null;
+    let best: { to: HexKey; gain: number; score: number } | null = null;
     for (const to of legalStepHexes(state, f.id)) {
       if (occupied.has(to)) continue;
       const gain = cur - aiNearestEnemyDist(state, to, enemies);
-      if (gain > 0 && (!best || gain > best.gain)) best = { to, gain };
+      if (gain <= 0) continue; // must close on the enemy
+      // Among advancing steps, prefer the HIGHER hex — height is +1 attack die and
+      // +1 defence die, so the AI grabs the high ground as it moves up.
+      const score = gain * 4 + heightOfKey(state, to);
+      if (!best || score > best.score) best = { to, gain, score };
     }
-    return best;
+    return best ? { to: best.to, gain: best.gain } : null;
   };
   // Finish the in-progress figure's walk before switching to another.
   const movingFig = state.stepMove ? myFigs.find(f => f.id === state.stepMove!.figureId) : null;
