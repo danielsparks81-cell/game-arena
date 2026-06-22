@@ -1448,12 +1448,13 @@ export default function HeroScapeBoard({
   // Same freshness mechanism for non-combat d20 rolls (initiative + d20 powers).
   const [rollD20, setRollD20] = useState<LastRoll | null>(null);
   const lastSeenRollSeqRef = useRef<number>(state.lastRoll?.seq ?? 0);
-  // Keep a just-KILLED figure on the board until its dice overlay finishes, so the
-  // defender's roll is seen LANDING before the figure vanishes — otherwise the new
-  // state (figure already gone) spoils the result the instant it arrives. When an
-  // attack overlay opens we snapshot the figures that just left the board and render
-  // them as "ghosts" (via displayState) until the overlay dismisses.
-  const [dyingFigures, setDyingFigures] = useState<Figure[]>([]);
+  // Hold a figure's PRE-attack look (its hex AND its wound count) until the dice
+  // overlay finishes, so the result is seen LANDING with the roll — otherwise the
+  // new state spoils it the instant it arrives (a kill makes the figure vanish, a
+  // wound pops new wound markers, both BEFORE the defender's dice are even shown).
+  // When an attack overlay opens we snapshot the figures it just affected (killed or
+  // freshly wounded) and render those frozen versions via displayState until dismiss.
+  const [frozenFigures, setFrozenFigures] = useState<Figure[]>([]);
   const prevFiguresRef = useRef<Figure[]>(state.figures);
 
   // --- board ZOOM / PAN: scroll-wheel zooms toward the cursor, drag pans, the
@@ -1483,12 +1484,18 @@ export default function HeroScapeBoard({
       // even when the flat defenseRoll is empty).
       if (la.attackRoll.length > 0 || la.defenseRoll.length > 0 || (la.defenseGroups?.length ?? 0) > 0) {
         setRollAttack(la);
-        // Figures that stood on the board a moment ago but are gone now were just
-        // killed by THIS attack — hold them as ghosts until the overlay dismisses
-        // so the kill reveals WITH the dice, not before them.
+        // Snapshot every on-board figure THIS attack changed — killed (now off-board)
+        // OR freshly wounded (more wounds than a moment ago) — and freeze its old look
+        // until the overlay dismisses, so neither the vanish nor the wound markers
+        // appear before the dice land.
         const prev = prevFiguresRef.current;
-        setDyingFigures(
-          prev.filter(pf => pf.at != null && !state.figures.some(cf => cf.id === pf.id && cf.at != null)),
+        setFrozenFigures(
+          prev.filter(pf => {
+            if (pf.at == null) return false; // wasn't on the board
+            const cur = state.figures.find(cf => cf.id === pf.id);
+            if (!cur || cur.at == null) return true; // killed
+            return (cur.wounds ?? 0) > (pf.wounds ?? 0); // newly wounded
+          }),
         );
       }
     }
@@ -1499,16 +1506,17 @@ export default function HeroScapeBoard({
   useEffect(() => {
     prevFiguresRef.current = state.figures;
   }, [state.figures]);
-  // Board-only figure list: the live figures, with any just-killed figure swapped
-  // back in (at its last hex) while its overlay plays. Game logic keeps using
-  // `state`; only the rendered board sees the ghosts.
+  // Board-only figure list: the live figures, with any attack-affected figure swapped
+  // for its frozen pre-attack version (old hex + old wounds) while the overlay plays,
+  // so a kill doesn't vanish and a wound doesn't show until the dice land. Game logic
+  // keeps using `state`; only the rendered board sees the frozen figures.
   const displayState = useMemo(() => {
-    if (dyingFigures.length === 0) return state;
-    const ghostById = new Map(dyingFigures.map(g => [g.id, g] as const));
-    const figures = state.figures.map(f => (f.at == null && ghostById.has(f.id) ? ghostById.get(f.id)! : f));
-    for (const g of dyingFigures) if (!figures.some(f => f.id === g.id)) figures.push(g);
+    if (frozenFigures.length === 0) return state;
+    const frozenById = new Map(frozenFigures.map(g => [g.id, g] as const));
+    const figures = state.figures.map(f => frozenById.get(f.id) ?? f);
+    for (const g of frozenFigures) if (!figures.some(f => f.id === g.id)) figures.push(g);
     return { ...state, figures };
-  }, [state, dyingFigures]);
+  }, [state, frozenFigures]);
   // Broadcast whether the dramatic dice-roll overlay is on screen, so the room shell can hold the
   // "Rematch?" prompt back until the FINAL (game-winning) roll has fully played out (no spoiler).
   // Pure UI signal; harmless when nothing is listening.
@@ -3025,7 +3033,7 @@ export default function HeroScapeBoard({
         <DiceRollOverlay
           key={rollAttack.seq}
           attack={rollAttack}
-          onDismiss={() => { setRollAttack(null); setDyingFigures([]); }}
+          onDismiss={() => { setRollAttack(null); setFrozenFigures([]); }}
         />
       )}
       {/* d20 overlay for initiative + special powers (same freshness mechanism). */}
