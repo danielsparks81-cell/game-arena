@@ -75,6 +75,9 @@ type Interact = {
    *  zone faces the camera (near/bottom), so a player never has to spin the board
    *  to deploy or fight from their own side. */
   viewerStartHexes?: HexKey[];
+  /** The viewing player's seat — the camera centres on THIS army (their figures),
+   *  not the geometric board centre. */
+  viewerSeat?: number;
 };
 
 /** Drag-to-move (HeroQuest-style): press on the selected figure and drag across hexes to
@@ -549,7 +552,41 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     const dist = Math.min(160, Math.max(18, R * 2.5));
     return { dist, max: Math.max(40, dist * 1.8), shadow: Math.max(20, R + 6) };
   }, [state.mapId]);
-  const camPos: [number, number, number] = [0, fit.dist * 0.63, fit.dist * 0.776];
+  // Focus the camera on the VIEWER's army (their on-board figures) rather than the
+  // geometric board centre — recomputed only when THEIR figures move (a stable
+  // string key), so it doesn't re-snap on an enemy's move. Falls back to the start
+  // zone (during placement), then the board centre (spectator / no army).
+  const myFigKey = state.figures.filter(f => f.ownerSeat === it.viewerSeat && f.at != null).map(f => f.at).join('|');
+  const zoneKey = (it.viewerStartHexes ?? []).join('|');
+  const armyTarget = useMemo<[number, number, number]>(() => {
+    const map = MAPS[state.mapId];
+    const cells = map ? Object.values(map.cells) : [];
+    if (!cells.length) return [0, 0, 0];
+    let sx = 0, sz = 0;
+    for (const c of cells) { const [x, z] = worldXZ(c.q, c.r); sx += x; sz += z; }
+    const cx = sx / cells.length, cz = sz / cells.length;
+    // Match the board's face rotation (it spins so the viewer's zone meets the camera).
+    const zone = it.viewerStartHexes ?? [];
+    let fa = 0;
+    if (zone.length) {
+      let zx = 0, zz = 0;
+      for (const k of zone) { const [x, z] = worldXZ(...parseQR(k)); zx += x; zz += z; }
+      const vx = zx / zone.length - cx, vz = zz / zone.length - cz;
+      if (Math.abs(vx) > 1e-4 || Math.abs(vz) > 1e-4) fa = Math.atan2(-vx, vz);
+    }
+    const ats = myFigKey ? myFigKey.split('|') : zone;
+    let ax = cx, az = cz;
+    if (ats.length) {
+      let fx = 0, fz = 0;
+      for (const k of ats) { const [x, z] = worldXZ(...parseQR(k)); fx += x; fz += z; }
+      ax = fx / ats.length; az = fz / ats.length;
+    }
+    const rx = ax - cx, rz = az - cz, c = Math.cos(fa), s = Math.sin(fa);
+    // Round to ½ unit so tiny shifts don't jitter the camera.
+    return [Math.round((rx * c + rz * s) * 2) / 2, 0, Math.round((-rx * s + rz * c) * 2) / 2];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.mapId, myFigKey, zoneKey]);
+  const camPos: [number, number, number] = [armyTarget[0], fit.dist * 0.63, armyTarget[2] + fit.dist * 0.776];
   return (
     <div className={`h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
       <Canvas shadows camera={{ position: camPos, fov: 45 }} dpr={[1, 2]}>
@@ -562,7 +599,7 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
           shadow-bias={-0.0004}
         />
         <Scene state={state} it={it} />
-        <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={fit.max} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} target={[0, 0, 0]} />
+        <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={fit.max} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} target={armyTarget} />
       </Canvas>
     </div>
   );

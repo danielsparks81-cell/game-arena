@@ -3607,6 +3607,7 @@ export default function HeroScapeBoard({
             auraIds={auraIds}
             splashIds={splashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
+            viewerSeat={me?.seat}
             placeHexes={placeHexes}
             dropHexes={throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet}
             dropPicks={new Set(dropPicks)}
