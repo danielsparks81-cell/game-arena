@@ -1063,7 +1063,7 @@ function DiceRollOverlay({ attack, onDismiss, final }: { attack: LastAttack; onD
         t += PER_DIE;
         timers.push(setTimeout(() => setShownD(i), t));
       }
-      t += 260;
+      t += 500; // beat before the verdict lands — long enough to feel deliberate, not a give-away
       timers.push(setTimeout(() => setResolved(gi + 1), t)); // this figure's outcome lands
       t += 820; // hold so the per-figure result is readable
     }
@@ -1338,6 +1338,10 @@ export default function HeroScapeBoard({
   // Jotun THROW: after choosing whom to throw, the player CLICKS the landing hex on the board
   // ("you may throw it to any empty space within 4 spaces" — a real choice, never auto-picked).
   const [throwAim, setThrowAim] = useState<{ targetId: string } | null>(null);
+  // Theracus CARRY — a board-click sequence (no dropdowns): pick a passenger, then Theracus's
+  // flight destination, then the empty space to set the passenger down. `pass`/`dest` fill in
+  // as you click; the final landing click fires the carry_move.
+  const [carryAim, setCarryAim] = useState<{ pass?: string; dest?: HexKey } | null>(null);
   // GRENADE splash preview: the first tap ARMS a target (the board shows the full blast — that
   // figure + its neighbours), a second tap on it (or the Throw button) confirms. Prevents the
   // old one-tap misfire and shows exactly who gets caught (friend or foe).
@@ -1424,6 +1428,7 @@ export default function HeroScapeBoard({
     setChompMode(false);
     setTargetPicker(null);
     setThrowAim(null);
+    setCarryAim(null);
     setExplosionMode(false);
     setGrenadeAim(null);
     setBhAim(null);
@@ -1436,6 +1441,7 @@ export default function HeroScapeBoard({
     setChompMode(false);
     setTargetPicker(null);
     setThrowAim(null);
+    setCarryAim(null);
     setExplosionMode(false);
     setGrenadeAim(null);
     setBhAim(null);
@@ -1893,6 +1899,22 @@ export default function HeroScapeBoard({
   const acidList = canAct && me && bhId === 'braxas' ? acidBreathTargets(state, me.seat) : [];
   const throwList = canAct && me && bhId === 'jotun' ? throwTargets(state, me.seat) : [];
   const carryList = canAct && me && bhId === 'theracus' ? carryPassengers(state, me.seat) : [];
+  // Carry board-click highlights, by step: pick passenger (those figures glow) → pick Theracus's
+  // destination (his flight range) → pick where to set the passenger down (empty hexes next to the
+  // chosen destination — matches the engine's "adjacent, empty" check). Only one is non-null at a time.
+  const carryPassSet = carryAim && !carryAim.pass ? new Set(carryList) : null;
+  const carryDestSet = carryAim?.pass && !carryAim.dest && bhHeroId ? legalDestinations(state, bhHeroId) : null;
+  const carryLandSet = (() => {
+    if (!(carryAim?.pass && carryAim.dest)) return null;
+    const occOthers = new Set(
+      state.figures
+        .filter(f => f.id !== carryAim.pass && f.id !== bhHeroId && f.at != null)
+        .flatMap(f => [f.at, f.at2].filter(Boolean) as string[]),
+    );
+    return new Set(
+      neighborKeys(carryAim.dest).filter(k => MAPS[state.mapId]?.cells[k] && k !== carryAim.dest && !occOthers.has(k)),
+    );
+  })();
   const anyBigHeroPower =
     iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
   // Wild Swing's blast (armed target + its neighbours) — the SAME orange "blast zone" ring as the
@@ -2246,6 +2268,21 @@ export default function HeroScapeBoard({
         setThrowAim(null);
       }
       return; // while aiming a throw, a click never falls through to move/attack
+    }
+    // Theracus CARRY — three board clicks: a passenger, then his destination, then the empty
+    // space to set the passenger down (adjacent to where he lands). The carry_move fires on the
+    // final landing click; the server rolls any take-off swipe / fall just like a normal move.
+    if (carryAim && bhHeroId) {
+      if (!carryAim.pass) {
+        const p = occupantAt(key);
+        if (p && carryList.includes(p.id)) setCarryAim({ pass: p.id });
+      } else if (!carryAim.dest) {
+        if (legalDestinations(state, bhHeroId).has(key)) setCarryAim({ ...carryAim, dest: key });
+      } else if (carryLandSet?.has(key)) {
+        onCarry(bhHeroId, carryAim.dest, carryAim.pass, key);
+        setCarryAim(null);
+      }
+      return; // while carrying, a click never falls through to move/attack
     }
     // slice 8: Fire-Line mode — clicking a highlighted line space fires that
     // straight line (Mimring's special attack), replacing his normal attack.
@@ -3341,17 +3378,22 @@ export default function HeroScapeBoard({
             {powerHint}
           </div>
         )}
-        {(fireLineMode || grappleMode || throwAim || explosionMode) && (
+        {(fireLineMode || grappleMode || throwAim || explosionMode || carryAim) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
               {fireLineMode && '🔥 Fire Line — click a direction; highlighted figures will be hit'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
+              {carryAim && (!carryAim.pass
+                ? '🪽 Carry — click a highlighted friendly figure to pick up'
+                : !carryAim.dest
+                  ? `🪽 Carry ${figName(carryAim.pass)} — click where Theracus flies`
+                  : `🪽 Carry — click an empty space next to Theracus to set ${figName(carryAim.pass)} down`)}
             </span>
             <button
               type="button"
-              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); }}
+              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); setCarryAim(null); }}
               className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
             >
               Cancel
@@ -3458,31 +3500,21 @@ export default function HeroScapeBoard({
                 );
               })()}
               {/* Theracus — Carry (pick passenger, then his destination, then a landing) */}
-              {carryList.length > 0 && bhHeroId && (() => {
-                const pass = bh.carryPass && carryList.includes(bh.carryPass) ? bh.carryPass : carryList[0];
-                const dests = [...legalDestinations(state, bhHeroId)];
-                const dest = bh.carryDest && dests.includes(bh.carryDest) ? bh.carryDest : dests[0];
-                const occ = new Set(state.figures.flatMap(f => [f.at, f.at2].filter(Boolean) as string[]));
-                const lands = dest ? neighborKeys(dest).filter(k => MAPS[state.mapId].cells[k] && !occ.has(k) && k !== dest) : [];
-                const land = bh.carryLand && lands.includes(bh.carryLand) ? bh.carryLand : lands[0];
-                return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-emerald-300">🪽 Carry:</span>
-                    <select value={pass} onChange={e => patchBh({ carryPass: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {carryList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
-                    </select>
-                    <span className="text-neutral-500">fly→</span>
-                    <select value={dest ?? ''} onChange={e => patchBh({ carryDest: e.target.value, carryLand: undefined })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {dests.map(k => <option key={k} value={k}>{k}</option>)}
-                    </select>
-                    <span className="text-neutral-500">drop→</span>
-                    <select value={land ?? ''} onChange={e => patchBh({ carryLand: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {lands.map(k => <option key={k} value={k}>{k}</option>)}
-                    </select>
-                    <button disabled={!dest || !land} onClick={() => { onCarry(bhHeroId, dest!, pass, land!); patchBh({ carryDest: undefined, carryLand: undefined }); }} className="rounded border border-emerald-600 px-2 py-0.5 font-semibold text-emerald-300 hover:bg-emerald-900/40 disabled:opacity-40">Carry</button>
-                  </div>
-                );
-              })()}
+              {/* CARRY — a board-click sequence, not dropdowns: arm it here, then click a passenger,
+                  Theracus's destination, and the empty landing space (each step highlighted). */}
+              {carryList.length > 0 && bhHeroId && !carryAim && (
+                <button
+                  onClick={() => setCarryAim({})}
+                  className="rounded border border-emerald-600 px-2 py-0.5 text-left font-semibold text-emerald-300 hover:bg-emerald-900/40"
+                >
+                  🪽 Carry a friendly figure — pick it, fly, then set it down
+                </button>
+              )}
+              {carryAim && (
+                <div className="text-[11px] text-emerald-300/90">
+                  🪽 Carrying… {!carryAim.pass ? 'click a highlighted friendly figure' : !carryAim.dest ? 'click where Theracus flies' : 'click an empty space to set it down'} (or Cancel above)
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -3727,19 +3759,19 @@ export default function HeroScapeBoard({
             state={displayState}
             onHexClick={clickHex}
             selectedId={selectedId}
-            moveHexes={grappleMode ? destinations : safeMoveHexes}
+            moveHexes={carryDestSet ?? (grappleMode ? destinations : safeMoveHexes)}
             dangerHexes={disengageHexes}
             shootHexes={shootRange}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
-            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? []), ...(carryPassSet ?? [])])}
             actionableIds={glowIds}
             auraIds={auraIds}
             splashIds={splashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
             placeHexes={placeHexes}
-            dropHexes={throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet}
+            dropHexes={carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
           />
         ) : (
