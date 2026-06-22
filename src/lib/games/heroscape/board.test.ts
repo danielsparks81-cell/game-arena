@@ -7,6 +7,7 @@ import {
   neighborKeys,
   hexDistance,
   rangeDistance,
+  rangeFlood,
   reachableDestinations,
   dragStep,
   hexToPixel,
@@ -118,6 +119,34 @@ describe('rangeDistance (spaces counted around gaps)', () => {
       `,
     );
     expect(rangeDistance(m.cells, at(0, 0), at(2, 0))).toBeNull();
+  });
+});
+
+describe('rangeFlood (shooting-range envelope)', () => {
+  it('contains EXACTLY the on-map hexes within maxDist of the source (and not the source)', () => {
+    const cells = TRAINING_FIELD.cells;
+    const from = at(3, 3);
+    const D = 3;
+    const flood = rangeFlood(cells, [from], D);
+    expect(flood.has(from)).toBe(false); // the source itself is excluded
+    // Cross-check every board hex against rangeDistance — membership must agree.
+    for (const key of Object.keys(cells)) {
+      const d = rangeDistance(cells, from, key);
+      expect(flood.has(key as HexKey)).toBe(d != null && d >= 1 && d <= D);
+    }
+  });
+
+  it('floods from a 2-hex footprint by the NEAREST lobe, within maxDist', () => {
+    const cells = TRAINING_FIELD.cells;
+    const foot = [at(2, 3), at(3, 3)];
+    const D = 2;
+    const flood = rangeFlood(cells, foot, D);
+    for (const k of foot) expect(flood.has(k)).toBe(false); // both sources excluded
+    for (const key of flood) {
+      const d = Math.min(...foot.map(f => rangeDistance(cells, f, key) ?? Infinity));
+      expect(d).toBeGreaterThanOrEqual(1);
+      expect(d).toBeLessThanOrEqual(D);
+    }
   });
 });
 

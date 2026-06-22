@@ -96,6 +96,34 @@ export function rangeDistance(
   return null;
 }
 
+/** Every on-map hex within `maxDist` Range-spaces of ANY `from` hex — ONE BFS that
+ *  routes around off-map gaps exactly like `rangeDistance` (Range counts spaces, so
+ *  terrain/figures/elevation are ignored). Excludes the source hexes (d = 0). Used
+ *  for the UI's shooting-range envelope, so it's a single cheap flood rather than a
+ *  `rangeDistance` call per board hex. */
+export function rangeFlood(
+  cells: Record<HexKey, HexCell>,
+  from: HexKey[],
+  maxDist: number,
+): Set<HexKey> {
+  const dist = new Map<HexKey, number>();
+  const queue: HexKey[] = [];
+  for (const k of from) if (cells[k] && !dist.has(k)) { dist.set(k, 0); queue.push(k); }
+  for (let i = 0; i < queue.length; i++) {
+    const cur = queue[i];
+    const d = dist.get(cur)!;
+    if (d >= maxDist) continue;
+    for (const n of neighborKeys(cur)) {
+      if (!cells[n] || dist.has(n)) continue;
+      dist.set(n, d + 1);
+      queue.push(n);
+    }
+  }
+  const out = new Set<HexKey>();
+  for (const [k, d] of dist) if (d >= 1) out.add(k);
+  return out;
+}
+
 export type Occupancy = 'friendly' | 'enemy' | null;
 
 /**

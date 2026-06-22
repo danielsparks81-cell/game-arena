@@ -37,6 +37,7 @@ import {
   legalDestinations,
   legalStepHexes,
   movementRangeHexes,
+  shootingRangeHexes,
   grappleDestinations,
   canFireLine,
   fireLineSpaces,
@@ -1741,6 +1742,18 @@ export default function HeroScapeBoard({
         ? movementRangeHexes(state, selected.id)
         : new Set<HexKey>(),
     [state, selected, canAct, grappleMode, fireLineMode],
+  );
+  // Shooting-range envelope: while a RANGED figure of mine is MOVING, the hexes it
+  // could still shoot from where it currently stands (its effective Range, around
+  // gaps). The board keeps these bright and dims everything beyond, so the edge
+  // shows the furthest targetable hex; it follows the figure as it steps. Empty for
+  // a melee figure or in the attack phase (the red target rings take over then).
+  const shootRange = useMemo(
+    () =>
+      canAct && selected && !state.movementEnded && !fireLineMode && !grappleMode
+        ? shootingRangeHexes(state, selected.id)
+        : new Set<HexKey>(),
+    [state, selected, canAct, fireLineMode, grappleMode],
   );
   // Attackable enemies — only in the ATTACK PHASE (after "End move"), so red target rings and
   // the attack click are inert while the player is still moving.
@@ -3664,6 +3677,7 @@ export default function HeroScapeBoard({
             selectedId={selectedId}
             moveHexes={destinations}
             rangeHexes={moveRange}
+            shootHexes={shootRange}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? [])])}

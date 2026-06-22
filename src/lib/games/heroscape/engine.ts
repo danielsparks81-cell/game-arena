@@ -60,6 +60,7 @@ import {
   hexLine,
   neighborKeys,
   rangeDistance,
+  rangeFlood,
   reachableDestinations,
   type FallTier,
   type Occupancy,
@@ -2971,6 +2972,24 @@ export function effectiveRange(state: HSState, fig: Figure): EffectiveStat {
     breakdown.push(`+${RANGE_ENHANCEMENT_BONUS} Range Enhancement`);
   }
   return { dice: range, breakdown };
+}
+
+/** The "shooting envelope" for a RANGED figure: every hex within its effective Range
+ *  (counted around gaps), PLUS the figure's own footprint, so the UI can keep that
+ *  island bright and dim everything beyond — the edge marks the furthest hex the
+ *  figure could shoot from where it stands. Recompute as it steps and the envelope
+ *  follows. Range-only (no line-of-sight), so it's the figure's REACH, not a
+ *  guaranteed clear shot. Empty for a melee figure (Range ≤ 1) — nothing to preview. */
+export function shootingRangeHexes(state: HSState, figureId: string): Set<HexKey> {
+  const fig = state.figures.find(f => f.id === figureId);
+  const map = MAPS[state.mapId];
+  if (!fig || fig.at == null || !map) return new Set();
+  const range = effectiveRange(state, fig).dice;
+  if (range <= 1) return new Set();
+  const foot = figureHexes(fig);
+  const out = rangeFlood(map.cells, foot, range);
+  for (const k of foot) out.add(k); // keep the figure's own hexes bright
+  return out;
 }
 
 /**

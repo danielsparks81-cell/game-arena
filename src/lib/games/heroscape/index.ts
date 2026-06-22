@@ -19,6 +19,7 @@ export {
   legalDestinations,
   legalStepHexes,
   movementRangeHexes,
+  shootingRangeHexes,
   grappleDestinations,
   legalTargets,
   canFireLine,

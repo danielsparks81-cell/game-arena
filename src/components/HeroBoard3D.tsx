@@ -51,6 +51,10 @@ type Interact = {
    *  reach with its REMAINING Move; the bright moveHexes (one-tap steps) sit on top
    *  and it shrinks as the figure walks. */
   rangeHexes?: Set<HexKey>;
+  /** Shooting-range envelope for a moving RANGED figure: the hexes within its reach
+   *  (plus its own footprint). When present, every hex OUTSIDE this set is dimmed so
+   *  the bright island's edge shows the furthest hex the figure could shoot from. */
+  shootHexes?: Set<HexKey>;
   targetIds?: Set<string>;
   /** Figures targetable by an active special power (Chomp / Grenade / Mind
    *  Shackle) — glow fuchsia, distinct from the red normal-attack target. */
@@ -87,12 +91,15 @@ type Interact = {
  *  (the same call a click on that hex makes). The engine is unchanged. */
 /** One hexagonal-prism terrain tile + thin seam edges; tinted (emissive) when it
  *  is a highlighted move/place/Drop target. */
-function HexTile({ x, z, height, terrain, highlight, glyph, onClick }: {
-  x: number; z: number; height: number; terrain: string; highlight: { color: string; dim?: boolean } | null; glyph?: boolean; onClick?: () => void;
+function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, onClick }: {
+  x: number; z: number; height: number; terrain: string; highlight: { color: string; dim?: boolean } | null; glyph?: boolean; dimmed?: boolean; onClick?: () => void;
 }) {
   const isWater = terrain === 'water';
   // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
   const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1) + (glyph ? GLYPH_RAISE : 0);
+  // Out of a moving ranged figure's reach → darken the base so the in-range island pops.
+  const baseColor = glyph ? GLYPH_MAROON : (TERRAIN_COLOR[terrain] ?? '#666');
+  const color = dimmed ? '#' + new THREE.Color(baseColor).multiplyScalar(0.34).getHexString() : baseColor;
   return (
     <mesh
       position={[x, h / 2, z]} castShadow receiveShadow
@@ -100,7 +107,7 @@ function HexTile({ x, z, height, terrain, highlight, glyph, onClick }: {
     >
       <cylinderGeometry args={[SIZE * 1.02, SIZE * 1.02, h, 6]} />
       <meshStandardMaterial
-        color={glyph ? GLYPH_MAROON : (TERRAIN_COLOR[terrain] ?? '#666')}
+        color={color}
         emissive={highlight?.color ?? '#000000'}
         emissiveIntensity={highlight ? (highlight.dim ? 0.2 : 0.55) : 0}
         roughness={isWater ? 0.2 : 0.9}
@@ -484,6 +491,11 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             : it.rangeHexes?.has(key) ? { color: '#22c55e', dim: true } // faint = within remaining Move
               : it.placeHexes?.has(key) ? { color: '#38bdf8' }
                 : null);
+  // When a moving ranged figure's shooting envelope is present, darken every hex
+  // OUTSIDE it so the bright reach island stands out and its edge reads as the
+  // furthest targetable hex.
+  const hasShoot = (it.shootHexes?.size ?? 0) > 0;
+  const isDimmed = (key: HexKey): boolean => hasShoot && !it.shootHexes!.has(key);
 
   return (
     <group rotation={[0, faceAngle, 0]}>
@@ -496,6 +508,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             key={key} x={x} z={z} height={c.height} terrain={c.terrain}
             highlight={tileHighlight(key)}
             glyph={glyphSet.has(key)}
+            dimmed={isDimmed(key)}
             onClick={it.onHexClick ? () => it.onHexClick!(key) : undefined}
           />
         );
