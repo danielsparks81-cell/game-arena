@@ -50,7 +50,7 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'airborne_elite-4': { x: 0.51, y: 0.72 },
   deathwalker_9000: { x: 0.47, y: 0.85 },
   finn: { x: 0.61, y: 0.79 },
-  'izumi_samurai-1': { x: 0.69, y: 0.78 },
+  'izumi_samurai-1': { x: 0.68, y: 0.78 },
   'izumi_samurai-2': { x: 0.51, y: 0.73 },
   'izumi_samurai-3': { x: 0.50, y: 0.72 },
   'krav_maga-1': { x: 0.38, y: 0.76 },
