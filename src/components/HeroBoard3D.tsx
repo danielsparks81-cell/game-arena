@@ -11,9 +11,9 @@
 //
 // Coordinate model: pointy-top axial (q,r) → world (x,z); elevation → y. Board
 // recentered on the origin so camera/orbit target sit at (0,0,0).
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Billboard, Edges, Html } from '@react-three/drei';
-import { Suspense, useMemo, useState, useEffect, useRef } from 'react';
+import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
 import { MAPS, HS_CARDS, HS_GLYPHS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
@@ -533,6 +533,31 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   );
 }
 
+/** Eases the OrbitControls target toward `desired` whenever it changes (a tapped
+ *  hex, or the viewer's army moving), then stops driving so manual orbit/pan is free
+ *  in between. Snaps on the first frame so there's no swoop in from the origin on
+ *  mount. Works WITH OrbitControls' own damping (makeDefault registers controls). */
+function CameraRig({ desired }: { desired: [number, number, number] }) {
+  const controls = useThree(s => s.controls) as { target: THREE.Vector3; update: () => void } | null;
+  const want = useRef(new THREE.Vector3(desired[0], desired[1], desired[2]));
+  const animating = useRef(false);
+  const inited = useRef(false);
+  useEffect(() => {
+    want.current.set(desired[0], desired[1], desired[2]);
+    animating.current = true; // a new command — ease to it
+  }, [desired]);
+  useFrame(() => {
+    if (!controls) return;
+    const t = controls.target;
+    if (!inited.current) { t.copy(want.current); controls.update(); inited.current = true; animating.current = false; return; }
+    if (!animating.current) return;
+    if (t.distanceToSquared(want.current) < 0.0016) { t.copy(want.current); animating.current = false; }
+    else t.lerp(want.current, 0.16);
+    controls.update();
+  });
+  return null;
+}
+
 export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?: string } & Interact) {
   // Tap-to-step movement: a tap on a figure selects it (its legal single steps light up green),
   // and a tap on a highlighted neighbour walks it there one hex — all routed through `it.onHexClick`,
@@ -552,20 +577,18 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     const dist = Math.min(160, Math.max(18, R * 2.5));
     return { dist, max: Math.max(40, dist * 1.8), shadow: Math.max(20, R + 6) };
   }, [state.mapId]);
-  // Focus the camera on the VIEWER's army (their on-board figures) rather than the
-  // geometric board centre — recomputed only when THEIR figures move (a stable
-  // string key), so it doesn't re-snap on an enemy's move. Falls back to the start
-  // zone (during placement), then the board centre (spectator / no army).
   const myFigKey = state.figures.filter(f => f.ownerSeat === it.viewerSeat && f.at != null).map(f => f.at).join('|');
   const zoneKey = (it.viewerStartHexes ?? []).join('|');
-  const armyTarget = useMemo<[number, number, number]>(() => {
+  // The board's recenter (centroid → origin) + face-rotation (spins so the viewer's
+  // zone meets the camera) as a single transform, so any hex key can be mapped to
+  // its SCENE-space world position — used for both the army focus and click-to-pan.
+  const frame = useMemo(() => {
     const map = MAPS[state.mapId];
     const cells = map ? Object.values(map.cells) : [];
-    if (!cells.length) return [0, 0, 0];
+    if (!cells.length) return { cx: 0, cz: 0, fa: 0 };
     let sx = 0, sz = 0;
     for (const c of cells) { const [x, z] = worldXZ(c.q, c.r); sx += x; sz += z; }
     const cx = sx / cells.length, cz = sz / cells.length;
-    // Match the board's face rotation (it spins so the viewer's zone meets the camera).
     const zone = it.viewerStartHexes ?? [];
     let fa = 0;
     if (zone.length) {
@@ -574,18 +597,37 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
       const vx = zx / zone.length - cx, vz = zz / zone.length - cz;
       if (Math.abs(vx) > 1e-4 || Math.abs(vz) > 1e-4) fa = Math.atan2(-vx, vz);
     }
-    const ats = myFigKey ? myFigKey.split('|') : zone;
-    let ax = cx, az = cz;
-    if (ats.length) {
-      let fx = 0, fz = 0;
-      for (const k of ats) { const [x, z] = worldXZ(...parseQR(k)); fx += x; fz += z; }
-      ax = fx / ats.length; az = fz / ats.length;
-    }
-    const rx = ax - cx, rz = az - cz, c = Math.cos(fa), s = Math.sin(fa);
-    // Round to ½ unit so tiny shifts don't jitter the camera.
-    return [Math.round((rx * c + rz * s) * 2) / 2, 0, Math.round((-rx * s + rz * c) * 2) / 2];
+    return { cx, cz, fa };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.mapId, myFigKey, zoneKey]);
+  }, [state.mapId, zoneKey]);
+  const hexToWorld = useCallback((key: HexKey): [number, number, number] => {
+    const [x, z] = worldXZ(...parseQR(key));
+    const rx = x - frame.cx, rz = z - frame.cz, c = Math.cos(frame.fa), s = Math.sin(frame.fa);
+    return [rx * c + rz * s, 0, -rx * s + rz * c];
+  }, [frame]);
+  // Default focus = the VIEWER's army (their on-board figures), recomputed only when
+  // THEIR figures move (a stable key) so it doesn't re-snap on an enemy's move; falls
+  // back to the start zone (placement), then board centre (spectator). Rounded to ½.
+  const armyTarget = useMemo<[number, number, number]>(() => {
+    const ats = myFigKey ? myFigKey.split('|') : (it.viewerStartHexes ?? []);
+    if (!ats.length) return [0, 0, 0];
+    let ax = 0, az = 0;
+    for (const k of ats) { const [x, , z] = hexToWorld(k); ax += x; az += z; }
+    return [Math.round((ax / ats.length) * 2) / 2, 0, Math.round((az / ats.length) * 2) / 2];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myFigKey, zoneKey, hexToWorld]);
+  // The target the camera pans to. Latest intent wins: the army by default, but a
+  // TAPPED/clicked hex takes over (so you can re-centre anywhere with a tap); a later
+  // army move re-follows the army. CameraRig eases the target to this, then releases
+  // so manual orbit/pan stays free between commands.
+  const [desired, setDesired] = useState<[number, number, number]>(armyTarget);
+  useEffect(() => { setDesired(armyTarget); }, [armyTarget]);
+  const handleHexClick = useCallback((key: HexKey) => {
+    setDesired(hexToWorld(key));
+    it.onHexClick?.(key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hexToWorld, it.onHexClick]);
+  const itForScene = { ...it, onHexClick: handleHexClick };
   const camPos: [number, number, number] = [armyTarget[0], fit.dist * 0.63, armyTarget[2] + fit.dist * 0.776];
   return (
     <div className={`h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
@@ -598,8 +640,9 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
           shadow-camera-left={-fit.shadow} shadow-camera-right={fit.shadow} shadow-camera-top={fit.shadow} shadow-camera-bottom={-fit.shadow}
           shadow-bias={-0.0004}
         />
-        <Scene state={state} it={it} />
-        <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={fit.max} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} target={armyTarget} />
+        <Scene state={state} it={itForScene} />
+        <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={fit.max} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} />
+        <CameraRig desired={desired} />
       </Canvas>
     </div>
   );

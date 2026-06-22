@@ -1575,14 +1575,24 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
 
   let next = applyActionHS(state, actorId, engineAction);
   if ('error' in next) {
-    // A bot proposed an illegal move (rare). If it's the bot's turn, end it so the
-    // game can never stall; otherwise surface the error.
+    // A bot proposed an illegal move (rare). Recover so a bot can NEVER hard-lock
+    // the game (a stalled ai_step doesn't change state, so the host's drive timer
+    // never re-fires — one bad action would freeze the room). On a TURN, end the
+    // turn; during PLACEMENT, lock the bot in where it stands (better a smaller
+    // army than a frozen deploy); otherwise surface the error.
     const ts = state.turnSeat;
     const turnBot = ts != null ? state.players.find(p => p.seat === ts) : undefined;
+    const placeBot = action.kind === 'ai_step' && state.phase === 'placement'
+      ? state.players.find(p => p.bot && !(state.placementReady ?? []).includes(p.seat))
+      : undefined;
     if (action.kind === 'ai_step' && turnBot?.bot) {
       const ended = applyActionHS(state, turnBot.playerId, { kind: 'end_turn' });
       if ('error' in ended) throw new Error(ended.error);
       next = ended;
+    } else if (placeBot) {
+      const readied = applyActionHS(state, placeBot.playerId, { kind: 'placement_ready' });
+      if ('error' in readied) throw new Error(readied.error);
+      next = readied;
     } else {
       throw new Error(next.error);
     }

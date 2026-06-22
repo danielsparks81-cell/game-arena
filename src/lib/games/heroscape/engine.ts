@@ -5033,11 +5033,29 @@ function aiDraft(state: HSState, seat: number): HSAction {
 
 function aiPlace(state: HSState, seat: number): HSAction {
   const hand = state.hand?.[seat] ?? [];
-  const free = [...placeableHexes(state, seat)];
-  if (hand.length === 0 || free.length === 0) return { kind: 'placement_ready' };
-  // placeableHexes only returns leads with a valid tail, so this works for 1- and
-  // 2-hex figures alike (the engine fills the trailing hex).
-  return { kind: 'place_figure', figureId: hand[0], to: free[0] };
+  if (hand.length === 0) return { kind: 'placement_ready' };
+  const sizeOf = (id: string) => {
+    const fig = state.figures.find(f => f.id === id);
+    return fig ? baseSizeOf(cardDefFor(state, fig)) : 1;
+  };
+  // Place the BIG (2-hex) figures FIRST — a double-space figure needs a contiguous
+  // same-level PAIR, so claim it while the zone is still roomy; 1-hex figures then
+  // fill the gaps. Each figure gets a spot VALID FOR ITS SIZE: a 2-hex figure must
+  // land on a lead that has a same-level empty tail (placeable2Leads), a 1-hex on
+  // any free zone hex (placeableHexes). The OLD code used placeableHexes for every
+  // figure and placed hand[0] at free[0] — once 1-hex figures had fragmented the
+  // zone, a 2-hex figure's free[0] had no tail, the engine rejected it, and the bot
+  // re-proposed the same rejected move forever → placement HARD-LOCKED on a big
+  // army (the Star Field's narrow tips, not the flat Training Field). Placing the
+  // first figure that fits also means a figure that genuinely can't be placed is
+  // skipped (and at worst left in reserve) instead of stalling the whole game.
+  const ordered = [...hand].sort((a, b) => sizeOf(b) - sizeOf(a));
+  for (const figureId of ordered) {
+    const spots = sizeOf(figureId) === 2 ? placeable2Leads(state, seat) : placeableHexes(state, seat);
+    const to = [...spots][0];
+    if (to) return { kind: 'place_figure', figureId, to };
+  }
+  return { kind: 'placement_ready' };
 }
 
 function aiPlaceMarkers(state: HSState, seat: number): HSAction {

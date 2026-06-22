@@ -166,6 +166,33 @@ describe('HeroScape round flow — eliminated seats', () => {
     expect(initiativeReadySeats({ ...s, phase: 'draft' } as unknown as HSState)).toBeNull();
   });
 
+  it('deploys a BIG army on the Star Field without stalling (2-hex figures fit)', () => {
+    // Regression: at a high budget the AI drafts squads PLUS a 2-hex hero (Grimnak /
+    // Mimring). The old aiPlace placed every figure at the first free hex; once 1-hex
+    // figures had fragmented a narrow Star-Field tip, the 2-hex figure had no valid
+    // same-level pair, the engine rejected it, and placement HARD-LOCKED. The AI now
+    // places 2-hex figures first onto a valid lead, so every seat deploys its whole
+    // drafted army (nothing stranded in hand) and the game reaches the first round.
+    const rng = makeRng(7);
+    const rollDie = (): CombatFace => COMBAT_DIE_FACES[Math.floor(rng() * COMBAT_DIE_FACES.length)];
+    const rollers = { rollDie, rollDice: (n: number) => Array.from({ length: n }, rollDie), d20: () => 1 + Math.floor(rng() * 20) };
+    const idOf = (s: HSState, seat: number) => s.players.find(p => p.seat === seat)!.playerId;
+
+    let s = createInitialStateForHost({ userId: 'host', username: 'Host' });
+    s = unwrap(applyAction(s, 'host', { kind: 'add_bot' }));
+    s = unwrap(applyAction(s, 'host', { kind: 'add_bot' }));
+    s = unwrap(applyAction(s, 'host', { kind: 'start_game', mode: 'draft', pointBudget: 500, mapId: 'star_field' }));
+    s = unwrap(applyAction(s, 'host', { kind: 'draft_roll', attempts: [decisive([0, 1, 2])] }));
+    for (let i = 0; i < 8000 && !(s.phase === 'playing' && s.subPhase === 'place_markers'); i++) {
+      const seat = anyPendingSeat(s);
+      if (seat == null) break;
+      s = unwrap(applyAction(s, idOf(s, seat), aiEngineAction(s, aiNextAction(s, seat)!, rollers)));
+    }
+    expect(s.subPhase).toBe('place_markers'); // placement completed, never stalled
+    // Every drafted figure made it onto the board — nothing left stranded in hand.
+    for (const seat of [0, 1, 2]) expect((s.hand?.[seat] ?? []).length).toBe(0);
+  });
+
   it('integration: a 3-seat round survives a wipe — initiative rolls, a living seat acts', () => {
     // Drive a real 3-seat game (Star Field) only as far as the first order-marker
     // step (draft + placement — fast, no slow board-crossing combat), then SIMULATE
