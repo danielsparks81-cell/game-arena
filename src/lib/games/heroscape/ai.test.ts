@@ -93,6 +93,16 @@ describe('HeroScape AI — full simulated game', () => {
       expect(runAiGame(seed, budget).phase).toBe('finished');
     }
   });
+
+  it('grabs the glyphs — a bot claims unclaimed power glyphs as it advances', () => {
+    // training_field carries two mid-board glyphs (Astrid +1 attack, Gerda +1
+    // defence). The move brain detours onto a nearby unclaimed glyph, so by the end
+    // of a full game at least one has been claimed (flipped face-up by a figure
+    // stopping on it) — the AI no longer marches past free buffs like the v1 did.
+    const s = runAiGame(7, 200);
+    const claimed = (s.glyphs ?? []).filter(g => g.faceUp);
+    expect(claimed.length).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe('HeroScape AI — bot bookkeeping', () => {

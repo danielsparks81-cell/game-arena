@@ -5099,27 +5099,50 @@ function aiTurn(state: HSState, seat: number): HSAction {
     return { kind: 'end_turn' };
   }
 
-  // MOVE PHASE: advance each out-of-range figure toward the nearest enemy, ONE at a
+  // MOVE PHASE: advance each out-of-range figure toward the nearest enemy — or
+  // toward a nearby UNCLAIMED glyph, an edge a human always grabs — ONE step at a
   // time to completion, then end the move. A figure already in range stays put to
   // attack. We only step onto EMPTY hexes (skip Ghost Walk's pass-through onto
   // occupied spaces) so a figure always rests on a free hex — switching figures or
   // ending the move finalizes the prior one, which the engine requires to be empty.
   const occupied = new Set<HexKey>();
   for (const f of state.figures) { if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
+  // Grabbable glyphs = those no figure stands on (an enemy-held glyph is contested
+  // by attacking, handled in the attack phase). A figure only DETOURS for one that's
+  // genuinely close, so the bot never marches its army off the battle to chase a
+  // distant glyph. Stepping ONTO a glyph force-stops the figure there (it holds it).
+  const cells = MAPS[state.mapId]?.cells;
+  const openGlyphs = (state.glyphs ?? []).filter(g => !occupied.has(g.at));
+  const GLYPH_CHASE_RANGE = 5;
+  const nearestGlyphDist = (from: HexKey): number => {
+    if (!cells || openGlyphs.length === 0) return Infinity;
+    let best = Infinity;
+    for (const g of openGlyphs) { const d = rangeDistance(cells, from, g.at); if (d != null && d < best) best = d; }
+    return best;
+  };
   const wantsMove = (f: Figure) => enemyTargets(f).length === 0;
-  const bestStepFor = (f: Figure): { to: HexKey; gain: number } | null => {
-    const cur = aiNearestEnemyDist(state, f.at!, enemies);
-    let best: { to: HexKey; gain: number; score: number } | null = null;
+  const bestStepFor = (f: Figure): { to: HexKey; score: number } | null => {
+    const curEnemy = aiNearestEnemyDist(state, f.at!, enemies);
+    // Don't pull a figure that already holds a glyph off it to chase another — it
+    // only leaves its post to actually close on an enemy.
+    const onGlyphNow = (state.glyphs ?? []).some(g => figureHexes(f).includes(g.at));
+    const curGlyph = onGlyphNow ? Infinity : nearestGlyphDist(f.at!);
+    const chaseGlyph = curGlyph <= GLYPH_CHASE_RANGE;
+    let best: { to: HexKey; score: number } | null = null;
     for (const to of legalStepHexes(state, f.id)) {
       if (occupied.has(to)) continue;
-      const gain = cur - aiNearestEnemyDist(state, to, enemies);
-      if (gain <= 0) continue; // must close on the enemy
-      // Among advancing steps, prefer the HIGHER hex — height is +1 attack die and
-      // +1 defence die, so the AI grabs the high ground as it moves up.
-      const score = gain * 4 + heightOfKey(state, to);
-      if (!best || score > best.score) best = { to, gain, score };
+      const enemyGain = curEnemy - aiNearestEnemyDist(state, to, enemies);
+      const onGlyph = openGlyphs.some(g => g.at === to);
+      const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(to) : 0;
+      // Make progress toward SOMETHING — the enemy, or a nearby glyph (incl. stepping
+      // right onto it). A pure sideways/backward step is skipped so we never stall.
+      if (enemyGain <= 0 && glyphGain <= 0 && !onGlyph) continue;
+      // Prefer higher ground (+1 attack & +1 defence die). Landing on the glyph is a
+      // big, decisive payoff; otherwise weight closing on the enemy and the glyph.
+      const score = enemyGain * 4 + (chaseGlyph ? glyphGain * 5 : 0) + (onGlyph ? 30 : 0) + heightOfKey(state, to);
+      if (!best || score > best.score) best = { to, score };
     }
-    return best ? { to: best.to, gain: best.gain } : null;
+    return best;
   };
   // Finish the in-progress figure's walk before switching to another.
   const movingFig = state.stepMove ? myFigs.find(f => f.id === state.stepMove!.figureId) : null;
@@ -5127,11 +5150,11 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const step = bestStepFor(movingFig);
     if (step) return { kind: 'move_step', figureId: movingFig.id, to: step.to };
   }
-  let bestMove: { figureId: string; to: HexKey; gain: number } | null = null;
+  let bestMove: { figureId: string; to: HexKey; score: number } | null = null;
   for (const f of myFigs) {
     if (!wantsMove(f)) continue;
     const step = bestStepFor(f);
-    if (step && (!bestMove || step.gain > bestMove.gain)) bestMove = { figureId: f.id, to: step.to, gain: step.gain };
+    if (step && (!bestMove || step.score > bestMove.score)) bestMove = { figureId: f.id, to: step.to, score: step.score };
   }
   if (bestMove) return { kind: 'move_step', figureId: bestMove.figureId, to: bestMove.to };
   return { kind: 'end_move' };
