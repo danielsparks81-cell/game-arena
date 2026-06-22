@@ -655,3 +655,56 @@ describe('AI powers — Grimnak Chomp', () => {
     if (intent?.kind === 'chomp') expect(intent.targetId).toBe(park);
   });
 });
+
+describe('AI powers — Big Hero specials initiate on an in-range enemy', () => {
+  // Each big hero's special either REPLACES its normal attack or (Mind Shackle) comes
+  // free before it; the bot must reach for the special — not a plain attack — whenever it
+  // catches an enemy. An adjacent enemy is within every special's range, so each case
+  // stages the hero with one foe adjacent, ends the move, and asserts the matching intent.
+  const cases: { card: string; kind: string }[] = [
+    { card: 'ne_gok_sa', kind: 'mind_shackle' },
+    { card: 'mimring', kind: 'fire_line' },
+    { card: 'deathwalker_9000', kind: 'explosion' },
+    { card: 'nilfheim', kind: 'ice_shard' },
+    { card: 'major_q9', kind: 'queglix' },
+    { card: 'jotun', kind: 'wild_swing' },
+    { card: 'braxas', kind: 'acid_breath' },
+  ];
+  for (const { card, kind } of cases) {
+    it(`${card} → ${kind}`, () => {
+      let { s, hero, park } = stage(card);
+      const here = at(s, hero)!;
+      const adj = neighborKeys(here).find(k => MAPS[s.mapId].cells[k] && k !== here)!;
+      s = put(s, park, adj);
+      s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+      expect(aiNextAction(s, 0)?.kind).toBe(kind);
+    });
+  }
+});
+
+describe('AI powers — Tarn Berserker Charge', () => {
+  it('the bot charges (after moving, before attacking) while a Viking is still out of range', () => {
+    let { s, hero } = stage('tarn_vikings'); // s0-finn-1 relabelled to Tarn; the enemy Marro sits in the far corner
+    // Move one step so "a Tarn moved this turn" holds, staying far from the enemy (out of range).
+    const here = at(s, hero)!;
+    const step = neighborKeys(here).find(k => MAPS[s.mapId].cells[k] && !s.figures.some(f => f.at === k))!;
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: hero, to: step }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+    expect(aiNextAction(s, 0)?.kind).toBe('berserker_charge');
+  });
+});
+
+describe('AI powers — Marro Water Clone', () => {
+  it('the bot clones (instead of attacking) when a Marro is down and nothing is in range', () => {
+    let { s, hero } = stage('marro_warriors'); // s0-finn-1 → Marro; the enemy sits far away (no legal target)
+    // Add a FALLEN squad-mate (no position) for a successful clone to bring back.
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.figures.push({ id: 's0-finn-2', cardUid: 's0-finn', ownerSeat: 0, at: null, at2: null, index: 2, wounds: 0 });
+    // Move one step so "moved this turn" holds; stay far from the enemy so no swing is available.
+    const here = at(s, hero)!;
+    const step = neighborKeys(here).find(k => MAPS[s.mapId].cells[k] && !s.figures.some(f => f.at === k))!;
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: hero, to: step }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+    expect(aiNextAction(s, 0)?.kind).toBe('water_clone');
+  });
+});

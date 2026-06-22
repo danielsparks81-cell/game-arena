@@ -5130,7 +5130,9 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     return { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: best } };
   }
   if (pc.kind === 'berserker_charge') {
-    return { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: false } }; // decline the bonus move (v1)
+    // The charge succeeded (15+) — ACCEPT the bonus move (aggression: the bot only
+    // initiates a charge when a Viking is still out of range, so the re-move always helps).
+    return { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: true } };
   }
   if (pc.kind === 'water_clone_place') {
     const hex = pc.placements[0]?.options[0];
@@ -5172,6 +5174,108 @@ function aiTurn(state: HSState, seat: number): HSAction {
       }, chomps[0]);
       return { kind: 'chomp', targetId: target, d20: 0 }; // d20 rolled by aiEngineAction
     }
+
+    // SPECIAL ATTACKS — a Big Hero's special either REPLACES its normal attack (Fire
+    // Line / Explosion / Ice Shard / Queglix / Wild Swing / Acid Breath) or, like Mind
+    // Shackle, comes free BEFORE it. They hit harder or wider, so the bot uses one
+    // whenever it catches an enemy; the dice are rolled in aiEngineAction. A Big Hero is
+    // a single figure, so `hero` is the active card's figure.
+    const hero = myFigs[0];
+    const aid = active.cardId;
+    const isEnemy = (id: string) => enemyIds.has(id);
+    const valueOf = (id: string) => { const f = state.figures.find(x => x.id === id); return f ? cardDefFor(state, f).points : 0; };
+    const mostValuable = (ids: string[]) => ids.reduce((b, id) => (valueOf(id) > valueOf(b) ? id : b), ids[0]);
+
+    // Ne-Gok-Sa MIND SHACKLE — FREE (does not use the attack): a 5% (nat-20) seize of the
+    // most valuable adjacent enemy's WHOLE army card. Always worth the attempt before the swing.
+    if (aid === 'ne_gok_sa') {
+      const t = mindShackleTargets(state, seat).filter(isEnemy);
+      if (t.length > 0) return { kind: 'mind_shackle', targetId: mostValuable(t), d20: 0 };
+    }
+    // Mimring FIRE LINE — the straight line that catches the most enemies (net of friendly fire).
+    if (aid === 'mimring' && canFireLine(state, hero.id)) {
+      let bestDir = -1, bestNet = 0;
+      for (let d = 0; d < 6; d++) {
+        const aff = fireLineDefenders(state, hero.id, d);
+        const foes = aff.filter(x => isEnemy(x.figureId)).length;
+        const net = foes - (aff.length - foes);
+        if (foes > 0 && net > bestNet) { bestNet = net; bestDir = d; }
+      }
+      if (bestDir >= 0) return { kind: 'fire_line', attackerId: hero.id, dir: bestDir, attackRoll: [], defenseRolls: [] };
+    }
+    // Deathwalker 9000 EXPLOSION — the Range-7 target whose blast catches the most enemies.
+    if (aid === 'deathwalker_9000') {
+      const scored = explosionTargets(state, hero.id).map(id => {
+        const aff = explosionDefenders(state, hero.id, id);
+        const foes = aff.filter(x => isEnemy(x.figureId)).length;
+        return { id, net: foes - (aff.length - foes), foes };
+      }).filter(s => s.foes > 0).sort((a, b) => b.net - a.net);
+      if (scored.length > 0) return { kind: 'explosion', attackerId: hero.id, targetId: scored[0].id, attackRoll: [], defenseRolls: [] };
+    }
+    // Nilfheim ICE SHARD BREATH — up to 3 shots; fire the most valuable enemy each tick.
+    if (aid === 'nilfheim') {
+      const t = iceShardTargets(state, hero.id).filter(isEnemy);
+      if (t.length > 0) return { kind: 'ice_shard', attackerId: hero.id, targetId: mostValuable(t), attackRoll: [], defenseRoll: [] };
+    }
+    // Major Q9 QUEGLIX GUN — focus up to 3 of the 9-die pool on the most valuable enemy.
+    if (aid === 'major_q9') {
+      const left = queglixDiceLeft(state);
+      const t = queglixTargets(state, hero.id).filter(isEnemy);
+      if (left > 0 && t.length > 0) {
+        const dice = Math.min(3, left) as 1 | 2 | 3;
+        return { kind: 'queglix', attackerId: hero.id, targetId: mostValuable(t), dice, attackRoll: [], defenseRoll: [] };
+      }
+    }
+    // Jotun WILD SWING — the target whose splash (it + neighbours) catches the most enemies.
+    if (aid === 'jotun') {
+      const scored = wildSwingTargets(state, hero.id).filter(isEnemy).map(id => ({
+        id, foes: wildSwingDefenders(state, hero.id, id).filter(x => isEnemy(x.figureId)).length,
+      })).sort((a, b) => b.foes - a.foes);
+      if (scored.length > 0) return { kind: 'wild_swing', attackerId: hero.id, targetId: scored[0].id, attackRoll: [], defenseRolls: [] };
+    }
+    // Braxas POISONOUS ACID BREATH — gas up to 3 of the most valuable enemies (auto-destroy odds).
+    if (aid === 'braxas') {
+      const t = acidBreathTargets(state, seat).filter(isEnemy).sort((a, b) => valueOf(b) - valueOf(a)).slice(0, 3);
+      if (t.length > 0) return { kind: 'acid_breath', attackerId: hero.id, rolls: t.map(targetId => ({ targetId, d20: 0 })) };
+    }
+    // Jotun THROW — fallback once Wild Swing finds no target: hurl the most valuable
+    // small/medium adjacent enemy onto the LOWEST landing hex (a long fall adds wounds; on
+    // flat ground the throw itself still deals 2 wounds on an 11+). Ordered AFTER Wild
+    // Swing, which catches more (the target plus its neighbours), so Throw only fires when
+    // the swing can't reach anyone.
+    if (aid === 'jotun' && !state.threwThisTurn) {
+      const t = throwTargets(state, seat).filter(isEnemy);
+      if (t.length > 0) {
+        const targetId = mostValuable(t);
+        const lands = throwLandingHexes(state, hero.id, targetId);
+        if (lands.length > 0) {
+          const to = lands.reduce((b, k) => (heightOfKey(state, k) < heightOfKey(state, b) ? k : b), lands[0]);
+          return { kind: 'throw_figure', attackerId: hero.id, targetId, to, throwD20: 0, damageD20: 0 };
+        }
+      }
+    }
+    // Tarn BERSERKER CHARGE — after moving, roll a d20; on 15+ the whole squad may move
+    // AGAIN (and may charge again). Pure aggression: charge whenever a Viking is still out
+    // of attack range so a success closes the gap. Bounded — only before any attack and
+    // only while someone needs to move; a sub-15 roll spends it. aiResolveChoice ACCEPTS
+    // the bonus move so the Vikings actually advance.
+    if (aid === 'tarn_vikings' && !state.berserkerSpent && state.turnAttacks.length === 0) {
+      const movedThisCard = state.movedFigureIds.some(id => { const f = state.figures.find(x => x.id === id); return f != null && f.cardUid === active.uid; });
+      const someoneOutOfRange = myFigs.some(f => enemyTargets(f).length === 0);
+      if (movedThisCard && someoneOutOfRange) return { kind: 'berserker_charge', d20: 0 };
+    }
+    // Marro WATER CLONE — "instead of attacking", after moving: each living Marro rolls;
+    // 15+ (10+ on water) returns a fallen Marro to the board. Only when there IS a fallen
+    // Marro to bring back AND nothing is in attack range — never trade a swing for a revive,
+    // but rebuild the swarm on an otherwise-idle turn. The placement is resolved in
+    // aiResolveChoice (water_clone_place).
+    if (aid === 'marro_warriors' && !state.waterClonedThisTurn) {
+      const deadMarro = state.figures.some(f => f.cardUid === active.uid && f.at == null);
+      const movedThisCard = state.movedFigureIds.some(id => { const f = state.figures.find(x => x.id === id); return f != null && f.cardUid === active.uid; });
+      const canAttack = myFigs.some(f => enemyTargets(f).length > 0);
+      if (deadMarro && movedThisCard && !canAttack) return { kind: 'water_clone', rolls: [] };
+    }
+
     let best: { attackerId: string; targetId: string; score: number } | null = null;
     for (const f of myFigs) {
       for (const tid of enemyTargets(f)) {
@@ -5292,6 +5396,55 @@ export function aiEngineAction(
   // is rolled here, matching the server's chomp seam.
   if (intent.kind === 'chomp') {
     return { ...intent, d20: rollers.d20() };
+  }
+  // Ne-Gok-Sa MIND SHACKLE — single d20 (seizes the card on a natural 20).
+  if (intent.kind === 'mind_shackle') {
+    return { ...intent, d20: rollers.d20() };
+  }
+  // BIG-HERO SPECIAL ATTACKS — each mirrors its server-roll seam (actions.ts): the
+  // attack dice are rolled ONCE; each affected figure's defense is rolled SEPARATELY
+  // from the engine's single-source defender helper (printed defense + auras, no
+  // height — a special attack). The engine re-derives the affected set and validates.
+  if (intent.kind === 'fire_line') {
+    const defs = fireLineDefenders(state, intent.attackerId, intent.dir);
+    return { ...intent, attackRoll: rollers.rollDice(4), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollers.rollDice(d.defense) })) };
+  }
+  if (intent.kind === 'explosion') {
+    const defs = explosionDefenders(state, intent.attackerId, intent.targetId);
+    return { ...intent, attackRoll: rollers.rollDice(3), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollers.rollDice(d.defense) })) };
+  }
+  if (intent.kind === 'wild_swing') {
+    const defs = wildSwingDefenders(state, intent.attackerId, intent.targetId);
+    return { ...intent, attackRoll: rollers.rollDice(4), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollers.rollDice(d.defense) })) };
+  }
+  // Nilfheim ICE SHARD / Major Q9 QUEGLIX — a single-target special attack: roll the
+  // shot's attack dice + the target's effective defense (no height).
+  if (intent.kind === 'ice_shard' || intent.kind === 'queglix') {
+    const tgt = state.figures.find(f => f.id === intent.targetId);
+    const atk = state.figures.find(f => f.id === intent.attackerId);
+    const defDice = tgt && atk ? Math.max(0, effectiveDefenseDice(state, tgt, atk).dice) : 0;
+    const atkDice = intent.kind === 'queglix' ? intent.dice : 4;
+    return { ...intent, attackRoll: rollers.rollDice(atkDice), defenseRoll: rollers.rollDice(defDice) };
+  }
+  // Braxas POISONOUS ACID BREATH — one d20 per chosen figure (Squad 8+, Hero 17+ destroy).
+  if (intent.kind === 'acid_breath') {
+    return { ...intent, rolls: intent.rolls.map(r => ({ targetId: r.targetId, d20: rollers.d20() })) };
+  }
+  // Tarn BERSERKER CHARGE — single d20 (15+ re-grants the squad's move).
+  if (intent.kind === 'berserker_charge') {
+    return { ...intent, d20: rollers.d20() };
+  }
+  // Jotun THROW — the throw d20 (14+ succeeds) + the damage d20 (11+ → 2 wounds).
+  if (intent.kind === 'throw_figure') {
+    return { ...intent, throwD20: rollers.d20(), damageD20: rollers.d20() };
+  }
+  // Marro WATER CLONE — one d20 per LIVING Marro Warrior of the active card (mirrors the
+  // server seam); the engine validates the set + per-Warrior threshold and collects the
+  // placement choices (resolved by aiResolveChoice).
+  if (intent.kind === 'water_clone') {
+    const activeUid = getActiveCardUid(state);
+    const livingMarro = state.figures.filter(f => f.cardUid === activeUid && f.at != null);
+    return { kind: 'water_clone', rolls: livingMarro.map(f => ({ marroFigureId: f.id, d20: rollers.d20() })) };
   }
   return intent;
 }
