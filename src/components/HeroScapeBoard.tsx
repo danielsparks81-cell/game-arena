@@ -112,7 +112,7 @@ const SEAT_COLORS = [
   '#84cc16', // 8 lime
 ];
 // Team colours (allies share one) — index = team id − 1 (lobby assigns ids 1/2/3).
-const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80']; // Team A / B / C
+const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80', '#fbbf24', '#c084fc', '#22d3ee']; // Team A–F (one per seat, so any pairing is possible)
 const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
 /** Beat between an AI's actions (ms). Combat is paced slow enough to read the dice;
  *  the repetitive no-dice phases (walking a path one hex at a time, deploying, drafting,
@@ -3194,6 +3194,37 @@ export default function HeroScapeBoard({
                 {myHand.length} in hand · {state.figures.filter(f => f.ownerSeat === me.seat && f.at != null).length} placed
               </div>
             )}
+            {/* In-hand tray — lives here in the rail (not under the board) so the board owns the
+                whole centre. Tap a figure, then a glowing start-zone hex. */}
+            {me && !iPlacementReady && myHand.length > 0 && (
+              <div className="mt-2 border-t border-neutral-800 pt-2 text-left">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">In hand — tap a figure, then a glowing hex</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {myHand.map(id => {
+                    const f = state.figures.find(x => x.id === id);
+                    const def = HS_CARDS[state.cards.find(c => c.uid === f?.cardUid)?.cardId ?? ''];
+                    const picked = (placeFigureId ?? myHand[0]) === id;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setPlaceFigureId(id)}
+                        disabled={disabled}
+                        title={f ? figureLabel(state, f) : id}
+                        className={
+                          'flex items-center gap-1 rounded-md border-2 px-1.5 py-0.5 text-[11px] font-semibold transition ' +
+                          (picked ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-200 hover:border-neutral-500')
+                        }
+                      >
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-extrabold text-neutral-950" style={{ background: seatColor(me.seat) }}>
+                          {def?.letter}{def?.type === 'squad' ? f?.index : ''}
+                        </span>
+                        <span className="max-w-[7rem] truncate">{f ? figureLabel(state, f) : id}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <div className="mt-2 flex flex-col gap-0.5 border-t border-neutral-800 pt-1.5 text-[11px]">
               {state.players.filter(p => p.playerId !== currentUserId).map(p => (
                 <div key={p.seat} className="flex items-center justify-between">
@@ -4010,47 +4041,8 @@ export default function HeroScapeBoard({
         )}
         </div>
 
-        {/* slice 5: placement in-hand tray — your unplaced figures. Click one to
-            pick it up, then click a highlighted start-zone hex to deploy it.
-            shrink-0 so the board (flex-1) keeps its space on lg+. */}
-        {placement && me && !iPlacementReady && (
-          <div className="shrink-0 rounded-lg border border-amber-800 bg-neutral-900/50 px-2 py-1.5">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">
-              In hand — click a figure, then a glowing hex
-            </div>
-            {myHand.length === 0 ? (
-              <div className="text-[11px] text-neutral-500">All figures deployed. Hit Ready when satisfied.</div>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {myHand.map(id => {
-                  const f = state.figures.find(x => x.id === id);
-                  const def = HS_CARDS[state.cards.find(c => c.uid === f?.cardUid)?.cardId ?? ''];
-                  const picked = (placeFigureId ?? myHand[0]) === id;
-                  return (
-                    <button
-                      key={id}
-                      onClick={() => setPlaceFigureId(id)}
-                      disabled={disabled}
-                      title={f ? figureLabel(state, f) : id}
-                      className={
-                        'flex items-center gap-1 rounded-md border-2 px-2 py-1 text-xs font-semibold transition ' +
-                        (picked ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-200 hover:border-neutral-500')
-                      }
-                    >
-                      <span
-                        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-extrabold text-neutral-950"
-                        style={{ background: seatColor(me.seat) }}
-                      >
-                        {def?.letter}{def?.type === 'squad' ? f?.index : ''}
-                      </span>
-                      <span>{f ? figureLabel(state, f) : id}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
+        {/* (The placement in-hand tray now lives in the RIGHT RAIL's Deploy panel so the
+            board owns the whole centre — see the deploy section above.) */}
 
         {myTurn && (
           <div className="shrink-0 text-center text-[11px] text-neutral-500">
@@ -4082,15 +4074,10 @@ export default function HeroScapeBoard({
             with it (chips printed over the cards). During placement keep the strip in
             NORMAL FLOW so it stacks cleanly below the tray. */}
         {me && (
-          <div
-            className={
-              'flex flex-col items-start gap-1 ' +
-              // You are always pinned BOTTOM-LEFT (the slot-0 anchor). During placement the panel
-              // drops into normal flow so it stacks cleanly below the in-hand tray.
-              (placement ? '' : 'lg:pointer-events-none lg:absolute lg:bottom-2 lg:left-2 lg:z-20')
-            }
-          >
-            <div className={placement ? '' : 'lg:pointer-events-auto'}>{renderArmyRow(me.seat)}</div>
+          // Always pinned BOTTOM-LEFT (slot-0 anchor) as an OVERLAY — in placement too, now that the
+          // in-hand tray moved to the rail — so a player panel never pushes/shrinks the board.
+          <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:bottom-2 lg:left-2 lg:z-20">
+            <div className="lg:pointer-events-auto">{renderArmyRow(me.seat)}</div>
           </div>
         )}
       </div>

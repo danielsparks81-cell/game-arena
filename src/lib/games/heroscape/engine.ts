@@ -1303,6 +1303,15 @@ function doPlaceMarkers(
   if (state.markersReady.includes(seat)) {
     return { error: 'You have already locked in your order markers' };
   }
+  // THE DROP COMES FIRST. The Airborne player rolls (publicly) and deploys BEFORE anyone places
+  // order markers, so every player can react to where the Airborne landed. Block ALL marker
+  // placement until the reserve-Airborne seat has rolled its Drop this round: a hit then opens its
+  // airborne_drop choice (the pendingChoice gate blocks everyone until it deploys); a miss sets
+  // airborneDropRound and we fall through. (Airborne Elite is Unique → at most one such seat.)
+  const dropper = livingSeats(state).find(st => reserveAirborne(state, st).length > 0);
+  if (dropper != null && state.airborneDropRound !== state.round) {
+    return { error: 'The Drop is rolled before order markers this round — wait for the Airborne Elite to deploy.' };
+  }
   // Exactly one each of 1/2/3/X — all four are mandatory, the X included
   // (02-rounds §Step 1). Stacking several on one card is legal.
   if (

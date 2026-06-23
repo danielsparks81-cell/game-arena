@@ -892,8 +892,8 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     const cx = sx / cells.length, cz = sz / cells.length;
     let R = 0;
     for (const c of cells) { const [x, z] = worldXZ(c.q, c.r); R = Math.max(R, Math.hypot(x - cx, z - cz)); }
-    const dist = Math.min(160, Math.max(18, R * 2.15)); // a touch closer so the board fills the canvas (less black margin around it)
-    return { dist, max: Math.max(40, dist * 1.9), shadow: Math.max(20, R + 6) };
+    const dist = Math.min(160, Math.max(15, R * 1.7)); // close framing so the board is the centrepiece — fills the canvas, minimal black margin
+    return { dist, max: Math.max(40, dist * 2.2), shadow: Math.max(20, R + 6) };
   }, [state.mapId]);
   const myFigKey = state.figures.filter(f => f.ownerSeat === it.viewerSeat && f.at != null).map(f => f.at).join('|');
   const zoneKey = (it.viewerStartHexes ?? []).join('|');
