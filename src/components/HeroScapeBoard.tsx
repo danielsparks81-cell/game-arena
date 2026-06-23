@@ -117,8 +117,11 @@ const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.len
 /** Beat between an AI's actions (ms). Combat is paced slow enough to read the dice;
  *  the repetitive no-dice phases (walking a path one hex at a time, deploying, drafting,
  *  placing markers) tick FAST so the bot doesn't crawl across the board. */
-const AI_STEP_MS = 850;
-const AI_STEP_FAST_MS = 240;
+// AI pacing — deliberately unhurried so a watching player can follow what the bot does (esp.
+// back-to-back actions like an Airborne squad throwing several grenades). NORMAL = the gap between
+// "weighty" actions (attacks/specials), FAST = repetitive no-dice work (walking a path, deploying).
+const AI_STEP_MS = 1150;
+const AI_STEP_FAST_MS = 360;
 // Player-panel SCREEN anchors (lg+ overlay). You are always slot 0 = bottom-left; the rest fan
 // out by SEAT order (stable round-to-round, so seat adjacency = turn-order adjacency). The 4
 // corners for ≤4 players; 6 spots (corners + top/bottom centre) for 5-6.
@@ -1093,7 +1096,7 @@ function DiceRollOverlay({ attack, onDismiss, final }: { attack: LastAttack; onD
     // 4) Auto-dismiss after the result settles. The GAME-WINNING blow holds longer —
     //    ≥4s after the defense roll — so the killing roll fully lands before the
     //    figure vanishes and the win banner / rematch prompt appear (no spoiler).
-    t += final ? 3000 : 1700;
+    t += final ? 3000 : 1900; // hold the result a beat longer so it's easy to digest before the bot moves on
     timers.push(setTimeout(onDismiss, t));
     return () => { for (const id of timers) clearTimeout(id); };
     // attack is fixed for this mount (parent re-keys on seq); run once.
