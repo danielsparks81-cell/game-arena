@@ -30,6 +30,7 @@ import {
   stepConsequences,
   placeableHexes,
   placeable2Leads,
+  theDropHexes,
   orientationOptions,
   canMindShackle,
   mindShackleTargets,
@@ -5142,6 +5143,50 @@ describe('audit fixes: soft-lock / waste guards (M1–M3)', () => {
     const defs = grenadeDefenders(s, 's0-airborne_elite-1', 's1-marro_warriors-1');
     expect(defs.filter(d => d.figureId === 's1-grimnak-1')).toHaveLength(1); // hit once, not twice for its 2 hexes
     expect(defs.some(d => d.figureId === 's1-marro_warriors-1')).toBe(true); // …plus the target itself
+  });
+});
+
+describe('The Drop — rolled before markers + placement legality', () => {
+  // A fresh round-start (place_markers) state with the Airborne squad held in reserve.
+  function dropStart(): HSState {
+    let s = customBattle(['airborne_elite'], ['marro_warriors'], 'p1');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.subPhase = 'place_markers';
+    s.markersReady = [];
+    s.turnSeat = null;
+    delete s.airborneDropRound;
+    for (const f of s.figures) if (f.cardUid === 's0-airborne_elite') { f.at = null; f.reserve = true; }
+    return s;
+  }
+
+  it('order markers are blocked until the Airborne player rolls The Drop', () => {
+    let s = dropStart();
+    const markers = allOn('s1-marro_warriors');
+    // p2 (no Airborne) can't lock in while the Airborne still owe a Drop this round.
+    expect(errOf(applyAction(s, 'p2', { kind: 'place_markers', assignments: markers }))).toMatch(/Drop/i);
+    // After the Airborne roll (a miss still counts as rolled), markers open.
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', d20: 1 }));
+    s = unwrap(applyAction(s, 'p2', { kind: 'place_markers', assignments: markers }));
+    expect(s.markersReady).toContain(1);
+  });
+
+  it('a 13+ Drop opens placement; landings exclude figures + their neighbours; a valid drop deploys all reserve', () => {
+    let s = dropStart();
+    for (const f of s.figures) if (f.cardUid === 's1-marro_warriors' && f.id !== 's1-marro_warriors-1') f.at = null;
+    s = place(s, 's1-marro_warriors-1', at(3, 3)); // one enemy on the board
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', d20: 20 })); // hit → airborne_drop pending opens
+    expect(s.pendingChoice?.kind).toBe('airborne_drop');
+    const legal = theDropHexes(s, 0);
+    expect(legal.length).toBeGreaterThan(0);
+    expect(legal).not.toContain(at(3, 3)); // never on a figure
+    for (const n of neighborKeys(at(3, 3))) expect(legal).not.toContain(n); // nor adjacent to one
+    const pick: string[] = [];
+    for (const k of legal) { if (pick.length >= 4) break; if (!pick.some(p => neighborKeys(p).includes(k))) pick.push(k); }
+    expect(pick).toHaveLength(4);
+    expect(errOf(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: pick.slice(0, 3) } }))).toMatch(/all|place|4/i); // must place all 4
+    const ok = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: pick } }));
+    expect(ok.figures.filter(f => f.cardUid === 's0-airborne_elite' && f.at != null)).toHaveLength(4); // all deployed
+    expect(ok.figures.filter(f => f.cardUid === 's0-airborne_elite' && f.reserve)).toHaveLength(0); // none still reserve
   });
 });
 
