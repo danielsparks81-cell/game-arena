@@ -1614,14 +1614,25 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   // ever shows. Bounded loop (a glyph can't chain into another mid-resolution).
   if (!('error' in next)) {
     let guard = 0;
-    while (
-      (next.pendingChoice?.kind === 'glyph_mitonsoul' || next.pendingChoice?.kind === 'glyph_sturla') &&
-      guard++ < 50
-    ) {
+    for (;;) {
+      if (guard++ >= 50) break;
       const pc = next.pendingChoice;
-      const pid = next.players.find(p => p.seat === pc.seat)?.playerId ?? actorId;
-      const rolls = pc.figureIds.map(figureId => ({ figureId, d20: d20() }));
-      const resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: pc.kind, rolls } });
+      const pid = pc ? (next.players.find(p => p.seat === pc.seat)?.playerId ?? actorId) : actorId;
+      let resolved;
+      if (pc?.kind === 'glyph_mitonsoul' || pc?.kind === 'glyph_sturla') {
+        const rolls = pc.figureIds.map(figureId => ({ figureId, d20: d20() }));
+        resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: pc.kind, rolls } });
+      } else if (pc?.kind === 'glyph_oreld') {
+        const d = d20();
+        const list = d === 1 ? pc.ownCandidates : pc.foeCandidates;
+        const e = list.length ? list[Math.floor(Math.random() * list.length)] : { cardUid: '', markerIndex: -1 };
+        resolved = applyActionHS(next, pid, {
+          kind: 'resolve_choice',
+          choice: { kind: 'glyph_oreld', d20: d, cardUid: e.cardUid, markerIndex: e.markerIndex },
+        });
+      } else {
+        break;
+      }
       if ('error' in resolved) break;
       next = resolved;
     }

@@ -753,7 +753,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'temporary',
     power: 'Remove Marker',
     effect: "Roll a d20: on 1 a random order marker is removed from your unrevealed markers; on 2+ remove one random order marker from an opponent's army card.",
-    active: false, // wave 3: d20 + remove an order marker
+    active: true,
   },
 };
 

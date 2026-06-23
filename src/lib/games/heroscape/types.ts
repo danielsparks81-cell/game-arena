@@ -423,6 +423,17 @@ export type HSPendingChoice =
       seat: number;
       at: HexKey;
       figureIds: string[];
+    }
+  | {
+      // Glyph of Oreld (Remove Marker) — fires when a figure stops on it. The action layer
+      // rolls one d20 and randomly removes an UNREVEALED order marker: on a 1 from the stopper's
+      // OWN cards (`ownCandidates`), on 2+ from an opponent's (`foeCandidates`). Each candidate is
+      // a {cardUid, markerIndex}. No human choice — auto-resolved in-request.
+      kind: 'glyph_oreld';
+      seat: number;
+      at: HexKey;
+      ownCandidates: { cardUid: string; markerIndex: number }[];
+      foeCandidates: { cardUid: string; markerIndex: number }[];
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -432,7 +443,8 @@ export type HSChoiceResolution =
   | { kind: 'spirit_placement'; cardUid: string } // unique card to receive the Spirit
   | { kind: 'airborne_drop'; placements: HexKey[] } // landings for all reserve Airborne Elite
   | { kind: 'glyph_mitonsoul'; rolls: { figureId: string; d20: number }[] } // a d20 per figure
-  | { kind: 'glyph_sturla'; rolls: { figureId: string; d20: number }[] }; // a d20 per dead figure
+  | { kind: 'glyph_sturla'; rolls: { figureId: string; d20: number }[] } // a d20 per dead figure
+  | { kind: 'glyph_oreld'; d20: number; cardUid: string; markerIndex: number }; // d20 + chosen marker (markerIndex<0 = none)
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`

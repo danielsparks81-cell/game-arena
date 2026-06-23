@@ -299,6 +299,15 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
       choice: { kind: pc.kind, rolls: pc.figureIds.map(figureId => ({ figureId, d20: d20(rng) })) },
     });
   }
+  if (pc.kind === 'glyph_oreld') {
+    const d = d20(rng);
+    const list = d === 1 ? pc.ownCandidates : pc.foeCandidates;
+    const e = list.length ? pick(rng, list) : { cardUid: '', markerIndex: -1 };
+    return applyAction(s, pid, {
+      kind: 'resolve_choice',
+      choice: { kind: 'glyph_oreld', d20: d, cardUid: e.cardUid, markerIndex: e.markerIndex },
+    });
+  }
   return null;
 }
 

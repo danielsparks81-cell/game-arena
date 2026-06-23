@@ -2636,6 +2636,30 @@ function applyGlyphOnStop(s: HSState, fig: Figure): void {
     pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Sturla — the fallen may rise!`);
     return;
   }
+  if (g.id === 'oreld') {
+    // Remove Marker — the action layer rolls a d20 and randomly removes an UNREVEALED order
+    // marker (own on a 1, an opponent's on 2+). Candidates are computed here (the engine never
+    // rolls); each is a {cardUid, markerIndex}.
+    const myTeam = teamOfSeat(s, fig.ownerSeat);
+    const candidatesWhere = (pred: (c: ArmyCardInstance) => boolean) =>
+      s.cards
+        .filter(pred)
+        .flatMap(c =>
+          c.orderMarkers
+            .map((m, markerIndex) => ({ m, markerIndex }))
+            .filter(x => !x.m.revealed)
+            .map(x => ({ cardUid: c.uid, markerIndex: x.markerIndex })),
+        );
+    s.pendingChoice = {
+      kind: 'glyph_oreld',
+      seat: fig.ownerSeat,
+      at: g.at,
+      ownCandidates: candidatesWhere(c => c.ownerSeat === fig.ownerSeat),
+      foeCandidates: candidatesWhere(c => teamOfSeat(s, c.ownerSeat) !== myTeam),
+    };
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Oreld — an order marker will be lost!`);
+    return;
+  }
   if (def.kind === 'permanent' && def.active) {
     pushLog(s, 'glyph', `${figureLabel(s, fig)} claims the ${def.name} — ${def.effect}`);
     return;
@@ -5142,6 +5166,30 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
       'glyph',
       back.length ? `Resurrection — returned to the field: ${back.join(', ')}.` : 'Resurrection — none rise (no 20s rolled).',
     );
+    delete s.pendingChoice;
+    return s;
+  }
+
+  // --- Glyph of Oreld: Remove Marker (d20 1 → own unrevealed marker; 2+ → an opponent's) ---
+  if (pc.kind === 'glyph_oreld' && choice.kind === 'glyph_oreld') {
+    if (!Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) return { error: 'Malformed Oreld roll' };
+    const list = choice.d20 === 1 ? pc.ownCandidates : pc.foeCandidates;
+    const whose = choice.d20 === 1 ? 'their own' : "an opponent's";
+    const s = clone(state);
+    if (choice.markerIndex >= 0) {
+      if (!list.some(x => x.cardUid === choice.cardUid && x.markerIndex === choice.markerIndex)) {
+        return { error: 'That order marker is not an eligible Oreld target' };
+      }
+      const card = s.cards.find(c => c.uid === choice.cardUid);
+      const m = card?.orderMarkers[choice.markerIndex];
+      if (card && m && !m.revealed) {
+        card.orderMarkers.splice(choice.markerIndex, 1);
+        pushLog(s, 'glyph', `Oreld — ${playerName(s, seat)} rolls ${choice.d20}: removes ${whose} unrevealed order marker.`);
+      }
+    } else {
+      pushLog(s, 'glyph', `Oreld — ${playerName(s, seat)} rolls ${choice.d20}: no ${whose} marker to remove.`);
+    }
+    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
     delete s.pendingChoice;
     return s;
   }
