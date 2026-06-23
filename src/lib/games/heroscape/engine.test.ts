@@ -44,10 +44,11 @@ import {
   fireLineTargets,
   fireLineDefenders,
   POINT_BUDGETS,
+  glyphCountForMap,
 } from './engine';
 import { hexKey, offsetToAxial, rangeDistance, neighborKeys } from './board';
 import { MAPS, parseMap } from './maps';
-import { HS_CARDS, HS_DRAFT_POOL, CLASSIC_OVERRIDES, effectiveCardDef } from './content';
+import { HS_CARDS, HS_DRAFT_POOL, CLASSIC_OVERRIDES, effectiveCardDef, HS_GLYPHS } from './content';
 import type {
   CombatFace,
   HSGlyph,
@@ -5042,5 +5043,37 @@ describe('Glyph of Oreld — Remove Marker on reveal', () => {
     const finnMarks = afterOwn.cards.find(c => c.uid === 's0-finn')!.orderMarkers;
     expect(finnMarks.length).toBe(1);
     expect(finnMarks[0].marker).toBe('1'); // the revealed one remains
+  });
+});
+
+describe('Random per-game glyph layout', () => {
+  it('count scales with map size (small → 2, capped at 10)', () => {
+    expect(glyphCountForMap(56)).toBe(2); // Training Field-sized → minimum 2
+    expect(glyphCountForMap(300)).toBe(5); // ~1 per 60 hexes
+    expect(glyphCountForMap(661)).toBe(10); // Star Field-sized → capped at 10
+  });
+
+  it('a seed places distinct active-pool glyphs off start zones + water; same seed is deterministic', () => {
+    const start = (seed: number): HSState => {
+      let s = initialState();
+      s = addPlayer(s, 'p1', 'A', 0, '#10b981');
+      s = addPlayer(s, 'p2', 'B', 1, '#ef4444');
+      return unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'quick', mapId: 'training_field', glyphSeed: seed }));
+    };
+    const s = start(98765);
+    expect(s.glyphs.length).toBe(2); // Training Field is small → 2
+    const map = MAPS['training_field'];
+    const startHexes = new Set(Object.values(map.startZones).flat());
+    expect(new Set(s.glyphs.map(g => g.id)).size).toBe(s.glyphs.length); // distinct ids
+    expect(new Set(s.glyphs.map(g => g.at)).size).toBe(s.glyphs.length); // distinct hexes
+    for (const g of s.glyphs) {
+      expect(g.faceUp).toBe(false);
+      expect(HS_GLYPHS[g.id].active).toBe(true); // only implemented glyphs
+      expect(g.id).not.toBe('brandar'); // scenario-only excluded
+      expect(startHexes.has(g.at)).toBe(false); // neutral mid-board
+      expect(map.cells[g.at].terrain).not.toBe('water');
+    }
+    expect(start(98765).glyphs).toEqual(s.glyphs); // deterministic per seed
+    expect(start(11111).glyphs).not.toEqual(s.glyphs); // different seed → different layout
   });
 });

@@ -1576,7 +1576,7 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   } else if (action.kind === 'resolve_choice') {
     engineAction = { kind: 'resolve_choice', choice: action.choice };
   } else if (action.kind === 'start_game') {
-    engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode, edition: action.edition };
+    engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode, edition: action.edition, glyphSeed: Math.floor(Math.random() * 0x7fffffff) };
   } else if (action.kind === 'add_bot') {
     // Give each bot a RANDOM fun name (not the HeroScape generals), avoiding any already in use.
     const usedNames = new Set(

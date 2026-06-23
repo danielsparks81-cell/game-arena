@@ -519,6 +519,10 @@ export type HSState = {
    *  + pick procedure; 'quick' auto-fills the preset armies. Absent on pre-
    *  slice-5 saves → treated as 'quick' (the old fixed-army behaviour). */
   mode: HSMode;
+  /** Seed for the random per-game glyph layout, frozen at start_game so the draft
+   *  path can regenerate the same layout when it finally enters play. Absent ⇒ the
+   *  map's static glyphs (deterministic tests). */
+  glyphSeed?: number;
   /** Card-stat edition chosen in the lobby (Classic vs Modern). Frozen at game
    *  start; combat stats + draft budget resolve through it. Absent ⇒ 'modern'. */
   edition?: HSEdition;
@@ -693,6 +697,10 @@ export type HSAction =
       mode?: HSMode;
       /** Card-stat edition. Omitted → 'modern'. */
       edition?: HSEdition;
+      /** Seed for the random per-game glyph layout (count scaled to map size, random
+       *  ids + hexes from the active pool). Injected by the server; omitted ⇒ fall back
+       *  to the map's static glyphs (so tests stay deterministic). */
+      glyphSeed?: number;
     }
   | {
       // Host changes the lobby settings (battlefield / budget / mode) BEFORE the

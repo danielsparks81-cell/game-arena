@@ -340,7 +340,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   if (action.kind === 'start_game') {
     // Host gating happens in the server action (room.host_id); the engine
     // validates the game shape (and the chosen battlefield).
-    return doStartGame(state, action.mapId, action.pointBudget, action.mode, action.edition);
+    return doStartGame(state, action.mapId, action.pointBudget, action.mode, action.edition, action.glyphSeed);
   }
   if (action.kind === 'set_lobby_config') {
     // Host changing the battlefield/budget/mode in the lobby — written to shared
@@ -610,10 +610,62 @@ function autoPlaceQuickArmy(map: { startZones: Record<number, HexKey[]>; cells: 
  *  place_markers (the slice-2 round flow). Used by the quick path and the
  *  placement → playing transition. Assumes s.cards/s.figures are already built
  *  and (for the quick/placement entry) figures are placed. */
+// ---------------------------------------------------------------------------
+// Random per-game glyph layout. The engine stays deterministic — the server injects
+// a seed at start_game and the layout is reproducible from it. Count scales with the
+// map's hex count (small maps 2, the big star up to 10); glyph ids + hexes are drawn
+// at random from the ACTIVE pool (Brandar / unfinished glyphs excluded), never on a
+// start zone or water.
+// ---------------------------------------------------------------------------
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffleSeeded<T>(arr: readonly T[], rnd: () => number): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rnd() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+const GLYPH_POOL: HSGlyphId[] = (Object.keys(HS_GLYPHS) as HSGlyphId[]).filter(
+  id => HS_GLYPHS[id].active && id !== 'brandar',
+);
+/** Glyph count for a map: ~1 per 60 hexes, clamped to [2, 10]. */
+export function glyphCountForMap(cellCount: number): number {
+  return Math.min(10, Math.max(2, Math.round(cellCount / 60)));
+}
+/** Deterministic random glyph layout from `seed`: distinct pool ids on distinct neutral
+ *  hexes (no start zones, no water), all face-down. */
+function generateGlyphs(map: HSMap, seed: number): HSGlyph[] {
+  const rnd = mulberry32(seed);
+  const startHexes = new Set<HexKey>([
+    ...Object.values(map.startZones).flat(),
+    ...Object.values(map.zonesByCount ?? {}).flatMap(bySeat => Object.values(bySeat).flat()),
+  ]);
+  const valid = (Object.keys(map.cells) as HexKey[]).filter(
+    k => !startHexes.has(k) && map.cells[k].terrain !== 'water',
+  );
+  const count = Math.min(glyphCountForMap(Object.keys(map.cells).length), valid.length, GLYPH_POOL.length);
+  const hexes = shuffleSeeded(valid, rnd).slice(0, count);
+  const ids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, count);
+  return hexes.map((at, i): HSGlyph => ({ id: ids[i], at, faceUp: false }));
+}
+
 function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId; at: HexKey }[] }): void {
   // Glyphs start HIDDEN (face-down): unknown + inert until a figure stops on one — then
   // applyGlyphOnStop flips it face-up and it takes effect (05-glyphs: placed power-side-DOWN).
-  s.glyphs = (map.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: false }));
+  // Random per-game layout when the server supplied a seed; else the map's static glyphs.
+  const full = MAPS[s.mapId];
+  s.glyphs = s.glyphSeed != null && full
+    ? generateGlyphs(full, s.glyphSeed)
+    : (map.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: false }));
   s.phase = 'playing';
   s.subPhase = 'place_markers';
   s.round = 1;
@@ -687,7 +739,7 @@ function doSetLobbyConfig(
   return s;
 }
 
-function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode, edition?: HSEdition): HSResult {
+function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?: HSMode, edition?: HSEdition, glyphSeed?: number): HSResult {
   if (state.phase !== 'lobby') return { error: 'The battle has already started' };
   if (state.players.length < 2) return { error: 'HeroScape needs at least 2 players' };
   if (state.players.length > MAX_SEATS) return { error: `HeroScape seats at most ${MAX_SEATS} players` };
@@ -720,6 +772,7 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
   const s = clone(state);
   s.mapId = chosenMapId;
   s.mode = chosenMode;
+  if (glyphSeed != null) s.glyphSeed = glyphSeed; // random per-game glyph layout (server-injected)
   // Freeze the card-stat edition for the whole game (combat + budget read it).
   s.edition = edition ?? state.edition ?? 'modern';
   s.pointBudget = chosenBudget;
