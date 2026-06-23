@@ -808,6 +808,12 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
   }
 
   const s = clone(state);
+  // Re-pack seats to 0..n-1 so a gap (a player left seat 0, or seats were assigned sparsely in the
+  // lobby) can't leave a seat with no start zone — the Star Field's zonesByCount is keyed 0..n-1, so
+  // a seat 2 in a 2-player game would project to an empty zone and soft-lock placement (M3). Players
+  // keep their identity + team (team is per-player); only the seat index is normalised, before any
+  // seat-keyed build (cards/figures/start zones all read the new seat).
+  s.players = [...s.players].sort((a, b) => a.seat - b.seat).map((p, i) => ({ ...p, seat: i }));
   s.mapId = chosenMapId;
   s.mode = chosenMode;
   if (glyphSeed != null) s.glyphSeed = glyphSeed; // random per-game glyph layout (server-injected)
@@ -3729,6 +3735,11 @@ function doGrenade(state: HSState, seat: number): HSResult {
   }
   const living = state.figures.filter(f => f.cardUid === activeUid && f.at != null).map(f => f.id);
   if (living.length === 0) return { error: 'No Airborne Elite are on the battlefield' };
+  // Re-gate on a TARGET before spending anything: with no Elite within Range 5 of an enemy, the
+  // grenade would burn the once-per-game marker AND the squad's whole attack for zero effect (M1).
+  if (!living.some(id => grenadeTargets(state, id).length > 0)) {
+    return { error: 'No Airborne Elite has a target within Range 5 — the grenade would be wasted' };
+  }
 
   const s = clone(state);
   s.cards.find(c => c.uid === activeUid)!.grenadeUsed = true; // remove the marker (once per game)
@@ -4035,10 +4046,20 @@ function checkEliminationWin(s: HSState): void {
   const livingSeats = [...new Set(s.figures.filter(figureAlive).map(f => f.ownerSeat))];
   const teamsAlive = new Set(livingSeats.map(seat => teamOfSeat(s, seat)));
   if (teamsAlive.size > 1) return;
-  // 0 or 1 teams remain. If somehow nobody is left (a mutual wipe), the acting
-  // side is gone too; leave the game running rather than crown a ghost.
+  // 0 or 1 teams remain.
   const winningTeam = [...teamsAlive][0];
-  if (winningTeam == null) return;
+  if (winningTeam == null) {
+    // True mutual wipe — no figure left on ANY side (e.g. Izumi's Counter Strike destroys the
+    // attacker on the same blow whose strike emptied the defender's last team). Finish as a DRAW
+    // rather than hang: stalemateResolve also bails at 0 teams, so without this the round loops
+    // forever over an empty board (M2).
+    s.phase = 'finished';
+    s.winnerSeat = null;
+    s.winnerTeam = null;
+    s.turnSeat = null;
+    pushLog(s, 'win', 'Mutual destruction — every army is wiped out. No winner.');
+    return;
+  }
   // A representative living seat of the winning team (the survivor in 1-v-1).
   const winnerSeat = livingSeats.find(seat => teamOfSeat(s, seat) === winningTeam)!;
   const teamSeats = s.players.filter(p => teamOfSeat(s, p.seat) === winningTeam);

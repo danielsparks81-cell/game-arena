@@ -5078,6 +5078,48 @@ describe('Glyph of Mitonsoul — Massive Curse on reveal', () => {
   });
 });
 
+describe('audit fixes: soft-lock / waste guards (M1–M3)', () => {
+  it('M1 — grenade with no figure in Range 5 is rejected and does NOT burn the once-per-game marker', () => {
+    // grenadeTargets counts ANY figure (the splash hits friend or foe), so leave a SINGLE Elite on
+    // the board with the lone enemy parked out of range — then nothing is targetable.
+    let s = customBattle(['airborne_elite'], ['marro_warriors'], 'p1');
+    s = clearExcept(s, 's0-airborne_elite-1', 's1-marro_warriors-1');
+    s = place(s, 's0-airborne_elite-1', at(0, 0));
+    s = place(s, 's1-marro_warriors-1', at(6, 7)); // out of Range 5
+    expect(canGrenade(s, 0)).toBe(false);
+    expect(errOf(applyAction(s, 'p1', { kind: 'grenade' }))).toMatch(/wasted|target|range/i);
+    expect(s.cards.find(c => c.cardId === 'airborne_elite')!.grenadeUsed).toBeFalsy(); // marker NOT burned
+    expect(s.turnAttacks.length).toBe(0); // attack NOT spent
+  });
+
+  it('M2 — a Massive Curse that destroys the last figure of EVERY team ends as a draw, not a hang', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
+    s = clearExcept(s, FINN, MARRO(1)); // exactly one figure per team on the board
+    const glyphHex = at(3, 1);
+    s = setGlyphs(s, [{ id: 'mitonsoul', at: glyphHex, faceUp: false }]);
+    s = place(s, FINN, at(3, 0));
+    s = place(s, MARRO(1), at(5, 5));
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    const ids = moved.pendingChoice?.kind === 'glyph_mitonsoul' ? moved.pendingChoice.figureIds : [];
+    const rolls = ids.map(id => ({ figureId: id, d20: 1 })); // everyone rolls a 1 → all destroyed
+    const after = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_mitonsoul', rolls } }));
+    expect(after.figures.every(f => f.at == null)).toBe(true); // board wiped
+    expect(after.phase).toBe('finished'); // ended — not stuck looping over an empty board
+    expect(after.winnerSeat).toBeNull(); // draw: no winner
+    expect(after.winnerTeam).toBeNull();
+  });
+
+  it('M3 — start_game re-packs non-contiguous seats so no seat is left without a start zone', () => {
+    let s = initialState();
+    s = addPlayer(s, 'p1', 'Alice', 0);
+    s = addPlayer(s, 'p3', 'Carol', 2); // seat 1 left empty — a gap (a player left, or sparse seating)
+    expect(s.players.map(p => p.seat)).toEqual([0, 2]);
+    s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', mapId: 'training_field', pointBudget: 300 }));
+    expect(s.players.map(p => p.seat).sort((a, b) => a - b)).toEqual([0, 1]); // normalised
+    for (const p of s.players) expect(placeableHexes(s, p.seat).size).toBeGreaterThan(0); // every seat has a zone
+  });
+});
+
 describe('Glyph of Sturla — Resurrection on reveal', () => {
   it('a destroyed figure rolls a d20; a 20 returns it to its owner start zone, else it stays dead', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
