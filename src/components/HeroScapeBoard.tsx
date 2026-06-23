@@ -72,7 +72,6 @@ import {
   auraBuffedFigureIds,
   placeableHexes,
   placeable2Leads,
-  orientationOptions,
   figureLabel,
   getActiveCardUid,
   axialToOffset,
@@ -1347,7 +1346,7 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
 
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
-  onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onOrient, onAttack,
+  onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
@@ -1767,34 +1766,8 @@ export default function HeroScapeBoard({
 
   const selected = state.figures.find(f => f.id === selectedId) ?? null;
 
-  // --- figure-presentation slice: rotate control ----------------------------
-  // A selected OWN figure can be re-oriented while I'm placing my army OR on my
-  // turn. orientationOptions is the single engine source for the legal facings:
-  // a 2-hex figure swings its trailing hex among free same-level neighbours
-  // (engagedBlocked → it must MOVE to reposition, so we disable the control); a
-  // 1-hex figure turns purely cosmetically (all six directions always legal).
-  const canOrientNow =
-    !!selected && !!me && selected.ownerSeat === me.seat && !disabled &&
-    (canAct || (placement && !iPlacementReady));
-  // Only DOUBLE-SPACE figures get the control — to FLIP (swing their trailing hex to the other
-  // side). A 1-hex figure's facing is purely cosmetic with no rule effect, so it has no control.
-  const orientInfo = useMemo(() => {
-    if (!canOrientNow || !selected) return null;
-    const o = orientationOptions(state, selected.id);
-    return o && o.baseSize === 2 ? o : null;
-  }, [canOrientNow, selected, state]);
-  const rotateBlocked = !!orientInfo && orientInfo.baseSize === 2 && orientInfo.engagedBlocked && !placement;
-  const rotateFig = useCallback(
-    (delta: 1 | -1) => {
-      if (!orientInfo || !selected || orientInfo.validDirs.length === 0) return;
-      const dirs = orientInfo.validDirs;
-      const here = dirs.indexOf(orientInfo.currentDir);
-      const from = here >= 0 ? here : (delta > 0 ? -1 : 0);
-      const next = dirs[(((from + delta) % dirs.length) + dirs.length) % dirs.length];
-      onOrient(selected.id, next);
-    },
-    [orientInfo, selected, onOrient],
-  );
+  // (Figure facing/flip control removed — HeroScape has no facing rules, so it had no gameplay
+  // effect. A 2-hex figure reorients its footprint simply by moving.)
 
   // Engine-derived legality for the selected figure (empty when not my figure
   // or it has already moved/attacked — the engine helpers encode all of that).
@@ -3302,37 +3275,8 @@ export default function HeroScapeBoard({
 
         {/* (Army cards render below the board — see the main column.) */}
 
-        {/* figure-presentation slice: ROTATE control for a selected own figure.
-            A 2-hex figure (Mimring/Grimnak) swings its TRAILING hex to the next
-            free same-level direction — disabled while engaged, where it must
-            MOVE to reposition; a 1-hex figure turns purely cosmetically. Shown
-            during placement AND on your turn (orientInfo encodes that gate). */}
-        {orientInfo && (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border-2 border-sky-700 bg-neutral-900/70 px-3 py-2">
-            <span className="text-xs font-semibold text-sky-300">⟲ Flip figure</span>
-            <div className="ml-auto flex items-center gap-1.5">
-              <button
-                onClick={() => rotateFig(-1)}
-                disabled={disabled || rotateBlocked || orientInfo.validDirs.length < 2}
-                title={rotateBlocked ? 'Engaged — move to reposition' : 'Turn counter-clockwise'}
-                className="rounded-md border-2 border-sky-600 px-3 py-1 text-base font-bold leading-none text-sky-200 transition hover:bg-sky-900/40 disabled:opacity-40"
-              >
-                ↺
-              </button>
-              <button
-                onClick={() => rotateFig(1)}
-                disabled={disabled || rotateBlocked || orientInfo.validDirs.length < 2}
-                title={rotateBlocked ? 'Engaged — move to reposition' : 'Turn clockwise'}
-                className="rounded-md border-2 border-sky-600 px-3 py-1 text-base font-bold leading-none text-sky-200 transition hover:bg-sky-900/40 disabled:opacity-40"
-              >
-                ↻
-              </button>
-            </div>
-            {rotateBlocked && (
-              <span className="w-full text-[10px] text-neutral-500">Engaged — move to reposition instead of turning.</span>
-            )}
-          </div>
-        )}
+        {/* (Figure facing/flip removed — HeroScape has no facing rules, so it was a button with no
+            gameplay effect. A 2-hex figure reorients by MOVING.) */}
 
         {/* slice 8: Airborne Elite THE DROP — round start, before order markers.
             Roll a d20 (server) — on 13+ deploy all reserve Airborne onto chosen

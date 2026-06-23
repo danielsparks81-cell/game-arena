@@ -40,6 +40,29 @@ const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80'];
 
 const parseQR = (key: string): [number, number] => { const [q, r] = key.split(',').map(Number); return [q, r]; };
 const worldXZ = (q: number, r: number): [number, number] => [SIZE * Math.sqrt(3) * (q + r / 2), SIZE * 1.5 * r];
+/** Hex line (cube-coord lerp) between two axial keys → every hex the straight line passes through,
+ *  both ends inclusive. Used to animate a multi-hex move CENTRE-to-CENTRE (a believable walk) instead
+ *  of gliding in one straight diagonal that cuts across hex corners. */
+function hexLine(aKey: string, bKey: string): string[] {
+  const [aq, ar] = parseQR(aKey);
+  const [bq, br] = parseQR(bKey);
+  const ax = aq, ay = -aq - ar, az = ar;
+  const bx = bq, by = -bq - br, bz = br;
+  const N = Math.max(Math.abs(ax - bx), Math.abs(ay - by), Math.abs(az - bz));
+  if (N === 0) return [aKey];
+  const out: string[] = [];
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const rx = ax + (bx - ax) * t, ry = ay + (by - ay) * t, rz = az + (bz - az) * t;
+    let cx = Math.round(rx), cy = Math.round(ry), cz = Math.round(rz);
+    const dx = Math.abs(cx - rx), dy = Math.abs(cy - ry), dz = Math.abs(cz - rz);
+    if (dx > dy && dx > dz) cx = -cy - cz;
+    else if (dy > dz) cy = -cx - cz;
+    else cz = -cx - cy;
+    out.push(`${cx},${cz}`); // axial (q=x, r=z)
+  }
+  return out;
+}
 const figScale = (h: number): number => Math.min(2.7, Math.max(0.8, h / 5)); // Medium 5 ⇒ ×1
 
 /** Interaction surface — all optional, so the board also works as a read-only
@@ -230,8 +253,8 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, wounds, flying, onClick }: {
-  lead: [number, number]; trail: [number, number] | null; topY: number; cardId: string; figIndex: number; color: string;
+function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, wounds, flying, onClick }: {
+  lead: [number, number]; trail: [number, number] | null; leadKey: string; topY: number; cardId: string; figIndex: number; color: string;
   selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; wounds: number; flying: boolean; onClick?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
@@ -375,21 +398,38 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // (fast AI walks, and especially multi-hex flights). When the target centre changes we push
   // it; each frame we glide toward the FRONT waypoint and pop it on arrival.
   const wpsRef = useRef<Array<[number, number]>>([]);
-  const lastTgtRef = useRef<[number, number] | null>(null);
+  const lastLeadKeyRef = useRef<string | null>(null);
+  const lastCenterRef = useRef<[number, number] | null>(null);
   useFrame((_, delta) => {
     const g = rootRef.current;
     if (!g) return;
-    if (!placedRef.current) { g.position.set(cx, topY, cz); placedRef.current = true; lastTgtRef.current = [cx, cz]; return; }
-    // Enqueue a waypoint whenever the destination hex centre changes.
-    const lt = lastTgtRef.current;
-    if (!lt || lt[0] !== cx || lt[1] !== cz) {
+    if (!placedRef.current) { g.position.set(cx, topY, cz); placedRef.current = true; lastLeadKeyRef.current = leadKey; lastCenterRef.current = [cx, cz]; return; }
+    // When the figure's centre changes, walk it there. A move updates position in ONE jump, so to
+    // step CENTRE-to-CENTRE (instead of sliding straight across hex corners) we expand the lead's
+    // path into a hex line and enqueue each hex centre. A 2-hex figure's body trails one hex behind,
+    // so its centre at each step ≈ the midpoint with the previous line hex.
+    const lc = lastCenterRef.current;
+    if (!lc || lc[0] !== cx || lc[1] !== cz) {
       if (Math.hypot(cx - g.position.x, cz - g.position.z) > 22) {
         wpsRef.current = []; // teleport (Drop / reseat / board-span) → snap, no path to trace
         g.position.x = cx; g.position.z = cz;
+      } else if (leadKey && lastLeadKeyRef.current && leadKey !== lastLeadKeyRef.current) {
+        const line = hexLine(lastLeadKeyRef.current, leadKey);
+        for (let i = 1; i < line.length; i++) {
+          const [hx, hz] = worldXZ(...parseQR(line[i]));
+          if (trail) {
+            const [px, pz] = worldXZ(...parseQR(line[i - 1]));
+            wpsRef.current.push([(hx + px) / 2, (hz + pz) / 2]);
+          } else {
+            wpsRef.current.push([hx, hz]);
+          }
+        }
+        wpsRef.current.push([cx, cz]); // land exactly on the true centre (real trail may differ from the line)
       } else {
-        wpsRef.current.push([cx, cz]);
+        wpsRef.current.push([cx, cz]); // only the trail swung (no lead change) → glide straight there
       }
-      lastTgtRef.current = [cx, cz];
+      lastLeadKeyRef.current = leadKey;
+      lastCenterRef.current = [cx, cz];
     }
     // Glide toward the next centre at a constant speed; pop it once reached.
     let moving = false;
@@ -789,7 +829,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           if (!cardId) return null;
           return (
             <Standee
-              key={f.id} lead={lead} trail={trail} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
+              key={f.id} lead={lead} trail={trail} leadKey={f.at!} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
               flying={!!HS_CARDS[cardId]?.flying}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
               powerTarget={!!it.powerTargetIds?.has(f.id)} splash={!!it.splashIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} wounds={f.wounds}
@@ -852,8 +892,8 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     const cx = sx / cells.length, cz = sz / cells.length;
     let R = 0;
     for (const c of cells) { const [x, z] = worldXZ(c.q, c.r); R = Math.max(R, Math.hypot(x - cx, z - cz)); }
-    const dist = Math.min(160, Math.max(18, R * 2.5));
-    return { dist, max: Math.max(40, dist * 1.8), shadow: Math.max(20, R + 6) };
+    const dist = Math.min(160, Math.max(18, R * 2.15)); // a touch closer so the board fills the canvas (less black margin around it)
+    return { dist, max: Math.max(40, dist * 1.9), shadow: Math.max(20, R + 6) };
   }, [state.mapId]);
   const myFigKey = state.figures.filter(f => f.ownerSeat === it.viewerSeat && f.at != null).map(f => f.at).join('|');
   const zoneKey = (it.viewerStartHexes ?? []).join('|');
@@ -899,7 +939,7 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
   // `desired` only changes when you press Focus; CameraRig eases to it once, then releases so
   // manual orbit/pan/zoom stays free. Initial value frames the viewer's army (CameraRig snaps
   // on mount — no swoop). Clicks pass straight through to the engine handler, unchanged.
-  const [desired, setDesired] = useState<[number, number, number]>(armyTarget);
+  const [desired, setDesired] = useState<[number, number, number]>([0, 0, 0]);
   // Focus = the active area: the SELECTED figure, else the figures you can still act with this
   // turn, else your whole army. Pan-only — it keeps your current zoom (no forced re-zoom).
   const focusTarget = useCallback((): [number, number, number] => {
@@ -912,7 +952,10 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     for (const k of hexes) { const [x, , z] = hexToWorld(k); ax += x; az += z; }
     return [Math.round((ax / hexes.length) * 2) / 2, 0, Math.round((az / hexes.length) * 2) / 2];
   }, [it.selectedId, it.actionableIds, state.figures, hexToWorld, armyTarget]);
-  const camPos: [number, number, number] = [armyTarget[0], fit.dist * 0.63, armyTarget[2] + fit.dist * 0.776];
+  // Frame the BOARD CENTRE (origin — the board is recentred there), not the army. The board is
+  // rotated per-viewer so your side still sits at the bottom, but centring on the board keeps the
+  // whole field in view and stops it floating high with a big black margin (where the panels land).
+  const camPos: [number, number, number] = [0, fit.dist * 0.63, fit.dist * 0.776];
   return (
     <div className={`relative h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
       <Canvas shadows camera={{ position: camPos, fov: 45 }} dpr={[1, 2]}>
