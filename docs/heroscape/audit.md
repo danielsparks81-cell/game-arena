@@ -147,10 +147,11 @@ playthroughs are healthy.
 - **M1 grenade not re-gated** (757fb08) — `doGrenade` re-checks a target in range before spending; no more wasted once-per-game marker. + test.
 - **M2 total-mutual-wipeout hang** (757fb08) — `checkEliminationWin` finishes as a draw at 0 teams alive. + test.
 - **M3 non-contiguous seats soft-lock** (757fb08) — `doStartGame` re-packs seats to 0..n-1. + test.
+- **H2 splash specials stripped defender height** (1daa39e) — Fire Line/Explosion/Grenade now keep the height-included dice (matching Ice Shard/Queglix/Wild Swing). + test (defender keeps height vs a grenade on the cliff map).
+- **H4 melee across a height break** (1daa39e) — `targetBlockReason` now requires `figuresAdjacent` for Range-1 (elevation-aware). + test.
 
-### High — correctness, currently *latent* (no shipped elevation maps yet, but fix before any land)
-- **H2 🔴 Splash specials strip defender height** (3401/3543/3693) — confirmed by two auditors; contradicts the rulebook's own grenade example. → remove `- h.defender`.
-- **H4 🔴 Melee allowed across a height break** (targetBlockReason 2908). → require `figuresAdjacent` when `effectiveRange === 1`.
+### 🔊 Sound pass — DONE (57ec263)
+Dice rattle, per-figure hit/block/death, all six special stings, glyph reveal, win/draw. (`hsStep` footsteps deferred.)
 
 ### Medium — robustness (remaining)
 - **M4 AI can't self-resolve AUTO-glyph choices** (5659) → add the three branches. (Masked today because actions.ts auto-resolves them server-side; defense-in-depth only.)
