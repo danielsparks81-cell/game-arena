@@ -5118,6 +5118,22 @@ describe('audit fixes: soft-lock / waste guards (M1–M3)', () => {
     expect(s.players.map(p => p.seat).sort((a, b) => a - b)).toEqual([0, 1]); // normalised
     for (const p of s.players) expect(placeableHexes(s, p.seat).size).toBeGreaterThan(0); // every seat has a zone
   });
+
+  it('grenade splash hits a 2-hex figure adjacent via EITHER lobe — and only ONCE', () => {
+    let s = customBattle(['airborne_elite'], ['marro_warriors', 'grimnak'], 'p1');
+    s = place(s, 's0-airborne_elite-1', at(3, 0)); // thrower in range of the target
+    s = place(s, 's1-marro_warriors-1', at(3, 3)); // primary target (1-hex)
+    s = place(s, 's1-marro_warriors-2', at(0, 7)); // other Marro parked far (not adjacent)
+    s = place(s, 's1-marro_warriors-3', at(2, 7));
+    s = place(s, 's1-marro_warriors-4', at(6, 7));
+    // Grimnak (2-hex): LEAD not adjacent to the target, TAIL adjacent — so it's caught via the tail.
+    const grim = s.figures.find(f => f.id === 's1-grimnak-1')!;
+    grim.at = at(5, 3); // lead — distance 2 from the target, NOT adjacent
+    grim.at2 = at(4, 3); // tail — adjacent to the target (3,3)
+    const defs = grenadeDefenders(s, 's0-airborne_elite-1', 's1-marro_warriors-1');
+    expect(defs.filter(d => d.figureId === 's1-grimnak-1')).toHaveLength(1); // hit once, not twice for its 2 hexes
+    expect(defs.some(d => d.figureId === 's1-marro_warriors-1')).toBe(true); // …plus the target itself
+  });
 });
 
 describe('Glyph of Sturla — Resurrection on reveal', () => {
