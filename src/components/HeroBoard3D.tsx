@@ -894,21 +894,27 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     return [Math.round((ax / ats.length) * 2) / 2, 0, Math.round((az / ats.length) * 2) / 2];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myFigKey, zoneKey, hexToWorld]);
-  // The target the camera pans to. Latest intent wins: the army by default, but a
-  // TAPPED/clicked hex takes over (so you can re-centre anywhere with a tap); a later
-  // army move re-follows the army. CameraRig eases the target to this, then releases
-  // so manual orbit/pan stays free between commands.
+  // The camera target. The board NO LONGER auto-pans — not on clicks (that was jarring, every
+  // tap yanked the view) and not on your army's moves. It stays exactly where you leave it.
+  // `desired` only changes when you press Focus; CameraRig eases to it once, then releases so
+  // manual orbit/pan/zoom stays free. Initial value frames the viewer's army (CameraRig snaps
+  // on mount — no swoop). Clicks pass straight through to the engine handler, unchanged.
   const [desired, setDesired] = useState<[number, number, number]>(armyTarget);
-  useEffect(() => { setDesired(armyTarget); }, [armyTarget]);
-  const handleHexClick = useCallback((key: HexKey) => {
-    setDesired(hexToWorld(key));
-    it.onHexClick?.(key);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hexToWorld, it.onHexClick]);
-  const itForScene = { ...it, onHexClick: handleHexClick };
+  // Focus = the active area: the SELECTED figure, else the figures you can still act with this
+  // turn, else your whole army. Pan-only — it keeps your current zoom (no forced re-zoom).
+  const focusTarget = useCallback((): [number, number, number] => {
+    const ids = it.selectedId ? [it.selectedId] : [...(it.actionableIds ?? [])];
+    const hexes = ids
+      .map(id => state.figures.find(f => f.id === id)?.at)
+      .filter((h): h is HexKey => h != null);
+    if (!hexes.length) return armyTarget;
+    let ax = 0, az = 0;
+    for (const k of hexes) { const [x, , z] = hexToWorld(k); ax += x; az += z; }
+    return [Math.round((ax / hexes.length) * 2) / 2, 0, Math.round((az / hexes.length) * 2) / 2];
+  }, [it.selectedId, it.actionableIds, state.figures, hexToWorld, armyTarget]);
   const camPos: [number, number, number] = [armyTarget[0], fit.dist * 0.63, armyTarget[2] + fit.dist * 0.776];
   return (
-    <div className={`h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
+    <div className={`relative h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
       <Canvas shadows camera={{ position: camPos, fov: 45 }} dpr={[1, 2]}>
         <hemisphereLight args={['#cfe3ff', '#3a3320', 0.7]} />
         <ambientLight intensity={0.25} />
@@ -918,10 +924,23 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
           shadow-camera-left={-fit.shadow} shadow-camera-right={fit.shadow} shadow-camera-top={fit.shadow} shadow-camera-bottom={-fit.shadow}
           shadow-bias={-0.0004}
         />
-        <Scene state={state} it={itForScene} />
+        <Scene state={state} it={it} />
         <OrbitControls makeDefault enablePan enableDamping minDistance={6} maxDistance={fit.max} minPolarAngle={0.15} maxPolarAngle={Math.PI / 2.15} />
         <CameraRig desired={desired} />
       </Canvas>
+      {/* FOCUS — eases the camera to the active area (selected/acting figure, else your army) on
+          demand, at the CURRENT zoom. Since the board no longer auto-pans, this is how you snap
+          back to the action without re-zooming. Left-centre keeps it clear of the seat panels
+          (board corners) and the glyph HUD (right-centre). */}
+      <button
+        type="button"
+        onClick={() => setDesired(focusTarget())}
+        title="Focus on the active area"
+        aria-label="Focus on the active area"
+        className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
+      >
+        ⌖
+      </button>
     </div>
   );
 }
