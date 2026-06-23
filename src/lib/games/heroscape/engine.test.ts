@@ -2266,6 +2266,15 @@ describe('slice 4: Warrior Spirits on destroy', () => {
     expect(errOf(applyAction(s, 'p1', { kind: 'end_turn' }))).toMatch(/Resolve your pending choice/);
   });
 
+  it('the Spirit may only be placed on the OWNER’s own cards (never an opponent’s)', () => {
+    const before = finnAtDeath();
+    const s = unwrap(applyAction(before, 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
+    const options = s.pendingChoice?.kind === 'spirit_placement' ? s.pendingChoice.options : [];
+    expect(options.length).toBeGreaterThan(0);
+    for (const uid of options) expect(s.cards.find(c => c.uid === uid)!.ownerSeat).toBe(0); // all p1's own
+    expect(options.some(uid => s.cards.find(c => c.uid === uid)!.ownerSeat !== 0)).toBe(false); // no opponent card
+  });
+
   it('placing the Attack Spirit gives the chosen card +1 attack permanently', () => {
     let s = unwrap(applyAction(finnAtDeath(), 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
     const opts = (s.pendingChoice as { options: string[] }).options;

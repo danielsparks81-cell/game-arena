@@ -697,6 +697,18 @@ function glyphLayoutFor(s: HSState): HSGlyph[] {
   return (map?.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: false }));
 }
 
+/** Clear the per-turn / per-activation scratch flags (once-per-turn powers). Called at EVERY turn
+ *  boundary — beginTurnOrSkip, startNextRound, doEndTurn — and at game start (enterPlaying), so a
+ *  new per-turn flag added here can't leak across turns by being forgotten at one call site. */
+function resetTurnScratch(s: HSState): void {
+  delete s.waterClonedThisTurn;
+  delete s.berserkerSpent;
+  delete s.mindShackleSpent;
+  delete s.chompedThisTurn;
+  delete s.queglixDiceSpent;
+  delete s.threwThisTurn;
+}
+
 function enterPlaying(s: HSState): void {
   // Glyphs start HIDDEN (face-down): unknown + inert until a figure stops on one — then
   // applyGlyphOnStop flips it face-up and it takes effect (05-glyphs: placed power-side-DOWN).
@@ -721,12 +733,7 @@ function enterPlaying(s: HSState): void {
   s.winnerSeat = null;
   s.winnerTeam = null;
   delete s.pendingChoice;
-  delete s.waterClonedThisTurn;
-  delete s.berserkerSpent;
-  delete s.mindShackleSpent;
-  delete s.chompedThisTurn;
-  delete s.queglixDiceSpent;
-  delete s.threwThisTurn;
+  resetTurnScratch(s);
   delete s.draft;
   delete s.hand;
   delete s.placementReady;
@@ -1494,12 +1501,7 @@ function beginTurnOrSkip(s: HSState): void {
       s.stepMove = undefined;
       s.movementEnded = false;
       s.moveHistory = [];
-      delete s.waterClonedThisTurn;
-      delete s.berserkerSpent;
-      delete s.mindShackleSpent;
-      delete s.chompedThisTurn;
-  delete s.queglixDiceSpent;
-  delete s.threwThisTurn;
+      resetTurnScratch(s);
       pushLog(
         s,
         'info',
@@ -1570,12 +1572,7 @@ function startNextRound(s: HSState): void {
   s.stepMove = undefined;
   s.movementEnded = false;
   s.moveHistory = [];
-  delete s.waterClonedThisTurn;
-  delete s.berserkerSpent;
-  delete s.mindShackleSpent;
-  delete s.chompedThisTurn;
-  delete s.queglixDiceSpent;
-  delete s.threwThisTurn;
+  resetTurnScratch(s);
   for (const card of s.cards) card.orderMarkers = [];
   pushLog(s, 'info', `Round ${s.round} — all players place their order markers.`);
 }
@@ -2877,7 +2874,7 @@ function attackReadyFigure(state: HSState, attackerId: string): { fig: Figure } 
  *  normal attacks on Drake to adjacent attackers (slice 7); the target must be
  *  within Range (spaces, elevation-free); and there must be a clear,
  *  elevation-aware Line of Sight. `isNormalAttack` is true for every slice-7
- *  attack (no special attacks yet) — threaded for the slice-8 Thorian Speed
+ *  attack — threaded for the slice-8 Thorian Speed
  *  carve-out ("special attacks are not restricted"). */
 function targetBlockReason(
   state: HSState,
@@ -3127,7 +3124,7 @@ function zettianTargetingApplies(state: HSState, attacker: Figure, target: Figur
  *                              restriction, unlike Finn's; Thorgrim does not
  *                              buff himself)
  *   + Raelin EXTENDED DEFENSIVE AURA (slice 6) — +1 to every figure the same
- *                              player controls within 6 clear-sight spaces of a
+ *                              player controls within 4 clear-sight spaces of a
  *                              living Raelin, excluding Raelin herself
  *   + Grimnak ORC WARRIOR ENHANCEMENT (slice 6) — +1 to a friendly Orc Warrior
  *                              adjacent to a living Grimnak (the defense half)
@@ -3191,7 +3188,7 @@ export function effectiveDefenseDice(
 }
 
 /** Figures CURRENTLY benefiting from a friendly POSITION aura — Finn (an adjacent friendly Range-1
- *  figure, +1 attack), Thorgrim (any adjacent friendly, +1 defense), Raelin (a friendly within 6
+ *  figure, +1 attack), Thorgrim (any adjacent friendly, +1 defense), Raelin (a friendly within 4
  *  clear-sight spaces, +1 defense, not herself), and Grimnak (an adjacent friendly Orc Warrior, +1
  *  attack & defense). Reuses the SAME predicates the effective-stat folds use, so the board's
  *  "aura active" ring can never disagree with the bonus actually applied. Excludes per-attack
@@ -4027,7 +4024,9 @@ function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
   const ownerSeat = destroyed.ownerSeat;
   // "any unique Army Card" — every card in play is unique; offer all that still
   // have at least one living figure (a card with no figures left is out of play).
-  const options = s.cards.filter(c => cardHasLivingFigures(s, c.uid)).map(c => c.uid);
+  // The Spirit goes on one of the OWNER's own unique Army Cards (per the card text) — never an
+  // opponent's. Must still have a living figure to benefit.
+  const options = s.cards.filter(c => c.ownerSeat === ownerSeat && cardHasLivingFigures(s, c.uid)).map(c => c.uid);
   if (options.length === 0) return; // nothing to place it on
   s.pendingChoice = { kind: 'spirit_placement', seat: ownerSeat, spirit, options };
   pushLog(
@@ -5475,12 +5474,7 @@ function doEndTurn(state: HSState, seat: number): HSResult {
   s.stepMove = undefined;
   s.movementEnded = false;
   s.moveHistory = [];
-  delete s.waterClonedThisTurn;
-  delete s.berserkerSpent;
-  delete s.mindShackleSpent;
-  delete s.chompedThisTurn;
-  delete s.queglixDiceSpent;
-  delete s.threwThisTurn;
+  resetTurnScratch(s);
   if (advanceSlot(s)) beginTurnOrSkip(s);
   return s;
 }
