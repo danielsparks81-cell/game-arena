@@ -141,19 +141,19 @@ playthroughs are healthy.
 
 ## Ranked issues & recommendations  ✅
 
-### ✅ FIXED (commit 4373366, deployed)
-- **H1 Projection leaked face-down glyph ids** — now masked (sentinel id for face-down glyphs) + regression test.
-- **H3 Lodin +1 missing on Jotun's Throw** — now folds `lodinD20Bonus` into both the throw and damage d20 + regression test.
+### ✅ FIXED (deployed)
+- **H1 Projection leaked face-down glyph ids** (4373366) — now masked (sentinel id for face-down glyphs) + regression test.
+- **H3 Lodin +1 missing on Jotun's Throw** (4373366) — now folds `lodinD20Bonus` into both the throw and damage d20 + test.
+- **M1 grenade not re-gated** (757fb08) — `doGrenade` re-checks a target in range before spending; no more wasted once-per-game marker. + test.
+- **M2 total-mutual-wipeout hang** (757fb08) — `checkEliminationWin` finishes as a draw at 0 teams alive. + test.
+- **M3 non-contiguous seats soft-lock** (757fb08) — `doStartGame` re-packs seats to 0..n-1. + test.
 
 ### High — correctness, currently *latent* (no shipped elevation maps yet, but fix before any land)
 - **H2 🔴 Splash specials strip defender height** (3401/3543/3693) — confirmed by two auditors; contradicts the rulebook's own grenade example. → remove `- h.defender`.
 - **H4 🔴 Melee allowed across a height break** (targetBlockReason 2908). → require `figuresAdjacent` when `effectiveRange === 1`.
 
-### Medium — robustness / soft-locks
-- **M1 `doGrenade` not re-gated** (3711) → re-check `canGrenade` (don't burn the once-per-game marker with no target).
-- **M2 Total-mutual-wipeout hang** (4014/4058) → if no team has a living figure, finish with **no winner**.
-- **M3 Non-contiguous seats → placement soft-lock** (doStartGame) → re-pack `players` to seats `0..n-1`.
-- **M4 AI can't self-resolve AUTO-glyph choices** (5659) → add the three branches.
+### Medium — robustness (remaining)
+- **M4 AI can't self-resolve AUTO-glyph choices** (5659) → add the three branches. (Masked today because actions.ts auto-resolves them server-side; defense-in-depth only.)
 
 ### Low — cleanup (no gameplay impact)
 - Dead/unused: `hasLineOfSight` flat 2-D (board.ts:423), `baseLevel` alias, `ReachOptions.doubleSpace` (unread by Dijkstra).
