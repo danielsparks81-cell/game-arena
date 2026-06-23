@@ -6065,9 +6065,10 @@ export function aiEngineAction(
     return { ...intent, d20: rollers.d20() };
   }
   // BIG-HERO SPECIAL ATTACKS — each mirrors its server-roll seam (actions.ts): the
-  // attack dice are rolled ONCE; each affected figure's defense is rolled SEPARATELY
-  // from the engine's single-source defender helper (printed defense + auras, no
-  // height — a special attack). The engine re-derives the affected set and validates.
+  // FIXED attack dice are rolled ONCE (the attack is unmodifiable); each affected
+  // figure's defense is rolled SEPARATELY from the engine's single-source defender
+  // helper (printed defense + auras + height — a defender keeps height vs a special
+  // attack, per §117). The engine re-derives the affected set and validates.
   if (intent.kind === 'fire_line') {
     const defs = fireLineDefenders(state, intent.attackerId, intent.dir);
     return { ...intent, attackRoll: rollers.rollDice(4), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollers.rollDice(d.defense) })) };
