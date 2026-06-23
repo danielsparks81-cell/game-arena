@@ -3792,7 +3792,13 @@ function doGrenadeThrow(
     if (destroyed) { t.at = null; t.at2 = null; }
     const label = figureLabel(s, t);
     defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
-    results.push(`${label} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
+    // Spell out the math so a partial block reads correctly: N shields cancel N skulls, the rest
+    // wound. A Life-1 squad figure dies to even 1 leftover skull — show the wound count on a kill
+    // so "1 shield → destroyed" isn't mistaken for "blocked but died anyway".
+    const outcome = destroyed
+      ? `${w} wound${w === 1 ? '' : 's'} → destroyed!`
+      : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'fully blocked';
+    results.push(`${label} (${shields} shield${shields === 1 ? '' : 's'} vs ${skulls}) — ${outcome}`);
   }
   s.lastAttack = {
     attackerId: throwerId,
@@ -4800,7 +4806,13 @@ function doWildSwing(
     if (destroyed) { t.at = null; t.at2 = null; }
     const label = figureLabel(s, t);
     defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
-    results.push(`${label} (${shields} shield${shields === 1 ? '' : 's'}) — ${destroyed ? 'destroyed!' : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'blocked'}`);
+    // Spell out the math so a partial block reads correctly: N shields cancel N skulls, the rest
+    // wound. A Life-1 squad figure dies to even 1 leftover skull — show the wound count on a kill
+    // so "1 shield → destroyed" isn't mistaken for "blocked but died anyway".
+    const outcome = destroyed
+      ? `${w} wound${w === 1 ? '' : 's'} → destroyed!`
+      : w > 0 ? `${w} wound${w === 1 ? '' : 's'}` : 'fully blocked';
+    results.push(`${label} (${shields} shield${shields === 1 ? '' : 's'} vs ${skulls}) — ${outcome}`);
   }
   s.lastAttack = {
     attackerId: jotun.id,
