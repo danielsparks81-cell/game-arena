@@ -1343,10 +1343,6 @@ export default function HeroScapeBoard({
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // Inline target picker for figure-target powers (Mind Shackle, Chomp): tapping the card power
-  // auto-fires when exactly one enemy is adjacent, else opens a list under the card ability — no
-  // separate board-targeting mode. Declared up here so the reset effects below can clear it.
-  const [targetPicker, setTargetPicker] = useState<{ power: 'shackle' | 'chomp'; ids: string[] } | null>(null);
   // Jotun THROW: after choosing whom to throw, the player CLICKS the landing hex on the board
   // ("you may throw it to any empty space within 4 spaces" — a real choice, never auto-picked).
   const [throwAim, setThrowAim] = useState<{ targetId: string } | null>(null);
@@ -1438,7 +1434,6 @@ export default function HeroScapeBoard({
     setFireLineMode(false);
     setShackleMode(false);
     setChompMode(false);
-    setTargetPicker(null);
     setThrowAim(null);
     setCarryAim(null);
     setExplosionMode(false);
@@ -1451,7 +1446,6 @@ export default function HeroScapeBoard({
     setFireLineMode(false);
     setShackleMode(false);
     setChompMode(false);
-    setTargetPicker(null);
     setThrowAim(null);
     setCarryAim(null);
     setExplosionMode(false);
@@ -2013,7 +2007,7 @@ export default function HeroScapeBoard({
         const ids = me ? mindShackleTargets(state, me.seat) : [];
         if (ids.length === 0) showPowerHint('Mind Shackle — no adjacent enemy.');
         else if (ids.length === 1) onMindShackle(ids[0]);  // exactly one adjacent → just do it
-        else setTargetPicker({ power: 'shackle', ids });   // more than one → pick from the list
+        else setShackleMode(true);   // more than one → highlight them on the board; tap the figure to seize
         return;
       }
       case 'grimnak': {
@@ -2021,7 +2015,7 @@ export default function HeroScapeBoard({
         const ids = me ? chompTargets(state, me.seat) : [];
         if (ids.length === 0) showPowerHint('Chomp — no adjacent medium/small enemy.');
         else if (ids.length === 1) onChomp(ids[0]);
-        else setTargetPicker({ power: 'chomp', ids });
+        else setChompMode(true); // more than one → highlight them on the board; tap the figure to chomp
         return;
       }
       case 'mimring':
@@ -3351,37 +3345,6 @@ export default function HeroScapeBoard({
             picker (Mind Shackle / Chomp when more than one enemy is adjacent), a short reason
             if a tapped power isn't usable yet, and a targeting strip for the board-aimed
             powers (Fire Line direction / Grapple hex). */}
-        {targetPicker && (
-          <div className="rounded-lg border-2 border-fuchsia-500 bg-neutral-900/90 p-2">
-            <div className="mb-1 text-center text-[11px] font-bold uppercase tracking-wide text-fuchsia-300">
-              {targetPicker.power === 'shackle' ? 'Mind Shackle — choose a target' : 'Chomp — choose a target'}
-            </div>
-            <div className="flex flex-col gap-1">
-              {targetPicker.ids.map(id => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => {
-                    if (targetPicker.power === 'shackle') onMindShackle(id);
-                    else onChomp(id);
-                    setTargetPicker(null);
-                  }}
-                  className="flex items-center justify-between rounded-md border border-fuchsia-600/70 bg-fuchsia-950/40 px-2 py-1.5 text-left text-sm font-semibold text-fuchsia-100 transition hover:border-fuchsia-400 hover:bg-fuchsia-900/50"
-                >
-                  <span>{figName(id)}</span>
-                  <span className="text-[10px] text-fuchsia-300/70">{targetPicker.power === 'shackle' ? 'seize on a 20' : 'devour'}</span>
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setTargetPicker(null)}
-                className="mt-0.5 self-center rounded border border-neutral-600 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-800"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
         {powerHint && (
           <div className="rounded-lg border border-amber-600/70 bg-amber-950/40 px-3 py-1.5 text-center text-xs font-medium text-amber-200">
             {powerHint}
@@ -3783,7 +3746,7 @@ export default function HeroScapeBoard({
             shootBlockedHexes={shootBlocked}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
-            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(targetPicker?.ids ?? []), ...(carryPassSet ?? [])])}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? [])])}
             actionableIds={glowIds}
             auraIds={auraIds}
             splashIds={splashIds}
