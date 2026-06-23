@@ -141,9 +141,9 @@ playthroughs are healthy.
 
 ## Ranked issues & recommendations  ✅
 
-### Fix first (live)
-- **H1 🔴 Projection leaks face-down glyph ids** (engine.ts:6155). Live fairness/info leak in every game. → mask id for face-down glyphs. **(fixing now)**
-- **H3 🔴 Lodin +1 missing on Jotun's Throw** (engine.ts:4993, 5013). Live when Jotun + a Lodin glyph are in play. → add `lodinD20Bonus`.
+### ✅ FIXED (commit 4373366, deployed)
+- **H1 Projection leaked face-down glyph ids** — now masked (sentinel id for face-down glyphs) + regression test.
+- **H3 Lodin +1 missing on Jotun's Throw** — now folds `lodinD20Bonus` into both the throw and damage d20 + regression test.
 
 ### High — correctness, currently *latent* (no shipped elevation maps yet, but fix before any land)
 - **H2 🔴 Splash specials strip defender height** (3401/3543/3693) — confirmed by two auditors; contradicts the rulebook's own grenade example. → remove `- h.defender`.
@@ -166,7 +166,3 @@ Carry (no engine test); The Drop placement legality; projection masking (with H1
 
 ### What's solid — no action
 Turn/round/draft/placement/pending-choice machinery; movement core; combat core; 6 of 7 interactions; AI plays a full coherent game using every power but Carry; server-authoritative + RNG-free; order-marker hiding. Playthroughs (120 fuzz + 8 scripted full games) all finish cleanly.
-
----
-
-## Ranked issues & recommendations  ⏳ pending (compiled once all sections land)
