@@ -641,31 +641,69 @@ const GLYPH_POOL: HSGlyphId[] = (Object.keys(HS_GLYPHS) as HSGlyphId[]).filter(
 export function glyphCountForMap(cellCount: number): number {
   return Math.min(10, Math.max(2, Math.round(cellCount / 60)));
 }
-/** Deterministic random glyph layout from `seed`: distinct pool ids on distinct neutral
- *  hexes (no start zones, no water), all face-down. */
-function generateGlyphs(map: HSMap, seed: number): HSGlyph[] {
+/** Multi-source flat BFS: path distance (around voids; height ignored) from a set of source
+ *  hexes to every reachable cell. Used to measure how "close" a hex is to a start zone so
+ *  glyphs can be placed fairly. */
+function flatDistField(cells: HSMap['cells'], sources: readonly HexKey[]): Map<HexKey, number> {
+  const dist = new Map<HexKey, number>();
+  let frontier: HexKey[] = [];
+  for (const src of sources) if (cells[src] && !dist.has(src)) { dist.set(src, 0); frontier.push(src); }
+  for (let d = 1; frontier.length; d++) {
+    const next: HexKey[] = [];
+    for (const k of frontier) {
+      for (const n of neighborKeys(k)) {
+        if (dist.has(n) || !cells[n]) continue;
+        dist.set(n, d);
+        next.push(n);
+      }
+    }
+    frontier = next;
+  }
+  return dist;
+}
+/** Deterministic glyph layout from the game's `seed`: distinct pool ids on distinct neutral
+ *  hexes (no start zones, no water), all face-down. FAIRNESS: a glyph must not sit closer to
+ *  one player's start zone than another's, so candidates are ranked by IMBALANCE — the spread
+ *  (max − min) of path-distance to the seats' start zones, 0 = perfectly equidistant — and the
+ *  most-equidistant hexes are chosen. The seeded shuffle BEFORE the (stable) sort randomizes
+ *  order among hexes that tie on imbalance, so the layout still varies game to game. */
+function generateGlyphs(s: HSState, seed: number): HSGlyph[] {
+  const map = MAPS[s.mapId];
+  if (!map) return [];
   const rnd = mulberry32(seed);
-  const startHexes = new Set<HexKey>([
-    ...Object.values(map.startZones).flat(),
-    ...Object.values(map.zonesByCount ?? {}).flatMap(bySeat => Object.values(bySeat).flat()),
-  ]);
-  const valid = (Object.keys(map.cells) as HexKey[]).filter(
-    k => !startHexes.has(k) && map.cells[k].terrain !== 'water',
+  const cells = map.cells;
+  const seats = s.players.map(p => p.seat);
+  // Distance from each seat's ACTUAL start zone (zonesByCount for the star) to every cell.
+  const fields = seats.map(seat => flatDistField(cells, startZoneFor(s, seat)));
+  const startHexes = new Set<HexKey>(seats.flatMap(seat => startZoneFor(s, seat)));
+  // Neutral, dry, and reachable from EVERY start zone (so the per-seat distances compare).
+  const candidates = (Object.keys(cells) as HexKey[]).filter(
+    k => !startHexes.has(k) && cells[k].terrain !== 'water' && fields.every(f => f.has(k)),
   );
-  const count = Math.min(glyphCountForMap(Object.keys(map.cells).length), valid.length, GLYPH_POOL.length);
-  const hexes = shuffleSeeded(valid, rnd).slice(0, count);
+  const imbalance = (k: HexKey): number => {
+    const ds = fields.map(f => f.get(k)!);
+    return Math.max(...ds) - Math.min(...ds);
+  };
+  const count = Math.min(glyphCountForMap(Object.keys(cells).length), candidates.length, GLYPH_POOL.length);
+  const hexes = shuffleSeeded(candidates, rnd).sort((a, b) => imbalance(a) - imbalance(b)).slice(0, count);
   const ids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, count);
   return hexes.map((at, i): HSGlyph => ({ id: ids[i], at, faceUp: false }));
 }
+/** The glyph layout for a game: the seeded fair-random layout when the server supplied a
+ *  seed, else the map's hand-authored static glyphs. All face-down (power-side-down). */
+function glyphLayoutFor(s: HSState): HSGlyph[] {
+  if (s.glyphSeed != null) return generateGlyphs(s, s.glyphSeed);
+  const map = MAPS[s.mapId];
+  return (map?.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: false }));
+}
 
-function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId; at: HexKey }[] }): void {
+function enterPlaying(s: HSState): void {
   // Glyphs start HIDDEN (face-down): unknown + inert until a figure stops on one — then
   // applyGlyphOnStop flips it face-up and it takes effect (05-glyphs: placed power-side-DOWN).
-  // Random per-game layout when the server supplied a seed; else the map's static glyphs.
-  const full = MAPS[s.mapId];
-  s.glyphs = s.glyphSeed != null && full
-    ? generateGlyphs(full, s.glyphSeed)
-    : (map.glyphs ?? []).map((g): HSGlyph => ({ id: g.id, at: g.at, faceUp: false }));
+  // They are normally laid out at the START of placement (finishDraft) so figures are placed
+  // AROUND them; preserve that layout. Only generate here for paths with no placement phase
+  // (quick battle), where they aren't set yet.
+  if (!s.glyphs || s.glyphs.length === 0) s.glyphs = glyphLayoutFor(s);
   s.phase = 'playing';
   s.subPhase = 'place_markers';
   s.round = 1;
@@ -695,7 +733,7 @@ function enterPlaying(s: HSState, map: { name: string; glyphs?: { id: HSGlyphId;
   const glyphNote = s.glyphs.length
     ? ` ${s.glyphs.length} glyph${s.glyphs.length === 1 ? '' : 's'} await on the field.`
     : '';
-  pushLog(s, 'info', `Battle on the ${map.name}! Round 1 — all players secretly place their order markers.${glyphNote}`);
+  pushLog(s, 'info', `Battle on the ${MAPS[s.mapId]?.name ?? 'battlefield'}! Round 1 — all players secretly place their order markers.${glyphNote}`);
 }
 
 function doSetLobbyConfig(
@@ -789,7 +827,7 @@ function doStartGame(state: HSState, mapId?: string, pointBudget?: number, mode?
       const err = autoPlaceQuickArmy(map, s.players[idx].seat, s.cards, s.figures);
       if (err) return { error: err };
     }
-    enterPlaying(s, map);
+    enterPlaying(s);
     return s;
   }
 
@@ -900,6 +938,10 @@ function finishDraft(s: HSState): void {
     s.hand[seat] = figures.filter(f => !f.reserve).map(f => f.id);
   }
   s.placementReady = [];
+  // Lay out the glyphs NOW, before figures are placed, so players can see them and place
+  // their armies around them. The fair-placement pass keeps no glyph closer to one start
+  // zone than another (generateGlyphs). enterPlaying preserves this layout.
+  s.glyphs = glyphLayoutFor(s);
   s.phase = 'placement';
   const tally = seats.map(seat => `${playerName(s, seat)}: ${d.spent[seat] ?? 0} pts`).join(', ');
   pushLog(s, 'info', `Draft complete — place your figures in your start zone. ${tally}.`);
@@ -1241,7 +1283,7 @@ function doPlacementReady(state: HSState, seat: number): HSResult {
   // (its whole squad was left unplaced) so it cannot hold an order marker.
   if ((s.placementReady ?? []).length >= s.players.length) {
     s.cards = s.cards.filter(c => s.figures.some(f => f.cardUid === c.uid));
-    enterPlaying(s, MAPS[s.mapId]);
+    enterPlaying(s);
   }
   return s;
 }

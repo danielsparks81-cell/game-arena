@@ -3143,6 +3143,79 @@ describe('slice 5: draft end → placement', () => {
   });
 });
 
+// ---- glyphs are laid out BEFORE figures, and placed fairly ----------------
+
+describe('slice 4/5: fair glyph placement (before figures, equidistant)', () => {
+  /** Drive a 2-player Training Field draft to the placement phase WITH a glyph seed,
+   *  so the seeded fair-random layout (generateGlyphs) runs. */
+  function toPlacementWithGlyphs(seed: number): HSState {
+    let s = unwrap(
+      applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 500, mapId: 'training_field', glyphSeed: seed }),
+    );
+    s = unwrap(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(18, 4)] }));
+    s = draftCard(s, 'finn'); // p1
+    s = draftCard(s, 'thorgrim'); // p2
+    s = draftCard(s, 'marro_warriors'); // p2 (snake)
+    s = draftPass(s); // p1 done
+    s = draftPass(s); // p2 done → placement
+    return s;
+  }
+
+  // Independent multi-source BFS (same plain path metric the engine uses) — distance from
+  // a set of source hexes to every reachable cell, around off-map gaps.
+  function distField(cells: (typeof MAPS)['training_field']['cells'], sources: string[]): Map<string, number> {
+    const dist = new Map<string, number>();
+    let frontier = sources.filter(k => cells[k]);
+    frontier.forEach(k => dist.set(k, 0));
+    for (let d = 1; frontier.length; d++) {
+      const next: string[] = [];
+      for (const k of frontier) for (const n of neighborKeys(k)) {
+        if (cells[n] && !dist.has(n)) { dist.set(n, d); next.push(n); }
+      }
+      frontier = next;
+    }
+    return dist;
+  }
+
+  it('lays glyphs out at the START of placement — before any figure is on the board', () => {
+    const s = toPlacementWithGlyphs(12345);
+    expect(s.phase).toBe('placement');
+    expect(s.glyphs.length).toBeGreaterThan(0); // glyphs already exist…
+    expect(s.figures.every(f => f.at == null)).toBe(true); // …and figures are still in hand
+    // Never on a start zone, and face-DOWN until someone stops on one.
+    const map = MAPS['training_field'];
+    const zone = new Set([...map.startZones[0], ...map.startZones[1]]);
+    for (const g of s.glyphs) {
+      expect(zone.has(g.at)).toBe(false);
+      expect(g.faceUp).toBe(false);
+      expect(map.cells[g.at].terrain).not.toBe('water');
+    }
+  });
+
+  it('no glyph is closer to one start zone than another — each lands among the most-equidistant hexes', () => {
+    const map = MAPS['training_field'];
+    const f0 = distField(map.cells, map.startZones[0]);
+    const f1 = distField(map.cells, map.startZones[1]);
+    const imbalanceOf = (k: string) => Math.abs((f0.get(k) ?? Infinity) - (f1.get(k) ?? Infinity));
+    const startSet = new Set([...map.startZones[0], ...map.startZones[1]]);
+    const candidates = Object.keys(map.cells).filter(
+      k => !startSet.has(k) && map.cells[k].terrain !== 'water' && f0.has(k) && f1.has(k),
+    );
+    // Try several seeds — we're testing the algorithm, not one lucky layout.
+    for (const seed of [1, 42, 777, 9999]) {
+      const s = toPlacementWithGlyphs(seed);
+      // The engine picks the `count` LOWEST-imbalance hexes; the count-th smallest imbalance
+      // is the worst any fair choice may have. Every chosen glyph must be within that.
+      const sortedImb = candidates.map(imbalanceOf).sort((a, b) => a - b);
+      const threshold = sortedImb[Math.min(s.glyphs.length, sortedImb.length) - 1];
+      for (const g of s.glyphs) {
+        expect(imbalanceOf(g.at)).toBeLessThanOrEqual(threshold);
+        expect(imbalanceOf(g.at)).toBeLessThanOrEqual(1); // and equidistant within hex parity
+      }
+    }
+  });
+});
+
 // ---- placement legality + ready gate --------------------------------------
 
 describe('slice 5: placement', () => {
