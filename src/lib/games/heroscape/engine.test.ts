@@ -185,6 +185,7 @@ function inTurnsOn(
  *  for the test process only; production maps are untouched. */
 const CLIFF_MAP_ID = 'test_cliffs';
 const WATER_MAP_ID = 'test_water';
+const TINY_MAP_ID = 'test_tiny';
 beforeAll(() => {
   MAPS[CLIFF_MAP_ID] = parseMap(
     CLIFF_MAP_ID,
@@ -209,6 +210,9 @@ beforeAll(() => {
     row3@2: G1 G1 G1 G1 G1
     `,
   );
+  // A 3-hex single row: at most TWO mutually-non-adjacent landings, so a 4-figure
+  // Airborne squad can never fully drop here — used to exercise the "can't fit" path.
+  MAPS[TINY_MAP_ID] = parseMap(TINY_MAP_ID, 'Test Tiny', `row1@1: G1 G1 G1`);
 });
 
 /** offset (col,row) → axial key for readable coordinates. */
@@ -2267,13 +2271,20 @@ describe('slice 4: Warrior Spirits on destroy', () => {
     expect(errOf(applyAction(s, 'p1', { kind: 'end_turn' }))).toMatch(/Resolve your pending choice/);
   });
 
-  it('the Spirit may only be placed on the OWNER’s own cards (never an opponent’s)', () => {
+  it('the Spirit may be placed on ANY living unique card (the verified text is not friendly-restricted)', () => {
+    // Printed card text (high-res verified, docs/heroscape/extraction/cards-page-1.md):
+    // "place this figure on any unique Army Card" — no "your". So an opponent's living
+    // unique card must be offered too (the owner just won't pick it in practice).
     const before = finnAtDeath();
     const s = unwrap(applyAction(before, 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
     const options = s.pendingChoice?.kind === 'spirit_placement' ? s.pendingChoice.options : [];
     expect(options.length).toBeGreaterThan(0);
-    for (const uid of options) expect(s.cards.find(c => c.uid === uid)!.ownerSeat).toBe(0); // all p1's own
-    expect(options.some(uid => s.cards.find(c => c.uid === uid)!.ownerSeat !== 0)).toBe(false); // no opponent card
+    // every option is a unique card with a living figure...
+    for (const uid of options) expect(s.cards.find(c => c.uid === uid)).toBeTruthy();
+    // ...including at least one of the OWNER's own (Tarn / Thorgrim survive)...
+    expect(options.some(uid => s.cards.find(c => c.uid === uid)!.ownerSeat === 0)).toBe(true);
+    // ...and the opponent's living Marro card is offered as well (faithful: any unique card).
+    expect(options.some(uid => s.cards.find(c => c.uid === uid)!.ownerSeat === 1)).toBe(true);
   });
 
   it('placing the Attack Spirit gives the chosen card +1 attack permanently', () => {
@@ -5187,6 +5198,62 @@ describe('The Drop — rolled before markers + placement legality', () => {
     const ok = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: pick } }));
     expect(ok.figures.filter(f => f.cardUid === 's0-airborne_elite' && f.at != null)).toHaveLength(4); // all deployed
     expect(ok.figures.filter(f => f.cardUid === 's0-airborne_elite' && f.reserve)).toHaveLength(0); // none still reserve
+  });
+
+  // --- Deadlock regression (re-audit HIGH): the place-markers gate blocks markers
+  // until the Airborne seat rolls The Drop. If an AI ever DECLINED the roll (returned
+  // place_markers) the gate rejected it and ai_step threw — freezing the whole room.
+  // The fix: always roll; on a 13+ that can't seat a full squad, decline the LANDING.
+  it('AI always rolls The Drop before markers — even when no full squad can land (root cause of the freeze)', () => {
+    let s = dropStart();
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.mapId = TINY_MAP_ID; // 3-hex strip: a 4-figure drop can never fit here
+    for (const f of s.figures) if (f.cardUid === 's1-marro_warriors') f.at = null;
+    s = place(s, 's1-marro_warriors-1', at(1, 0)); // one enemy mid-strip (kills every landing)
+    // Pre-fix the AI returned place_markers here; the gate then rejected it and the
+    // room hung. The roll itself sets airborneDropRound (hit or miss), clearing the gate.
+    expect(aiNextAction(s, 0)?.kind).toBe('the_drop');
+  });
+
+  it('AI DECLINES the landing ([]) when the board cannot seat a full squad — no freeze', () => {
+    let s = dropStart();
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.mapId = TINY_MAP_ID;
+    for (const f of s.figures) if (f.cardUid === 's1-marro_warriors') f.at = null;
+    s = place(s, 's1-marro_warriors-1', at(1, 0));
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', d20: 20 })); // guaranteed hit → landing opens
+    expect(s.pendingChoice?.kind).toBe('airborne_drop');
+    const a = aiNextAction(s, 0); // routes to aiResolveChoice (pendingChoice.seat === 0)
+    expect(a).toEqual({ kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: [] } });
+    const after = unwrap(applyAction(s, 'p1', a!)); // the engine accepts the decline
+    expect(after.pendingChoice).toBeUndefined();
+    expect(after.figures.filter(f => f.cardUid === 's0-airborne_elite' && f.reserve)).toHaveLength(4); // all kept
+  });
+
+  it('The Drop landing accepts an empty decline — squad stays in reserve, gate clears, markers open', () => {
+    let s = dropStart();
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', d20: 20 })); // hit opens the landing
+    expect(s.pendingChoice?.kind).toBe('airborne_drop');
+    const declined = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: [] } }));
+    expect(declined.pendingChoice).toBeUndefined();
+    expect(declined.figures.filter(f => f.cardUid === 's0-airborne_elite' && f.reserve)).toHaveLength(4); // none deployed
+    expect(declined.figures.filter(f => f.cardUid === 's0-airborne_elite' && f.at != null)).toHaveLength(0);
+    // the round's Drop WAS rolled, so the other player can now lock order markers (gate cleared)
+    const s2 = unwrap(applyAction(declined, 'p2', { kind: 'place_markers', assignments: allOn('s1-marro_warriors') }));
+    expect(s2.markersReady).toContain(1);
+  });
+
+  it('a partial drop (some-but-not-all) is rejected — The Drop is all-or-nothing', () => {
+    let s = dropStart();
+    for (const f of s.figures) if (f.cardUid === 's1-marro_warriors' && f.id !== 's1-marro_warriors-1') f.at = null;
+    s = place(s, 's1-marro_warriors-1', at(3, 3));
+    s = unwrap(applyAction(s, 'p1', { kind: 'the_drop', d20: 20 }));
+    const legal = theDropHexes(s, 0);
+    const pick: string[] = [];
+    for (const k of legal) { if (pick.length >= 4) break; if (!pick.some(p => neighborKeys(p).includes(k))) pick.push(k); }
+    expect(pick.length).toBeGreaterThanOrEqual(2);
+    // 2 of a 4-figure squad is neither a full drop nor a decline → rejected.
+    expect(errOf(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: pick.slice(0, 2) } }))).toMatch(/all|none/i);
   });
 });
 

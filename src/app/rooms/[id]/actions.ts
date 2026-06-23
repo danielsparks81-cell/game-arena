@@ -1345,8 +1345,8 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   } else if (action.kind === 'fire_line') {
     // Mimring FIRE LINE SPECIAL ATTACK — roll 4 attack dice ONCE and each
     // affected figure's defense SEPARATELY. Defenders come from the engine's
-    // single-source helper (printed defense + auras, no height); the engine
-    // re-derives the affected set and validates the dice shapes.
+    // single-source helper (printed defense + auras + height — a defender keeps
+    // height vs a special attack); the engine re-derives the set + validates shapes.
     const defenders = hsFireLineDefenders(state, action.attackerId, action.dir);
     engineAction = {
       kind: 'fire_line',
@@ -1370,7 +1370,8 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // Airborne GRENADE — the CURRENT Elite (head of the pending throw queue)
     // lobs at the chosen target. The server rolls 2 attack dice ONCE + each
     // affected figure's defense; the engine re-derives the affected set + the
-    // dice need (printed defense + auras, no height) and validates the shapes.
+    // dice need (printed defense + auras + height — defenders keep height vs a
+    // special attack) and validates the shapes.
     const pc = state.pendingChoice;
     const throwerId = pc && pc.kind === 'grenade_throw' ? pc.throwers[0] : '';
     const defenders = hsGrenadeDefenders(state, throwerId, action.targetId);
@@ -1488,8 +1489,9 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       rolls: livingMarro.map(f => ({ marroFigureId: f.id, d20: d20() })),
     };
   } else if (action.kind === 'ice_shard') {
-    // Nilfheim ICE SHARD BREATH — one of up to 3 shots. Roll 4 attack dice + the
-    // target's effective defense (printed + auras, no height — a special attack).
+    // Nilfheim ICE SHARD BREATH — one of up to 3 shots. Roll 4 FIXED attack dice +
+    // the target's full effective defense (printed + auras + height — a defender
+    // keeps height even vs a special attack).
     const tgt = state.figures?.find(f => f.id === action.targetId);
     const atk = state.figures?.find(f => f.id === action.attackerId);
     const defDice = tgt && atk ? Math.max(0, hsEffectiveDefenseDice(state, tgt, atk).dice) : 0;

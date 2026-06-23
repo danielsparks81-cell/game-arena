@@ -3338,7 +3338,9 @@ export default function HeroScapeBoard({
           // result isn't spoiled mid-roll. On a reload of a finished game rollAttack
           // is already null, so it shows promptly.
           <div className="[order:-2] rounded-lg border-2 border-amber-400 bg-neutral-900/70 px-3 py-2 text-center text-sm font-bold text-amber-200">
-            🏆 {winnerLabel} wins the battle!
+            {state.winnerSeat == null && state.winnerTeam == null
+              ? '🤝 Draw — no army left standing.'
+              : `🏆 ${winnerLabel} wins the battle!`}
           </div>
         ) : (
           /* TURN ORDER — pinned to the top of the rail. Replaces the old separate
@@ -3387,6 +3389,11 @@ export default function HeroScapeBoard({
                 <div className="mt-0.5 text-[11px] text-emerald-300">
                   Rolled 13+! Click {dropReserveCount} highlighted empty spaces — not adjacent to each other or any figure. ({dropPicks.length}/{dropReserveCount})
                 </div>
+                {dropLegalSet.size === 0 && (
+                  <div className="mt-0.5 text-[11px] text-amber-300">
+                    No empty space can take a landing right now — hold them in reserve and try again next round.
+                  </div>
+                )}
                 <div className="mt-1 flex flex-wrap gap-2">
                   <button
                     disabled={dropPicks.length !== dropReserveCount}
@@ -3401,6 +3408,15 @@ export default function HeroScapeBoard({
                     className="rounded-lg border border-neutral-600 px-3 py-1 text-sm font-semibold text-neutral-300 transition hover:border-neutral-400 disabled:opacity-40"
                   >
                     Clear
+                  </button>
+                  {/* "you MAY place all 4" — declining (deploy none) is always legal and
+                      is the only way out when no full, mutually-non-adjacent squad fits. */}
+                  <button
+                    onClick={() => { setDropPicks([]); onResolveChoice({ kind: 'airborne_drop', placements: [] }); }}
+                    title="Keep the Airborne Elite in reserve this round (you can roll The Drop again next round)."
+                    className="rounded-lg border border-neutral-600 px-3 py-1 text-sm font-semibold text-neutral-300 transition hover:border-neutral-400"
+                  >
+                    Hold in reserve
                   </button>
                 </div>
               </>

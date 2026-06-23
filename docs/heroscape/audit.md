@@ -167,3 +167,30 @@ Carry (no engine test); The Drop placement legality; projection masking (with H1
 
 ### What's solid — no action
 Turn/round/draft/placement/pending-choice machinery; movement core; combat core; 6 of 7 interactions; AI plays a full coherent game using every power but Carry; server-authoritative + RNG-free; order-marker hiding. Playthroughs (120 fuzz + 8 scripted full games) all finish cleanly.
+
+---
+
+## Re-audit pass — 2026-06-23 (post H2/H4 fixes)
+
+A second audit (3 read-only passes) over the H2/H4/M1/M2/M3 fixes + resetTurnScratch + Warrior's Spirit found the engines faithful and the fixes correct, with **one HIGH-severity self-inflicted bug** and two cosmetic items. All now fixed:
+
+### 🔴 FIXED — The Drop gate could hard-freeze a room
+The Drop-before-markers gate (added with M1–M3: order markers are blocked until an Airborne seat rolls The Drop) deadlocked the whole room when an **AI** owned Airborne Elite and the board could not seat a full, mutually-non-adjacent 4-figure drop. The old `aiNextAction` *declined the roll* (returned `place_markers`) in that case; the gate rejected it and `ai_step` threw, so the round never advanced. Fix (faithful to "you MAY place all 4"):
+- `aiNextAction` now **always rolls** `the_drop` when `canTheDrop` — the roll sets `airborneDropRound` (hit or miss), which clears the gate.
+- On a 13+ that can't fit a full squad, `aiResolveChoice` **declines the landing** (returns `placements: []`).
+- `doAirborneDropPlace` accepts `[]` as a legal **decline** (squad kept in reserve, pendingChoice cleared); a partial drop (1..n-1) is still rejected (all-or-nothing).
+- Board UI: humans get a **"Hold in reserve"** button (parity with the engine decline) so they can't soft-lock when no full squad fits.
+- +4 regression tests (AI always rolls; AI declines on a 3-hex strip; engine accepts `[]` and markers then open; partial drop rejected).
+
+### ✅ FIXED — Warrior's Spirit drifted to own-cards-only (fidelity regression)
+A prior change restricted the on-destroy Spirit to the owner's own cards and mislabeled it "per the card text". The **high-res verified card text** (extraction/cards-page-1.md) is exactly *"place this figure on any unique Army Card"* — no "your" — matching this audit's own §Low note ("may target any card incl. an opponent's"). Reverted to offer **any living unique card, any owner**; the AI resolver already prefers its own. Test updated to assert an opponent's living card is offered.
+
+### ✅ FIXED — cosmetic
+- Stale "no height" comments on the **defender** side of special attacks (engine.ts grenade header + ice/queglix roller; actions.ts fire_line/grenade/ice_shard) → corrected: a defender keeps height vs a special attack (verified §117: Samurai 5 Def + 1 height = 6 dice). The attacker-side "special — no height/aura" breakdowns are correct and unchanged.
+- Draw banner showed "🏆 — wins the battle!" for a true draw → now "🤝 Draw — no army left standing."
+
+### Verified
+`tsc` clean · **485** engine/board tests pass · fuzzer + 9 scripted playthroughs finish · `next build` succeeds.
+
+### Still open (need user/UI, unchanged)
+M4 AI AUTO-glyph self-resolver (masked server-side); the 3 CHOICE glyphs (Erland/Nilrend/Wannok); AI Carry; flying-takeoff/order-marker sounds.

@@ -3663,7 +3663,9 @@ function doExplosion(
 // Attack 2, ONCE PER GAME. One grenade per living Elite, thrown one at a time:
 // choose a figure within Range 5 (no LOS); the target AND every figure adjacent
 // to it (friend or foe) are hit. 2 attack dice rolled ONCE for all affected;
-// each defends separately. Special attack → no height / aura-attack / LOS.
+// each defends separately. Special attack → the ATTACK is unmodifiable (no height /
+// attack-aura / LOS); each DEFENDER still rolls its full effective defense, height
+// included (verified §117: Samurai = 5 Def + 1 height = 6 dice vs a special attack).
 // ============================================================================
 const AIRBORNE_CARD_ID = 'airborne_elite';
 const GRENADE_RANGE = 5;
@@ -4003,11 +4005,17 @@ function buildAttackBreakdown(req: {
 
 /**
  * On-destroy Spirit (Finn's Warrior's Attack Spirit / Thorgrim's Warrior's Armor
- * Spirit, cards.md). When the destroyed figure is Finn or Thorgrim AND the game
- * is still in progress, queue a `spirit_placement` PendingChoice OWNED BY THE
- * DESTROYED CHAMPION'S OWNER (not the attacker). The owner then places the
- * Spirit on ANY living unique Army Card (any owner — the text is not friendly-
- * restricted), permanently +1 attack (Finn) or +1 defense (Thorgrim).
+ * Spirit). When the destroyed figure is Finn or Thorgrim AND the game is still in
+ * progress, queue a `spirit_placement` PendingChoice OWNED BY THE DESTROYED
+ * CHAMPION'S OWNER (not the attacker). The owner then places the Spirit on ANY
+ * living unique Army Card, permanently +1 attack (Finn) or +1 defense (Thorgrim).
+ *
+ * FIDELITY — the choice is NOT friendly-restricted. The printed card text, verified
+ * at high resolution (docs/heroscape/extraction/cards-page-1.md), is exactly "place
+ * this figure on any unique Army Card" — no "your". So we offer every unique card
+ * with a living figure, regardless of owner. (In practice the owner picks their own;
+ * the AI resolver already prefers its own cards. An earlier build wrongly restricted
+ * this to own cards and mislabeled it "per the card text" — that was a regression.)
  *
  * Skipped when the game just finished (phase !== 'playing') — no Spirit once a
  * side is wiped (slice-4 spec §Server). Also a no-op if there are no living
@@ -4022,11 +4030,10 @@ function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
     cardId === FINN_CARD_ID ? 'attack' : cardId === THORGRIM_CARD_ID ? 'defense' : null;
   if (!spirit) return;
   const ownerSeat = destroyed.ownerSeat;
-  // "any unique Army Card" — every card in play is unique; offer all that still
-  // have at least one living figure (a card with no figures left is out of play).
-  // The Spirit goes on one of the OWNER's own unique Army Cards (per the card text) — never an
-  // opponent's. Must still have a living figure to benefit.
-  const options = s.cards.filter(c => c.ownerSeat === ownerSeat && cardHasLivingFigures(s, c.uid)).map(c => c.uid);
+  // "place this figure on any unique Army Card" (verified card text) — every card in
+  // play is unique, so offer ALL that still have at least one living figure (a card
+  // with no figures left is out of play), regardless of owner. Not friendly-restricted.
+  const options = s.cards.filter(c => cardHasLivingFigures(s, c.uid)).map(c => c.uid);
   if (options.length === 0) return; // nothing to place it on
   s.pendingChoice = { kind: 'spirit_placement', seat: ownerSeat, spirit, options };
   pushLog(
@@ -5272,8 +5279,19 @@ function doTheDrop(state: HSState, seat: number, d20: number): HSResult {
 function doAirborneDropPlace(state: HSState, seat: number, placements: HexKey[]): HSResult {
   const reserve = reserveAirborne(state, seat);
   if (reserve.length === 0) return { error: 'You have no Airborne Elite in reserve' };
-  if (!Array.isArray(placements) || placements.length !== reserve.length) {
-    return { error: `The Drop must place all ${reserve.length} Airborne Elite` };
+  if (!Array.isArray(placements)) return { error: 'The Drop placements must be an array' };
+  // The Drop is "you MAY place all your Airborne Elite": it's all-or-nothing.
+  // An empty array is a legal DECLINE — the figures stay in reserve (e.g. when
+  // the board has no room to land a full, mutually-non-adjacent squad). Anything
+  // between 1 and reserve.length-1 is a partial drop, which the rules don't allow.
+  if (placements.length === 0) {
+    const s = clone(state);
+    delete s.pendingChoice;
+    pushLog(s, 'power', `${playerName(s, seat)} holds the Airborne Elite in reserve.`);
+    return s;
+  }
+  if (placements.length !== reserve.length) {
+    return { error: `The Drop places all ${reserve.length} Airborne Elite, or none` };
   }
   if (new Set(placements).size !== placements.length) return { error: 'The Drop landings must be distinct spaces' };
   for (const k of placements) {
@@ -5725,10 +5743,14 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     if (hex) return { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex } };
   }
   // Airborne Elite THE DROP — land all reserve Airborne on the planned non-adjacent hexes
-  // (closest to the enemy). aiNextAction only rolled The Drop when this plan fills, so
-  // placements.length === reserve.length holds.
+  // (closest to the enemy). The Drop is all-or-nothing, so deploy the full squad only when
+  // the plan fits every reserve figure; otherwise DECLINE with [] (they stay in reserve).
+  // This is what keeps the place-markers gate from deadlocking after a 13+ hit on a board
+  // that can't seat a complete, mutually-non-adjacent drop.
   if (pc.kind === 'airborne_drop') {
-    return { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: airborneDropPlan(state, seat, theDropHexes(state, seat)) } };
+    const plan = airborneDropPlan(state, seat, theDropHexes(state, seat));
+    const full = plan.length === reserveAirborne(state, seat).length ? plan : [];
+    return { kind: 'resolve_choice', choice: { kind: 'airborne_drop', placements: full } };
   }
   // Airborne Elite GRENADE — resolve the CURRENT Elite's throw at the target whose splash
   // catches the most enemies (net of friendly fire). The engine advances the queue + skips
@@ -6059,7 +6081,9 @@ export function aiEngineAction(
     return { ...intent, attackRoll: rollers.rollDice(4), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollers.rollDice(d.defense) })) };
   }
   // Nilfheim ICE SHARD / Major Q9 QUEGLIX — a single-target special attack: roll the
-  // shot's attack dice + the target's effective defense (no height).
+  // shot's FIXED attack dice (the attack is unmodifiable) + the target's full effective
+  // defense (printed + auras + height — a defender keeps height vs a special attack, per
+  // the verified §117 grenade example: Samurai = 5 Def + 1 height = 6 dice).
   if (intent.kind === 'ice_shard' || intent.kind === 'queglix') {
     const tgt = state.figures.find(f => f.id === intent.targetId);
     const atk = state.figures.find(f => f.id === intent.attackerId);
@@ -6133,14 +6157,13 @@ export function aiNextAction(state: HSState, seat: number): HSAction | null {
   if (state.phase !== 'playing') return null;
   if (state.subPhase === 'place_markers') {
     if ((state.markersReady ?? []).includes(seat)) return null;
-    // THE DROP first (it must come before order markers): roll only when the landing
-    // plan can place ALL reserve Airborne, so the follow-up placement is never rejected.
-    if (canTheDrop(state, seat)) {
-      const legal = Object.keys(MAPS[state.mapId]?.cells ?? {}).filter(k => dropHexLegal(state, k));
-      if (airborneDropPlan(state, seat, legal).length === reserveAirborne(state, seat).length) {
-        return { kind: 'the_drop', d20: 0 };
-      }
-    }
+    // THE DROP must be rolled before order markers, and the place-markers gate
+    // (doPlaceMarkers) blocks markers until this seat has rolled. So ALWAYS roll
+    // when able — the roll sets airborneDropRound (hit or miss), which clears the
+    // gate. On a 13+ hit we then resolve the landing in aiResolveChoice, deploying
+    // a full squad or declining if the board can't fit one. Gating the roll here on
+    // "can a full plan fit" would leave the gate set and freeze the room forever.
+    if (canTheDrop(state, seat)) return { kind: 'the_drop', d20: 0 };
     return aiPlaceMarkers(state, seat);
   }
   if (state.turnSeat === seat) return aiTurn(state, seat);
