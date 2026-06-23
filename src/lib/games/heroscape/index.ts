@@ -61,6 +61,7 @@ export {
   teamSpentInDraft,
   teamRemainingInDraft,
   POINT_BUDGETS,
+  FUN_BOT_NAMES,
   DEFAULT_POINT_BUDGET,
   MIN_POINT_BUDGET,
   MAX_POINT_BUDGET,

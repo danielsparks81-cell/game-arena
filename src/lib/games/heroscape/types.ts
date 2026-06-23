@@ -716,6 +716,8 @@ export type HSAction =
       // team assigns it to a side. The bot drafts / places / plays via ai_step.
       kind: 'add_bot';
       team?: number;
+      /** Server-picked fun name (without the " (AI)" suffix). Falls back to the pool. */
+      name?: string;
     }
   | {
       // Host removes an AI from a seat (lobby only).

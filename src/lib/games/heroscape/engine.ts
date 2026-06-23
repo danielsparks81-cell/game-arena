@@ -291,22 +291,30 @@ export function removePlayer(state: HSState, playerId: string): HSState {
 }
 
 /** Thematic AI names — the HeroScape generals, assigned in add order. */
-const BOT_NAMES = ['Utgar', 'Jandar', 'Vydar', 'Ullar', 'Einar', 'Aquilla'];
+/** Fun, original bot names (NOT the HeroScape generals). The server picks one at random
+ *  per bot (see makeMoveHS); this list is the fallback when a name isn't supplied. */
+export const FUN_BOT_NAMES = [
+  'General Chaos', 'Sir Stabsalot', 'Lord Bonk', 'Madam Mayhem', 'Brigadier Bumble',
+  'Old Crusher', 'Captain Calamity', 'Grumpus', 'Wreckage', 'Sir Pounce',
+  'Vlad the Impatient', 'Sergeant Snuggles', 'The Smasher', 'Baron von Bash', 'Tiny Tank', 'Boomer',
+];
 
 /** Add an AI opponent to the lowest empty seat (lobby only). Synthetic playerId
  *  "bot-<seat>"; the server drives its draft / placement / turns via ai_step.
- *  Optional `team` assigns it to a side (so you can ally WITH a bot). */
-function doAddBot(state: HSState, team?: number): HSResult {
+ *  Optional `team` assigns it to a side (so you can ally WITH a bot). `name` is a
+ *  pre-picked fun name from the server; without it we fall back to the pool. */
+function doAddBot(state: HSState, team?: number, name?: string): HSResult {
   if (state.phase !== 'lobby') return { error: 'AI opponents can only be added in the lobby' };
   if (state.players.length >= MAX_SEATS) return { error: `HeroScape seats at most ${MAX_SEATS} players` };
   const used = new Set(state.players.map(p => p.seat));
   let seat = 0;
   while (used.has(seat)) seat += 1;
   const botCount = state.players.filter(p => p.bot).length;
+  const chosen = name && name.trim() ? name.trim() : FUN_BOT_NAMES[botCount % FUN_BOT_NAMES.length];
   const player = {
     seat,
     playerId: `bot-${seat}`,
-    username: `${BOT_NAMES[botCount % BOT_NAMES.length]} (AI)`,
+    username: `${chosen} (AI)`,
     bot: true,
     ...(team !== undefined ? { team } : {}),
   };
@@ -347,7 +355,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       action.teamBudgets,
     );
   }
-  if (action.kind === 'add_bot') return doAddBot(state, action.team);
+  if (action.kind === 'add_bot') return doAddBot(state, action.team, action.name);
   if (action.kind === 'remove_bot') return doRemoveBot(state, action.seat);
   if (state.phase === 'lobby') return { error: 'The battle has not started yet' };
   if (state.phase === 'finished') return { error: 'The battle is over' };

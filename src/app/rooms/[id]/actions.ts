@@ -86,6 +86,7 @@ import {
   aiNextAction as hsAiNextAction,
   aiEngineAction as hsAiEngineAction,
   initiativeReadySeats as hsInitiativeReadySeats,
+  FUN_BOT_NAMES,
   attackDiceRequirements as hsAttackDiceRequirements,
   fireLineDefenders as hsFireLineDefenders,
   explosionDefenders as hsExplosionDefenders,
@@ -1576,6 +1577,15 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     engineAction = { kind: 'resolve_choice', choice: action.choice };
   } else if (action.kind === 'start_game') {
     engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode, edition: action.edition };
+  } else if (action.kind === 'add_bot') {
+    // Give each bot a RANDOM fun name (not the HeroScape generals), avoiding any already in use.
+    const usedNames = new Set(
+      state.players.filter(p => p.bot).map(p => p.username.replace(/ \(AI\)$/, '')),
+    );
+    const free = FUN_BOT_NAMES.filter(n => !usedNames.has(n));
+    const pool = free.length ? free : FUN_BOT_NAMES;
+    const name = pool[Math.floor(Math.random() * pool.length)];
+    engineAction = { kind: 'add_bot', team: action.team, name };
   } else {
     // place_markers / draft_card / draft_pass / place_figure / unplace_figure /
     // placement_ready — no server-rolled dice; pass through verbatim.

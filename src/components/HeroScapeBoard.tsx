@@ -33,7 +33,6 @@ import {
   HS_GLYPHS,
   POWER_DESCRIPTIONS,
   CARD_IDENTITY,
-  POINT_BUDGETS,
   MIN_POINT_BUDGET,
   MAX_POINT_BUDGET,
   legalDestinations,
@@ -2703,39 +2702,12 @@ export default function HeroScapeBoard({
       <div className="flex flex-col items-center gap-4 p-6">
         <h2 className="text-xl font-bold text-amber-100">HeroScape</h2>
         <p className="max-w-md text-center text-sm text-neutral-400">
-          Master Game (beta): draft an army from the 16-card roster against a point budget
-          (or quick-battle the preset Vikings vs Marro), arrange your figures, then schedule
-          your turns with order markers, roll for initiative, and fight on 3-D terrain — first
-          to wipe out the enemy army wins.
+          Master Game: draft an army against a point budget, deploy your figures, then each
+          round place secret order markers, roll for initiative, and battle across 3-D terrain
+          with height advantage, glyphs, and special powers — last army standing wins.
         </p>
         <div className="text-sm text-neutral-300">
           {state.players.length} player{state.players.length === 1 ? '' : 's'} seated (2-6){state.players.length < 2 ? ' — waiting for one more…' : ''}
-        </div>
-
-        {/* Mode toggle: Draft armies vs Quick battle (host chooses) */}
-        <div className="flex flex-col items-center gap-1">
-          <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Mode</div>
-          <div className="flex gap-2">
-            {([['draft', 'Draft armies'], ['quick', 'Quick battle']] as const).map(([m, label]) => {
-              const active = lobbyMode === m;
-              const modeBlocked = m === 'quick' && !quickOk; // 1-v-1 preset only
-              return (
-                <button
-                  key={m}
-                  onClick={() => isHost && !modeBlocked && onSetLobbyConfig({ mode: m })}
-                  disabled={!isHost || disabled || modeBlocked}
-                  title={modeBlocked ? 'Quick battle is a fixed 2-player game' : undefined}
-                  className={
-                    'rounded-lg border-2 px-4 py-1.5 text-sm font-semibold transition ' +
-                    (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
-                    (modeBlocked ? ' cursor-not-allowed opacity-40' : isHost ? '' : ' cursor-default opacity-90')
-                  }
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
         </div>
 
         {/* Edition toggle: Classic (original points) vs Modern (rebalanced) */}
@@ -2763,7 +2735,7 @@ export default function HeroScapeBoard({
           </div>
           <div className="text-[11px] text-neutral-500">
             {cardEdition === 'classic'
-              ? 'Original points for the cards that differ (Raelin 80, Marro 50, Grimnak 120, Q9 180, Nilfheim 185)'
+              ? 'The original values'
               : 'The rebalanced printing (default)'}
           </div>
         </div>
@@ -2803,28 +2775,9 @@ export default function HeroScapeBoard({
         {lobbyMode === 'draft' && (
           <div className="flex flex-col items-center gap-1">
             <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Point budget</div>
-            <div className="flex gap-2">
-              {POINT_BUDGETS.map(b => {
-                const active = lobbyBudget === b;
-                return (
-                  <button
-                    key={b}
-                    onClick={() => isHost && onSetLobbyConfig({ pointBudget: b })}
-                    disabled={!isHost || disabled}
-                    className={
-                      'rounded-lg border-2 px-3 py-1 text-sm font-bold tabular-nums transition ' +
-                      (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
-                      (isHost ? '' : ' cursor-default opacity-90')
-                    }
-                  >
-                    {b}
-                  </button>
-                );
-              })}
-            </div>
-            {/* …or type ANY custom amount (committed on Enter / blur). The engine
+            {/* Type the army point budget (committed on Enter / blur). The engine
                 accepts MIN..MAX; out-of-range input is clamped. */}
-            <div className="mt-1 flex items-center gap-2">
+            <div className="flex items-center gap-2">
               <label htmlFor="hs-custom-budget" className="text-[11px] text-neutral-400">Custom</label>
               <input
                 id="hs-custom-budget"
@@ -3048,6 +3001,22 @@ export default function HeroScapeBoard({
       // Draft uses the FULL width (no centered max-width box) so the 16 cards can
       // be BIG and readable, spread across the whole screen.
       <div className="flex w-full flex-col gap-3 p-3">
+        {/* Draft order — the players in the order the roll-off seated them (snake forward). */}
+        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px]">
+          <span className="font-semibold uppercase tracking-wider text-neutral-500">Draft order</span>
+          {d.order.map((seat, i) => {
+            const p = state.players.find(pl => pl.seat === seat);
+            const isNow = d.turnSeat === seat;
+            return (
+              <span key={seat} className={'flex items-center gap-1 ' + (isNow ? 'font-bold' : 'opacity-80')} style={{ color: seatColor(seat) }}>
+                <span className="tabular-nums text-neutral-500">{i + 1}.</span>
+                {p?.username ?? `Seat ${seat + 1}`}
+                {p?.bot && <span className="text-[9px] text-neutral-500">🤖</span>}
+              </span>
+            );
+          })}
+        </div>
+
         {/* Whose pick */}
         <div
           className="rounded-lg border-2 px-3 py-2 text-center"
