@@ -404,6 +404,16 @@ export type HSPendingChoice =
       seat: number;
       cardUid: string;
       count: number;
+    }
+  | {
+      // Glyph of Mitonsoul (Massive Curse) — fires the instant a figure STOPS on it.
+      // No human choice: the action layer rolls one d20 per listed figure and resolves
+      // in-request (each 1 is destroyed). `at` is the glyph's hex (the temporary glyph is
+      // removed once it fires). `seat` is the stopper (owns the resolve for auth only).
+      kind: 'glyph_mitonsoul';
+      seat: number;
+      at: HexKey;
+      figureIds: string[];
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -411,7 +421,8 @@ export type HSChoiceResolution =
   | { kind: 'berserker_charge'; remove: boolean } // true = re-move (re-grant), false = decline
   | { kind: 'water_clone_place'; hex: HexKey } // landing for the NEXT pending placement
   | { kind: 'spirit_placement'; cardUid: string } // unique card to receive the Spirit
-  | { kind: 'airborne_drop'; placements: HexKey[] }; // landings for all reserve Airborne Elite
+  | { kind: 'airborne_drop'; placements: HexKey[] } // landings for all reserve Airborne Elite
+  | { kind: 'glyph_mitonsoul'; rolls: { figureId: string; d20: number }[] }; // a d20 per figure
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`

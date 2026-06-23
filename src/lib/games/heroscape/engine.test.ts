@@ -4942,3 +4942,28 @@ describe('Glyph of Rannveig — suppresses Flying while occupied', () => {
     expect(legalDestinations(r, FINN).has(at(2, 3))).toBe(false);
   });
 });
+
+describe('Glyph of Mitonsoul — Massive Curse on reveal', () => {
+  it('stopping on it opens a d20-per-figure curse; each 1 is destroyed, then the glyph is gone', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    const glyphHex = at(3, 1); // adjacent to Finn at (3,0)
+    s = setGlyphs(s, [{ id: 'mitonsoul', at: glyphHex, faceUp: false }]);
+    s = place(s, FINN, at(3, 0));
+    s = place(s, THORGRIM, at(0, 0));
+    s = place(s, MARRO(1), at(5, 5));
+    // Finn stops on Mitonsoul → the curse pending opens, listing every on-board figure.
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    expect(moved.pendingChoice?.kind).toBe('glyph_mitonsoul');
+    const ids = moved.pendingChoice?.kind === 'glyph_mitonsoul' ? moved.pendingChoice.figureIds : [];
+    expect(ids).toEqual(expect.arrayContaining([FINN, THORGRIM, MARRO(1)]));
+    // Resolve: only Finn rolls a 1 → only Finn is destroyed; the temporary glyph is removed.
+    const rolls = ids.map(id => ({ figureId: id, d20: id === FINN ? 1 : 7 }));
+    const after = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_mitonsoul', rolls } }));
+    expect(fig(after, FINN).at).toBeNull(); // rolled a 1 → destroyed
+    expect(fig(after, THORGRIM).at).not.toBeNull(); // survived
+    expect(fig(after, MARRO(1)).at).not.toBeNull(); // survived
+    expect(after.glyphs.find(g => g.at === glyphHex)).toBeUndefined(); // temporary glyph removed
+    expect(after.pendingChoice).toBeUndefined();
+  });
+});

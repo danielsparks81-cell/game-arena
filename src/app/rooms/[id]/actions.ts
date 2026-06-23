@@ -1609,6 +1609,23 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     }
   }
 
+  // Auto-resolve glyph triggers that roll dice but need NO human choice (e.g. the Glyph
+  // of Mitonsoul's Massive Curse): roll server-side + resolve in THIS request, so no prompt
+  // ever shows. Bounded loop (a glyph can't chain into another mid-resolution).
+  if (!('error' in next)) {
+    let guard = 0;
+    while (next.pendingChoice?.kind === 'glyph_mitonsoul' && guard++ < 50) {
+      const pc = next.pendingChoice;
+      const pid = next.players.find(p => p.seat === pc.seat)?.playerId ?? actorId;
+      const resolved = applyActionHS(next, pid, {
+        kind: 'resolve_choice',
+        choice: { kind: 'glyph_mitonsoul', rolls: pc.figureIds.map(figureId => ({ figureId, d20: d20() })) },
+      });
+      if ('error' in resolved) break;
+      next = resolved;
+    }
+  }
+
   // The LAST lock-in triggers initiative in the same request: roll a d20 per
   // seat, re-roll everyone on any tie for highest, and apply the tie-free
   // sequence through the engine. The engine re-validates everything (ready

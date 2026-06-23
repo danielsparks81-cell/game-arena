@@ -293,6 +293,12 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
     if (!free.length) return null;
     return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: pick(rng, free) } });
   }
+  if (pc.kind === 'glyph_mitonsoul') {
+    return applyAction(s, pid, {
+      kind: 'resolve_choice',
+      choice: { kind: 'glyph_mitonsoul', rolls: pc.figureIds.map(figureId => ({ figureId, d20: d20(rng) })) },
+    });
+  }
   return null;
 }
 

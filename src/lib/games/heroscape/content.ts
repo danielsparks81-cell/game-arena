@@ -726,7 +726,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'temporary',
     power: 'Massive Curse',
     effect: 'Each player rolls a d20 for each of their figures on the battlefield. Each that rolls a 1 is destroyed.',
-    active: false, // wave 3: mass d20
+    active: true,
   },
   sturla: {
     id: 'sturla',

@@ -2590,6 +2590,19 @@ function applyGlyphOnStop(s: HSState, fig: Figure): void {
     }
     return;
   }
+  if (g.id === 'mitonsoul') {
+    // Massive Curse — every figure on the board rolls a d20 (the action layer rolls them);
+    // each 1 is destroyed. Opens a NO-CHOICE pending the server fills + auto-resolves
+    // in-request, then the temporary glyph is removed (at resolution).
+    s.pendingChoice = {
+      kind: 'glyph_mitonsoul',
+      seat: fig.ownerSeat,
+      at: g.at,
+      figureIds: s.figures.filter(f => f.at != null).map(f => f.id),
+    };
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Mitonsoul — a Massive Curse sweeps the field!`);
+    return;
+  }
   if (def.kind === 'permanent' && def.active) {
     pushLog(s, 'glyph', `${figureLabel(s, fig)} claims the ${def.name} — ${def.effect}`);
     return;
@@ -5051,6 +5064,31 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
   // --- Airborne Elite THE DROP placement (the landing step after a 13+ roll) ---
   if (pc.kind === 'airborne_drop' && choice.kind === 'airborne_drop') {
     return doAirborneDropPlace(state, seat, choice.placements);
+  }
+
+  // --- Glyph of Mitonsoul: Massive Curse (one d20 per figure; each 1 is destroyed) ---
+  if (pc.kind === 'glyph_mitonsoul' && choice.kind === 'glyph_mitonsoul') {
+    for (const r of choice.rolls) {
+      if (!Number.isInteger(r.d20) || r.d20 < 1 || r.d20 > 20) return { error: 'Malformed Mitonsoul roll' };
+    }
+    const s = clone(state);
+    const killed: string[] = [];
+    for (const r of choice.rolls) {
+      if (r.d20 !== 1) continue;
+      const f = s.figures.find(x => x.id === r.figureId);
+      if (f && f.at != null) { killed.push(figureLabel(s, f)); f.at = null; f.at2 = null; }
+    }
+    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
+    pushLog(
+      s,
+      'glyph',
+      killed.length
+        ? `Massive Curse — destroyed: ${killed.join(', ')}.`
+        : 'Massive Curse — every figure resists (no 1s rolled).',
+    );
+    delete s.pendingChoice;
+    checkEliminationWin(s); // a wipe can end the game
+    return s;
   }
 
   // --- Spirit placement (Finn/Thorgrim on destroy) ---
