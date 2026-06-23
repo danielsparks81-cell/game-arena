@@ -1578,6 +1578,29 @@ export default function HeroScapeBoard({
     }
   }, [state.lastRoll]);
 
+  // GLYPH-EVENT FLASH. A TEMPORARY glyph (Mitonsoul / Sturla / Oreld / Kelda) reveals, fires, and is
+  // removed in ONE server update — so without this it just blinks out of existence, the only trace a
+  // line in the log nobody's watching. Watch the log for new 'glyph'-tagged entries (stable `seq`) and
+  // flash them as a banner over the board so the player SEES which glyph triggered and what it did.
+  const [glyphFlash, setGlyphFlash] = useState<{ lines: string[]; nonce: number } | null>(null);
+  const seenGlyphSeqRef = useRef<number>(-1);
+  const glyphInitRef = useRef(false);
+  const glyphFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    const glyphEntries = state.log.filter(e => e.tag === 'glyph');
+    const maxSeq = glyphEntries.reduce((m, e) => Math.max(m, e.seq), -1);
+    // On first load, set the high-water mark to existing history so we don't replay old reveals.
+    if (!glyphInitRef.current) { seenGlyphSeqRef.current = maxSeq; glyphInitRef.current = true; return; }
+    if (maxSeq <= seenGlyphSeqRef.current) return;
+    const fresh = glyphEntries.filter(e => e.seq > seenGlyphSeqRef.current).map(e => e.text);
+    seenGlyphSeqRef.current = maxSeq;
+    if (!fresh.length) return;
+    setGlyphFlash({ lines: fresh, nonce: maxSeq });
+    if (glyphFlashTimer.current) clearTimeout(glyphFlashTimer.current);
+    glyphFlashTimer.current = setTimeout(() => setGlyphFlash(null), 7000);
+  }, [state.log]);
+  useEffect(() => () => { if (glyphFlashTimer.current) clearTimeout(glyphFlashTimer.current); }, []);
+
   // Drive the AI: while a bot owes an action, the HOST's client ticks `ai_step`
   // ONE action at a time (so its moves + dice animate). The server no-ops once no
   // bot is pending, and only the host drives → no double-stepping. Waits a little
@@ -3764,6 +3787,23 @@ export default function HeroScapeBoard({
         {state.glyphs && state.glyphs.length > 0 && (
           <div className="pointer-events-none absolute right-2 top-1/2 z-20 -translate-y-1/2">
             <GlyphsPanel glyphs={state.glyphs} />
+          </div>
+        )}
+        {/* GLYPH FLASH — a transient banner so a triggered glyph (esp. a one-time one that vanishes)
+            is never silent. Auto-dismisses; click to close early. z-30 sits above the seat panels. */}
+        {glyphFlash && (
+          <div key={glyphFlash.nonce} className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-2">
+            <button
+              type="button"
+              onClick={() => setGlyphFlash(null)}
+              className="pointer-events-auto max-w-md rounded-lg border border-amber-500/60 bg-neutral-900/95 px-3 py-2 text-left text-[11px] leading-snug text-amber-100 shadow-lg backdrop-blur transition hover:bg-neutral-900"
+            >
+              <div className="mb-0.5 flex items-center gap-1 text-amber-300">
+                <span className="text-sm leading-none">⬡</span>
+                <span className="font-bold uppercase tracking-wide">Glyph triggered</span>
+              </div>
+              {glyphFlash.lines.map((t, i) => <div key={i}>{t}</div>)}
+            </button>
           </div>
         )}
         {can3D ? (
