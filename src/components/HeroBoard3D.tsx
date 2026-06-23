@@ -370,22 +370,45 @@ function Standee({ lead, trail, topY, cardId, figIndex, color, selected, target,
   // ACROSS the steps — reading as one continuous flight (take off → cruise → set down)
   // rather than a per-hex hop. A walker just snaps to ground height (unchanged).
   const settledRef = useRef(99); // seconds since the last horizontal move (99 = grounded at rest)
+  // WAYPOINT QUEUE: every figure travels THROUGH each hex CENTER in order — never a straight
+  // diagonal that cuts a hex corner — even when steps arrive faster than it can cross one hex
+  // (fast AI walks, and especially multi-hex flights). When the target centre changes we push
+  // it; each frame we glide toward the FRONT waypoint and pop it on arrival.
+  const wpsRef = useRef<Array<[number, number]>>([]);
+  const lastTgtRef = useRef<[number, number] | null>(null);
   useFrame((_, delta) => {
     const g = rootRef.current;
     if (!g) return;
-    if (!placedRef.current) { g.position.set(cx, topY, cz); placedRef.current = true; return; }
-    const dx = cx - g.position.x, dz = cz - g.position.z;
-    const dist = Math.hypot(dx, dz);
+    if (!placedRef.current) { g.position.set(cx, topY, cz); placedRef.current = true; lastTgtRef.current = [cx, cz]; return; }
+    // Enqueue a waypoint whenever the destination hex centre changes.
+    const lt = lastTgtRef.current;
+    if (!lt || lt[0] !== cx || lt[1] !== cz) {
+      if (Math.hypot(cx - g.position.x, cz - g.position.z) > 22) {
+        wpsRef.current = []; // teleport (Drop / reseat / board-span) → snap, no path to trace
+        g.position.x = cx; g.position.z = cz;
+      } else {
+        wpsRef.current.push([cx, cz]);
+      }
+      lastTgtRef.current = [cx, cz];
+    }
+    // Glide toward the next centre at a constant speed; pop it once reached.
     let moving = false;
-    if (dist > 22) { g.position.x = cx; g.position.z = cz; } // teleport (Drop / reseat) → snap horizontally
-    else if (dist > 1e-4) {
-      moving = true;
-      const step = Math.min(dist, (flying ? 24 : 20) * delta); // world units/sec — flyers swoop a touch faster
-      g.position.x += (dx / dist) * step;
-      g.position.z += (dz / dist) * step;
+    const wp = wpsRef.current[0];
+    if (wp) {
+      const dx = wp[0] - g.position.x, dz = wp[1] - g.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= 1e-3) {
+        wpsRef.current.shift();
+      } else {
+        moving = true;
+        const step = Math.min(dist, (flying ? 24 : 20) * delta); // world units/sec — flyers swoop a touch faster
+        g.position.x += (dx / dist) * step;
+        g.position.z += (dz / dist) * step;
+      }
     }
     if (!flying) { g.position.y = topY; return; } // walkers: height snaps, only the walk eases
-    settledRef.current = moving ? 0 : settledRef.current + delta;
+    // Stay aloft while still moving OR while more centres remain to visit (one continuous flight).
+    settledRef.current = moving || wpsRef.current.length > 0 ? 0 : settledRef.current + delta;
     const aloft = settledRef.current < 0.25; // moved within the last beat → still in flight
     const targetY = topY + (aloft ? FLY_ARC_HEIGHT : 0);
     g.position.y += (targetY - g.position.y) * Math.min(1, delta * 8); // ease up to take off, down to land
