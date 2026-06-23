@@ -24,6 +24,8 @@ import {
   theDropHexes,
   legalTargets,
   legalDestinations,
+  carryLandingHexes,
+  carryDestFootprint,
 } from './engine';
 import { rangeDistance, neighborKeys } from './board';
 import { MAPS } from './maps';
@@ -375,6 +377,29 @@ describe('Theracus — Carry', () => {
     expect(at(carried, 's0-tarn_vikings-1')).toBe(passTo);
     const c = carried.figures.find(f => f.id === hero)!;
     expect(rangeDistance(MAPS[carried.mapId].cells, c.at!, passTo)).toBe(1);
+  });
+
+  it('carryLandingHexes is footprint-aware — exactly the empty cells around BOTH of 2-hex Theracus’s lobes', () => {
+    let { s, hero } = stage('theracus');
+    const h = at(s, hero)!;
+    const passHex = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!;
+    s = put(s, 's0-tarn_vikings-1', passHex);
+    const to = cellAtDist(s, h, 2, [passHex]);
+    const foot = carryDestFootprint(s, hero, to);
+    expect(foot.length).toBe(2); // Theracus is a 2-hex figure
+    const occupied = new Set(
+      s.figures.filter(f => f.id !== 's0-tarn_vikings-1' && f.id !== hero && f.at != null)
+        .flatMap(f => [f.at, f.at2].filter(Boolean) as string[]),
+    );
+    const expected = new Set(
+      foot.flatMap(fk => neighborKeys(fk)).filter(k => MAPS[s.mapId].cells[k] && !foot.includes(k) && !occupied.has(k)),
+    );
+    const drops = carryLandingHexes(s, hero, to, 's0-tarn_vikings-1');
+    expect(new Set(drops)).toEqual(expected); // around the FULL footprint, never on it
+    // Every offered drop is actually accepted by carry_move.
+    for (const d of drops.slice(0, 3)) {
+      expect('error' in applyAction(s, 'p1', { kind: 'carry_move', figureId: hero, to, passengerId: 's0-tarn_vikings-1', passengerTo: d })).toBe(false);
+    }
   });
 
   it('rejects an ENEMY passenger and an ENGAGED passenger', () => {

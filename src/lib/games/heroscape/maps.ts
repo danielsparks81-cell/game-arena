@@ -268,9 +268,27 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
     });
     pointZones[best].push(hexKey(c.q, c.r));
   }
+  // Assign the chosen tips to seats FARTHEST-FIRST: seat 0 takes a tip, seat 1 the
+  // tip farthest from it, seat 2 the one farthest from {0,1}, … — so successive
+  // players are always as far apart as the star allows (2 players land opposite, and
+  // even 4-6 spread the early seats out instead of clustering at adjacent tips).
+  const tipPx = (pi: number) => px(tips[pi].q, tips[pi].r);
+  const farthestFirst = (idxs: number[]): number[] => {
+    const out = [idxs[0]];
+    const rest = idxs.slice(1);
+    while (rest.length) {
+      let bi = 0, bd = -1;
+      rest.forEach((cand, k) => {
+        const d = Math.min(...out.map(o => Math.hypot(tipPx(o).x - tipPx(cand).x, tipPx(o).y - tipPx(cand).y)));
+        if (d > bd) { bd = d; bi = k; }
+      });
+      out.push(rest.splice(bi, 1)[0]);
+    }
+    return out;
+  };
   const zonesByCount: Record<number, Record<number, HexKey[]>> = {};
   for (const [n, picks] of Object.entries(STAR_POINTS_BY_COUNT)) {
-    zonesByCount[Number(n)] = Object.fromEntries(picks.map((pi, seat) => [seat, pointZones[pi]]));
+    zonesByCount[Number(n)] = Object.fromEntries(farthestFirst(picks).map((pi, seat) => [seat, pointZones[pi]]));
   }
   let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
   for (const key of Object.keys(cells)) {

@@ -53,6 +53,8 @@ export {
   canThrow,
   throwLandingHexes,
   carryPassengers,
+  carryLandingHexes,
+  carryDestFootprint,
   placeableHexes,
   placeable2Leads,
   orientationOptions,

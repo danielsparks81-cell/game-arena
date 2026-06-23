@@ -66,6 +66,8 @@ import {
   throwTargets,
   throwLandingHexes,
   carryPassengers,
+  carryLandingHexes,
+  carryDestFootprint,
   legalTargets,
   auraBuffedFigureIds,
   placeableHexes,
@@ -1938,17 +1940,25 @@ export default function HeroScapeBoard({
   // chosen destination — matches the engine's "adjacent, empty" check). Only one is non-null at a time.
   const carryPassSet = carryAim && !carryAim.pass ? new Set(carryList) : null;
   const carryDestSet = carryAim?.pass && !carryAim.dest && bhHeroId ? legalDestinations(state, bhHeroId) : null;
-  const carryLandSet = (() => {
-    if (!(carryAim?.pass && carryAim.dest)) return null;
-    const occOthers = new Set(
-      state.figures
-        .filter(f => f.id !== carryAim.pass && f.id !== bhHeroId && f.at != null)
-        .flatMap(f => [f.at, f.at2].filter(Boolean) as string[]),
-    );
-    return new Set(
-      neighborKeys(carryAim.dest).filter(k => MAPS[state.mapId]?.cells[k] && k !== carryAim.dest && !occOthers.has(k)),
-    );
-  })();
+  // Footprint-aware drops (Theracus is 2-hex — the engine helper accounts for his tail at the
+  // destination, so the board offers exactly the legal landing spaces).
+  const carryLandSet = carryAim?.pass && carryAim.dest && bhHeroId
+    ? new Set(carryLandingHexes(state, bhHeroId, carryAim.dest, carryAim.pass))
+    : null;
+  // Optimistic carry: render Theracus AT his chosen destination footprint during the drop step,
+  // so he's shown "in position" (the standee flies there) and you set the passenger down next to
+  // where he actually is. Reverts on Cancel; the real carry_move lands when you click a drop.
+  const carryPreviewFoot = carryAim?.pass && carryAim.dest && bhHeroId
+    ? carryDestFootprint(state, bhHeroId, carryAim.dest)
+    : null;
+  const boardState = carryPreviewFoot && bhHeroId
+    ? {
+        ...displayState,
+        figures: displayState.figures.map(f =>
+          f.id === bhHeroId ? { ...f, at: carryPreviewFoot[0], at2: carryPreviewFoot[1] ?? null } : f,
+        ),
+      }
+    : displayState;
   const anyBigHeroPower =
     iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
   // Wild Swing's blast (armed target + its neighbours) — the SAME orange "blast zone" ring as the
@@ -3737,7 +3747,7 @@ export default function HeroScapeBoard({
         )}
         {can3D ? (
           <HeroBoard3D
-            state={displayState}
+            state={boardState}
             onHexClick={clickHex}
             selectedId={selectedId}
             moveHexes={carryDestSet ?? (grappleMode ? destinations : safeMoveHexes)}

@@ -5053,6 +5053,39 @@ function doCarryMove(
   return s;
 }
 
+/** Empty hexes a carried passenger may be set down on for Theracus's chosen flight
+ *  destination `to` — the footprint-aware twin of doCarryMove's landing check. Theracus
+ *  is a 2-hex figure, so his TAIL at `to` counts: the drop must be adjacent to either
+ *  lobe, on a real empty cell that isn't his footprint. Single source for the board. */
+export function carryLandingHexes(state: HSState, theracusId: string, to: HexKey, passengerId: string): HexKey[] {
+  const map = MAPS[state.mapId];
+  const theracus = state.figures.find(f => f.id === theracusId);
+  if (!map || !theracus || !map.cells[to]) return [];
+  const tail = baseSizeOf(cardDefFor(state, theracus)) === 2 ? moveTailFor(state, theracus, to) : null;
+  const footprint = [to, ...(tail ? [tail] : [])];
+  const occupied = new Set(
+    state.figures
+      .filter(f => f.id !== passengerId && f.id !== theracusId && f.at != null)
+      .flatMap(f => figureHexes(f)),
+  );
+  const out = new Set<HexKey>();
+  for (const fk of footprint) {
+    for (const n of neighborKeys(fk)) {
+      if (map.cells[n] && !footprint.includes(n) && !occupied.has(n)) out.add(n);
+    }
+  }
+  return [...out];
+}
+
+/** Theracus's FOOTPRINT (lead + derived tail) if he flew to `to` — so the board can show him
+ *  optimistically "in position" before the player picks where to set the passenger down. */
+export function carryDestFootprint(state: HSState, theracusId: string, to: HexKey): HexKey[] {
+  const theracus = state.figures.find(f => f.id === theracusId);
+  if (!theracus) return [to];
+  const tail = baseSizeOf(cardDefFor(state, theracus)) === 2 ? moveTailFor(state, theracus, to) : null;
+  return tail ? [to, tail] : [to];
+}
+
 // ---------------------------------------------------------------------------
 // Airborne Elite — THE DROP (cards.md): they start OFF the battlefield (reserve);
 // at the start of each round, before order markers, roll a d20 — on 13+ you MAY
