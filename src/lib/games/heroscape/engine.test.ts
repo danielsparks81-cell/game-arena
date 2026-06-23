@@ -4830,6 +4830,16 @@ describe('Grenade Special Attack (Airborne Elite)', () => {
     expect(canGrenade(s, 0)).toBe(false); // marker gone
   });
 
+  it('spends EVERY living Elite’s attack — no Elite may normal-attack after the grenade (squad special)', () => {
+    let s = staged();
+    const living = [1, 2, 3, 4].map(A).filter(id => fig(s, id).at != null);
+    expect(living.length).toBeGreaterThan(1); // a real squad, not one figure
+    s = unwrap(applyAction(s, 'p1', { kind: 'grenade' }));
+    // Each living Elite now carries a spent-attack entry, so the per-figure attack
+    // budget (attacksThisTurn ≥ maxAttacks) blocks a normal attack from any of them.
+    for (const id of living) expect(s.turnAttacks.some(a => a.attackerId === id)).toBe(true);
+  });
+
   it('a throw hits the target AND its neighbours (splash)', () => {
     let s = staged();
     s = unwrap(applyAction(s, 'p1', { kind: 'grenade' }));

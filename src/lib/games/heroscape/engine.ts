@@ -3628,7 +3628,10 @@ function doGrenade(state: HSState, seat: number): HSResult {
 
   const s = clone(state);
   s.cards.find(c => c.uid === activeUid)!.grenadeUsed = true; // remove the marker (once per game)
-  s.turnAttacks.push({ attackerId: living[0], targetId: living[0] }); // a special attack IS the attack
+  // The Grenade Special Attack IS the SQUAD's attack ("instead of attacking normally") — so EVERY
+  // living Elite's attack is spent, not just the first. Mark each so no Elite can normal-attack
+  // after the grenade this turn (per-figure attack budget reads turnAttacks).
+  for (const id of living) s.turnAttacks.push({ attackerId: id, targetId: id });
   pushLog(s, 'power', `${playerName(s, seat)} pulls the Grenade marker — the Airborne Elite lob grenades one at a time.`);
   const throwers = living.filter(id => grenadeTargets(s, id).length > 0);
   if (throwers.length === 0) {
