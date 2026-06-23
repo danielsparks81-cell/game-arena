@@ -22,6 +22,8 @@ import {
   throwLandingHexes,
   canTheDrop,
   theDropHexes,
+  legalTargets,
+  legalDestinations,
 } from './engine';
 import { rangeDistance, neighborKeys } from './board';
 import { MAPS } from './maps';
@@ -751,5 +753,64 @@ describe('Glyphs — both lobes of a 2-hex figure count', () => {
     expect(oriented.figures.find(f => f.id === hero)!.at2).toBe(glyphDir.n); // tail swung onto it
     expect(oriented.glyphs.find(x => x.at === glyphDir.n)?.faceUp).toBe(true); // revealed by the swing
     expect(oriented.log.some(e => e.tag === 'glyph' && /reveals a hidden glyph/.test(e.text))).toBe(true);
+  });
+});
+
+describe('Glyphs — wave 2 occupancy auras', () => {
+  it('Lodin: +1 to a d20 — Ne-Gok-Sa rolls 19 and Mind Shackles ONLY while controlling Lodin', () => {
+    let { s, hero } = stage('ne_gok_sa');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const cells = Object.keys(MAPS[s.mapId].cells);
+    const glyphHex = cells.find(k => neighborKeys(k).some(n => cells.includes(n)))!;
+    const adj = neighborKeys(glyphHex).find(n => cells.includes(n))!;
+    const ng = s.figures.find(f => f.id === hero)!;
+    ng.at = glyphHex; ng.at2 = null;
+    const target = s.figures.find(f => f.id === 's1-marro_warriors-1')!;
+    target.at = adj; target.at2 = null;
+    s.glyphs = [{ id: 'lodin', at: glyphHex, faceUp: true }];
+    // 19 + Lodin = 20 → seize succeeds (the card switches to seat 0).
+    const seized = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: target.id, d20: 19 }));
+    expect(seized.figures.find(f => f.id === target.id)!.ownerSeat).toBe(0);
+    // The SAME roll with no Lodin fails — the figure stays seat 1.
+    const noGlyph = JSON.parse(JSON.stringify(s)) as HSState;
+    noGlyph.glyphs = [];
+    const missed = unwrap(applyAction(noGlyph, 'p1', { kind: 'mind_shackle', targetId: target.id, d20: 19 }));
+    expect(missed.figures.find(f => f.id === target.id)!.ownerSeat).toBe(1);
+  });
+
+  it("Proftaka: a figure on the glyph can't move unless a friendly is adjacent", () => {
+    let { s, hero } = stage('finn');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const cells = Object.keys(MAPS[s.mapId].cells);
+    const glyphHex = cells.find(k => neighborKeys(k).filter(n => cells.includes(n)).length >= 2)!;
+    const adj = neighborKeys(glyphHex).find(n => cells.includes(n))!;
+    const f = s.figures.find(x => x.id === hero)!;
+    f.at = glyphHex; f.at2 = null;
+    s.glyphs = [{ id: 'proftaka', at: glyphHex, faceUp: true }];
+    s.figures.find(x => x.id === 's1-marro_warriors-4')!.at = cells[cells.length - 1]; // enemy far, not adjacent
+    expect(legalDestinations(s, hero).size).toBe(0); // trapped — no friendly adjacent
+    // A friendly figure adjacent frees it.
+    s.figures.push({ id: 's0-finn-2', cardUid: 's0-finn', ownerSeat: 0, at: adj, at2: null, index: 2, wounds: 0 });
+    expect(legalDestinations(s, hero).size).toBeGreaterThan(0);
+  });
+
+  it("Thorian: opponents must be ADJACENT to make a normal attack on the controller's figures", () => {
+    let { s, hero } = stage('marro_warriors'); // Range-6 attacker (seat 0)
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.movementEnded = true; // attack phase, so legalTargets is live
+    const aHex = Object.keys(MAPS[s.mapId].cells).find(
+      k => neighborKeys(k).filter(n => MAPS[s.mapId].cells[n]).length >= 4,
+    )!;
+    s.figures.find(f => f.id === hero)!.at = aHex;
+    const dHex = cellAtDist(s, aHex, 3); // in Range 6, clear LOS, NOT adjacent
+    const def = s.figures.find(f => f.id === 's1-thorgrim-1')!;
+    def.at = dHex; def.at2 = null;
+    // Defender stands on Thorian → seat 1 controls it → a ranged normal attack is blocked.
+    s.glyphs = [{ id: 'thorian', at: dHex, faceUp: true }];
+    expect(legalTargets(s, hero)).not.toContain(def.id);
+    // Without Thorian, the Range-6 attacker can hit it from distance 3.
+    const noGlyph = JSON.parse(JSON.stringify(s)) as HSState;
+    noGlyph.glyphs = [];
+    expect(legalTargets(noGlyph, hero)).toContain(def.id);
   });
 });

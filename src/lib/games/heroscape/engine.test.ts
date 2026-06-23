@@ -4924,3 +4924,21 @@ describe('shootBlockedHexes — the shooting envelope minus blocked line of sigh
     expect(shootBlockedHexes(s, finn.id).size).toBe(0);
   });
 });
+
+describe('Glyph of Rannveig — suppresses Flying while occupied', () => {
+  it('a flyer passes OVER a blocking enemy, but not while a figure stands on Rannveig', () => {
+    // CORRIDOR_MAP: a 1-wide vertical corridor (col 2) is the only path between the banks.
+    let s = inTurnsOn(CORRIDOR_MAP_ID, 'p1', { p1: 's0-finn' });
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.cards.find(c => c.uid === 's0-finn')!.cardId = 'raelin'; // make the active figure a FLYER
+    s = place(s, FINN, at(2, 1)); // north corridor mouth
+    s = place(s, MARRO(1), at(2, 2)); // enemy blocks the 1-wide corridor
+    s = place(s, THORGRIM, at(0, 0)); // parked off the path (will stand on Rannveig)
+    s = setGlyphs(s, []);
+    expect(legalDestinations(s, FINN).has(at(2, 3))).toBe(true); // flies over the blocker to the far side
+    // A figure on a face-up Rannveig strips Flying from everyone → the blocker now stops her.
+    const r = setGlyphs(s, [{ id: 'rannveig', at: at(0, 0), faceUp: true }]); // Thorgrim already on (0,0)
+    expect(legalDestinations(r, FINN).has(at(2, 3))).toBe(false);
+  });
+});

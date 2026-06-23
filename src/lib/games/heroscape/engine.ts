@@ -1261,8 +1261,10 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
   // SERVER applies it; the engine re-validates the bonus matches Dagmar control
   // (controlled by whoever occupies the glyph right now). Each seat is owed
   // exactly 0 or 8.
-  const dagmarBonusFor = (seat: number): number =>
-    seatControlsGlyph(state, seat, 'dagmar') ? DAGMAR_INITIATIVE_BONUS : 0;
+  // Dagmar (+8) and Lodin (+1) both add to a seat's initiative; a seat may hold either,
+  // both, or neither. The server carries raw+bonus; this re-validates the exact total.
+  const initiativeBonusFor = (seat: number): number =>
+    (seatControlsGlyph(state, seat, 'dagmar') ? DAGMAR_INITIATIVE_BONUS : 0) + lodinD20Bonus(state, seat);
   for (const attempt of attempts) {
     if (
       !Array.isArray(attempt) ||
@@ -1272,7 +1274,7 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
       return { error: 'Malformed initiative rolls' };
     }
     for (const a of attempt) {
-      const owed = dagmarBonusFor(a.seat);
+      const owed = initiativeBonusFor(a.seat);
       if (a.raw != null || a.bonus != null) {
         // Broken-out form: raw d20 1-20, bonus exactly the Dagmar owed, roll the sum.
         if (
@@ -1701,6 +1703,43 @@ function seatControlsGlyph(state: HSState, seat: number, glyphId: HSGlyphId): bo
   );
 }
 
+/** Glyph of Lodin: +1 to ANY d20 the controlling seat rolls (initiative — stacking with
+ *  Dagmar — The Drop, Mind Shackle, Berserker Charge, Chomp, extreme-fall saves). 0 or 1. */
+function lodinD20Bonus(state: HSState, seat: number): number {
+  return seatControlsGlyph(state, seat, 'lodin') ? 1 : 0;
+}
+
+/** Does `fig`'s FOOTPRINT cover a face-up, active glyph of `glyphId`? (Either lobe of a
+ *  2-hex figure counts — same footprint rule as control.) */
+function figureStandsOnGlyph(state: HSState, fig: Figure, glyphId: HSGlyphId): boolean {
+  if (!HS_GLYPHS[glyphId]?.active) return false;
+  const hexes = figureHexes(fig);
+  return (state.glyphs ?? []).some(g => g.id === glyphId && g.faceUp && hexes.includes(g.at));
+}
+
+/** Glyph of Rannveig suppresses ALL Flying while ANY figure (friend or foe) stands on a
+ *  face-up Rannveig — a global toggle, not per-controller. */
+function rannveigSuppressesFlying(state: HSState): boolean {
+  if (!HS_GLYPHS.rannveig?.active) return false;
+  return (state.glyphs ?? []).some(
+    g => g.id === 'rannveig' && g.faceUp && state.figures.some(f => f.at != null && figureHexes(f).includes(g.at)),
+  );
+}
+
+/** Effective Flying for a card def — its printed Flying unless a Glyph of Rannveig is
+ *  occupied (strips Flying from every figure). The single source for movement decisions. */
+function effectiveFlying(state: HSState, def: HSCardDef): boolean {
+  return !!def.flying && !rannveigSuppressesFlying(state);
+}
+
+/** Is a FRIENDLY figure (same seat, not `fig` itself) in a space adjacent to `fig`? Used by
+ *  the Glyph of Proftaka trap. */
+function hasFriendlyAdjacent(state: HSState, fig: Figure): boolean {
+  return state.figures.some(
+    o => o.id !== fig.id && o.at != null && o.ownerSeat === fig.ownerSeat && figuresAdjacent(state, fig, o),
+  );
+}
+
 // ============================================================================
 // Movement
 // ============================================================================
@@ -1742,6 +1781,11 @@ function movableFigure(state: HSState, figureId: string): { fig: Figure } | { er
   if (state.movedFigureIds.includes(figureId)) {
     return { error: 'That figure has already moved this turn' };
   }
+  // GLYPH OF PROFTAKA (trap): a figure standing on Proftaka can't move unless a FRIENDLY
+  // figure occupies an adjacent space.
+  if (figureStandsOnGlyph(state, fig, 'proftaka') && !hasFriendlyAdjacent(state, fig)) {
+    return { error: 'Trapped by the Glyph of Proftaka — a friendly figure must be adjacent to move' };
+  }
   return { fig };
 }
 
@@ -1773,7 +1817,7 @@ function movementDestinations2(
   const def = cardDefFor(state, fig);
   const move = moveOverride ?? effectiveMove(state, fig).dice;
   const occ = occupancyLookup(state, fig); // excludes the mover's BOTH hexes
-  const opts = { glyphHexes: glyphHexSet(state), flyer: !!def.flying, ghostWalk: !!def.ghostWalk };
+  const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk };
   const reach = new Set<HexKey>();
   for (const start of figureHexes(fig)) {
     for (const k of reachableDestinations(map.cells, start, move, occ, def.height, opts)) reach.add(k);
@@ -1825,7 +1869,7 @@ function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
   return reachableDestinations(map.cells, fig.at, move, occupancyLookup(state, fig), def.height, {
     glyphHexes,
     canEndOn,
-    flyer: !!def.flying,
+    flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
   });
 }
@@ -1880,7 +1924,7 @@ export function moveConsequences(
   // water. A FLYER descends rather than falling (cards.md).
   let tier: FallTier = 'none';
   let fallDice = 0;
-  if (!def.flying) {
+  if (!effectiveFlying(state, def)) {
     const drop = from != null ? figureStandLevel(state, fig) - heightOfKey(state, to) : 0;
     const intoWater = map?.cells[to]?.terrain === 'water';
     const fall = computeFall(Math.max(0, drop), cardHeight, intoWater);
@@ -2163,7 +2207,7 @@ export function stepConsequences(
   const startHex = sm?.startHex ?? fp.frontOld;
   const step = dragStep(map.cells, startHex, fp.frontOld, to, occ, def.height, {
     glyphHexes: glyphHexSet(state),
-    flyer: !!def.flying,
+    flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
     doubleSpace: is2, // a 2-hex front may traverse water; the water-STOP is decided below (both lobes)
   });
@@ -2187,7 +2231,7 @@ export function stepConsequences(
   // Fall: only a descending 1-hex step falls (2-hex falling is deferred; a flyer descends, never falls).
   let tier: FallTier = 'none';
   let fallDice = 0;
-  if (!def.flying && !is2) {
+  if (!effectiveFlying(state, def) && !is2) {
     const drop = heightOfKey(state, fp.frontOld) - heightOfKey(state, to);
     const intoWater = map.cells[to]?.terrain === 'water';
     const f = computeFall(Math.max(0, drop), def.height, intoWater);
@@ -2196,7 +2240,7 @@ export function stepConsequences(
   }
   // A 2-hex figure stops for water only when BOTH new lobes end in water (the front entering water
   // alone keeps moving). A flyer never water-stops. (1-hex water-stop is already in step.forcedStop.)
-  const bothWater = is2 && !def.flying
+  const bothWater = is2 && !effectiveFlying(state, def)
     && map.cells[fp.newAt]?.terrain === 'water'
     && fp.newAt2 != null && map.cells[fp.newAt2]?.terrain === 'water';
   return {
@@ -2260,7 +2304,7 @@ export function movementRangeHexes(state: HSState, figureId: string): Set<HexKey
   return reachableDestinations(map.cells, fig.at, remaining, occupancyLookup(state, fig), def.height, {
     glyphHexes: glyphHexSet(state),
     canEndOn,
-    flyer: !!def.flying,
+    flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
   });
 }
@@ -2570,7 +2614,7 @@ function applyFall(
   const drop = Math.max(0, heightOfKey(s, fromKey) - heightOfKey(s, to));
   const label = figureLabel(s, fig);
   if (tier === 'extreme') {
-    const survived = (extremeFallD20 ?? 0) >= 19;
+    const survived = ((extremeFallD20 ?? 0) + lodinD20Bonus(s, fig.ownerSeat)) >= 19;
     if (!survived) fig.at = null;
     pushLog(
       s,
@@ -2675,6 +2719,17 @@ function targetBlockReason(
     !figuresAdjacent(state, attacker, target)
   ) {
     return 'Thorian Speed — must be adjacent to attack Sgt. Drake';
+  }
+
+  // GLYPH OF THORIAN: while a seat controls the glyph, opponents must be ADJACENT to make
+  // a NORMAL attack on ANY of that seat's figures (army-wide Thorian Speed). Special attacks
+  // are unrestricted (isNormalAttack === false skips this).
+  if (
+    isNormalAttack &&
+    seatControlsGlyph(state, target.ownerSeat, 'thorian') &&
+    !figuresAdjacent(state, attacker, target)
+  ) {
+    return 'Thorian glyph — must be adjacent to attack this figure';
   }
 
   const range = effectiveRange(state, attacker).dice;
@@ -3889,23 +3944,25 @@ function doBerserkerCharge(state: HSState, seat: number, d20: number): HSResult 
   }
 
   const s = clone(state);
-  if (d20 >= BERSERKER_THRESHOLD) {
+  const lodin = lodinD20Bonus(state, seat); // Glyph of Lodin: +1 to this d20
+  const rollNote = lodin ? `${d20}+${lodin} Lodin = ${d20 + lodin}` : `${d20}`;
+  if (d20 + lodin >= BERSERKER_THRESHOLD) {
     // Success — offer the optional re-move (never auto-applied).
     s.pendingChoice = { kind: 'berserker_charge', seat, cardUid: activeCard.uid };
     pushLog(
       s,
       'power',
-      `Berserker Charge — ${playerName(s, seat)} rolls ${d20} (≥${BERSERKER_THRESHOLD})! They may move all Tarn Viking Warriors again.`,
+      `Berserker Charge — ${playerName(s, seat)} rolls ${rollNote} (≥${BERSERKER_THRESHOLD})! They may move all Tarn Viking Warriors again.`,
     );
-    setLastRoll(s, { title: 'Berserker Charge', dice: [d20], success: true, detail: `${d20} (≥${BERSERKER_THRESHOLD}) — move the Vikings again!` });
+    setLastRoll(s, { title: 'Berserker Charge', dice: [d20], success: true, detail: `${rollNote} (≥${BERSERKER_THRESHOLD}) — move the Vikings again!` });
   } else {
     s.berserkerSpent = true;
     pushLog(
       s,
       'power',
-      `Berserker Charge — ${playerName(s, seat)} rolls ${d20} (<${BERSERKER_THRESHOLD}). No extra move.`,
+      `Berserker Charge — ${playerName(s, seat)} rolls ${rollNote} (<${BERSERKER_THRESHOLD}). No extra move.`,
     );
-    setLastRoll(s, { title: 'Berserker Charge', dice: [d20], success: false, detail: `${d20} (<${BERSERKER_THRESHOLD}) — no extra move.` });
+    setLastRoll(s, { title: 'Berserker Charge', dice: [d20], success: false, detail: `${rollNote} (<${BERSERKER_THRESHOLD}) — no extra move.` });
   }
   return s;
 }
@@ -3983,7 +4040,10 @@ function doMindShackle(state: HSState, seat: number, targetId: string, d20: numb
   const s = clone(state);
   s.mindShackleSpent = true;
   const tdef = cardDefFor(state, target);
-  if (d20 === 20) {
+  // Glyph of Lodin: +1 to this d20 — a 19 + Lodin reaches Mind Shackle's natural-20 bar.
+  const lodin = lodinD20Bonus(state, seat);
+  const rollNote = lodin ? `${d20} +${lodin} Lodin` : `${d20}`;
+  if (d20 + lodin >= 20) {
     const card = s.cards.find(c => c.uid === target.cardUid)!;
     const formerSeat = card.ownerSeat;
     card.ownerSeat = seat;
@@ -3998,17 +4058,17 @@ function doMindShackle(state: HSState, seat: number, targetId: string, d20: numb
     pushLog(
       s,
       'power',
-      `Mind Shackle! ${playerName(s, seat)} rolls 20 and seizes ${tdef.name} — ${playerName(s, formerSeat)}'s whole Army Card (${moved} figure${moved === 1 ? '' : 's'}).`,
+      `Mind Shackle! ${playerName(s, seat)} rolls ${rollNote} and seizes ${tdef.name} — ${playerName(s, formerSeat)}'s whole Army Card (${moved} figure${moved === 1 ? '' : 's'}).`,
     );
-    setLastRoll(s, { title: 'Mind Shackle', dice: [d20], success: true, detail: `Natural 20 — seizes ${tdef.name}!` });
+    setLastRoll(s, { title: 'Mind Shackle', dice: [d20], success: true, detail: `${rollNote} ≥ 20 — seizes ${tdef.name}!` });
     checkEliminationWin(s); // seizing a seat's last figures eliminates them
   } else {
     pushLog(
       s,
       'power',
-      `${playerName(s, seat)} attempts Mind Shackle on ${tdef.name} but rolls ${d20} (needs a natural 20).`,
+      `${playerName(s, seat)} attempts Mind Shackle on ${tdef.name} but rolls ${rollNote} (needs 20).`,
     );
-    setLastRoll(s, { title: 'Mind Shackle', dice: [d20], success: false, detail: `Rolled ${d20} — needs a natural 20.` });
+    setLastRoll(s, { title: 'Mind Shackle', dice: [d20], success: false, detail: `Rolled ${rollNote} — needs 20.` });
   }
   return s;
 }
@@ -4072,7 +4132,9 @@ function doChomp(state: HSState, seat: number, targetId: string, d20: number): H
   const s = clone(state);
   s.chompedThisTurn = true;
   const isSquad = tdef.type === 'squad';
-  const destroyed = isSquad || d20 >= CHOMP_HERO_THRESHOLD;
+  const lodin = lodinD20Bonus(state, seat); // Glyph of Lodin: +1 to the hero-chomp d20
+  const rollNote = lodin ? `${d20}+${lodin} Lodin = ${d20 + lodin}` : `${d20}`;
+  const destroyed = isSquad || d20 + lodin >= CHOMP_HERO_THRESHOLD;
   if (destroyed) {
     const t = s.figures.find(f => f.id === targetId)!;
     t.at = null;
@@ -4082,18 +4144,18 @@ function doChomp(state: HSState, seat: number, targetId: string, d20: number): H
       'power',
       isSquad
         ? `Chomp! Grimnak devours ${figureLabel(s, target)} (a Squad figure — automatic).`
-        : `Chomp! Grimnak rolls ${d20} (≥${CHOMP_HERO_THRESHOLD}) and devours ${figureLabel(s, target)}.`,
+        : `Chomp! Grimnak rolls ${rollNote} (≥${CHOMP_HERO_THRESHOLD}) and devours ${figureLabel(s, target)}.`,
     );
     // Only a HERO chomp actually rolled the d20 (squads are auto-devoured).
-    if (!isSquad) setLastRoll(s, { title: 'Chomp', dice: [d20], success: true, detail: `${d20} (≥${CHOMP_HERO_THRESHOLD}) — devours ${tdef.name}!` });
+    if (!isSquad) setLastRoll(s, { title: 'Chomp', dice: [d20], success: true, detail: `${rollNote} (≥${CHOMP_HERO_THRESHOLD}) — devours ${tdef.name}!` });
     checkEliminationWin(s); // chomping a seat's last figure ends the game
   } else {
     pushLog(
       s,
       'power',
-      `Grimnak snaps at ${figureLabel(s, target)} but rolls ${d20} (<${CHOMP_HERO_THRESHOLD}) — it survives.`,
+      `Grimnak snaps at ${figureLabel(s, target)} but rolls ${rollNote} (<${CHOMP_HERO_THRESHOLD}) — it survives.`,
     );
-    setLastRoll(s, { title: 'Chomp', dice: [d20], success: false, detail: `${d20} (<${CHOMP_HERO_THRESHOLD}) — ${tdef.name} survives.` });
+    setLastRoll(s, { title: 'Chomp', dice: [d20], success: false, detail: `${rollNote} (<${CHOMP_HERO_THRESHOLD}) — ${tdef.name} survives.` });
   }
   setEffect(s, 'chomp', grimnak.at, [target.at]); // jaws snap shut at the target (hit or miss)
   return s;
@@ -4170,13 +4232,14 @@ function doWaterClone(
   // a clone placed on a glyph does not "move onto" it, so no forced-stop/heal.
   const occupied = new Set(s.figures.filter(f => f.at != null).map(f => f.at!));
 
+  const lodin = lodinD20Bonus(state, seat); // Glyph of Lodin: +1 to each clone d20
   let successes = 0;
   let skippedNoSpace = 0;
   for (const roller of livingMarro) {
     const roll = rolls.find(r => r.marroFigureId === roller.id)!;
     const onWater = map?.cells[roller.at!]?.terrain === 'water';
     const threshold = onWater ? WATER_CLONE_WATER_THRESHOLD : WATER_CLONE_THRESHOLD;
-    if (roll.d20 < threshold) continue; // failed roll
+    if (roll.d20 + lodin < threshold) continue; // failed roll
     successes += 1;
     if (placements.length >= destroyedClones.length) {
       // No destroyed Marro left to return — the success can't place.
@@ -4623,15 +4686,16 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
   const s = clone(state);
   // "Instead of attacking" — spend Braxas's attack for the turn (one entry).
   s.turnAttacks.push({ attackerId: braxas.id, targetId: rolls[0].targetId, special: 'acid_breath' });
+  const lodin = lodinD20Bonus(state, seat); // Glyph of Lodin: +1 to each acid d20
   const results: string[] = [];
   for (const roll of rolls) {
     const t = s.figures.find(f => f.id === roll.targetId);
     if (!t || t.at == null) continue;
     const tdef = cardDefFor(s, t);
     const threshold = tdef.type === 'squad' ? ACID_SQUAD_THRESHOLD : ACID_HERO_THRESHOLD;
-    const destroyed = roll.d20 >= threshold;
+    const destroyed = roll.d20 + lodin >= threshold;
     if (destroyed) { t.at = null; t.at2 = null; }
-    results.push(`${figureLabel(s, t)} — rolled ${roll.d20} (needs ${threshold}+) ${destroyed ? '→ destroyed!' : '→ survives'}`);
+    results.push(`${figureLabel(s, t)} — rolled ${roll.d20}${lodin ? ` +${lodin} Lodin` : ''} (needs ${threshold}+) ${destroyed ? '→ destroyed!' : '→ survives'}`);
   }
   s.lastAttack = {
     attackerId: braxas.id,
@@ -4923,17 +4987,19 @@ function doTheDrop(state: HSState, seat: number, d20: number): HSResult {
 
   const s = clone(state);
   s.airborneDropRound = s.round; // one roll per round, hit or miss
-  if (d20 < THE_DROP_THRESHOLD) {
-    pushLog(s, 'power', `${playerName(s, seat)} rolls ${d20} for The Drop (needs ${THE_DROP_THRESHOLD}+) — the Airborne Elite stay in reserve.`);
-    setLastRoll(s, { title: 'The Drop', dice: [d20], success: false, detail: `${d20} (needs ${THE_DROP_THRESHOLD}+) — stays in reserve.` });
+  const lodin = lodinD20Bonus(state, seat); // Glyph of Lodin: +1 to this d20
+  const rollNote = lodin ? `${d20}+${lodin} Lodin = ${d20 + lodin}` : `${d20}`;
+  if (d20 + lodin < THE_DROP_THRESHOLD) {
+    pushLog(s, 'power', `${playerName(s, seat)} rolls ${rollNote} for The Drop (needs ${THE_DROP_THRESHOLD}+) — the Airborne Elite stay in reserve.`);
+    setLastRoll(s, { title: 'The Drop', dice: [d20], success: false, detail: `${rollNote} (needs ${THE_DROP_THRESHOLD}+) — stays in reserve.` });
     return s;
   }
   // 13+ — DEFER placement to a pending choice so the GLOBAL roll is seen before any
   // landing is chosen. The pendingChoice gate then forces this seat to deploy
   // before placing order markers (The Drop resolves before markers).
   s.pendingChoice = { kind: 'airborne_drop', seat, cardUid: reserve[0].cardUid, count: reserve.length };
-  pushLog(s, 'power', `The Drop! ${playerName(s, seat)} rolls ${d20} (≥${THE_DROP_THRESHOLD}) — deploy ${reserve.length} Airborne Elite.`);
-  setLastRoll(s, { title: 'The Drop', dice: [d20], success: true, detail: `${d20} (≥${THE_DROP_THRESHOLD}) — place ${reserve.length} Airborne Elite!` });
+  pushLog(s, 'power', `The Drop! ${playerName(s, seat)} rolls ${rollNote} (≥${THE_DROP_THRESHOLD}) — deploy ${reserve.length} Airborne Elite.`);
+  setLastRoll(s, { title: 'The Drop', dice: [d20], success: true, detail: `${rollNote} (≥${THE_DROP_THRESHOLD}) — place ${reserve.length} Airborne Elite!` });
   return s;
 }
 
@@ -5547,7 +5613,7 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // Movement-aware distance (routes AROUND height-15 walls) so the mover never gets
     // stuck against a wall it can't see past — the old rangeDistance counted through walls.
     const fDef = cardDefFor(state, f);
-    const distField = aiMoveDistField(state, enemies, fDef.height, !!fDef.flying);
+    const distField = aiMoveDistField(state, enemies, fDef.height, effectiveFlying(state, fDef));
     const pathDist = (k: HexKey): number => distField.get(k) ?? Infinity;
     const curEnemy = pathDist(f.at!);
     // Don't pull a figure that already holds a glyph off it to chase another — it

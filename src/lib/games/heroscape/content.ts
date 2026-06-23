@@ -653,7 +653,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'permanent',
     power: 'D20 +1',
     effect: 'While standing here, add 1 to any 20-sided die roll you make.',
-    active: false, // wave 2: fold into every d20 the controller rolls
+    active: true,
   },
   rannveig: {
     id: 'rannveig',
@@ -662,7 +662,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'permanent',
     power: 'No Flying',
     effect: 'All figures with the Flying power lose it while any figure stands on this glyph.',
-    active: false, // wave 2: effectiveFlying gate
+    active: true,
   },
   proftaka: {
     id: 'proftaka',
@@ -671,7 +671,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'permanent',
     power: 'Trap',
     effect: 'The figure on this glyph cannot move unless a friendly figure occupies an adjacent space.',
-    active: false, // wave 2: movement gate for the occupant
+    active: true,
   },
   thorian: {
     id: 'thorian',
@@ -680,7 +680,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'permanent',
     power: 'Melee Only',
     effect: "All opponents' figures must be adjacent to your figures to make a normal attack against them.",
-    active: false, // wave 2: ranged-attack gate vs the Thorian controller's army
+    active: true,
   },
   wannok: {
     id: 'wannok',

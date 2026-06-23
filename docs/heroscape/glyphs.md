@@ -18,10 +18,10 @@ counts for landing on / revealing / controlling a glyph.
 | Ivor | Range +2 | Each figure you control with Range 4 or more adds 2 to its Range. | live |
 | Valda | Move +2 | Each figure you control adds 2 to its Move (not the move off the glyph). | live |
 | Jalgard | Defense +2 | Each figure you control rolls two extra defense dice. | live |
-| Lodin | D20 +1 | While you hold this, add 1 to ANY d20 the controlling player rolls (initiative, The Drop, Mind Shackle, etc.). Stacks with Dagmar on initiative. | planned |
-| Rannveig | No Flying | All figures with Flying lose it while any figure stands on this glyph. | planned |
-| Proftaka | Trap | The figure on this glyph cannot move unless a friendly figure occupies an adjacent space. | planned |
-| Thorian | Melee Only | Opponents' figures must be adjacent to your figures to make a normal attack against them. | planned |
+| Lodin | D20 +1 | While you hold this, add 1 to ANY d20 the controlling player rolls (initiative, The Drop, Mind Shackle, etc.). Stacks with Dagmar on initiative. | live |
+| Rannveig | No Flying | All figures with Flying lose it while any figure stands on this glyph. | live |
+| Proftaka | Trap | The figure on this glyph cannot move unless a friendly figure occupies an adjacent space. | live |
+| Thorian | Melee Only | Opponents' figures must be adjacent to your figures to make a normal attack against them. | live |
 | Wannok | Curse | At end of each round the Wannok controller rolls a d20: on a 1 the figure standing here takes a wound; on 2+ the controller chooses an opponent, who must wound one of their own figures. | planned |
 | Brandar | Artifact | Rules vary by scenario; only used if the scenario dictates. NOT in the standard random pool. | inert |
 

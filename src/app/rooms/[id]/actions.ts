@@ -1626,16 +1626,16 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // control from the post-placement state (a living figure of that seat on a
     // power-side-up Dagmar glyph), then carry raw+bonus so the engine re-checks.
     const afterPlace: HSState = next;
-    const dagmarBonus = (seat: number): number => {
-      const controls = (afterPlace.glyphs ?? []).some(
-        g =>
-          g.id === 'dagmar' &&
-          g.faceUp &&
-          HS_GLYPHS.dagmar.active &&
-          (afterPlace.figures ?? []).some(f => f.at === g.at && f.ownerSeat === seat),
+    // Dagmar (+8) and Lodin (+1) both add to initiative. Footprint-aware (either lobe of a
+    // 2-hex figure controls the glyph) so this matches the engine's re-validation exactly.
+    const controlsGlyph = (seat: number, id: 'dagmar' | 'lodin', active: boolean): boolean =>
+      active && (afterPlace.glyphs ?? []).some(
+        g => g.id === id && g.faceUp &&
+          (afterPlace.figures ?? []).some(f => f.ownerSeat === seat && (f.at === g.at || f.at2 === g.at)),
       );
-      return controls ? 8 : 0;
-    };
+    const dagmarBonus = (seat: number): number =>
+      (controlsGlyph(seat, 'dagmar', HS_GLYPHS.dagmar.active) ? 8 : 0) +
+      (controlsGlyph(seat, 'lodin', HS_GLYPHS.lodin.active) ? 1 : 0);
     // Re-roll everyone on any tie for highest (Dagmar's +8 carries into re-rolls).
     const attempts: HSInitiativeAttempt[] = [];
     for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
