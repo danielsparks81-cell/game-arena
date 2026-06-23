@@ -314,15 +314,26 @@ export type LastRoll = {
  * later, but their effects are inert in slice 4.
  */
 export type HSGlyphId =
-  | 'astrid' // Attack +1 for all your figures (permanent, while occupied)
-  | 'gerda' // Defense +1 for all your figures (permanent)
-  | 'ivor' // Range +4 for your figures with printed Range ≥ 4 (permanent)
-  | 'valda' // Move +2 for all your figures (permanent)
-  | 'dagmar' // Initiative +8 (permanent)
-  | 'kelda' // Heal all wounds, then removed (temporary; only the wounded may stop)
-  | 'erland' // slice 5: summon (temporary)
-  | 'mitonsoul' // slice 5: mass curse (temporary)
-  | 'brandar'; // scenario: artifact (no fixed power)
+  // --- permanent (active only while a figure stands on the glyph) ---
+  | 'astrid' // Attack +1 for all your figures, NORMAL attacks only
+  | 'gerda' // Defense +1 for all your figures
+  | 'ivor' // Range +2 for your figures with printed Range ≥ 4
+  | 'valda' // Move +2 for all your figures (not the move off the glyph)
+  | 'dagmar' // Initiative +8
+  | 'jalgard' // Defense +2 for all your figures (two extra defense dice)
+  | 'lodin' // D20 +1 — +1 to any d20 the controlling player rolls
+  | 'rannveig' // No Flying — figures lose Flying while any figure stands here
+  | 'proftaka' // Trap — the figure here can't move unless a friendly is adjacent
+  | 'thorian' // Melee Only — opponents must be adjacent to attack your figures
+  | 'wannok' // Curse — end-of-round d20: wound the figure here, or an opponent's
+  | 'brandar' // scenario: artifact (no fixed power; excluded from the random pool)
+  // --- temporary (fires once when a figure stops on it) ---
+  | 'kelda' // Heal all wounds, then removed (only the wounded may stop)
+  | 'erland' // Summon: move any one figure adjacent to the figure here
+  | 'mitonsoul' // Massive Curse: every figure rolls d20; a 1 is destroyed
+  | 'sturla' // Resurrection: each owner rolls d20 per dead figure; a 20 returns it
+  | 'nilrend' // Negation: d20 picks a unique figure; its powers off for the game
+  | 'oreld'; // Remove Marker: d20 removes one of your / an opponent's order markers
 
 /**
  * A glyph on the battlefield. `faceUp` (power-side up) is always true in

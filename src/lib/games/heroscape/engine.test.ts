@@ -2650,6 +2650,23 @@ describe('slice 4: permanent glyphs fold into the single-source helpers', () => 
     expect(effectiveAttackDice(off, fig(off, FINN), fig(off, THORGRIM)).dice).toBe(3);
   });
 
+  it('Astrid: the +1 die is NORMAL-attack only (special attacks get nothing)', () => {
+    // Owner spec 2026-06: "one extra attack die when using a normal attack." Special
+    // attacks pass isNormalAttack=false (and in fact never call this helper), so Astrid
+    // must not add its die to them.
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM);
+    const glyphHex = at(3, 3);
+    s = setGlyphs(s, [{ id: 'astrid', at: glyphHex, faceUp: true }]);
+    s = place(s, FINN, glyphHex);
+    s = place(s, THORGRIM, at(3, 4));
+    const normal = effectiveAttackDice(s, fig(s, FINN), fig(s, THORGRIM), true);
+    const special = effectiveAttackDice(s, fig(s, FINN), fig(s, THORGRIM), false);
+    expect(normal.dice).toBe(special.dice + 1); // exactly the Astrid die
+    expect(normal.breakdown).toContain('+1 Astrid');
+    expect(special.breakdown).not.toContain('+1 Astrid');
+  });
+
   it('Gerda: +1 defense die while occupied', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
     s = clearExcept(s, FINN, THORGRIM, MARRO(1));
@@ -2661,15 +2678,28 @@ describe('slice 4: permanent glyphs fold into the single-source helpers', () => 
     expect(effectiveDefenseDice(s, fig(s, MARRO(1)), fig(s, FINN)).dice).toBe(4); // Marro Def 3 + 1 Gerda
   });
 
-  it('Ivor: +4 Range for a Range≥4 figure, nothing for Range 1', () => {
+  it('Jalgard: +2 defense dice while occupied (a stronger Gerda)', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    const glyphHex = at(3, 4);
+    s = setGlyphs(s, [{ id: 'jalgard', at: glyphHex, faceUp: true }]);
+    s = place(s, MARRO(1), glyphHex); // p2 controls Jalgard
+    s = place(s, FINN, at(3, 3));
+    s = place(s, THORGRIM, at(0, 0));
+    const eff = effectiveDefenseDice(s, fig(s, MARRO(1)), fig(s, FINN));
+    expect(eff.dice).toBe(5); // Marro Def 3 + 2 Jalgard
+    expect(eff.breakdown).toContain('+2 Jalgard');
+  });
+
+  it('Ivor: +2 Range for a Range≥4 figure, nothing for Range 1', () => {
     let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
     s = clearExcept(s, MARRO(1), FINN);
     const glyphHex = at(3, 3);
     s = setGlyphs(s, [{ id: 'ivor', at: glyphHex, faceUp: true }]);
-    s = place(s, MARRO(1), glyphHex); // Marro Range 6 → 10 while on Ivor
+    s = place(s, MARRO(1), glyphHex); // Marro Range 6 → 8 while on Ivor (+2, owner spec 2026-06)
     s = place(s, FINN, at(0, 0));
-    expect(effectiveRange(s, fig(s, MARRO(1))).dice).toBe(10);
-    expect(effectiveRange(s, fig(s, MARRO(1))).breakdown).toContain('+4 Ivor');
+    expect(effectiveRange(s, fig(s, MARRO(1))).dice).toBe(8);
+    expect(effectiveRange(s, fig(s, MARRO(1))).breakdown).toContain('+2 Ivor');
     // A Range-1 Finn on Ivor gets nothing (threshold).
     let s2 = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
     s2 = setGlyphs(s2, [{ id: 'ivor', at: glyphHex, faceUp: true }]);

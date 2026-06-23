@@ -572,10 +572,12 @@ export type HSGlyphDef = {
   id: HSGlyphId;
   /** Glyph's proper name (e.g. "Glyph of Astrid"). */
   name: string;
-  /** Map/badge key letter (A/G/I/V/D/K/E/M/B) — 05-glyphs §1 / Glyphs Key. */
+  /** Map/badge key letter — 05-glyphs §1 / Glyphs Key. */
   letter: string;
   kind: HSGlyphKind;
-  /** One-line effect text for the UI tooltip. */
+  /** Short power label shown ON the board (e.g. "Attack +1"). */
+  power: string;
+  /** Full effect text — shown only on HOVER (not on the board face). */
   effect: string;
   /** True once its effect is implemented in slice 4. Deferred glyphs
    *  (Erland/Mitonsoul/Brandar) are placed but inert (still a forced stop). */
@@ -589,12 +591,14 @@ export type HSGlyphDef = {
  * from the resolutions extraction.
  */
 export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
+  // ---- permanent: active only while one of your figures stands on the glyph ----
   astrid: {
     id: 'astrid',
     name: 'Glyph of Astrid',
     letter: 'A',
     kind: 'permanent',
-    effect: 'Attack +1 — each figure you control rolls one extra attack die.',
+    power: 'Attack +1',
+    effect: 'Each figure you control rolls one extra attack die when using a normal attack.',
     active: true,
   },
   gerda: {
@@ -602,7 +606,8 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     name: 'Glyph of Gerda',
     letter: 'G',
     kind: 'permanent',
-    effect: 'Defense +1 — each figure you control rolls one extra defense die.',
+    power: 'Defense +1',
+    effect: 'Each figure you control rolls one extra defense die.',
     active: true,
   },
   ivor: {
@@ -610,7 +615,8 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     name: 'Glyph of Ivor',
     letter: 'I',
     kind: 'permanent',
-    effect: 'Range +4 — each figure you control with Range 4 or more adds 4 to its Range.',
+    power: 'Range +2',
+    effect: 'Each figure you control with Range 4 or more adds 2 to its Range number.',
     active: true,
   },
   valda: {
@@ -618,7 +624,8 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     name: 'Glyph of Valda',
     letter: 'V',
     kind: 'permanent',
-    effect: 'Move +2 — each figure you control adds 2 to its Move (not the move off the glyph).',
+    power: 'Move +2',
+    effect: 'Each figure you control adds 2 to its Move. (Not applied to the move off the glyph.)',
     active: true,
   },
   dagmar: {
@@ -626,41 +633,127 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     name: 'Glyph of Dagmar',
     letter: 'D',
     kind: 'permanent',
-    effect: 'Initiative +8 — add 8 to your initiative roll.',
+    power: 'Initiative +8',
+    effect: 'Add 8 to your initiative die roll.',
     active: true,
   },
-  kelda: {
-    id: 'kelda',
-    name: 'Glyph of Kelda',
-    letter: 'K',
-    kind: 'temporary',
-    effect: 'Healer — only a wounded figure may stop here; it loses all wounds, then the glyph is removed.',
+  jalgard: {
+    id: 'jalgard',
+    name: 'Glyph of Jalgard',
+    letter: 'J',
+    kind: 'permanent',
+    power: 'Defense +2',
+    effect: 'Each figure you control rolls two extra defense dice.',
     active: true,
   },
-  // ---- deferred (framework only; placed inert, still a forced stop) ----
-  erland: {
-    id: 'erland',
-    name: 'Glyph of Erland',
-    letter: 'E',
-    kind: 'temporary',
-    effect: 'Summoning (not yet implemented).',
-    active: false, // slice 5: Erland summon
+  lodin: {
+    id: 'lodin',
+    name: 'Glyph of Lodin',
+    letter: 'L',
+    kind: 'permanent',
+    power: 'D20 +1',
+    effect: 'While standing here, add 1 to any 20-sided die roll you make.',
+    active: false, // wave 2: fold into every d20 the controller rolls
   },
-  mitonsoul: {
-    id: 'mitonsoul',
-    name: 'Glyph of Mitonsoul',
-    letter: 'M',
-    kind: 'temporary',
-    effect: 'Massive Curse (not yet implemented).',
-    active: false, // slice 5: Mitonsoul mass curse
+  rannveig: {
+    id: 'rannveig',
+    name: 'Glyph of Rannveig',
+    letter: 'R',
+    kind: 'permanent',
+    power: 'No Flying',
+    effect: 'All figures with the Flying power lose it while any figure stands on this glyph.',
+    active: false, // wave 2: effectiveFlying gate
+  },
+  proftaka: {
+    id: 'proftaka',
+    name: 'Glyph of Proftaka',
+    letter: 'P',
+    kind: 'permanent',
+    power: 'Trap',
+    effect: 'The figure on this glyph cannot move unless a friendly figure occupies an adjacent space.',
+    active: false, // wave 2: movement gate for the occupant
+  },
+  thorian: {
+    id: 'thorian',
+    name: 'Glyph of Thorian',
+    letter: 'T',
+    kind: 'permanent',
+    power: 'Melee Only',
+    effect: "All opponents' figures must be adjacent to your figures to make a normal attack against them.",
+    active: false, // wave 2: ranged-attack gate vs the Thorian controller's army
+  },
+  wannok: {
+    id: 'wannok',
+    name: 'Glyph of Wannok',
+    letter: 'W',
+    kind: 'permanent',
+    power: 'Curse',
+    effect: 'At end of each round the controller rolls a d20: on 1 the figure here takes a wound; on 2+ choose an opponent who must wound one of their own figures.',
+    active: false, // wave 3: end-of-round trigger + choice
   },
   brandar: {
     id: 'brandar',
     name: 'Glyph of Brandar',
     letter: 'B',
     kind: 'artifact',
-    effect: 'Artifact — rules vary per Game Scenario.',
-    active: false, // scenario: Brandar artifact
+    power: 'Artifact',
+    effect: 'Rules vary by scenario; only used if the scenario dictates. Not in the standard random pool.',
+    active: false, // scenario-only artifact (never auto-active)
+  },
+  // ---- temporary: fires once when a figure stops on it, then removed ----
+  kelda: {
+    id: 'kelda',
+    name: 'Glyph of Kelda',
+    letter: 'K',
+    kind: 'temporary',
+    power: 'Healer',
+    effect: "Remove all wound markers from the stopping figure's army card. Only figures with wounds may stop here. Once revealed it stays until used.",
+    active: true,
+  },
+  erland: {
+    id: 'erland',
+    name: 'Glyph of Erland',
+    letter: 'E',
+    kind: 'temporary',
+    power: 'Summoning',
+    effect: "Move any one figure (yours or an opponent's) to a space adjacent to the figure on this glyph. No leaving-engagement attacks.",
+    active: false, // wave 3: summon (pick any figure → adjacent)
+  },
+  mitonsoul: {
+    id: 'mitonsoul',
+    name: 'Glyph of Mitonsoul',
+    letter: 'M',
+    kind: 'temporary',
+    power: 'Massive Curse',
+    effect: 'Each player rolls a d20 for each of their figures on the battlefield. Each that rolls a 1 is destroyed.',
+    active: false, // wave 3: mass d20
+  },
+  sturla: {
+    id: 'sturla',
+    name: 'Glyph of Sturla',
+    letter: 'S',
+    kind: 'temporary',
+    power: 'Resurrection',
+    effect: 'Each player rolls a d20 for each of their figures destroyed this battle; on a 20 place it in any of that owner’s starting zones, otherwise it stays destroyed.',
+    active: false, // wave 3: resurrect on a 20
+  },
+  nilrend: {
+    id: 'nilrend',
+    name: 'Glyph of Nilrend',
+    letter: 'N',
+    kind: 'temporary',
+    power: 'Negation',
+    effect: "Roll a d20: on 1 choose one of your unique figures; on 2+ choose any opponent's unique figure — its special powers are negated for the rest of the game.",
+    active: false, // wave 3: d20 + negate powers
+  },
+  oreld: {
+    id: 'oreld',
+    name: 'Glyph of Oreld',
+    letter: 'O',
+    kind: 'temporary',
+    power: 'Remove Marker',
+    effect: "Roll a d20: on 1 a random order marker is removed from your unrevealed markers; on 2+ remove one random order marker from an opponent's army card.",
+    active: false, // wave 3: d20 + remove an order marker
   },
 };
 

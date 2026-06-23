@@ -1006,7 +1006,11 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
         {sorted.map(g => {
           const def = g.faceUp ? HS_GLYPHS[g.id] : null;
           return (
-            <div key={g.at} className="flex items-center gap-2">
+            <div
+              key={g.at}
+              className={'flex items-center gap-2' + (def ? ' cursor-help' : '')}
+              title={def ? `${def.name} — ${def.effect}` : 'Unknown glyph — stop a figure on it to reveal it.'}
+            >
               <span
                 className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-black text-rose-50"
                 style={{ background: '#7f1d1d', borderColor: def ? '#fca5a5' : '#9f1239' }}
@@ -1014,9 +1018,10 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
                 {def ? def.letter : '?'}
               </span>
               {def ? (
+                /* On the board we show only NAME + short POWER; the full effect is on hover (title). */
                 <div className="min-w-0 flex-1 leading-tight">
                   <div className="truncate text-[11px] font-bold text-rose-100">{def.name}</div>
-                  <div className="text-[10px] text-neutral-400">{def.effect}</div>
+                  <div className="truncate text-[10px] font-semibold text-rose-300/80">{def.power}</div>
                 </div>
               ) : (
                 <div className="flex-1 text-[11px] font-semibold text-neutral-500">Unknown — stop a figure on it to reveal</div>

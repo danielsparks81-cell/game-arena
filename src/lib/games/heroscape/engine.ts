@@ -2833,7 +2833,11 @@ export function effectiveAttackDice(
     dice += 1;
     breakdown.push('+1 Zettian Targeting');
   }
-  if (seatControlsGlyph(state, attacker.ownerSeat, 'astrid')) {
+  // Astrid: +1 attack die for a NORMAL attack ONLY. Special attacks (Fire Line,
+  // Explosion, Acid Breath, …) don't call this helper at all, but gate explicitly
+  // on isNormalAttack so the printed "normal attack" restriction is self-documenting
+  // and survives any future caller.
+  if (isNormalAttack && seatControlsGlyph(state, attacker.ownerSeat, 'astrid')) {
     dice += 1;
     breakdown.push('+1 Astrid');
   }
@@ -2927,6 +2931,12 @@ export function effectiveDefenseDice(
     dice += 1;
     breakdown.push('+1 Gerda');
   }
+  // Glyph of Jalgard — TWO extra defense dice (a stronger Gerda). Stacks with Gerda
+  // if a seat somehow holds both. Army-wide while occupied.
+  if (seatControlsGlyph(state, defender.ownerSeat, 'jalgard')) {
+    dice += 2;
+    breakdown.push('+2 Jalgard');
+  }
   return { dice, breakdown };
 }
 
@@ -2982,7 +2992,7 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
 /**
  * Effective RANGE for `fig` (05-glyphs / cards.md):
  *   printed Range
- *   + Glyph of Ivor          (+4 ONLY if printed Range ≥ 4 AND seat controls Ivor)
+ *   + Glyph of Ivor          (+2 ONLY if printed Range ≥ 4 AND seat controls Ivor)
  *   + Deathwalker 9000 RANGE ENHANCEMENT (slice 6) — +2 if the figure is a
  *                            Soulborg Guard (species Soulborg + class Guards)
  *                            adjacent to a living friendly Deathwalker 9000.
@@ -2995,8 +3005,8 @@ export function effectiveRange(state: HSState, fig: Figure): EffectiveStat {
   const breakdown: string[] = [`Range ${def.range} printed`];
   let range = def.range;
   if (def.range >= 4 && seatControlsGlyph(state, fig.ownerSeat, 'ivor')) {
-    range += 4;
-    breakdown.push('+4 Ivor');
+    range += 2;
+    breakdown.push('+2 Ivor');
   }
   // Deathwalker 9000's RANGE ENHANCEMENT (cards.md): "Any Soulborg Guards
   // adjacent to Deathwalker add 2 spaces to their range." Data-driven on species
