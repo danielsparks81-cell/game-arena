@@ -2921,6 +2921,13 @@ function targetBlockReason(
   }
 
   const range = effectiveRange(state, attacker).dice;
+  // MELEE (Range 1) requires TRUE adjacency, which honours the elevation exception: a figure on a
+  // tall ledge is NOT adjacent to one far below even though their hexes touch, so it can't melee it
+  // (03-movement line 127). Plain hex-distance ≤ 1 would wrongly allow it. Adjacent figures always
+  // have clear LOS, so no separate LOS check is needed here.
+  if (range <= 1) {
+    return figuresAdjacent(state, attacker, target) ? null : 'Out of range — melee must be adjacent';
+  }
   // A double-space figure measures range and traces LOS from EITHER of its two
   // spaces, to EITHER of the target's — the owner gets the better end (04-combat).
   // Figures do NOT block line of sight — only terrain does (on-map obstacles may
@@ -3411,9 +3418,9 @@ export function fireLineDefenders(
   const attacker = state.figures.find(f => f.id === attackerId);
   if (!attacker) return [];
   return fireLineTargets(state, attackerId, dir).map(t => {
-    const d = effectiveDefenseDice(state, t, attacker);
-    const h = heightAdvantage(state, attacker, t);
-    return { figureId: t.id, defense: Math.max(0, d.dice - h.defender) };
+    // Keep the defender's FULL dice incl. height — only the ATTACKER's special-attack roll is
+    // unmodifiable (05-glyphs §117). (Was stripping height; Ice Shard/Queglix/Wild Swing keep it.)
+    return { figureId: t.id, defense: effectiveDefenseDice(state, t, attacker).dice };
   });
 }
 
@@ -3553,9 +3560,9 @@ export function explosionDefenders(
     if (figuresAdjacent(state, target, f)) affected.set(f.id, f); // incl. Deathwalker (self-hit allowed)
   }
   return [...affected.values()].map(t => {
-    const d = effectiveDefenseDice(state, t, dw);
-    const h = heightAdvantage(state, dw, t);
-    return { figureId: t.id, defense: Math.max(0, d.dice - h.defender) }; // special attack → strip height
+    // Keep the defender's FULL dice incl. height — only the ATTACKER's special-attack roll is
+    // unmodifiable (05-glyphs §117). (Was stripping height; Ice Shard/Queglix/Wild Swing keep it.)
+    return { figureId: t.id, defense: effectiveDefenseDice(state, t, dw).dice };
   });
 }
 
@@ -3703,9 +3710,9 @@ export function grenadeDefenders(
     if (figuresAdjacent(state, target, f)) affected.set(f.id, f);
   }
   return [...affected.values()].map(t => {
-    const d = effectiveDefenseDice(state, t, thrower);
-    const h = heightAdvantage(state, thrower, t);
-    return { figureId: t.id, defense: Math.max(0, d.dice - h.defender) }; // special attack → strip height
+    // Keep the defender's FULL dice incl. height — only the ATTACKER's special-attack roll is
+    // unmodifiable (05-glyphs §117). (Was stripping height; Ice Shard/Queglix/Wild Swing keep it.)
+    return { figureId: t.id, defense: effectiveDefenseDice(state, t, thrower).dice };
   });
 }
 

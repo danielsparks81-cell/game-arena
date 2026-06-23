@@ -5136,6 +5136,34 @@ describe('audit fixes: soft-lock / waste guards (M1–M3)', () => {
   });
 });
 
+describe('audit fixes: height × special attacks / melee (H2/H4)', () => {
+  it('H2 — a grenade KEEPS the defender height bonus (no longer strips it)', () => {
+    let s = customBattle(['airborne_elite'], ['marro_warriors'], 'p1', CLIFF_MAP_ID);
+    s = clearExcept(s, 's0-airborne_elite-1', 's1-marro_warriors-1');
+    s = place(s, 's0-airborne_elite-1', at(1, 1)); // grass — height 1
+    s = place(s, 's1-marro_warriors-1', at(0, 1)); // on the R5 pillar — height 5, above the thrower
+    const target = fig(s, 's1-marro_warriors-1');
+    const thrower = fig(s, 's0-airborne_elite-1');
+    const h = heightAdvantage(s, thrower, target).defender;
+    expect(h).toBeGreaterThan(0); // the defender IS on higher ground
+    const def = grenadeDefenders(s, 's0-airborne_elite-1', 's1-marro_warriors-1')
+      .find(d => d.figureId === 's1-marro_warriors-1')!.defense;
+    // The grenade defender keeps the FULL height-included dice (pre-fix this returned dice − h).
+    expect(def).toBe(effectiveDefenseDice(s, target, thrower).dice);
+  });
+
+  it('H4 — melee across a big height break is blocked (figures are not truly adjacent)', () => {
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1', CLIFF_MAP_ID);
+    s = clearExcept(s, FINN, MARRO(1));
+    s = place(s, FINN, at(4, 1)); // atop the R25 pillar — height 25
+    s = place(s, MARRO(1), at(5, 1)); // grass, hex-adjacent but 24 levels below
+    expect(legalTargets(s, FINN)).not.toContain(MARRO(1)); // can't melee across the break
+    // control: on flat grass the same hex-adjacency IS a legal melee target
+    const flat = place(place(s, FINN, at(3, 3)), MARRO(1), at(4, 3));
+    expect(legalTargets(flat, FINN)).toContain(MARRO(1));
+  });
+});
+
 describe('Glyph of Sturla — Resurrection on reveal', () => {
   it('a destroyed figure rolls a d20; a 20 returns it to its owner start zone, else it stays dead', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
