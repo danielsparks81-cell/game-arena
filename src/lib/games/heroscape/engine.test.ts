@@ -2578,6 +2578,27 @@ beforeAll(() => {
   );
 });
 
+describe('projection: face-down glyphs are hidden on the wire', () => {
+  it('masks a face-down glyph id (keeps its hex) and leaves a revealed one public', () => {
+    let s = inTurnsOn(CORRIDOR_MAP_ID, 'p1', { p1: 's0-finn' });
+    const downHex = at(2, 2);
+    const upHex = at(2, 3);
+    s = setGlyphs(s, [
+      { id: 'mitonsoul', at: downHex, faceUp: false },
+      { id: 'astrid', at: upHex, faceUp: true },
+    ]);
+    const proj = projectStateForViewer(s, 'p2');
+    const down = proj.glyphs.find(g => g.at === downHex)!;
+    const up = proj.glyphs.find(g => g.at === upHex)!;
+    expect(down.id).not.toBe('mitonsoul'); // identity masked off the wire
+    expect(down.faceUp).toBe(false);
+    expect(down.at).toBe(downHex); // hex still known so the "?" marker renders
+    expect(up.id).toBe('astrid'); // a revealed glyph is public
+    // glyphs are neutral/secret to everyone — even projecting to p1 masks the face-down id.
+    expect(projectStateForViewer(s, 'p1').glyphs.find(g => g.at === downHex)!.id).not.toBe('mitonsoul');
+  });
+});
+
 describe('slice 4: glyph forced stop', () => {
   it('a figure that moves onto a glyph stops there and cannot pass through it', () => {
     // The 1-wide corridor is column 2. Finn (Move 5) at its north mouth (2,1),
@@ -3425,14 +3446,19 @@ describe('slice 5: quick-battle regression + projection', () => {
     expect(projectStateForViewer(s, null)).toEqual(s);
     expect(JSON.stringify(s)).toBe(before); // never mutates
 
-    // Placement phase: figures + hands are public too.
+    // Placement phase: figures + hands are public; the ONLY hidden thing now is the
+    // face-down glyph identities (glyphs are laid out power-side-down before placement).
     s = draftCard(s, 'thorgrim');
     s = draftCard(s, 'marro_warriors');
     s = draftPass(s);
     s = draftPass(s);
     expect(s.phase).toBe('placement');
-    expect(projectStateForViewer(s, 'p2')).toEqual(s);
-    expect(projectStateForViewer(s, null)).toEqual(s);
+    const proj = projectStateForViewer(s, 'p2');
+    for (const g of proj.glyphs) {
+      if (!g.faceUp) expect(g.id).not.toBe(s.glyphs.find(x => x.at === g.at)!.id); // masked
+    }
+    expect({ ...proj, glyphs: s.glyphs }).toEqual(s); // …and nothing else differs
+    expect(projectStateForViewer(s, null)).toEqual(proj); // glyphs are secret to everyone alike
   });
 
   it('computeHistory stays null through draft and placement', () => {

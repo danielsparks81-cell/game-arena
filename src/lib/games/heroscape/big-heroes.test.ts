@@ -354,6 +354,31 @@ describe('Jotun — Throw 14', () => {
   });
 });
 
+describe('Jotun — Throw × Lodin glyph', () => {
+  it('Lodin +1 lifts BOTH Throw d20s — raw 13 throws (→14) and raw 10 wounds (→11); no Lodin → fails', () => {
+    let { s, hero } = stage('jotun');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const cells = Object.keys(MAPS[s.mapId].cells);
+    const glyphHex = cells.find(k => neighborKeys(k).filter(n => cells.includes(n)).length >= 2)!;
+    const adj = neighborKeys(glyphHex).find(n => cells.includes(n))!;
+    const jt = s.figures.find(f => f.id === hero)!;
+    jt.at = glyphHex; jt.at2 = null; // Jotun stands on the Lodin glyph → his team controls it
+    const target = s.figures.find(f => f.id === 's1-thorgrim-1')!;
+    target.at = adj; target.at2 = null; // Thorgrim: medium, non-flying, adjacent
+    s.glyphs = [{ id: 'lodin', at: glyphHex, faceUp: true }];
+    const land = throwLandingHexes(s, hero, 's1-thorgrim-1').find(k => k !== adj && k !== glyphHex)!;
+    // raw throw 13 (<14) +1 Lodin = 14 → thrown; raw damage 10 (<11) +1 = 11 → 2 wounds.
+    const thrown = unwrap(applyAction(s, 'p1', { kind: 'throw_figure', attackerId: hero, targetId: 's1-thorgrim-1', to: land, throwD20: 13, damageD20: 10 }));
+    expect(at(thrown, 's1-thorgrim-1')).toBe(land);
+    expect(thrown.figures.find(f => f.id === 's1-thorgrim-1')!.wounds).toBe(2);
+    // The SAME raw rolls with no Lodin glyph fail — the figure stays put.
+    const noGlyph = JSON.parse(JSON.stringify(s)) as HSState;
+    noGlyph.glyphs = [];
+    const stays = unwrap(applyAction(noGlyph, 'p1', { kind: 'throw_figure', attackerId: hero, targetId: 's1-thorgrim-1', to: land, throwD20: 13, damageD20: 10 }));
+    expect(at(stays, 's1-thorgrim-1')).toBe(adj);
+  });
+});
+
 // ===========================================================================
 // Theracus — CARRY: pick an unengaged friendly small/medium adjacent figure;
 // after moving, place it adjacent to Theracus's new position.

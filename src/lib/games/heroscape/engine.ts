@@ -4990,9 +4990,14 @@ function doThrow(
 
   const s = clone(state);
   s.threwThisTurn = true; // the attempt is spent regardless of the roll
-  if (action.throwD20 < THROW_THRESHOLD) {
-    pushLog(s, 'power', `${figureLabel(s, jotun)} tries to Throw ${figureLabel(s, target)} but rolls ${action.throwD20} (needs ${THROW_THRESHOLD}+) — it stays put.`);
-    setLastRoll(s, { title: 'Throw', dice: [action.throwD20], success: false, detail: `${action.throwD20} (needs ${THROW_THRESHOLD}+) — ${tdef.name} stays put.` });
+  // Lodin's Glyph adds +1 to ANY d20 the controlling player rolls — Throw's success roll AND its
+  // damage roll both qualify (every other Big-Hero d20 power already folds this in).
+  const lodin = lodinD20Bonus(state, jotun.ownerSeat);
+  const throwRoll = action.throwD20 + lodin;
+  const lodinNote = lodin ? ` (${action.throwD20}+${lodin} Lodin)` : '';
+  if (throwRoll < THROW_THRESHOLD) {
+    pushLog(s, 'power', `${figureLabel(s, jotun)} tries to Throw ${figureLabel(s, target)} but rolls ${throwRoll}${lodinNote} (needs ${THROW_THRESHOLD}+) — it stays put.`);
+    setLastRoll(s, { title: 'Throw', dice: [action.throwD20], success: false, detail: `${throwRoll}${lodinNote} (needs ${THROW_THRESHOLD}+) — ${tdef.name} stays put.` });
     return s;
   }
   // 14+ — validate the landing and place the figure.
@@ -5010,13 +5015,13 @@ function doThrow(
   let woundLine = '';
   if (noDamage) {
     woundLine = landCell?.terrain === 'water' ? ' (landed in water — no throwing damage)' : ' (landed above Jotun’s height — no throwing damage)';
-  } else if (action.damageD20 >= THROW_DAMAGE_THRESHOLD) {
+  } else if (action.damageD20 + lodin >= THROW_DAMAGE_THRESHOLD) {
     t.wounds += THROW_WOUNDS;
     const destroyed = t.wounds >= tdef.life;
     if (destroyed) { t.at = null; t.at2 = null; }
-    woundLine = ` and takes ${THROW_WOUNDS} wounds (rolled ${action.damageD20} ≥ ${THROW_DAMAGE_THRESHOLD})${destroyed ? ' — destroyed!' : ''}`;
+    woundLine = ` and takes ${THROW_WOUNDS} wounds (rolled ${action.damageD20 + lodin}${lodin ? `=${action.damageD20}+${lodin} Lodin` : ''} ≥ ${THROW_DAMAGE_THRESHOLD})${destroyed ? ' — destroyed!' : ''}`;
   } else {
-    woundLine = ` and is unharmed (rolled ${action.damageD20} < ${THROW_DAMAGE_THRESHOLD})`;
+    woundLine = ` and is unharmed (rolled ${action.damageD20 + lodin} < ${THROW_DAMAGE_THRESHOLD})`;
   }
   pushLog(s, 'power', `${figureLabel(s, jotun)} Throws ${figureLabel(s, t)} (rolled ${action.throwD20}) onto ${action.to}${woundLine}.`);
   setLastRoll(s, { title: 'Throw', dice: [action.throwD20], success: true, detail: `${action.throwD20} (≥${THROW_THRESHOLD}) — Jotun hurls ${tdef.name}!` });
@@ -6161,6 +6166,11 @@ export function projectStateForViewer(state: HSState, viewerId: string | null): 
       m.revealed ? m : { marker: 'hidden', revealed: false },
     );
   }
+  // Glyphs are placed power-side-DOWN — their identity is secret until a figure stops on one. Mask
+  // the id of every face-down glyph so a modified/devtools client can't read it off the projected
+  // wire state (the UI already renders these as "?"; the real id returns the instant it flips
+  // faceUp server-side). Applies to all viewers — glyphs are neutral, hidden from everyone.
+  next.glyphs = next.glyphs.map(g => (g.faceUp ? g : { ...g, id: 'hidden' as HSGlyphId }));
   return next;
 }
 
