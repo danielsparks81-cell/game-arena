@@ -1614,13 +1614,14 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   // ever shows. Bounded loop (a glyph can't chain into another mid-resolution).
   if (!('error' in next)) {
     let guard = 0;
-    while (next.pendingChoice?.kind === 'glyph_mitonsoul' && guard++ < 50) {
+    while (
+      (next.pendingChoice?.kind === 'glyph_mitonsoul' || next.pendingChoice?.kind === 'glyph_sturla') &&
+      guard++ < 50
+    ) {
       const pc = next.pendingChoice;
       const pid = next.players.find(p => p.seat === pc.seat)?.playerId ?? actorId;
-      const resolved = applyActionHS(next, pid, {
-        kind: 'resolve_choice',
-        choice: { kind: 'glyph_mitonsoul', rolls: pc.figureIds.map(figureId => ({ figureId, d20: d20() })) },
-      });
+      const rolls = pc.figureIds.map(figureId => ({ figureId, d20: d20() }));
+      const resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: pc.kind, rolls } });
       if ('error' in resolved) break;
       next = resolved;
     }

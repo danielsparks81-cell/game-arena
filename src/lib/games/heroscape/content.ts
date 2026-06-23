@@ -735,7 +735,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'temporary',
     power: 'Resurrection',
     effect: 'Each player rolls a d20 for each of their figures destroyed this battle; on a 20 place it in any of that owner’s starting zones, otherwise it stays destroyed.',
-    active: false, // wave 3: resurrect on a 20
+    active: true,
   },
   nilrend: {
     id: 'nilrend',

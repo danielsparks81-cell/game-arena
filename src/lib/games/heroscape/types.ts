@@ -414,6 +414,15 @@ export type HSPendingChoice =
       seat: number;
       at: HexKey;
       figureIds: string[];
+    }
+  | {
+      // Glyph of Sturla (Resurrection) — fires when a figure stops on it. The action layer
+      // rolls one d20 per listed DESTROYED figure (`figureIds`); on a 20 it returns to an
+      // empty space in its owner's starting zone. No human choice — auto-resolved in-request.
+      kind: 'glyph_sturla';
+      seat: number;
+      at: HexKey;
+      figureIds: string[];
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -422,7 +431,8 @@ export type HSChoiceResolution =
   | { kind: 'water_clone_place'; hex: HexKey } // landing for the NEXT pending placement
   | { kind: 'spirit_placement'; cardUid: string } // unique card to receive the Spirit
   | { kind: 'airborne_drop'; placements: HexKey[] } // landings for all reserve Airborne Elite
-  | { kind: 'glyph_mitonsoul'; rolls: { figureId: string; d20: number }[] }; // a d20 per figure
+  | { kind: 'glyph_mitonsoul'; rolls: { figureId: string; d20: number }[] } // a d20 per figure
+  | { kind: 'glyph_sturla'; rolls: { figureId: string; d20: number }[] }; // a d20 per dead figure
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`

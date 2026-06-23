@@ -4967,3 +4967,37 @@ describe('Glyph of Mitonsoul — Massive Curse on reveal', () => {
     expect(after.pendingChoice).toBeUndefined();
   });
 });
+
+describe('Glyph of Sturla — Resurrection on reveal', () => {
+  it('a destroyed figure rolls a d20; a 20 returns it to its owner start zone, else it stays dead', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    s = place(s, FINN, at(3, 0));
+    s = place(s, THORGRIM, at(0, 0));
+    // MARRO(1) is destroyed (off the board, not reserve) — eligible for resurrection.
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const marro = s.figures.find(f => f.id === MARRO(1))!;
+    marro.at = null; marro.at2 = null;
+    const glyphHex = at(3, 1);
+    s = setGlyphs(s, [{ id: 'sturla', at: glyphHex, faceUp: false }]);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    expect(moved.pendingChoice?.kind).toBe('glyph_sturla');
+    const ids = moved.pendingChoice?.kind === 'glyph_sturla' ? moved.pendingChoice.figureIds : [];
+    expect(ids).toContain(MARRO(1)); // the dead figure is eligible to roll
+    // Roll a 20 for MARRO, a miss for any other dead figure → only MARRO returns.
+    const back = unwrap(applyAction(moved, 'p1', {
+      kind: 'resolve_choice',
+      choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: id === MARRO(1) ? 20 : 7 })) },
+    }));
+    const z1 = MAPS[back.mapId].startZones[1] ?? [];
+    expect(fig(back, MARRO(1)).at).not.toBeNull(); // resurrected
+    expect(z1).toContain(fig(back, MARRO(1)).at); // into seat-1's start zone
+    expect(back.glyphs.find(g => g.at === glyphHex)).toBeUndefined(); // temporary glyph removed
+    // A non-20 leaves it destroyed.
+    const stay = unwrap(applyAction(moved, 'p1', {
+      kind: 'resolve_choice',
+      choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: 7 })) },
+    }));
+    expect(fig(stay, MARRO(1)).at).toBeNull();
+  });
+});

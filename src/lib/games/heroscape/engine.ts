@@ -1740,6 +1740,27 @@ function hasFriendlyAdjacent(state: HSState, fig: Figure): boolean {
   );
 }
 
+/** Resurrect `fig` (currently destroyed) onto an EMPTY space in its OWNER's starting zone —
+ *  a 1-hex figure on any free start hex, a 2-hex figure on a free same-level adjacent pair
+ *  (Glyph of Sturla). Mutates `s` in place; returns true if it found room (false = stays dead). */
+function resurrectToStartZone(s: HSState, fig: Figure): boolean {
+  const map = MAPS[s.mapId];
+  if (!map) return false;
+  const occupied = new Set<HexKey>();
+  for (const f of s.figures) { if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
+  const free = (map.startZones[fig.ownerSeat] ?? []).filter(h => !occupied.has(h));
+  if (baseSizeOf(cardDefFor(s, fig)) === 2) {
+    for (const lead of free) {
+      const tail = tailFor(map.cells, new Set(free.filter(h => h !== lead)), lead);
+      if (tail != null) { fig.at = lead; fig.at2 = tail; return true; }
+    }
+    return false;
+  }
+  if (free.length === 0) return false;
+  fig.at = free[0]; fig.at2 = null;
+  return true;
+}
+
 // ============================================================================
 // Movement
 // ============================================================================
@@ -2601,6 +2622,18 @@ function applyGlyphOnStop(s: HSState, fig: Figure): void {
       figureIds: s.figures.filter(f => f.at != null).map(f => f.id),
     };
     pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Mitonsoul — a Massive Curse sweeps the field!`);
+    return;
+  }
+  if (g.id === 'sturla') {
+    // Resurrection — each DESTROYED figure rolls a d20 (action layer); a 20 returns it to its
+    // owner's start zone. No human choice; auto-resolved in-request, then the glyph is removed.
+    s.pendingChoice = {
+      kind: 'glyph_sturla',
+      seat: fig.ownerSeat,
+      at: g.at,
+      figureIds: s.figures.filter(f => f.at == null && !f.reserve).map(f => f.id),
+    };
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Sturla — the fallen may rise!`);
     return;
   }
   if (def.kind === 'permanent' && def.active) {
@@ -5088,6 +5121,28 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     );
     delete s.pendingChoice;
     checkEliminationWin(s); // a wipe can end the game
+    return s;
+  }
+
+  // --- Glyph of Sturla: Resurrection (one d20 per dead figure; a 20 returns it to its start zone) ---
+  if (pc.kind === 'glyph_sturla' && choice.kind === 'glyph_sturla') {
+    for (const r of choice.rolls) {
+      if (!Number.isInteger(r.d20) || r.d20 < 1 || r.d20 > 20) return { error: 'Malformed Sturla roll' };
+    }
+    const s = clone(state);
+    const back: string[] = [];
+    for (const r of choice.rolls) {
+      if (r.d20 !== 20) continue;
+      const f = s.figures.find(x => x.id === r.figureId);
+      if (f && f.at == null && !f.reserve && resurrectToStartZone(s, f)) back.push(figureLabel(s, f));
+    }
+    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
+    pushLog(
+      s,
+      'glyph',
+      back.length ? `Resurrection — returned to the field: ${back.join(', ')}.` : 'Resurrection — none rise (no 20s rolled).',
+    );
+    delete s.pendingChoice;
     return s;
   }
 
