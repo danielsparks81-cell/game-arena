@@ -9,7 +9,7 @@ Legend: ✅ done · 🟡 partial · ⬜ missing
 - **Dice overlays** — `setLastRoll(s, {title, dice, …})` drives the big d20 overlay; normal attacks use the attack/defense dice overlay (`rollAttack`).
 - **Standee motion** — walk (hex-line, center-to-center) + flying arc, in `HeroBoard3D`'s standee `useFrame`.
 - **Glyph events** — the "Glyph triggered" banner (`HeroScapeBoard` `glyphFlash`).
-- **Sound** — `import { sounds } from '@/lib/sounds'`. **Only `sounds.mindFreak()` is wired in HeroScape today.** Generic primitives available to reuse: `click`, `draw`, `drop`, `play`, `tick`, `win` (the `ls*`/`sd*` ones are themed for Long Shot / Spellduel).
+- **Sound** — `import { sounds } from '@/lib/sounds'`. A HeroScape set is now wired: `hsDice` (combat + d20 rolls), per-figure `hsHit`/`hsBlocked`/`hsDeath` (revealed as each defender resolves in the overlay), special stings off `lastEffect` (`hsChomp`/`hsBlast`/`hsFire`/`hsIce`/`hsAcid`/`hsSword`), `hsGlyph` (reveal), and `win`/`draw` at game end. `hsStep` exists but isn't hooked yet (footsteps deferred). Plus Mind Shackle's spoken `mindFreak`.
 
 ## Coverage table
 
@@ -43,9 +43,9 @@ Legend: ✅ done · 🟡 partial · ⬜ missing
 | Victory | — | ✅ win banner | ⬜ | wire the existing `sounds.win` |
 
 ## Summary & recommendations
-- **Animations: good.** Every special *attack* has a distinct VFX, plus dice overlays, walk/fly motion, and the new glyph banner. Gaps are mostly non-attack beats: **fall impact, death fade, Wild Swing / Queglix / Throw arcs, Water Clone, carry passenger**.
-- **Sound: the big gap.** Only Mind Shackle makes noise. A single focused "HeroScape sound pass" would lift game feel the most. Suggested priority order:
-  1. **Core loop** (heard every turn): dice rattle, hit/clash, wound/death, footstep, victory (`sounds.win` already exists).
-  2. **Special-attack stings**: Chomp bite, explosion/grenade boom, fire roar, ice shatter, acid hiss, sword clash.
-  3. **Polish**: fall thud, glyph reveal chime, takeoff whoosh, order-marker flip.
-- Add new sounds as methods in `src/lib/sounds.ts` (Web Audio, same pattern as the existing ones) and call them from the same effect hooks that already fire the animations (`lastEffect` / `lastRoll` watchers), so audio and visuals stay in sync.
+- **Animations: good.** Every special *attack* has a distinct VFX, plus dice overlays, walk/fly motion, and the glyph banner. Gaps are mostly non-attack beats: **fall impact, death fade, Wild Swing / Queglix / Throw arcs, Water Clone, carry passenger**.
+- **Sound: core loop + specials DONE** (✅ the sound pass). Wired: dice rattle (combat + d20), per-figure hit / blocked / death, all six special stings, glyph reveal, and victory/draw. Remaining sound gaps (lower priority):
+  1. **Footstep** — `hsStep` exists but isn't hooked to moves yet (avoid noisiness on multi-hex walks; gate to one per step).
+  2. **Fall thud / extreme-fall** and **flying takeoff whoosh**.
+  3. **Order-marker flip / reveal** at turn start.
+- Add new sounds as methods in `src/lib/sounds.ts` (Web Audio, same pattern) and call them from the same effect hooks that fire the animations (`lastEffect` / `lastRoll` / `lastAttack` overlay), so audio and visuals stay in sync.

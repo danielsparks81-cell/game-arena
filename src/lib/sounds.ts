@@ -117,6 +117,81 @@ export const sounds = {
   /** HeroScape Ne-Gok-Sa Mind Shackle — a sinister "Mind Freak!" (deep + slow). */
   mindFreak: () => speak('Mind Freak!', { rate: 0.85, pitch: 0.5 }),
 
+  // -------- HeroScape feedback cues --------
+  // Wired from HeroScapeBoard: the dice overlays (hsDice + per-figure hit/block/death), the
+  // lastEffect special-attack stings, the glyph-reveal banner, and the win/draw banner.
+  /** Quick clatter as combat / d20 dice tumble in. */
+  hsDice: () => play([
+    { freq: 420, duration: 0.03, type: 'square' },
+    { freq: 300, duration: 0.03, type: 'square', delay: 0.04 },
+    { freq: 520, duration: 0.03, type: 'square', delay: 0.08 },
+    { freq: 360, duration: 0.04, type: 'square', delay: 0.12 },
+  ], 0.035),
+  /** Skulls get through — a meaty thud with a metallic edge. */
+  hsHit: () => play([
+    { freq: 200, duration: 0.10, type: 'square' },
+    { freq: 90, duration: 0.16, type: 'triangle', delay: 0.02 },
+    { freq: 1200, duration: 0.04, type: 'square' },
+  ], 0.085),
+  /** Fully blocked — a bright shield clink, no damage. */
+  hsBlocked: () => play([
+    { freq: 1400, duration: 0.05, type: 'square' },
+    { freq: 1900, duration: 0.06, type: 'sine', delay: 0.03 },
+  ], 0.05),
+  /** A figure is destroyed — a short descending knell. */
+  hsDeath: () => play([
+    { freq: 300, duration: 0.14, type: 'triangle' },
+    { freq: 180, duration: 0.18, type: 'triangle', delay: 0.10 },
+    { freq: 80, duration: 0.30, type: 'sine', delay: 0.22 },
+  ], 0.08),
+  /** Soft footfall as a figure steps a hex. */
+  hsStep: () => play([
+    { freq: 150, duration: 0.05, type: 'sine' },
+    { freq: 85, duration: 0.05, type: 'triangle', delay: 0.02 },
+  ], 0.03),
+  /** Chomp — Grimnak's jaws snap shut. */
+  hsChomp: () => play([
+    { freq: 260, duration: 0.05, type: 'square' },
+    { freq: 110, duration: 0.07, type: 'square', delay: 0.05 },
+    { freq: 65, duration: 0.11, type: 'triangle', delay: 0.10 },
+  ], 0.09),
+  /** Blast — grenade / Deathwalker explosion boom. */
+  hsBlast: () => play([
+    { freq: 160, duration: 0.10, type: 'square' },
+    { freq: 70, duration: 0.22, type: 'triangle', delay: 0.03 },
+    { freq: 40, duration: 0.30, type: 'sine', delay: 0.08 },
+  ], 0.11),
+  /** Fire Line — a roaring tunnel of flame. */
+  hsFire: () => play([
+    { freq: 220, duration: 0.22, type: 'sawtooth' },
+    { freq: 320, duration: 0.20, type: 'sawtooth', delay: 0.06 },
+    { freq: 170, duration: 0.18, type: 'sawtooth', delay: 0.12 },
+  ], 0.055),
+  /** Ice Shard — a sharp frozen crack. */
+  hsIce: () => play([
+    { freq: 2100, duration: 0.04, type: 'square' },
+    { freq: 1500, duration: 0.06, type: 'sine', delay: 0.03 },
+    { freq: 2700, duration: 0.05, type: 'sine', delay: 0.07 },
+  ], 0.05),
+  /** Acid Breath — a caustic hiss. */
+  hsAcid: () => play([
+    { freq: 900, duration: 0.20, type: 'sawtooth' },
+    { freq: 680, duration: 0.18, type: 'sawtooth', delay: 0.06 },
+    { freq: 480, duration: 0.18, type: 'sawtooth', delay: 0.12 },
+  ], 0.04),
+  /** Counter Strike — a bright blade clang reflected back at the attacker. */
+  hsSword: () => play([
+    { freq: 1800, duration: 0.05, type: 'square' },
+    { freq: 2400, duration: 0.08, type: 'sine', delay: 0.03 },
+    { freq: 1200, duration: 0.10, type: 'triangle', delay: 0.06 },
+  ], 0.06),
+  /** A glyph is revealed — a mystical ascending chime. */
+  hsGlyph: () => play([
+    { freq: 700, duration: 0.10, type: 'sine' },
+    { freq: 1050, duration: 0.14, type: 'sine', delay: 0.07 },
+    { freq: 1400, duration: 0.22, type: 'sine', delay: 0.14 },
+  ], 0.06),
+
   // -------- Spellduel feedback cues --------
   // Each is mapped 1:1 to an SDEvent kind by SpellduelBoard's event-diff effect.
   /** Soft whoosh as a card moves from hand into the field. */

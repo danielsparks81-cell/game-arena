@@ -1087,7 +1087,12 @@ function DiceRollOverlay({ attack, onDismiss, final }: { attack: LastAttack; onD
         timers.push(setTimeout(() => setShownD(i), t));
       }
       t += 500; // beat before the verdict lands — long enough to feel deliberate, not a give-away
-      timers.push(setTimeout(() => setResolved(gi + 1), t)); // this figure's outcome lands
+      timers.push(setTimeout(() => {
+        setResolved(gi + 1); // this figure's outcome lands
+        if (g.destroyed) sounds.hsDeath();
+        else if (g.wounds > 0) sounds.hsHit();
+        else sounds.hsBlocked();
+      }, t));
       t += 820; // hold so the per-figure result is readable
     }
     // 3) RESULT.
@@ -1512,6 +1517,7 @@ export default function HeroScapeBoard({
       // even when the flat defenseRoll is empty).
       if (la.attackRoll.length > 0 || la.defenseRoll.length > 0 || (la.defenseGroups?.length ?? 0) > 0) {
         setRollAttack(la);
+        sounds.hsDice(); // dice rattle as the shared attack roll tumbles in
         // Snapshot every on-board figure THIS attack changed — killed (now off-board)
         // OR freshly wounded (more wounds than a moment ago) — and freeze its old look
         // until the overlay dismisses, so neither the vanish nor the wound markers
@@ -1575,7 +1581,7 @@ export default function HeroScapeBoard({
     if (!lr) return;
     if (lr.seq > lastSeenRollSeqRef.current) {
       lastSeenRollSeqRef.current = lr.seq;
-      if (lr.dice.length > 0) setRollD20(lr);
+      if (lr.dice.length > 0) { setRollD20(lr); sounds.hsDice(); }
       if (lr.title === 'Mind Shackle') sounds.mindFreak(); // Ne-Gok-Sa's seize attempt → "Mind Freak!"
     }
   }, [state.lastRoll]);
@@ -1598,10 +1604,39 @@ export default function HeroScapeBoard({
     seenGlyphSeqRef.current = maxSeq;
     if (!fresh.length) return;
     setGlyphFlash({ lines: fresh, nonce: maxSeq });
+    sounds.hsGlyph(); // a glyph just revealed/triggered
     if (glyphFlashTimer.current) clearTimeout(glyphFlashTimer.current);
     glyphFlashTimer.current = setTimeout(() => setGlyphFlash(null), 7000);
   }, [state.log]);
   useEffect(() => () => { if (glyphFlashTimer.current) clearTimeout(glyphFlashTimer.current); }, []);
+
+  // Special-attack STINGS — play the matching sound the instant the engine stamps a board VFX
+  // (state.lastEffect). One sound per effect, keyed on its monotonic seq so it fires once.
+  const lastEffectSeqRef = useRef<number>(state.lastEffect?.seq ?? 0);
+  useEffect(() => {
+    const e = state.lastEffect;
+    if (!e || e.seq <= lastEffectSeqRef.current) return;
+    lastEffectSeqRef.current = e.seq;
+    ({
+      chomp: sounds.hsChomp,
+      blast: sounds.hsBlast, // grenade + Deathwalker explosion
+      fire_line: sounds.hsFire,
+      ice_shard: sounds.hsIce,
+      acid_breath: sounds.hsAcid,
+      counter_strike: sounds.hsSword,
+    } as Record<string, () => void>)[e.kind]?.();
+  }, [state.lastEffect]);
+
+  // Victory / draw chime when the game ends — held until any killing-blow dice overlay clears
+  // (no spoiler), fired once. Init from the current phase so reloading a finished game is silent.
+  const endChimedRef = useRef<boolean>(state.phase === 'finished');
+  useEffect(() => {
+    if (state.phase !== 'finished') { endChimedRef.current = false; return; } // reset for a rematch
+    if (rollAttack || endChimedRef.current) return;
+    endChimedRef.current = true;
+    if (state.winnerSeat == null && state.winnerTeam == null) sounds.draw();
+    else sounds.win();
+  }, [state.phase, state.winnerSeat, state.winnerTeam, rollAttack]);
 
   // Drive the AI: while a bot owes an action, the HOST's client ticks `ai_step`
   // ONE action at a time (so its moves + dice animate). The server no-ops once no
