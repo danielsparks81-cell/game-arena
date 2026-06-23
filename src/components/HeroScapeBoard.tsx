@@ -996,34 +996,34 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
   // Revealed first (most informative), then unknowns; stable by hex key.
   const sorted = [...glyphs].sort((a, b) => Number(b.faceUp) - Number(a.faceUp) || a.at.localeCompare(b.at));
   return (
-    <div className="rounded-lg border-2 border-rose-900/70 bg-neutral-900/85 px-3 py-2 shadow-lg shadow-black/50 backdrop-blur-sm">
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-bold uppercase tracking-wider text-rose-300/90">Glyphs</div>
-        <div className="text-[10px] tabular-nums text-neutral-500">{revealed}/{glyphs.length} revealed</div>
+    <div className="inline-block rounded-lg border-2 border-rose-900/70 bg-neutral-900/85 px-2.5 py-1.5 shadow-lg shadow-black/50 backdrop-blur-sm">
+      <div className="mb-1 flex items-center justify-between gap-3">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-rose-300/90">Glyphs</div>
+        <div className="text-[10px] tabular-nums text-neutral-500">{revealed}/{glyphs.length}</div>
       </div>
-      <div className="mt-1.5 flex flex-col gap-1">
+      <div className="flex flex-col gap-1">
         {sorted.map(g => {
           const def = g.faceUp ? HS_GLYPHS[g.id] : null;
           return (
             <div
               key={g.at}
-              className={'flex items-center gap-2' + (def ? ' cursor-help' : '')}
+              className={'flex items-center gap-2 whitespace-nowrap' + (def ? ' cursor-help' : '')}
               title={def ? `${def.name} — ${def.effect}` : 'Unknown glyph — stop a figure on it to reveal it.'}
             >
               <span
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-xs font-black text-rose-50"
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-black text-rose-50"
                 style={{ background: '#7f1d1d', borderColor: def ? '#fca5a5' : '#9f1239' }}
               >
                 {def ? def.letter : '?'}
               </span>
               {def ? (
-                /* On the board we show only NAME + short POWER; the full effect is on hover (title). */
-                <div className="min-w-0 flex-1 leading-tight">
-                  <div className="truncate text-[11px] font-bold text-rose-100">{def.name}</div>
-                  <div className="truncate text-[10px] font-semibold text-rose-300/80">{def.power}</div>
-                </div>
+                /* One line: NAME (drop "Glyph of") + short POWER; the full effect is on hover (title). */
+                <span className="text-[11px] leading-none">
+                  <span className="font-bold text-rose-100">{def.name.replace(/^Glyph of /, '')}</span>{' '}
+                  <span className="font-semibold text-rose-300/80">{def.power}</span>
+                </span>
               ) : (
-                <div className="flex-1 text-[11px] font-semibold text-neutral-500">Unknown — stop a figure on it to reveal</div>
+                <span className="text-[11px] font-semibold text-neutral-500">Unknown</span>
               )}
             </div>
           );
@@ -3731,7 +3731,7 @@ export default function HeroScapeBoard({
             "?" until revealed. pointer-events-none so it never eats a board tap/drag;
             renders only when the map actually has glyphs. */}
         {state.glyphs && state.glyphs.length > 0 && (
-          <div className="pointer-events-none absolute right-2 top-1/2 z-20 w-52 -translate-y-1/2 sm:w-56">
+          <div className="pointer-events-none absolute right-2 top-1/2 z-20 -translate-y-1/2">
             <GlyphsPanel glyphs={state.glyphs} />
           </div>
         )}
