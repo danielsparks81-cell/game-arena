@@ -191,6 +191,12 @@ export const sounds = {
     { freq: 1050, duration: 0.14, type: 'sine', delay: 0.07 },
     { freq: 1400, duration: 0.22, type: 'sine', delay: 0.14 },
   ], 0.06),
+  /** A figure falls off a ledge — a descending thud (used for any fall: normal/major/extreme). */
+  hsFall: () => play([
+    { freq: 240, duration: 0.06, type: 'sine' },
+    { freq: 120, duration: 0.10, type: 'triangle', delay: 0.05 },
+    { freq: 55, duration: 0.18, type: 'sine', delay: 0.11 },
+  ], 0.09),
 
   // -------- Spellduel feedback cues --------
   // Each is mapped 1:1 to an SDEvent kind by SpellduelBoard's event-diff effect.

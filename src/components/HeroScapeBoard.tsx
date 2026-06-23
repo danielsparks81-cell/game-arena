@@ -1638,6 +1638,27 @@ export default function HeroScapeBoard({
     else sounds.win();
   }, [state.phase, state.winnerSeat, state.winnerTeam, rollAttack]);
 
+  // Footstep — one soft scuff whenever a figure changes hex (a move). Attacks don't move figures and
+  // deaths/placements go to/from null, so this fires only on genuine moves (incl. each AI step).
+  const prevPosRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const next = new Map<string, string>();
+    for (const f of state.figures) if (f.at != null) next.set(f.id, f.at);
+    let moved = false;
+    for (const [id, at] of next) { const p = prevPosRef.current.get(id); if (p != null && p !== at) { moved = true; break; } }
+    prevPosRef.current = next;
+    if (moved) sounds.hsStep();
+  }, [state.figures]);
+
+  // Fall thud — fire on a fresh 'fall'-tagged log line (skips history on first load, like glyphFlash).
+  const seenFallSeqRef = useRef<number>(-1);
+  const fallInitRef = useRef(false);
+  useEffect(() => {
+    const maxSeq = state.log.reduce((m, e) => (e.tag === 'fall' ? Math.max(m, e.seq) : m), -1);
+    if (!fallInitRef.current) { seenFallSeqRef.current = maxSeq; fallInitRef.current = true; return; }
+    if (maxSeq > seenFallSeqRef.current) { seenFallSeqRef.current = maxSeq; sounds.hsFall(); }
+  }, [state.log]);
+
   // Drive the AI: while a bot owes an action, the HOST's client ticks `ai_step`
   // ONE action at a time (so its moves + dice animate). The server no-ops once no
   // bot is pending, and only the host drives → no double-stepping. Waits a little

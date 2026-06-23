@@ -44,8 +44,5 @@ Legend: ✅ done · 🟡 partial · ⬜ missing
 
 ## Summary & recommendations
 - **Animations: good.** Every special *attack* has a distinct VFX, plus dice overlays, walk/fly motion, and the glyph banner. Gaps are mostly non-attack beats: **fall impact, death fade, Wild Swing / Queglix / Throw arcs, Water Clone, carry passenger**.
-- **Sound: core loop + specials DONE** (✅ the sound pass). Wired: dice rattle (combat + d20), per-figure hit / blocked / death, all six special stings, glyph reveal, and victory/draw. Remaining sound gaps (lower priority):
-  1. **Footstep** — `hsStep` exists but isn't hooked to moves yet (avoid noisiness on multi-hex walks; gate to one per step).
-  2. **Fall thud / extreme-fall** and **flying takeoff whoosh**.
-  3. **Order-marker flip / reveal** at turn start.
+- **Sound: core loop + specials + footsteps + fall DONE** (✅). Wired: dice rattle (combat + d20), per-figure hit / blocked / death, all six special stings, glyph reveal, victory/draw, **footstep per move** (`hsStep`), and **fall thud** (`hsFall`, on a fresh `fall` log line). Remaining (low priority): **flying takeoff whoosh** (needs wiring in the 3D layer) and an **order-marker flip** at turn start.
 - Add new sounds as methods in `src/lib/sounds.ts` (Web Audio, same pattern) and call them from the same effect hooks that fire the animations (`lastEffect` / `lastRoll` / `lastAttack` overlay), so audio and visuals stay in sync.
