@@ -120,6 +120,14 @@ const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.len
  *  placing markers) tick FAST so the bot doesn't crawl across the board. */
 const AI_STEP_MS = 850;
 const AI_STEP_FAST_MS = 240;
+// Player-panel SCREEN anchors (lg+ overlay). You are always slot 0 = bottom-left; the rest fan
+// out by SEAT order (stable round-to-round, so seat adjacency = turn-order adjacency). The 4
+// corners for ≤4 players; 6 spots (corners + top/bottom centre) for 5-6.
+const PANEL_ANCHORS_4 = ['bottom-2 left-2', 'top-2 left-2', 'top-2 right-2', 'bottom-2 right-2'];
+const PANEL_ANCHORS_6 = [
+  'bottom-2 left-2', 'top-2 left-2', 'top-2 left-1/2 -translate-x-1/2',
+  'top-2 right-2', 'bottom-2 right-2', 'bottom-2 left-1/2 -translate-x-1/2',
+];
 const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
 type Assignment = { marker: OrderMarkerValue; cardUid: string };
@@ -2433,6 +2441,16 @@ export default function HeroScapeBoard({
   // Hovering a card pops the full-card popover (CardHoverPanel). Rendered for
   // the opponent (above the board) and for me (below it) in the three-zone
   // layout, so each player's cards sit on the same side as their figures.
+  // A seat's panel anchor: you are bottom-left; everyone else fans out by SEAT order from you
+  // (so it never shuffles with initiative). 4 corners for ≤4 players, 6 spots for 5-6.
+  function panelSlotAnchor(seat: number): string {
+    const anchors = state.players.length <= 4 ? PANEL_ANCHORS_4 : PANEL_ANCHORS_6;
+    const order = state.players.map(p => p.seat).sort((a, b) => a - b);
+    const meIdx = me ? order.indexOf(me.seat) : 0;
+    const ring = [...order.slice(meIdx), ...order.slice(0, meIdx)]; // you first (bottom-left), then by seat
+    const slot = ring.indexOf(seat);
+    return anchors[slot] ?? anchors[anchors.length - 1];
+  }
   function renderArmyRow(seat: number) {
     const entry = roster.find(r => r.pl.seat === seat);
     if (!entry) return null;
@@ -2449,11 +2467,15 @@ export default function HeroScapeBoard({
     return (
       <div className={'w-fit max-w-full rounded-lg border bg-neutral-900/40 px-2 py-1 ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
         <div className="flex flex-wrap items-center gap-2">
-          {/* detail-level control (1/2/3) — global; applies to every player's strip.
-              Placed to the LEFT of the name (user request) so it reads like an order
-              tab beside the player. */}
+          {/* NAME on the LEFT (user request). */}
+          <span className="flex items-center gap-1.5">
+            <span className="text-xs font-bold" style={{ color: seatColor(pl.seat) }}>{pl.username}{isMe ? ' (you)' : ''}</span>
+            {isActive && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
+          </span>
+          {/* detail-level control (1/2/3) — global; applies to every player's strip. Pinned to the
+              UPPER-RIGHT of the panel (user request) via ml-auto. */}
           {!placingMine && (
-            <span className="flex items-center gap-0.5 rounded border border-neutral-700 p-0.5" title="Army-panel detail (applies to all players)">
+            <span className="ml-auto flex items-center gap-0.5 rounded border border-neutral-700 p-0.5" title="Army-panel detail (applies to all players)">
               {([1, 2, 3] as const).map(lv => (
                 <button
                   key={lv}
@@ -2467,10 +2489,6 @@ export default function HeroScapeBoard({
               ))}
             </span>
           )}
-          <span className="flex items-center gap-1.5">
-            <span className="text-xs font-bold" style={{ color: seatColor(pl.seat) }}>{pl.username}{isMe ? ' (you)' : ''}</span>
-            {isActive && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
-          </span>
           {placingMine && (
             <span className="ml-auto flex items-center gap-1">
               {MARKERS.map(v => (
@@ -3706,14 +3724,17 @@ export default function HeroScapeBoard({
             click-through except over the panels themselves. On mobile they stack
             above the board as before. */}
         {state.players.some(p => !me || p.seat !== me.seat) && (
-          <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:inset-x-0 lg:top-0 lg:z-20 lg:p-1.5">
+          // On lg+ each opponent's panel is pinned to its SEAT anchor around the board
+          // (panelSlotAnchor — you are bottom-left, others fan out by seat); on mobile they
+          // stack at the top in normal flow (lg:contents drops the wrapper box on desktop).
+          <div className="flex flex-col items-start gap-1 lg:contents">
             {state.players
               .filter(p => !me || p.seat !== me.seat)
-              // Group allies together (by team), then by seat — a 2v2v2 reads as
-              // teams rather than a seat jumble.
-              .sort((a, b) => ((a.team ?? -1 - a.seat) - (b.team ?? -1 - b.seat)) || (a.seat - b.seat))
+              .sort((a, b) => a.seat - b.seat)
               .map(p => (
-                <div key={p.seat} className="lg:pointer-events-auto">{renderArmyRow(p.seat)}</div>
+                <div key={p.seat} className={'lg:pointer-events-none lg:absolute lg:z-20 lg:p-1 ' + panelSlotAnchor(p.seat)}>
+                  <div className="lg:pointer-events-auto">{renderArmyRow(p.seat)}</div>
+                </div>
               ))}
           </div>
         )}
@@ -4080,7 +4101,9 @@ export default function HeroScapeBoard({
           <div
             className={
               'flex flex-col items-start gap-1 ' +
-              (placement ? '' : 'lg:pointer-events-none lg:absolute lg:inset-x-0 lg:bottom-0 lg:z-20 lg:p-1.5')
+              // You are always pinned BOTTOM-LEFT (the slot-0 anchor). During placement the panel
+              // drops into normal flow so it stacks cleanly below the in-hand tray.
+              (placement ? '' : 'lg:pointer-events-none lg:absolute lg:bottom-2 lg:left-2 lg:z-20')
             }
           >
             <div className={placement ? '' : 'lg:pointer-events-auto'}>{renderArmyRow(me.seat)}</div>
