@@ -702,15 +702,28 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
         <span className="flex-1 truncate text-sm font-extrabold uppercase tracking-wide text-white">{def.name}</span>
       </div>
       <div className={'flex ' + theme.band}>
-        <div
-          aria-hidden
-          className="w-2/5 shrink-0 self-stretch bg-neutral-950 bg-no-repeat"
-          style={{
-            backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=384&q=75')`,
-            backgroundSize: '280% auto',
-            backgroundPosition: '11% 25%',
-          }}
-        />
+        <div aria-hidden className="relative w-2/5 shrink-0 self-stretch overflow-hidden bg-neutral-950">
+          {/* Figure cut-out UNDERNEATH — the fallback portrait for any card that lacks a full card
+              scan (e.g. Eldgrim). For cards WITH a scan, the zoomed card crop above fully paints over
+              it; for a card whose `.jpg` 404s, this shows through instead of the bare black box. The
+              onError hides it if even the cut-out is missing, so the worst case is still just black. */}
+          <img
+            src={`/heroscape/figures/${cardId}.png`}
+            alt=""
+            className="absolute inset-0 h-full w-full object-contain object-bottom p-0.5"
+            onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
+          />
+          {/* The physical-card scan, zoomed to its figure portrait. Transparent (paints nothing) when
+              the `.jpg` doesn't exist → the cut-out below carries the portrait. */}
+          <div
+            className="absolute inset-0 bg-no-repeat"
+            style={{
+              backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=384&q=75')`,
+              backgroundSize: '280% auto',
+              backgroundPosition: '11% 25%',
+            }}
+          />
+        </div>
         <div className="flex min-w-0 flex-1 items-stretch gap-1 p-1">
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-px">
             {rows.map((r, i) => (
