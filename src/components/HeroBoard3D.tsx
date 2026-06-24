@@ -164,6 +164,20 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
       />
       {/* thin seam line around every hex so the grid reads clearly */}
       <Edges color="#13161a" />
+      {/* HEIGHT NUMBER — only on RAISED tiles (≥2). In 3D the prism height already reads as
+          elevation, so labelling every height-1 hex (as the top-down 2D board does) would just
+          clutter the scene; the number earns its place only where there's real elevation to judge
+          (height advantage, climb limits, the engagement gap). Skipped on water (its own ripple
+          look) and glyph hexes (their rune marker already owns the top face). */}
+      {height >= 2 && !isWater && !glyph && (
+        <Html center position={[0, h / 2 + 0.05, 0]} occlude="blending" style={{ pointerEvents: 'none' }}>
+          <div style={{
+            fontSize: 10, fontWeight: 800, lineHeight: '14px', padding: '0 5px',
+            color: '#f5f5f4', background: 'rgba(15,18,22,0.55)', border: '1px solid rgba(255,255,255,0.18)',
+            borderRadius: 6, textShadow: '0 1px 2px rgba(0,0,0,0.85)', userSelect: 'none', whiteSpace: 'nowrap',
+          }}>{height}</div>
+        </Html>
+      )}
     </mesh>
   );
 }
@@ -256,9 +270,9 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, wounds, flying, onClick }: {
+function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, negated, wounds, flying, onClick }: {
   lead: [number, number]; trail: [number, number] | null; leadKey: string; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; wounds: number; flying: boolean; onClick?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; negated: boolean; wounds: number; flying: boolean; onClick?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
@@ -517,6 +531,18 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
           ))}
         </group>
       )}
+      {/* NEGATED badge — a grey ⊘ above the head (clear of the wound pips) when this figure's card
+          is shut off by the Glyph of Nilrend: base stats only, no powers/auras. The single board
+          cue for negation, which until now only showed in the card panel. */}
+      {negated && (
+        <Html center position={[0, headY + 0.52, 0]} occlude="blending" style={{ pointerEvents: 'none' }}>
+          <div title="Powers negated by the Glyph of Nilrend — base stats only" style={{
+            width: 18, height: 18, lineHeight: '18px', textAlign: 'center', fontSize: 13, fontWeight: 900,
+            color: '#e5e7eb', background: 'rgba(38,38,44,0.85)', borderRadius: '50%',
+            border: '1px solid rgba(229,231,235,0.55)', textShadow: '0 1px 2px rgba(0,0,0,0.9)', userSelect: 'none',
+          }}>⊘</div>
+        </Html>
+      )}
     </group>
   );
 }
@@ -723,6 +749,8 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
   // Hexes that hold a glyph — their tiles render raised + maroon, and figures on them sit higher.
   const glyphSet = useMemo(() => new Set((state.glyphs ?? []).map(g => g.at)), [state.glyphs]);
+  // Cards shut off by the Glyph of Nilrend — their figures get a ⊘ badge (base stats only).
+  const negatedUids = useMemo(() => new Set(state.negatedCardUids ?? []), [state.negatedCardUids]);
   const [cx, cz] = useMemo(() => {
     if (!cells.length) return [0, 0];
     let sx = 0, sz = 0;
@@ -866,7 +894,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
               key={f.id} lead={lead} trail={trail} leadKey={f.at!} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
               flying={!!HS_CARDS[cardId]?.flying}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
-              powerTarget={!!it.powerTargetIds?.has(f.id)} splash={!!it.splashIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} wounds={f.wounds}
+              powerTarget={!!it.powerTargetIds?.has(f.id)} splash={!!it.splashIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} negated={negatedUids.has(f.cardUid)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}
             />
           );
