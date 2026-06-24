@@ -2142,6 +2142,29 @@ export default function HeroScapeBoard({
         if (canExplode) setExplosionMode(m => !m); // then click an enemy in range
         else showPowerHint('Explosion — no enemy in clear sight within Range 7.');
         return;
+      case 'nilfheim':
+        // Ice Shard Breath — tapping the card starts aiming directly; then tap a highlighted enemy (≤3 shots).
+        if (iceList.length > 0) { setBhAim({ kind: 'ice' }); revealPowerPanel(); }
+        else showPowerHint('Ice Shard — no enemy in range and clear sight.');
+        return;
+      case 'major_q9': {
+        // Queglix Gun — aim with the current die count (still adjustable in the panel), then tap an enemy.
+        if (qList.length === 0) { showPowerHint(qLeft <= 0 ? 'Queglix — no dice left this game.' : 'Queglix — no enemy in range and clear sight.'); return; }
+        const maxDice = Math.min(3, qLeft) as 1 | 2 | 3;
+        setBhAim({ kind: 'queglix', dice: (bh.qDice && bh.qDice <= maxDice ? bh.qDice : maxDice) });
+        revealPowerPanel();
+        return;
+      }
+      case 'jotun':
+        // Jotun has TWO powers — route by which was tapped (onCardPower threads the tapped power through).
+        if (power?.name?.startsWith('Throw')) {
+          if (throwList.length > 0) { setThrowAim({ targetId: bh.throwTgt && throwList.includes(bh.throwTgt) ? bh.throwTgt : throwList[0] }); revealPowerPanel(); }
+          else showPowerHint('Throw — no figure within range and clear sight to throw.');
+        } else {
+          if (wildList.length > 0) { setBhAim({ kind: 'wild' }); revealPowerPanel(); }
+          else showPowerHint('Wild Swing — move Jotun next to an enemy first.');
+        }
+        return;
       case 'braxas':
         // Tapping Acid Breath on the card goes STRAIGHT into pick-on-board mode (no
         // separate "aim" step): tap up to 3 figure bases, then "Breathe" on the panel.
@@ -3726,7 +3749,7 @@ export default function HeroScapeBoard({
                 return (
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-orange-300">🤾 Throw (d20 14+):</span>
-                    <select value={tgt} onChange={e => patchBh({ throwTgt: e.target.value })} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
+                    <select value={tgt} onChange={e => { patchBh({ throwTgt: e.target.value }); if (throwAim) setThrowAim({ targetId: e.target.value }); }} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
                       {throwList.map(id => <option key={id} value={id}>{figName(id)}</option>)}
                     </select>
                     <button

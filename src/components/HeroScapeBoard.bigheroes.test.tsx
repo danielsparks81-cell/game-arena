@@ -89,8 +89,8 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-thorgrim-1', ring[0]); // one enemy in range
     const cb = spies();
     const { container } = renderBoard(s, cb);
-    // Board-click flow: tap "aim →" to arm Ice Shard, then tap the enemy's hex on the board.
-    fireEvent.click(screen.getByRole('button', { name: 'aim →' }));
+    // One-tap: arm Ice Shard from the CARD power, then tap the enemy's hex on the board.
+    fireEvent.click(screen.getByRole('button', { name: /Ice Shard Breath Special Attack/ }));
     fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!);
     expect(cb.onIceShard).toHaveBeenCalledWith(hero, 's1-thorgrim-1');
   });
@@ -100,8 +100,8 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-thorgrim-1', ring[0]);
     const cb = spies();
     const { container } = renderBoard(s, cb);
-    // Board-click: tap "aim →" (default dice = min(3,9) = 3), then tap the enemy's hex.
-    fireEvent.click(screen.getByRole('button', { name: 'aim →' }));
+    // One-tap: arm Queglix from the CARD power (default dice = min(3,9) = 3), then tap the enemy.
+    fireEvent.click(screen.getByRole('button', { name: /Queglix Gun Special Attack/ }));
     fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!);
     expect(cb.onQueglix).toHaveBeenCalledWith(hero, 's1-thorgrim-1', 3);
   });
@@ -111,17 +111,16 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-thorgrim-1', ring[0]); // adjacent medium non-flying → both a swing target and a throw target
     const cb = spies();
     const { container } = renderBoard(s, cb);
-    // Wild Swing is board-click with a splash preview: arm, tap the enemy (1st tap previews the
-    // blast, does NOT fire), then confirm with the Swing button.
-    fireEvent.click(screen.getByRole('button', { name: 'aim →' }));
+    // Wild Swing is board-click with a splash preview: arm from the CARD power, tap the enemy (1st
+    // tap previews the blast, does NOT fire), then confirm with a 2nd tap.
+    fireEvent.click(screen.getByRole('button', { name: /Wild Swing Special Attack/ }));
     fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!);
     expect(cb.onWildSwing).not.toHaveBeenCalled(); // 1st tap only arms + previews the blast
     fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!); // 2nd tap on it confirms
     expect(cb.onWildSwing).toHaveBeenCalledWith(hero, 's1-thorgrim-1');
-    // Throw is a CLICK-THE-HEX flow now (rules-fidelity: the landing is the player's choice, not
-    // auto-picked). The Throw button only ARMS landing-aim — the player then clicks a board hex —
-    // so it must NOT auto-dispatch onThrow; instead the aiming strip appears.
-    fireEvent.click(screen.getByRole('button', { name: /pick a landing/i }));
+    // Throw is a CLICK-THE-HEX flow (rules-fidelity: the landing is the player's choice). Tapping
+    // the Throw power on the CARD arms landing-aim — it must NOT auto-dispatch; the strip appears.
+    fireEvent.click(screen.getByRole('button', { name: /Throw 14/ }));
     expect(cb.onThrow).not.toHaveBeenCalled();
     expect(screen.getByText(/Throw .* click a highlighted landing hex/i)).toBeTruthy();
   });
