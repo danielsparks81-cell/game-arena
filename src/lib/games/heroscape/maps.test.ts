@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, STAR_FIELD, TRISKELION, CROSSROADS, PENTAD, MAPS } from './maps';
+import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, STAR_FIELD, TRISKELION, CROSSROADS, MAPS } from './maps';
 import type { HSMap } from './maps';
 import { mapSupportsCount } from './engine';
 import { hexKey, offsetToAxial, axialToOffset, neighborKeys } from './board';
@@ -320,6 +320,9 @@ function checkMapInvariants(m: HSMap, count: number) {
   }
   for (let i = 0; i < anchors.length; i++) for (let j = i + 1; j < anchors.length; j++)
     expect((neighborKeys(anchors[i]) as HexKey[]).includes(anchors[j])).toBe(false);
+
+  // EVERY glyph anchor sits ≥5 hexes from EVERY start-zone cell (the user rule).
+  for (const a of anchors) for (const z of seen) expect(hexD(a, z)).toBeGreaterThanOrEqual(5);
 }
 
 describe('Triskelion Vale (3-player, true 3-fold rotational symmetry)', () => {
@@ -337,17 +340,18 @@ describe('Triskelion Vale (3-player, true 3-fold rotational symmetry)', () => {
   });
 });
 
-describe('Crossroads Keep (4-player, 4-quadrant mirror symmetry)', () => {
+describe('Crossroads Keep (4-player, EXACT hex D2 double-mirror symmetry)', () => {
   it('passes the shared symmetric-battlefield invariants', () => checkMapInvariants(CROSSROADS, 4));
-  it('terrain is invariant under both offset mirror axes (4 identical quadrants)', () => {
-    const off = (k: HexKey) => axialToOffset(k);
-    let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
-    for (const k of Object.keys(CROSSROADS.cells) as HexKey[]) { const { col, row } = off(k); minC = Math.min(minC, col); maxC = Math.max(maxC, col); minR = Math.min(minR, row); maxR = Math.max(maxR, row); }
+  it('terrain is EXACTLY invariant under the D2 group (both hex reflections + rot180)', () => {
+    // Exact hex reflections across the two centre axes, and their product rot180 — the order-4 group
+    // whose orbit of an off-axis seed is the 4 corner zones. (NOT an odd-r offset mirror, which the
+    // half-row shift makes only approximate — this is a true hex symmetry.)
+    const D2: ((q: number, r: number) => [number, number])[] = [(q, r) => [q + r, -r], (q, r) => [-q - r, r], (q, r) => [-q, -r]];
     for (const k of Object.keys(CROSSROADS.cells) as HexKey[]) {
-      const { col, row } = off(k);
-      for (const [mc, mr] of [[maxC - (col - minC), row], [col, maxR - (row - minR)], [maxC - (col - minC), maxR - (row - minR)]] as [number, number][]) {
-        const { q, r } = offsetToAxial(mc, mr);
-        const mk = hexKey(q, r);
+      const { q, r } = ax(k);
+      for (const tf of D2) {
+        const [a, b] = tf(q, r);
+        const mk = hexKey(a, b);
         expect(CROSSROADS.cells[mk]).toBeTruthy();
         expect(CROSSROADS.cells[mk].height).toBe(CROSSROADS.cells[k].height);
         expect(CROSSROADS.cells[mk].terrain).toBe(CROSSROADS.cells[k].terrain);
@@ -356,17 +360,14 @@ describe('Crossroads Keep (4-player, 4-quadrant mirror symmetry)', () => {
   });
 });
 
-describe('Pentad Crucible (5-player, 5-fold angular symmetry)', () => {
-  it('passes the shared symmetric-battlefield invariants', () => checkMapInvariants(PENTAD, 5));
-  it('the five zones are evenly spread around the rim (each a similar distance from centre)', () => {
-    // A hex grid can't be EXACTLY 5-fold, but the five zone centroids should sit at a near-equal
-    // radius from the board centre (the rim) and at ~72° apart — i.e. fairly placed.
-    const centroidR = Object.values(PENTAD.startZones).map(z => {
-      const avg = z.reduce((acc, k) => { const { q, r } = ax(k); return { q: acc.q + q, r: acc.r + r }; }, { q: 0, r: 0 });
-      return cube(avg.q / z.length, avg.r / z.length);
-    });
-    const lo = Math.min(...centroidR), hi = Math.max(...centroidR);
-    expect(hi - lo).toBeLessThanOrEqual(3); // all five zones ~same distance out (within 3 hexes)
-    expect(lo).toBeGreaterThanOrEqual(8);   // and out near the rim, not clumped at centre
+describe('Star Field (5 + 6 players) — glyph anchors clear the deploy tips', () => {
+  it('every glyph anchor is ≥5 hexes from every start zone (all 6 tips)', () => {
+    const anchors = STAR_FIELD.glyphAnchors ?? [];
+    expect(anchors.length).toBeGreaterThanOrEqual(4);
+    const zoneCells = Object.values(STAR_FIELD.startZones).flat();
+    for (const a of anchors) {
+      expect(isWall(STAR_FIELD, a)).toBe(false);
+      for (const z of zoneCells) expect(hexD(a, z)).toBeGreaterThanOrEqual(5);
+    }
   });
 });

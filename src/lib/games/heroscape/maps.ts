@@ -302,6 +302,10 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
     minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col);
     minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
   }
+  // SYMMETRIC glyph anchors: the centre + a 6-fold orbit at hex-radius 7 — all in the neutral
+  // central hexagon, well clear of the height-15 wall ring (radius 5) and the deploy tips
+  // (centre-distance > tipCut), so every glyph sits ≥5 from every start zone (the Range-9 rule).
+  const glyphAnchors = [hexKey(0, 0), ...orbit(7, 0)].filter(k => cells[k] && cells[k].terrain !== 'rock');
   return {
     id, name,
     cols: maxCol - minCol + 1,
@@ -311,6 +315,7 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
     zonesByCount,
     glyphSpots: [],
     glyphs: [],
+    glyphAnchors,
   };
 }
 
@@ -319,36 +324,37 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
 export const STAR_FIELD: HSMap = makeStarMap('star_field', 'Star Field', 10, 14);
 
 // ============================================================================
-// SYMMETRIC battlefields for EXACTLY 3 / 4 / 5 players. Each is generated with true
-// fairness: a raised CENTRE, symmetric height-15 rock WALL pillars (cover + line-of-
-// sight breakers; isolated single hexes so they NEVER seal a path — flyers cross),
-// symmetric grass RIDGES (height 2-3), flat grass START ZONES spaced beyond Range 9,
-// and symmetric GLYPH ANCHORS (random ids per game). Built in axial (q,r) cube coords.
-//   • 3p — TRUE 3-fold rotation (rot120 orbits) on a hexagon.
-//   • 4p — 4 mirror-image quadrants (reflect across both centre axes) on a diamond.
-//   • 5p — 5-fold ANGULAR symmetry on a disc (features rotated 72° + snapped to hexes;
-//          a hex grid can't be exactly 5-fold, so this is symmetric to the eye + fair).
+// PERFECTLY SYMMETRIC battlefields for 3 & 4 players (5 & 6 players use the 6-fold Star Field —
+// 5 take 5 of its 6 identical tips). Built in axial (q,r) on a HEXAGON, which carries every hex
+// symmetry, so the symmetry is EXACT — not approximate:
+//   • 3p — true 3-fold ROTATION (rot120 orbits).
+//   • 4p — exact hex D2: reflect across BOTH centre axes + rot180 → 4 identical quarters. (A hex
+//     grid has NO 4-fold rotation, but this order-4 group maps each of the 4 zones onto the others
+//     EXACTLY — unlike an odd-r OFFSET mirror, which the half-row shift makes only approximate.)
+// Zones are pushed to the rim and the glyphs clustered in the core, so every glyph anchor sits ≥5
+// hexes from EVERY start zone. Flat grass zones ≥10 apart (no Range-9 turn-one snipe), a raised
+// centre + ridges, isolated height-15 rock WALL pillars (cover/LOS, never sealing — flyers cross).
 // ============================================================================
 
-const CUBE_DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
 const cubeDist = (q: number, r: number): number => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
 const axDist = (aq: number, ar: number, bq: number, br: number): number => cubeDist(aq - bq, ar - br);
-/** Rotate (q,r) by k×60° about the origin (cube rotation: (q,r,s)→(-r,-s,-q) is 60°). */
+/** Rotate (q,r) by k×60° about the origin. */
 function rot60n(q: number, r: number, k: number): [number, number] {
   let a = q, b = r;
-  const t = ((k % 6) + 6) % 6;
-  for (let i = 0; i < t; i++) { const na = -b, nb = a + b; a = na; b = nb; }
+  for (let i = 0; i < ((k % 6) + 6) % 6; i++) { const na = -b, nb = a + b; a = na; b = nb; }
   return [a, b];
 }
-/** Pointy-top hex → pixel, for angular placement / nearest-hex snapping. */
-const hexPx = (q: number, r: number): { x: number; y: number } => ({ x: Math.sqrt(3) * (q + r / 2), y: 1.5 * r });
-/** Cube-round a fractional axial coord to the nearest hex. */
-function axRound(qf: number, rf: number): [number, number] {
-  const xf = qf, zf = rf, yf = -xf - zf;
-  let rx = Math.round(xf), ry = Math.round(yf), rz = Math.round(zf);
-  const dx = Math.abs(rx - xf), dy = Math.abs(ry - yf), dz = Math.abs(rz - zf);
-  if (dx > dy && dx > dz) rx = -ry - rz; else if (dy > dz) ry = -rx - rz; else rz = -rx - ry;
-  return [rx, rz];
+type HexTf = (q: number, r: number) => [number, number];
+/** True 3-fold rotation group (identity, 120°, 240°). */
+const ROT120: HexTf[] = [(q, r) => [q, r], (q, r) => rot60n(q, r, 2), (q, r) => rot60n(q, r, 4)];
+/** Exact hex reflections — across the horizontal axis (q,r)→(q+r,−r) and the vertical (q,r)→(−q−r,r)
+ *  — plus their product rot180. This order-4 group D2 maps an off-axis seed to 4 symmetric corners. */
+const D2: HexTf[] = [(q, r) => [q, r], (q, r) => [q + r, -r], (q, r) => [-q - r, r], (q, r) => [-q, -r]];
+/** Distinct on-board images of `seeds` under a symmetry group. */
+function symOrbit(tfs: HexTf[], seeds: [number, number][], inB: (q: number, r: number) => boolean): [number, number][] {
+  const seen = new Set<HexKey>(); const out: [number, number][] = [];
+  for (const [q, r] of seeds) for (const tf of tfs) { const [a, b] = tf(q, r); const k = hexKey(a, b); if (inB(a, b) && !seen.has(k)) { seen.add(k); out.push([a, b]); } }
+  return out;
 }
 /** Build an HSMap from a cell map + per-seat zones + symmetric glyph anchors. Computes
  *  the offset bounding box (cols/rows) the renderer + odd-r conversions expect. */
@@ -379,181 +385,60 @@ function finishMap(
   };
 }
 
-/** Three-player TRISKELION — a hexagon (radius R) with TRUE 3-fold rotational symmetry.
- *  Three flat start-zone caps sit at alternating corners (120° apart, 2R hexes = ≥10
- *  beyond Range 9); a raised central crater; and rot120-orbit walls + ridges + glyphs. */
-function makeTriMap(id: string, name: string): HSMap {
-  const R = 8;
+/** A PERFECTLY SYMMETRIC hexagon battlefield (radius R, symmetry group `tfs`). The start zones are
+ *  the orbit of one rim seed (flat caps spaced ≥10); the centre is a raised crater; walls + ridges
+ *  are orbits; the glyph anchors are the centre + glyph orbits, kept only where they sit ≥5 from
+ *  EVERY start zone (symmetry makes a whole orbit pass or fail together, so the kept set stays
+ *  symmetric). Push the zones to the rim (bigger R) so the central anchors clear them by ≥5. */
+function makeSymHexMap(
+  id: string, name: string,
+  cfg: { R: number; tfs: HexTf[]; zoneSeed: [number, number]; zoneCap: number; wallSeeds: [number, number][]; ridgeSeeds: [number, number][]; ridge3Seeds: [number, number][]; glyphSeeds: [number, number][] },
+): HSMap {
+  const { R, tfs, zoneSeed, zoneCap, wallSeeds, ridgeSeeds, ridge3Seeds, glyphSeeds } = cfg;
   const inBoard = (q: number, r: number) => cubeDist(q, r) <= R;
-  // The three zone corners: the rot120 orbit of (R,0) → corners 120° apart.
-  const corners: [number, number][] = [0, 1, 2].map(k => rot60n(R, 0, 2 * k));
-  const ZONE_CAP = 3; // hex radius of each corner cap (≥10 apart: 2R−2·CAP = 16−6 = 10)
-  // Symmetric feature seeds, given in ONE 120° sector and replicated by rot120 (k=0,1,2).
-  const wallSeeds: [number, number][] = [[4, -2], [2, 2], [6, -3]]; // isolated rock pillars
-  const ridgeSeeds: [number, number][] = [[3, 0], [1, 3]];          // grass height-2 ridge cells
-  const ridge3Seeds: [number, number][] = [[2, 1]];                 // grass height-3 knob
-  const glyphSeeds: [number, number][] = [[4, 0], [1, 4]];          // 2 orbits → 6 + centre = 7
-
-  const orbit3 = (seeds: [number, number][]): Set<HexKey> => {
-    const out = new Set<HexKey>();
-    for (const [q, r] of seeds) for (let k = 0; k < 3; k++) { const [a, b] = rot60n(q, r, 2 * k); if (inBoard(a, b)) out.add(hexKey(a, b)); }
-    return out;
-  };
-  const walls = orbit3(wallSeeds);
-  const ridge2 = orbit3(ridgeSeeds);
-  const ridge3 = orbit3(ridge3Seeds);
+  const setOf = (seeds: [number, number][]) => new Set(symOrbit(tfs, seeds, inBoard).map(([q, r]) => hexKey(q, r)));
+  const walls = setOf(wallSeeds), ridge2 = setOf(ridgeSeeds), ridge3 = setOf(ridge3Seeds);
 
   const cells: Record<HexKey, HexCell> = {};
   for (let q = -R; q <= R; q++) for (let r = -R; r <= R; r++) {
     if (!inBoard(q, r)) continue;
-    const k = hexKey(q, r);
-    const d = cubeDist(q, r);
+    const k = hexKey(q, r); const d = cubeDist(q, r);
     let height = 1; let terrain: Terrain = 'grass';
-    if (walls.has(k)) { height = 15; terrain = 'rock'; }
-    else if (d === 0) height = 3;        // central peak
-    else if (d <= 2) height = 2;         // central crater rim
+    if (walls.has(k)) { height = 15; terrain = 'rock'; }       // impassable cover (flyers cross)
+    else if (d === 0) height = 3;                              // central peak
+    else if (d <= 2) height = 2;                              // central crater rim
     else if (ridge3.has(k)) height = 3;
     else if (ridge2.has(k)) height = 2;
     cells[k] = { q, r, height, terrain };
   }
-  // Zones: the cap of hexes within ZONE_CAP of each corner (flat grass, never a wall).
-  const zones: HexKey[][] = corners.map(([cq, cr]) => {
+  // Zones: a flat grass cap around each orbit image of the zone seed.
+  const zones: HexKey[][] = symOrbit(tfs, [zoneSeed], inBoard).map(([cq, cr]) => {
     const z: HexKey[] = [];
-    for (const k of Object.keys(cells) as HexKey[]) {
-      const c = cells[k];
-      if (axDist(c.q, c.r, cq, cr) <= ZONE_CAP) { c.height = 1; c.terrain = 'grass'; z.push(k); }
-    }
+    for (const k of Object.keys(cells) as HexKey[]) { const c = cells[k]; if (axDist(c.q, c.r, cq, cr) <= zoneCap) { c.height = 1; c.terrain = 'grass'; z.push(k); } }
     return z;
   });
-  // Glyph anchors: the centre + the rot120 orbits of the glyph seeds (off zones + walls).
-  const anchors = [hexKey(0, 0), ...orbit3(glyphSeeds)].filter(k => cells[k] && cells[k].terrain !== 'rock');
+  // Glyph anchors: centre + glyph orbits, kept only where ≥5 from EVERY zone cell + off the walls.
+  const zoneCells = zones.flat().map(k => [cells[k].q, cells[k].r] as [number, number]);
+  const minToZone = (q: number, r: number) => Math.min(...zoneCells.map(([zq, zr]) => axDist(q, r, zq, zr)));
+  const anchors = ([[0, 0], ...symOrbit(tfs, glyphSeeds, inBoard)] as [number, number][])
+    .filter(([q, r]) => { const k = hexKey(q, r); return cells[k] && cells[k].terrain !== 'rock' && minToZone(q, r) >= 5; })
+    .map(([q, r]) => hexKey(q, r));
   return finishMap(id, name, cells, zones, anchors);
 }
 
-/** Four-player CROSSROADS — a 17×17 board with 4 MIRROR-IMAGE quadrants (reflect across both
- *  centre lines in odd-r OFFSET space, the natural symmetry for a square hex board). Four flat
- *  corner zones (≥10 apart), a raised centre, and quadrant-mirrored rock walls + grass ridges +
- *  glyph anchors — each of the four quarters is identical. */
-function makeQuadMap(id: string, name: string): HSMap {
-  const C = 17, Rr = 17;
-  const cMid = (C - 1) / 2, rMid = (Rr - 1) / 2; // centre offset (8,8)
-  const keyAt = (c: number, r: number): HexKey => { const { q, r: ar } = offsetToAxial(c, r); return hexKey(q, ar); };
-  const inGrid = (c: number, r: number) => c >= 0 && c < C && r >= 0 && r < Rr;
-  // Mirror a TOP-LEFT-quadrant offset seed into all four quadrants.
-  const mirror4 = (seeds: [number, number][]): Set<HexKey> => {
-    const out = new Set<HexKey>();
-    for (const [c, r] of seeds) for (const [cc, rr] of [[c, r], [C - 1 - c, r], [c, Rr - 1 - r], [C - 1 - c, Rr - 1 - r]] as [number, number][]) if (inGrid(cc, rr)) out.add(keyAt(cc, rr));
-    return out;
-  };
-  const wallSeeds: [number, number][] = [[3, 3], [6, 2], [2, 6]];  // isolated rock pillars
-  const ridgeSeeds: [number, number][] = [[5, 4], [4, 6]];          // grass height-2 ridge
-  const glyphSeeds: [number, number][] = [[4, 2], [2, 5]];          // 2 mirror-orbits → 8 + centre = 9
-  const walls = mirror4(wallSeeds);
-  const ridge2 = mirror4(ridgeSeeds);
+/** TRISKELION VALE (3p) — true 3-fold rotation. Hexagon R=11; 3 corner zones (rot120 orbit, 2R=22
+ *  apart); a central glyph cluster ≥5 from every zone. */
+export const TRISKELION: HSMap = makeSymHexMap('triskelion', 'Triskelion Vale', {
+  R: 11, tfs: ROT120, zoneSeed: [11, 0], zoneCap: 3,
+  wallSeeds: [[6, -3], [5, 1]], ridgeSeeds: [[4, -1], [3, 2]], ridge3Seeds: [], glyphSeeds: [[2, 0], [1, 2]],
+});
 
-  const cells: Record<HexKey, HexCell> = {};
-  for (let r = 0; r < Rr; r++) for (let c = 0; c < C; c++) {
-    const { q, r: ar } = offsetToAxial(c, r);
-    const k = hexKey(q, ar);
-    const md = Math.hypot(c - cMid, r - rMid); // central mound by offset radius
-    let height = 1; let terrain: Terrain = 'grass';
-    if (walls.has(k)) { height = 15; terrain = 'rock'; }
-    else if (md < 1.2) height = 3;
-    else if (md < 2.6) height = 2;
-    else if (ridge2.has(k)) height = 2;
-    cells[k] = { q, r: ar, height, terrain };
-  }
-  // Zones: a cap of offset-radius ≤ ZONE_CAP at each of the four corners (flat grass).
-  const ZONE_CAP = 3;
-  const cornersOff: [number, number][] = [[0, 0], [C - 1, 0], [0, Rr - 1], [C - 1, Rr - 1]];
-  const zones: HexKey[][] = cornersOff.map(([cc, cr]) => {
-    const z: HexKey[] = [];
-    for (let r = 0; r < Rr; r++) for (let c = 0; c < C; c++) {
-      if (Math.max(Math.abs(c - cc), Math.abs(r - cr)) <= ZONE_CAP) {
-        const k = keyAt(c, r); const cell = cells[k];
-        if (cell) { cell.height = 1; cell.terrain = 'grass'; z.push(k); }
-      }
-    }
-    return z;
-  });
-  const anchors = [keyAt(cMid, rMid), ...mirror4(glyphSeeds)].filter(k => cells[k] && cells[k].terrain !== 'rock');
-  return finishMap(id, name, cells, zones, anchors);
-}
-
-/** Five-player PENTAD — a disc (radius R) with 5-fold ANGULAR symmetry. Five flat zone
- *  caps sit evenly around the rim (72° apart), each behind a rock-pillar screen so a
- *  Range-9 figure can't snipe across on turn one even where caps are <10 apart. A hex
- *  grid can't be exactly 5-fold, so features are placed by rotating a seed 72° five times
- *  and snapping to the nearest hex — symmetric to the eye and fair. */
-function makePentaMap(id: string, name: string): HSMap {
-  const R = 13;
-  const inBoard = (q: number, r: number) => cubeDist(q, r) <= R;
-  const cellSet = new Set<HexKey>();
-  for (let q = -R; q <= R; q++) for (let r = -R; r <= R; r++) if (inBoard(q, r)) cellSet.add(hexKey(q, r));
-  const nearestIn = (x: number, y: number): [number, number] => {
-    // pixel → fractional axial (inverse of hexPx), then cube-round, clamped onto the disc.
-    const rf = y / 1.5; const qf = x / Math.sqrt(3) - rf / 2;
-    let [q, r] = axRound(qf, rf);
-    if (!inBoard(q, r)) { // walk inward to the rim
-      while (cubeDist(q, r) > R) { q = Math.trunc(q * 0.9); r = Math.trunc(r * 0.9); }
-    }
-    return [q, r];
-  };
-  // 5 hexes at HEX-radius `hexR` (converted to pixels: a hex at (hexR,0) sits √3·hexR out),
-  // one per 72° spoke from `baseDeg`, snapped to the nearest cell.
-  const ring = (hexR: number, baseDeg: number): [number, number][] =>
-    [0, 1, 2, 3, 4].map(k => {
-      const a = ((baseDeg + 72 * k) * Math.PI) / 180;
-      const px = hexR * Math.sqrt(3);
-      return nearestIn(px * Math.cos(a), px * Math.sin(a));
-    });
-  const zoneCenters = ring(R - 1, -90);          // 5 zone caps near the rim, first one at top
-  const wallScreens = [...ring(R - 3, -90), ...ring(R - 6, -90 + 36)]; // a pillar screening each zone + one between
-  const ridges = ring(R - 4, -90);               // grass height-2 lip in front of each zone
-  const glyphRing = ring(R - 4, -90 + 36);       // glyphs in the lanes BETWEEN zones (distinct from walls/ridges)
-  const ZONE_CAP = 2;
-
-  const walls = new Set(wallScreens.map(([q, r]) => hexKey(q, r)));
-  const ridgeSet = new Set(ridges.map(([q, r]) => hexKey(q, r)));
-
-  const cells: Record<HexKey, HexCell> = {};
-  for (const k of cellSet) {
-    const { q, r } = parseAx(k);
-    const d = cubeDist(q, r);
-    let height = 1; let terrain: Terrain = 'grass';
-    if (walls.has(k)) { height = 15; terrain = 'rock'; }
-    else if (d === 0) height = 3;
-    else if (d <= 2) height = 2;
-    else if (ridgeSet.has(k)) height = 2;
-    cells[k] = { q, r, height, terrain };
-  }
-  // A hex grid can't be EXACTLY 5-fold, so the rim clips each cap slightly differently — gather
-  // each cap (cells within ZONE_CAP of its centre, sorted nearest-first) then TRIM all five to the
-  // smallest count so every player gets an identical-size flat zone.
-  const caps: { k: HexKey; d: number }[][] = zoneCenters.map(([cq, cr]) => {
-    const cap: { k: HexKey; d: number }[] = [];
-    for (const k of Object.keys(cells) as HexKey[]) {
-      const c = cells[k];
-      const d = axDist(c.q, c.r, cq, cr);
-      if (d <= ZONE_CAP) cap.push({ k, d });
-    }
-    return cap.sort((a, b) => a.d - b.d);
-  });
-  const zoneSize = Math.min(...caps.map(c => c.length));
-  const zones: HexKey[][] = caps.map(cap => cap.slice(0, zoneSize).map(e => { const cell = cells[e.k]; cell.height = 1; cell.terrain = 'grass'; return e.k; }));
-  const anchors = [hexKey(0, 0), ...glyphRing.map(([q, r]) => hexKey(q, r))].filter(k => cells[k] && cells[k].terrain !== 'rock');
-  return finishMap(id, name, cells, zones, anchors);
-}
-
-/** Parse an axial "q,r" key back to numbers (local helper; board.ts owns the canonical one). */
-function parseAx(key: HexKey): { q: number; r: number } {
-  const i = key.indexOf(',');
-  return { q: Number(key.slice(0, i)), r: Number(key.slice(i + 1)) };
-}
-
-export const TRISKELION: HSMap = makeTriMap('triskelion', 'Triskelion Vale');
-export const CROSSROADS: HSMap = makeQuadMap('crossroads', 'Crossroads Keep');
-export const PENTAD: HSMap = makePentaMap('pentad', 'Pentad Crucible');
+/** CROSSROADS KEEP (4p) — exact hex D2 (both mirror axes). Hexagon R=14; 4 corner zones (the D2
+ *  orbit of one off-axis seed); a central glyph cluster ≥5 from every zone. */
+export const CROSSROADS: HSMap = makeSymHexMap('crossroads', 'Crossroads Keep', {
+  R: 14, tfs: D2, zoneSeed: [3, 9], zoneCap: 2,
+  wallSeeds: [[6, 0], [4, 5], [0, 6]], ridgeSeeds: [[5, 2], [2, 5]], ridge3Seeds: [], glyphSeeds: [[2, 1], [3, -1]],
+});
 
 export const MAPS: Record<string, HSMap> = {
   [TRAINING_FIELD.id]: TRAINING_FIELD,
@@ -561,6 +446,5 @@ export const MAPS: Record<string, HSMap> = {
   [FORD_CROSSING.id]: FORD_CROSSING,
   [TRISKELION.id]: TRISKELION,
   [CROSSROADS.id]: CROSSROADS,
-  [PENTAD.id]: PENTAD,
   [STAR_FIELD.id]: STAR_FIELD,
 };
