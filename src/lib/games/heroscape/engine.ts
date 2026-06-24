@@ -59,6 +59,7 @@ import {
   hasLineOfSight3D,
   hexLine,
   neighborKeys,
+  parseHexKey,
   rangeDistance,
   rangeFlood,
   reachableDestinations,
@@ -165,6 +166,36 @@ export function teamBudgetForSeat(state: HSState, seat: number): number {
  *  a turn, then come back round." Teams first appear in the order their leading
  *  seat does. With all-solo teams the output equals the input (a no-op for
  *  1-v-1 / FFA). Example: order [A1,A2,B1,B2] (team A leads) → [A1,B1,A2,B2]. */
+/** The living seats in PHYSICAL ring order around the battlefield — sorted by the angle of each
+ *  seat's start-zone centroid about the board centre, so consecutive entries are physically
+ *  ADJACENT start areas ("the player to your left"). Turn order passes around THIS ring, not by
+ *  seat index: the Star Field assigns seats to its tips FARTHEST-FIRST (seat 0 and seat 1 land on
+ *  OPPOSITE tips so early players spread out), so rotating by raw seat number zig-zags across the
+ *  board instead of going around it. With 2 seats the ring is trivial — keep seat order. */
+function physicalSeatRing(state: HSState): number[] {
+  const seats = livingSeats(state);
+  if (seats.length <= 2) return [...seats].sort((a, b) => a - b);
+  // Pointy-top hex → pixel (matches the Star Field's own tip ordering): x = √3·(q + r/2), y = 1.5·r.
+  const centroid = (seat: number): { x: number; y: number } => {
+    const zone = startZoneFor(state, seat);
+    if (!zone.length) return { x: 0, y: 0 };
+    let x = 0, y = 0;
+    for (const k of zone) {
+      const { q, r } = parseHexKey(k);
+      x += Math.sqrt(3) * (q + r / 2);
+      y += 1.5 * r;
+    }
+    return { x: x / zone.length, y: y / zone.length };
+  };
+  const pts = seats.map(seat => ({ seat, c: centroid(seat) }));
+  const cx = pts.reduce((s, p) => s + p.c.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.c.y, 0) / pts.length;
+  return pts
+    .map(p => ({ seat: p.seat, a: Math.atan2(p.c.y - cy, p.c.x - cx) }))
+    .sort((p, n) => p.a - n.a)
+    .map(o => o.seat);
+}
+
 function interleaveByTeam(state: HSState, order: number[]): number[] {
   const buckets = new Map<number, number[]>();
   const teamSequence: number[] = [];
@@ -1459,11 +1490,12 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
 
   const s = clone(state);
   s.initiativeRolls = attempts;
-  // Highest roller takes the first turn; play then passes LEFT in seating
-  // order, not roll order (p. 9) — i.e. seat order rotated to the winner.
-  const bySeat = [...seats].sort((a, b) => a - b);
-  const w = bySeat.indexOf(winnerSeat);
-  const ffaOrder = [...bySeat.slice(w), ...bySeat.slice(0, w)];
+  // Highest roller takes the first turn; play then passes LEFT around the table (p. 9) — i.e.
+  // the PHYSICAL start-zone ring rotated to the winner, NOT raw seat-index order (seat numbers
+  // are assigned farthest-first on the Star, so they don't run around the board).
+  const ring = physicalSeatRing(s);
+  const w = ring.indexOf(winnerSeat);
+  const ffaOrder = [...ring.slice(w), ...ring.slice(0, w)];
   // Teams: the turn passes left but SKIPS team-mates until every team has acted,
   // then comes back round — i.e. deal the seats out round-robin across teams in
   // the FFA order. With all-solo teams this is a no-op (ffaOrder unchanged).
