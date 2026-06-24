@@ -173,12 +173,12 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
       />
       {/* thin seam line around every hex so the grid reads clearly */}
       <Edges color="#13161a" />
-      {/* HEIGHT NUMBER — only on RAISED tiles (≥2). In 3D the prism height already reads as
-          elevation, so labelling every height-1 hex (as the top-down 2D board does) would just
-          clutter the scene; the number earns its place only where there's real elevation to judge
-          (height advantage, climb limits, the engagement gap). Skipped on water (its own ripple
-          look) and glyph hexes (their rune marker already owns the top face). */}
-      {height >= 2 && !isWater && !glyph && (
+      {/* HEIGHT NUMBER — only on the HILLS/MOUNTAINS bands (≥3). Ground (1–2) is the baseline and
+          already reads as "low" from its green colour, so numbering it just litters the field — and
+          some maps (e.g. the Star Field) raise their whole mid-section to height 2, which turned the
+          old ≥2 rule into ~40 chips. The number earns its place only on the raised tan/grey tiles
+          where exact elevation decides height advantage. Skipped on water + glyph hexes. */}
+      {height >= 3 && !isWater && !glyph && (
         <Html center position={[0, h / 2 + 0.05, 0]} occlude="blending" style={{ pointerEvents: 'none' }}>
           <div style={{
             fontSize: 10, fontWeight: 800, lineHeight: '14px', padding: '0 5px',
