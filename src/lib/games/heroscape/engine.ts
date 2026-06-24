@@ -223,6 +223,7 @@ const TARN_CARD_ID = 'tarn_vikings';
 const MARRO_CARD_ID = 'marro_warriors';
 const FINN_CARD_ID = 'finn';
 const THORGRIM_CARD_ID = 'thorgrim';
+const ELDGRIM_CARD_ID = 'eldgrim';
 const BERSERKER_THRESHOLD = 15;
 const WATER_CLONE_THRESHOLD = 15;
 const WATER_CLONE_WATER_THRESHOLD = 10;
@@ -3598,6 +3599,9 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
   const def = cardDefFor(state, fig);
   const breakdown: string[] = [`Move ${def.move} printed`];
   let move = def.move;
+  // Eldgrim's Warrior's Swiftness Spirit — a permanent +1 move per Spirit placed on this card.
+  const swift = cardModFor(state, fig).moveMod;
+  if (swift !== 0) { move += swift; breakdown.push(`${swift > 0 ? '+' : ''}${swift} Swiftness Spirit`); }
   if (seatControlsGlyph(state, fig.ownerSeat, 'valda')) {
     // The occupant of Valda gets no boost on the move that leaves it.
     const onValda = (state.glyphs ?? []).some(g => g.id === 'valda' && g.at === fig.at);
@@ -4407,8 +4411,8 @@ function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
   if (s.phase !== 'playing') return; // finish takes precedence
   if (s.pendingChoice) return; // one decision at a time
   const cardId = cardDefFor(s, destroyed).id;
-  const spirit: 'attack' | 'defense' | null =
-    cardId === FINN_CARD_ID ? 'attack' : cardId === THORGRIM_CARD_ID ? 'defense' : null;
+  const spirit: 'attack' | 'defense' | 'move' | null =
+    cardId === FINN_CARD_ID ? 'attack' : cardId === THORGRIM_CARD_ID ? 'defense' : cardId === ELDGRIM_CARD_ID ? 'move' : null;
   if (!spirit) return;
   // Warrior's Attack/Armor Spirit is a CARD POWER — a Glyph-of-Nilrend-negated card has no
   // powers (base stats only), so a negated Finn/Thorgrim leaves no Spirit when it dies.
@@ -4423,7 +4427,7 @@ function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
   pushLog(
     s,
     'power',
-    `${cardDef(cardId).shortName} is destroyed — ${playerName(s, ownerSeat)} may place the Warrior's ${spirit === 'attack' ? 'Attack' : 'Armor'} Spirit on any unique Army Card.`,
+    `${cardDef(cardId).shortName} is destroyed — ${playerName(s, ownerSeat)} may place the Warrior's ${spirit === 'attack' ? 'Attack' : spirit === 'defense' ? 'Armor' : 'Swiftness'} Spirit on any unique Army Card.`,
   );
 }
 
@@ -5933,12 +5937,14 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     const s = clone(state);
     const card = s.cards.find(c => c.uid === choice.cardUid)!;
     if (pc.spirit === 'attack') card.attackMod += 1;
-    else card.defenseMod += 1;
+    else if (pc.spirit === 'defense') card.defenseMod += 1;
+    else card.moveMod = (card.moveMod ?? 0) + 1;
     delete s.pendingChoice;
+    const spiritName = pc.spirit === 'attack' ? 'Attack' : pc.spirit === 'defense' ? 'Armor' : 'Swiftness';
     pushLog(
       s,
       'power',
-      `${playerName(s, seat)} places the Warrior's ${pc.spirit === 'attack' ? 'Attack' : 'Armor'} Spirit on ${cardDef(card.cardId).name} — +1 ${pc.spirit} forever.`,
+      `${playerName(s, seat)} places the Warrior's ${spiritName} Spirit on ${cardDef(card.cardId).name} — +1 ${pc.spirit} forever.`,
     );
     return s;
   }
@@ -6929,9 +6935,9 @@ function cardDefFor(state: HSState, fig: Figure): HSCardDef {
 
 /** The PERMANENT Spirit mods on `fig`'s army card (slice 4). Defaults to 0/0 if
  *  the card is missing or the fields are absent (slice-2/3 saves). */
-function cardModFor(state: HSState, fig: Figure): { attackMod: number; defenseMod: number } {
+function cardModFor(state: HSState, fig: Figure): { attackMod: number; defenseMod: number; moveMod: number } {
   const card = state.cards.find(c => c.uid === fig.cardUid);
-  return { attackMod: card?.attackMod ?? 0, defenseMod: card?.defenseMod ?? 0 };
+  return { attackMod: card?.attackMod ?? 0, defenseMod: card?.defenseMod ?? 0, moveMod: card?.moveMod ?? 0 };
 }
 
 function cardHasLivingFigures(state: HSState, cardUid: string): boolean {

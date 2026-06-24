@@ -2477,6 +2477,27 @@ describe('slice 4: Warrior Spirits on destroy', () => {
     expect(s.cards.find(c => c.uid === 's1-marro_warriors')!.defenseMod).toBe(1);
   });
 
+  it('destroying Eldgrim opens a SWIFTNESS spirit → +1 MOVE forever on the chosen card', () => {
+    let s = customBattle(['eldgrim', 'tarn_vikings'], ['marro_warriors'], 'p2'); // p2's Marro acts
+    const E = 's0-eldgrim-1', T = 's0-tarn_vikings-1', M = 's1-marro_warriors-1';
+    s = clearExcept(s, E, T, M);
+    s = place(s, E, at(3, 4));
+    s = place(s, T, at(0, 0)); // a p1 figure survives → the game continues
+    s = place(s, M, at(3, 5)); // adjacent p2 attacker
+    s = wound(s, E, 2); // Life 3 → one unblocked skull finishes him
+    s = unwrap(applyAction(s, 'p2', { kind: 'attack', attackerId: M, targetId: E, attackRoll: F('kb'), defenseRoll: F('bb') }));
+    expect(fig(s, E).at).toBeNull();
+    expect(s.phase).toBe('playing');
+    expect(s.pendingChoice).toMatchObject({ kind: 'spirit_placement', seat: 0, spirit: 'move' });
+    // p1 (Eldgrim's owner) places the Swiftness Spirit on the Tarn squad → +1 effective Move.
+    const tarnUid = s.cards.find(c => c.cardId === 'tarn_vikings' && c.ownerSeat === 0)!.uid;
+    const before = effectiveMove(s, fig(s, T)).dice;
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: tarnUid } }));
+    expect(s.cards.find(c => c.uid === tarnUid)!.moveMod).toBe(1);
+    expect(effectiveMove(s, fig(s, T)).dice).toBe(before + 1);
+    expect(effectiveMove(s, fig(s, T)).breakdown).toContain('+1 Swiftness Spirit');
+  });
+
   it('a NEGATED Finn leaves no Attack Spirit when destroyed (Glyph of Nilrend strips the power)', () => {
     // The user hit this: a negated Finn died and STILL prompted a Warrior's Attack Spirit.
     // Negation = base stats only, so the death-trigger power must not fire.
@@ -3250,7 +3271,7 @@ describe('slice 5: start_game routing (draft vs quick)', () => {
     expect(s.mode).toBe('draft');
     expect(s.pointBudget).toBe(400);
     expect(s.draft).toBeDefined();
-    expect(s.draft!.pool).toHaveLength(21);
+    expect(s.draft!.pool).toHaveLength(22);
     expect(s.draft!.turnSeat).toBeNull(); // awaiting the server roll-off
     expect(getActivePlayerId(s)).toBeNull();
     // Server rolls the order; p1 wins → drafts first.
@@ -3420,13 +3441,13 @@ describe('slice 5: budget enforcement and passing', () => {
   });
 
   it('forces a pass when nothing affordable remains, and the pass completes the army', () => {
-    // Budget 190. p1 drafts Grimnak (160) leaving 30 — the cheapest pool card is
-    // 40 (Theracus) so nothing is affordable: p1 must pass on its next turn.
-    let s = inDraft('p1', 190);
-    s = draftCard(s, 'grimnak'); // p1: 160/190 → p2 double
+    // Budget 185. p1 drafts Grimnak (160) leaving 25 — the cheapest pool card is now
+    // 30 (Eldgrim) so nothing is affordable: p1 must pass on its next turn.
+    let s = inDraft('p1', 185);
+    s = draftCard(s, 'grimnak'); // p1: 160/185 → p2 double
     s = draftCard(s, 'finn'); // p2: 80
     s = draftCard(s, 'thorgrim'); // p2: 160 → back to p1
-    // p1 has 30 left; cheapest remaining is 40 (Theracus). The forced pass is legal.
+    // p1 has 25 left; cheapest remaining is 30 (Eldgrim). The forced pass is legal.
     expect(s.draft!.turnSeat).toBe(0);
     s = draftPass(s);
     expect(s.draft!.passed).toContain(0);
@@ -3667,12 +3688,13 @@ describe('slice 5: placement', () => {
 
 // ---- full roster stats + power flags --------------------------------------
 
-describe('slice 5: full roster (16 base + 5 Big Heroes)', () => {
-  it('HS_CARDS has all 21 cards with the printed stats', () => {
-    expect(Object.keys(HS_CARDS)).toHaveLength(21);
-    expect(HS_DRAFT_POOL).toHaveLength(21);
+describe('slice 5: full roster (17 base + 5 Big Heroes)', () => {
+  it('HS_CARDS has all 22 cards with the printed stats', () => {
+    expect(Object.keys(HS_CARDS)).toHaveLength(22);
+    expect(HS_DRAFT_POOL).toHaveLength(22);
     // Every pool id resolves to a card.
     for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
+    expect(HS_CARDS.eldgrim).toMatchObject({ life: 3, move: 5, range: 1, attack: 2, defense: 2, height: 4, points: 30 });
     // Spot-check stats AS PRINTED (cards.md roster table).
     expect(HS_CARDS.marro_warriors).toMatchObject({ figures: 4, life: 1, move: 6, range: 6, attack: 2, defense: 3, height: 4, points: 105 });
     expect(HS_CARDS.airborne_elite).toMatchObject({ figures: 4, range: 8, attack: 3, defense: 2, points: 110 });
@@ -3695,13 +3717,13 @@ describe('slice 5: full roster (16 base + 5 Big Heroes)', () => {
     expect(HS_CARDS.jotun).toMatchObject({ life: 7, attack: 8, defense: 4, height: 10, points: 225, baseSize: 2 });
   });
 
-  it('power flags: ALL 21 cards are now live (Airborne Elite The Drop completes the set)', () => {
+  it('power flags: ALL 22 cards are now live (Airborne Elite The Drop completes the set)', () => {
     // Every card's printed power is implemented: slice 4/6/7 base cards, slice 8
     // Mimring Fire Line + Ne-Gok-Sa Mind Shackle + Airborne Grenade & The Drop,
     // and slice 8b's 5 Big Heroes. No card remains 'wip'.
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
-      'agent_carr', 'airborne_elite', 'braxas', 'deathwalker_9000', 'drake', 'finn', 'grimnak',
+      'agent_carr', 'airborne_elite', 'braxas', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak',
       'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
       'nilfheim', 'raelin', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);

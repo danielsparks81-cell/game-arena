@@ -164,6 +164,9 @@ export type ArmyCardInstance = {
    *  helpers. Default 0; absent on slice-2/3 saves → treated as 0. */
   attackMod: number;
   defenseMod: number;
+  /** Eldgrim's Warrior's SWIFTNESS Spirit adds +1 to the move number forever (same
+   *  permanent-Spirit model as attack/defense). Optional → absent reads as 0. */
+  moveMod?: number;
   /** Airborne Elite GRENADE SPECIAL ATTACK is ONCE PER GAME (the single grenade
    *  marker). Set true when the squad throws; never reset. Absent → not yet
    *  used. Only ever set on the Airborne Elite card. */
@@ -387,7 +390,7 @@ export type HSPendingChoice =
   | {
       kind: 'spirit_placement';
       seat: number;
-      spirit: 'attack' | 'defense';
+      spirit: 'attack' | 'defense' | 'move';
       /** Living unique Army Card uids the Spirit may be placed on (ANY owner —
        *  Finn/Thorgrim's text is not friendly-restricted, cards.md). */
       options: string[];

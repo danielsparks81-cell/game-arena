@@ -16,7 +16,7 @@
 // dragons. Almost every current figure is pinned; new figures get a sane auto guess.
 export const BASE_CROP_OVERRIDE: Record<string, number> = {
   drake: 0.13, ne_gok_sa: 0.20, zettian_guards: 0.15, deathwalker_9000: 0.15,
-  thorgrim: 0.14, raelin: 0.10, finn: 0.13, syvarris: 0.12, agent_carr: 0.13,
+  thorgrim: 0.14, eldgrim: 0.14, raelin: 0.10, finn: 0.13, syvarris: 0.12, agent_carr: 0.13,
   krav_maga: 0.13, airborne_elite: 0.14, major_q9: 0.20,
   grimnak: 0.13, mimring: 0.15, nilfheim: 0.15, theracus: 0.14, braxas: 0.10, jotun: 0.13,
   marro_warriors: 0.20, 'marro_warriors-1': 0.20, 'marro_warriors-2': 0.21, 'marro_warriors-3': 0.20, 'marro_warriors-4': 0.19,
@@ -69,6 +69,7 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'tarn_vikings-3': { x: 0.37, y: 0.80 },
   'tarn_vikings-4': { x: 0.48, y: 0.83 },
   thorgrim: { x: 0.55, y: 0.80 },
+  eldgrim: { x: 0.49, y: 0.77 },
   'zettian_guards-1': { x: 0.40, y: 0.80 },
   'zettian_guards-2': { x: 0.40, y: 0.79 },
   // 2-hex big figures — Y (cut) applies; X is ignored for double-space figures (they stay
