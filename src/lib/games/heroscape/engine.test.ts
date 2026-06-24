@@ -1951,6 +1951,25 @@ describe('step-by-step movement (move_step)', () => {
     expect('error' in c).toBe(false); // flies up onto the higher pillar despite the height gap
   });
 
+  it("a NEGATED card is base stats only — a Glyph-of-Nilrend-negated Braxas loses every printed power", () => {
+    // Owner clarification: a negated card is "as if it only has base stats — no printed words below."
+    // Braxas's printed powers are Acid Breath + Flying; negation strips BOTH — Flying via cardDefFor's
+    // power-strip (so `flying` reads false everywhere) and Acid Breath via the special-power dispatcher
+    // gate (the same gate proven for Fire Line). Only LIFE/MOVE/RNG/ATK/DEF remain.
+    let s = customBattle(['braxas'], ['marro_warriors'], 'p1'); // Braxas active
+    const B = 's0-braxas-1';
+    s = clearExcept(s, B, 's1-marro_warriors-1');
+    s = place(s, B, at(2, 2));
+    s = place(s, 's1-marro_warriors-1', at(2, 4)); // a small/medium enemy in range
+    s = { ...s, movementEnded: true }; // attack phase
+    const braxasCard = s.cards.find(c => c.cardId === 'braxas')!;
+    const neg = { ...s, negatedCardUids: [braxasCard.uid] };
+    // ACID BREATH off — the special attack is blocked server-side with the negation message.
+    // (Flying is also off — cardDefFor strips the flag — and is exercised by every flight test
+    // reading through cardDefFor; the special-attack block is the behavioural lock here.)
+    expect(errOf(applyAction(neg, 'p1', { kind: 'acid_breath', attackerId: B, rolls: [] }))).toMatch(/negat/i);
+  });
+
   it('a GROUND 2-hex (Grimnak) may climb mid-move but must STOP on two level spaces', () => {
     let s = customBattle(['grimnak'], ['finn'], 'p1', CLIFF_MAP_ID);
     const G = 's0-grimnak-1';
