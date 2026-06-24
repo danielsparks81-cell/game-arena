@@ -2233,10 +2233,33 @@ export default function HeroScapeBoard({
     () => new Set(sturlaPlaceChoice ? sturlaPlacementHexes(state, sturlaPlaceChoice.figureId) : []),
     [sturlaPlaceChoice, state],
   );
-  // All figure ids the open choice lets me tap — fed into the board's powerTarget ring.
+  // ROLL CEREMONY (Mitonsoul curse / Sturla resurrection) — the shared d20 ritual. UNLIKE the
+  // other prompts this is visible to EVERY player (they watch); only the current roller (pc.seat)
+  // can act. Read straight off the pending (not myChoice) so spectators see it too.
+  const ceremony = state.pendingChoice?.kind === 'roll_ceremony' ? state.pendingChoice : null;
+  const ceremonyIsMine = !!ceremony && !!me && ceremony.seat === me.seat;
+  // Play a sting as each roll SETTLES — the dice clatter + d20 overlay already fire off lastRoll;
+  // here we add the death knell (a curse 1) and the rise chime (a resurrect 20). Keyed on the
+  // results count so it fires exactly once per roll, for everyone watching.
+  const lastCeremonyResultRef = useRef(0);
+  useEffect(() => {
+    const n = ceremony?.results.length ?? 0;
+    if (n > lastCeremonyResultRef.current) {
+      lastCeremonyResultRef.current = n;
+      const out = ceremony?.results[n - 1]?.outcome;
+      if (out === 'died') sounds.hsDeath();
+      else if (out === 'rose') sounds.win();
+    } else if (n === 0) {
+      lastCeremonyResultRef.current = 0; // reset between ceremonies
+    }
+  }, [ceremony?.results.length, ceremony]);
+
+  // All figure ids the open choice lets me tap — fed into the board's powerTarget ring. The
+  // ceremony's SELECTED figure glows for everyone (a curse figure is on the board; a resurrect
+  // one isn't, so the ring only shows for the curse — the panel list carries the rest).
   const choiceFigIds = useMemo(
-    () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet]),
-    [erlandSummonSet, nilrendFigSet, wannokOppSet, wannokOwnSet],
+    () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet, ...(ceremony?.selectedFigureId ? [ceremony.selectedFigureId] : [])]),
+    [erlandSummonSet, nilrendFigSet, wannokOppSet, wannokOwnSet, ceremony?.selectedFigureId],
   );
 
   // ----- 2.5D ISOMETRIC geometry (renderer; board.ts owns the pure math) -----
@@ -4024,6 +4047,79 @@ export default function HeroScapeBoard({
             </button>
           </div>
         )}
+        {/* ROLL CEREMONY — the shared d20 ritual (Mitonsoul curse / Sturla resurrection). EVERY
+            player sees this panel and watches; only the current roller picks a figure + rolls. */}
+        {ceremony && (() => {
+          const isCurse = ceremony.mode === 'curse';
+          const up = ceremony.queue[0]?.figureIds ?? [];
+          const rollerName = state.players.find(p => p.seat === ceremony.seat)?.username ?? 'Player';
+          const rollerColor = seatColor(ceremony.seat);
+          const done = ceremony.results.length;
+          const total = done + ceremony.queue.reduce((n, q) => n + q.figureIds.length, 0);
+          const last = ceremony.results[ceremony.results.length - 1];
+          const labelOf = (fid: string) => { const f = state.figures.find(x => x.id === fid); return f ? figureLabel(state, f) : fid; };
+          return (
+            <div className="pointer-events-none absolute inset-x-0 top-2 z-40 flex justify-center px-2">
+              <div className={'pointer-events-auto w-full max-w-xs rounded-xl border-2 bg-neutral-950/95 p-3 shadow-2xl backdrop-blur ' + (isCurse ? 'border-rose-500/80' : 'border-emerald-500/80')}>
+                <div className={'flex items-center gap-1.5 text-sm font-bold ' + (isCurse ? 'text-rose-300' : 'text-emerald-300')}>
+                  <span className="text-base leading-none">{isCurse ? '☠️' : '✟'}</span>
+                  {isCurse ? 'Glyph of Mitonsoul — Massive Curse' : 'Glyph of Sturla — Resurrection'}
+                </div>
+                <div className="mt-0.5 text-[10px] text-neutral-400">
+                  {isCurse ? 'Every figure rolls a d20 — a 1 destroys it.' : 'Every fallen rolls a d20 — a 20 raises it.'} <span className="text-neutral-500">({done}/{total})</span>
+                </div>
+                {/* Who's up */}
+                <div className="mt-2 text-[11px] text-neutral-300">
+                  <span className="font-semibold" style={{ color: rollerColor }}>{rollerName}</span>
+                  {ceremonyIsMine ? ' — pick one of your figures, then roll:' : ' is rolling…'}
+                </div>
+                {/* Figure list — tap to select (shared highlight), then Roll */}
+                <div className="mt-1 flex max-h-28 flex-wrap gap-1 overflow-y-auto">
+                  {up.map(fid => {
+                    const sel = ceremony.selectedFigureId === fid;
+                    return (
+                      <button
+                        key={fid}
+                        type="button"
+                        disabled={!ceremonyIsMine || disabled}
+                        onClick={() => onResolveChoice({ kind: 'roll_ceremony_select', figureId: fid })}
+                        className={'rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:cursor-default ' +
+                          (sel
+                            ? (isCurse ? 'border-rose-400 bg-rose-900/50 text-rose-100 ring-2 ring-rose-400' : 'border-emerald-400 bg-emerald-900/50 text-emerald-100 ring-2 ring-emerald-400')
+                            : 'border-neutral-700 bg-neutral-900/70 text-neutral-200 enabled:hover:border-neutral-500')}
+                      >
+                        {labelOf(fid)}
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Roll button (the current roller only) */}
+                {ceremonyIsMine ? (
+                  <button
+                    type="button"
+                    disabled={!ceremony.selectedFigureId || disabled}
+                    onClick={() => onResolveChoice({ kind: 'roll_ceremony_roll' })}
+                    className={'mt-2 w-full rounded-lg border-2 px-3 py-2 text-sm font-bold transition disabled:opacity-40 ' + (isCurse ? 'border-rose-500 bg-rose-950/70 text-rose-200 enabled:hover:bg-rose-900/60' : 'border-emerald-500 bg-emerald-950/70 text-emerald-200 enabled:hover:bg-emerald-900/60')}
+                  >
+                    🎲 {ceremony.selectedFigureId ? `Roll for ${labelOf(ceremony.selectedFigureId)}` : 'Select a figure first'}
+                  </button>
+                ) : (
+                  <div className="mt-2 rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-center text-[11px] text-neutral-400">
+                    {ceremony.selectedFigureId ? <>Selected <span className="font-semibold text-neutral-200">{labelOf(ceremony.selectedFigureId)}</span> — waiting for the roll…</> : 'Waiting for a pick…'}
+                  </div>
+                )}
+                {/* The latest result */}
+                {last && (
+                  <div className={'mt-2 flex items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold ' +
+                    (last.outcome === 'died' ? 'bg-rose-900/40 text-rose-200' : last.outcome === 'rose' ? 'bg-emerald-900/40 text-emerald-200' : 'bg-neutral-800/60 text-neutral-300')}>
+                    <span className={'inline-flex h-6 w-6 items-center justify-center rounded-md border text-sm tabular-nums ' + (last.d20 === 1 ? 'border-rose-400 text-rose-200' : last.d20 === 20 ? 'border-emerald-400 text-emerald-200' : 'border-neutral-500 text-neutral-200')}>{last.d20}</span>
+                    <span>{labelOf(last.figureId)} — {last.outcome === 'died' ? 'DESTROYED!' : last.outcome === 'rose' ? 'RISES!' : 'safe'}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
         {can3D ? (
           <HeroBoard3D
             state={boardState}

@@ -274,6 +274,22 @@ function noGlyphs(s: HSState): HSState {
   return setGlyphs(s, []);
 }
 
+/** Test-only: drive a ROLL CEREMONY (Mitonsoul/Sturla) to completion the way the UI does —
+ *  for each figure, its OWNER selects it then rolls it. `decide(figureId)` supplies the d20.
+ *  Stops when the ceremony pending closes (a Sturla resurrect then leaves a placement pending). */
+function drainCeremony(s: HSState, decide: (figureId: string) => number): HSState {
+  let cur = s;
+  let guard = 0;
+  while (cur.pendingChoice?.kind === 'roll_ceremony' && guard++ < 300) {
+    const pc = cur.pendingChoice;
+    const pid = `p${pc.seat + 1}`;
+    const fid = pc.queue[0].figureIds[0];
+    cur = unwrap(applyAction(cur, pid, { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_select', figureId: fid } }));
+    cur = unwrap(applyAction(cur, pid, { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll', d20: decide(fid) } }));
+  }
+  return cur;
+}
+
 // ---------------------------------------------------------------------------
 // Lobby + start
 // ---------------------------------------------------------------------------
@@ -5201,7 +5217,7 @@ describe('Glyph of Rannveig — suppresses Flying while occupied', () => {
 });
 
 describe('Glyph of Mitonsoul — Massive Curse on reveal', () => {
-  it('stopping on it opens a d20-per-figure curse; each 1 is destroyed, then the glyph is gone', () => {
+  it('stopping on it opens the interactive curse ceremony; each owner rolls their figures, a 1 destroys', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
     s = clearExcept(s, FINN, THORGRIM, MARRO(1));
     const glyphHex = at(3, 1); // adjacent to Finn at (3,0)
@@ -5209,19 +5225,40 @@ describe('Glyph of Mitonsoul — Massive Curse on reveal', () => {
     s = place(s, FINN, at(3, 0));
     s = place(s, THORGRIM, at(0, 0));
     s = place(s, MARRO(1), at(5, 5));
-    // Finn stops on Mitonsoul → the curse pending opens, listing every on-board figure.
+    // Finn stops on Mitonsoul → the ROLL CEREMONY opens (mode 'curse'), every on-board figure queued.
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
-    expect(moved.pendingChoice?.kind).toBe('glyph_mitonsoul');
-    const ids = moved.pendingChoice?.kind === 'glyph_mitonsoul' ? moved.pendingChoice.figureIds : [];
-    expect(ids).toEqual(expect.arrayContaining([FINN, THORGRIM, MARRO(1)]));
-    // Resolve: only Finn rolls a 1 → only Finn is destroyed; the temporary glyph is removed.
-    const rolls = ids.map(id => ({ figureId: id, d20: id === FINN ? 1 : 7 }));
-    const after = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_mitonsoul', rolls } }));
+    expect(moved.pendingChoice?.kind).toBe('roll_ceremony');
+    const pc0 = moved.pendingChoice;
+    expect(pc0?.kind === 'roll_ceremony' && pc0.mode).toBe('curse');
+    const queued = pc0?.kind === 'roll_ceremony' ? pc0.queue.flatMap(q => q.figureIds) : [];
+    expect(queued).toEqual(expect.arrayContaining([FINN, THORGRIM, MARRO(1)]));
+    expect(pc0?.kind === 'roll_ceremony' && pc0.seat).toBe(0); // Finn's owner (the stepper) rolls first
+    // Only Finn rolls a 1 → only Finn is destroyed; the temporary glyph is removed at the end.
+    const after = drainCeremony(moved, id => (id === FINN ? 1 : 7));
     expect(fig(after, FINN).at).toBeNull(); // rolled a 1 → destroyed
     expect(fig(after, THORGRIM).at).not.toBeNull(); // survived
     expect(fig(after, MARRO(1)).at).not.toBeNull(); // survived
     expect(after.glyphs.find(g => g.at === glyphHex)).toBeUndefined(); // temporary glyph removed
     expect(after.pendingChoice).toBeUndefined();
+  });
+
+  it('select highlights a figure for everyone, and only the current owner may roll it', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    const glyphHex = at(3, 1);
+    s = setGlyphs(s, [{ id: 'mitonsoul', at: glyphHex, faceUp: false }]);
+    s = place(s, FINN, at(3, 0));
+    s = place(s, THORGRIM, at(0, 0));
+    s = place(s, MARRO(1), at(5, 5));
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    // Seat 0 (Finn) is up. p2 cannot select or roll; p1 selects → the highlight is shared on state.
+    expect(errOf(applyAction(moved, 'p2', { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_select', figureId: FINN } }))).toBeTruthy();
+    const sel = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_select', figureId: FINN } }));
+    expect(sel.pendingChoice?.kind === 'roll_ceremony' && sel.pendingChoice.selectedFigureId).toBe(FINN);
+    // You can't roll before selecting is honoured — but here it's selected, so a roll resolves it.
+    const rolled = unwrap(applyAction(sel, 'p1', { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll', d20: 1 } }));
+    expect(fig(rolled, FINN).at).toBeNull(); // destroyed; the ceremony then moves to seat 1's figures
+    expect(rolled.pendingChoice?.kind === 'roll_ceremony' && rolled.pendingChoice.seat).toBe(1);
   });
 });
 
@@ -5247,9 +5284,8 @@ describe('audit fixes: soft-lock / waste guards (M1–M3)', () => {
     s = place(s, FINN, at(3, 0));
     s = place(s, MARRO(1), at(5, 5));
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
-    const ids = moved.pendingChoice?.kind === 'glyph_mitonsoul' ? moved.pendingChoice.figureIds : [];
-    const rolls = ids.map(id => ({ figureId: id, d20: 1 })); // everyone rolls a 1 → all destroyed
-    const after = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_mitonsoul', rolls } }));
+    expect(moved.pendingChoice?.kind).toBe('roll_ceremony');
+    const after = drainCeremony(moved, () => 1); // everyone rolls a 1 → all destroyed
     expect(after.figures.every(f => f.at == null)).toBe(true); // board wiped
     expect(after.phase).toBe('finished'); // ended — not stuck looping over an empty board
     expect(after.winnerSeat).toBeNull(); // draw: no winner
@@ -5424,14 +5460,12 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
     const glyphHex = at(3, 1);
     s = setGlyphs(s, [{ id: 'sturla', at: glyphHex, faceUp: false }]);
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
-    expect(moved.pendingChoice?.kind).toBe('glyph_sturla');
-    const ids = moved.pendingChoice?.kind === 'glyph_sturla' ? moved.pendingChoice.figureIds : [];
-    expect(ids).toContain(MARRO(1)); // the dead figure is eligible to roll
+    expect(moved.pendingChoice?.kind).toBe('roll_ceremony');
+    expect(moved.pendingChoice?.kind === 'roll_ceremony' && moved.pendingChoice.mode).toBe('resurrect');
+    const queued = moved.pendingChoice?.kind === 'roll_ceremony' ? moved.pendingChoice.queue.flatMap(q => q.figureIds) : [];
+    expect(queued).toContain(MARRO(1)); // the dead figure is eligible to roll
     // Roll a 20 for MARRO, a miss for any other dead figure → only MARRO rises and must be PLACED.
-    const rolled = unwrap(applyAction(moved, 'p1', {
-      kind: 'resolve_choice',
-      choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: id === MARRO(1) ? 20 : 7 })) },
-    }));
+    const rolled = drainCeremony(moved, id => (id === MARRO(1) ? 20 : 7));
     // The roll does NOT auto-place — it opens a placement choice OWNED by the figure's owner (seat 1).
     expect(rolled.pendingChoice?.kind).toBe('glyph_sturla_place');
     expect(rolled.pendingChoice?.kind === 'glyph_sturla_place' && rolled.pendingChoice.figureId).toBe(MARRO(1));
@@ -5451,10 +5485,7 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
     expect(fig(back, MARRO(1)).wounds).toBe(0); // returns FRESH — no leftover wound markers
     expect(back.pendingChoice).toBeUndefined(); // queue drained — back to normal play
     // A non-20 leaves it destroyed with NO placement step at all.
-    const stay = unwrap(applyAction(moved, 'p1', {
-      kind: 'resolve_choice',
-      choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: 7 })) },
-    }));
+    const stay = drainCeremony(moved, () => 7);
     expect(stay.pendingChoice).toBeUndefined(); // nobody rose → no placement pending
     expect(fig(stay, MARRO(1)).at).toBeNull();
   });
@@ -5477,13 +5508,10 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
     const glyphHex = at(3, 1);
     s = setGlyphs(s, [{ id: 'sturla', at: glyphHex, faceUp: false }]);
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
-    const ids = moved.pendingChoice?.kind === 'glyph_sturla' ? moved.pendingChoice.figureIds : [];
+    expect(moved.pendingChoice?.kind).toBe('roll_ceremony');
     // Roll 20 only for our two stage-managed figures (others among the cleared dead miss) → exactly two rise.
     const risers = new Set([TARN(1), MARRO(1)]);
-    let cur = unwrap(applyAction(moved, 'p1', {
-      kind: 'resolve_choice',
-      choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: risers.has(id) ? 20 : 7 })) },
-    }));
+    let cur = drainCeremony(moved, id => (risers.has(id) ? 20 : 7));
     // Drain the placement queue: each step is owned by the current riser's owner; place into its zone.
     const placedOwners: number[] = [];
     let guard = 0;

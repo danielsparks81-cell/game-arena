@@ -1578,7 +1578,12 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // arrive as a separate resolve_choice once the player has seen the roll.
     engineAction = { kind: 'the_drop', d20: d20() };
   } else if (action.kind === 'resolve_choice') {
-    engineAction = { kind: 'resolve_choice', choice: action.choice };
+    // The ROLL CEREMONY's "Roll" has its d20 rolled SERVER-side here (like every glyph d20),
+    // so a client can't pick its own result. Every other resolution passes through verbatim.
+    const choice = action.choice.kind === 'roll_ceremony_roll'
+      ? { kind: 'roll_ceremony_roll' as const, d20: d20() }
+      : action.choice;
+    engineAction = { kind: 'resolve_choice', choice };
   } else if (action.kind === 'start_game') {
     engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode, edition: action.edition, glyphSeed: Math.floor(Math.random() * 0x7fffffff) };
   } else if (action.kind === 'add_bot') {
@@ -1633,10 +1638,7 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       const pc = next.pendingChoice;
       const pid = pc ? (next.players.find(p => p.seat === pc.seat)?.playerId ?? actorId) : actorId;
       let resolved;
-      if (pc?.kind === 'glyph_mitonsoul' || pc?.kind === 'glyph_sturla') {
-        const rolls = pc.figureIds.map(figureId => ({ figureId, d20: d20() }));
-        resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: pc.kind, rolls } });
-      } else if (pc?.kind === 'glyph_oreld') {
+      if (pc?.kind === 'glyph_oreld') {
         const d = d20();
         const list = d === 1 ? pc.ownCandidates : pc.foeCandidates;
         const e = list.length ? list[Math.floor(Math.random() * list.length)] : { cardUid: '', markerIndex: -1 };

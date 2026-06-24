@@ -307,31 +307,30 @@ describe('HeroScape audit — a SPECIAL ATTACK fires in a real game', () => {
   }, 60_000);
 });
 
-describe('HeroScape audit — AUTO-glyph pendingChoice is NOT self-resolved by the AI', () => {
-  // CONTRACT NOTE (not a production bug, but a coupling the audit flags): the three
-  // AUTO glyphs — Mitonsoul / Sturla / Oreld — open a pendingChoice that aiResolveChoice
-  // does NOT handle (it covers spirit_placement, berserker_charge, water_clone_place,
-  // airborne_drop, grenade_throw only). In production the SERVER (actions.ts) rolls the
-  // d20s and resolves these in the SAME request, so they never reach the bot. But the
-  // PURE-ENGINE AI driver, on its own, stalls on one: aiPendingSeat reports the bot owes
-  // an action while aiNextAction returns null. Any future AI driver that bypasses the
+describe('HeroScape audit — the ROLL CEREMONY pendingChoice IS self-resolved by the AI', () => {
+  // CONTRACT NOTE: Mitonsoul (curse) and Sturla (resurrect) used to open an AUTO pendingChoice
+  // the pure-engine AI couldn't resolve (a wedge if a driver bypassed the server's auto-loop).
+  // They are now an interactive ROLL CEREMONY that aiResolveChoice DOES drive — the bot selects
+  // a figure, then rolls it (the d20 is injected by the action layer / aiEngineAction). Oreld
+  // stays an AUTO glyph (still server-rolled). Any future AI driver that bypasses the
   // server's auto-resolve loop MUST replicate it. This test pins that current behavior.
-  it('a bot owning a glyph_mitonsoul choice yields the STALL signature (pending seat, null intent)', () => {
+  it('a bot owning a roll_ceremony choice drives it (select, then roll) — no stall', () => {
     let s = createInitialStateForHost({ userId: 'host', username: 'Host' });
     s = JSON.parse(JSON.stringify(s)) as HSState;
-    // Minimal mid-turn state: a bot seat owns an open Mitonsoul choice.
+    // Minimal mid-turn state: a bot seat owns an open curse ceremony with one of its figures up.
     s.phase = 'playing';
     s.subPhase = 'turns';
     s.turnSeat = 0;
     s.players = [{ seat: 0, playerId: 'bot-1', username: 'Bot', bot: true } as HSState['players'][number]];
     s.figures = [{ id: 'f-1', cardUid: 'c', ownerSeat: 0, at: '0,0', index: 1, wounds: 0 } as HSState['figures'][number]];
     s.cards = [{ uid: 'c', cardId: 'finn', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 }];
-    s.pendingChoice = { kind: 'glyph_mitonsoul', seat: 0, at: '0,0', figureIds: ['f-1'] };
+    s.pendingChoice = { kind: 'roll_ceremony', mode: 'curse', seat: 0, at: '0,0', queue: [{ seat: 0, figureIds: ['f-1'] }], selectedFigureId: null, results: [], risers: [] };
 
-    // The server's drive loop WOULD pick this bot up (it owes the pending action)...
+    // The server's drive loop picks this bot up AND the pure AI now resolves it: first SELECT…
     expect(aiPendingSeat(s)).toBe(0);
-    // ...but the pure AI brain has no resolver for it → null. Without the server's
-    // in-request auto-resolution, this is a wedge. (Documents the gap; see report.)
-    expect(aiNextAction(s, 0)).toBeNull();
+    expect(aiNextAction(s, 0)).toEqual({ kind: 'resolve_choice', choice: { kind: 'roll_ceremony_select', figureId: 'f-1' } });
+    // …then, once a figure is selected, ROLL it (the d20 is added by the action layer).
+    s.pendingChoice.selectedFigureId = 'f-1';
+    expect(aiNextAction(s, 0)).toEqual({ kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll' } });
   });
 });

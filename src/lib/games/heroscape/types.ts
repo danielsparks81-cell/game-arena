@@ -406,24 +406,26 @@ export type HSPendingChoice =
       count: number;
     }
   | {
-      // Glyph of Mitonsoul (Massive Curse) — fires the instant a figure STOPS on it.
-      // No human choice: the action layer rolls one d20 per listed figure and resolves
-      // in-request (each 1 is destroyed). `at` is the glyph's hex (the temporary glyph is
-      // removed once it fires). `seat` is the stopper (owns the resolve for auth only).
-      kind: 'glyph_mitonsoul';
+      // ROLL CEREMONY — the interactive d20 ritual shared by the Glyph of Mitonsoul (Massive
+      // Curse: every figure rolls, a 1 destroys it) and the Glyph of Sturla (Resurrection: every
+      // DEAD figure rolls, a 20 raises it). All players WATCH; the figures are rolled one at a
+      // time by their OWNER, going in turn order. The owner SELECTS a figure (it highlights for
+      // everyone via `selectedFigureId`), then ROLLS it. A new panel renders the whole thing.
+      //   `mode`     — 'curse' (1 kills) | 'resurrect' (20 raises, then placed via glyph_sturla_place).
+      //   `seat`     — the CURRENT roller (== queue[0].seat); owns the select + roll.
+      //   `at`       — the temporary glyph's hex (removed when the ceremony ends).
+      //   `queue`    — owners still to roll, in turn order, each with their un-rolled figureIds.
+      //   `selectedFigureId` — the figure the current roller has picked (shared highlight), or null.
+      //   `results`  — every roll so far (for the panel + the log), newest last.
+      //   `risers`   — (resurrect) figures that rolled 20, placed by their owners after the ritual.
+      kind: 'roll_ceremony';
+      mode: 'curse' | 'resurrect';
       seat: number;
       at: HexKey;
-      figureIds: string[];
-    }
-  | {
-      // Glyph of Sturla (Resurrection) — fires when a figure stops on it. The action layer
-      // rolls one d20 per listed DESTROYED figure (`figureIds`, attributed to each owner). The
-      // rolls are SEEN (logged + dice overlay); each figure that rolls a 20 then goes into a
-      // per-owner PLACEMENT queue (glyph_sturla_place) so its owner chooses where it returns.
-      kind: 'glyph_sturla';
-      seat: number;
-      at: HexKey;
-      figureIds: string[];
+      queue: { seat: number; figureIds: string[] }[];
+      selectedFigureId: string | null;
+      results: { figureId: string; seat: number; d20: number; outcome: 'died' | 'rose' | 'safe' }[];
+      risers: string[];
     }
   | {
       // Glyph of Sturla — PLACEMENT step. After the rolls, each figure that rose is placed by
@@ -496,8 +498,8 @@ export type HSChoiceResolution =
   | { kind: 'water_clone_place'; hex: HexKey } // landing for the NEXT pending placement
   | { kind: 'spirit_placement'; cardUid: string } // unique card to receive the Spirit
   | { kind: 'airborne_drop'; placements: HexKey[] } // landings for all reserve Airborne Elite
-  | { kind: 'glyph_mitonsoul'; rolls: { figureId: string; d20: number }[] } // a d20 per figure
-  | { kind: 'glyph_sturla'; rolls: { figureId: string; d20: number }[] } // a d20 per dead figure
+  | { kind: 'roll_ceremony_select'; figureId: string } // the current roller highlights a figure (shared)
+  | { kind: 'roll_ceremony_roll'; d20?: number } // roll the selected figure — d20 injected by the action layer
   | { kind: 'glyph_sturla_place'; hex: HexKey } // where the current owner places their risen figure
   | { kind: 'glyph_oreld'; d20: number; cardUid: string; markerIndex: number } // d20 + chosen marker (markerIndex<0 = none)
   | { kind: 'glyph_erland'; figureId: string; to: HexKey } // figure to summon + its destination hex

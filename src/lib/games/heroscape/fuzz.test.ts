@@ -296,11 +296,14 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
     if (!free.length) return null;
     return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: pick(rng, free) } });
   }
-  if (pc.kind === 'glyph_mitonsoul' || pc.kind === 'glyph_sturla') {
-    return applyAction(s, pid, {
-      kind: 'resolve_choice',
-      choice: { kind: pc.kind, rolls: pc.figureIds.map(figureId => ({ figureId, d20: d20(rng) })) },
-    });
+  if (pc.kind === 'roll_ceremony') {
+    // Two-step per figure: SELECT the next un-rolled figure (shared highlight), then ROLL it.
+    if (pc.selectedFigureId == null) {
+      const next = pc.queue[0]?.figureIds[0];
+      if (!next) return null;
+      return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_select', figureId: next } });
+    }
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll', d20: d20(rng) } });
   }
   if (pc.kind === 'glyph_sturla_place') {
     const hexes = sturlaPlacementHexes(s, pc.figureId);

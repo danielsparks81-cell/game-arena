@@ -38,6 +38,7 @@ import type {
   HSAction,
   HSCardDef,
   HSChoiceResolution,
+  HSPendingChoice,
   HSGlyph,
   HSGlyphId,
   HSLogEntry,
@@ -1997,6 +1998,78 @@ function openSturlaPlacement(s: HSState, risers: string[]): void {
   delete s.pendingChoice; // all risers placed (or skipped)
 }
 
+/** Open the interactive ROLL CEREMONY (Mitonsoul curse / Sturla resurrection). Collects the
+ *  eligible figures — curse = every LIVING figure, resurrect = every DEAD non-reserve figure —
+ *  grouped by owner and ordered by TURN ORDER starting at `stepperSeat` (the figure that revealed
+ *  the glyph). Each owner rolls their figures one at a time; all players watch. Fizzles (removes the
+ *  temporary glyph, logs) if no figure is eligible — so a Resurrection with no fallen just vanishes. */
+function openRollCeremony(s: HSState, mode: 'curse' | 'resurrect', at: HexKey, stepperSeat: number): void {
+  const eligible = (seat: number): string[] =>
+    s.figures
+      .filter(f => f.ownerSeat === seat && (mode === 'curse' ? f.at != null : f.at == null && !f.reserve))
+      .map(f => f.id);
+  const ring = s.initiative.length ? s.initiative : livingSeats(s).slice().sort((a, b) => a - b);
+  const si = ring.indexOf(stepperSeat);
+  const order = si >= 0 ? [...ring.slice(si), ...ring.slice(0, si)] : ring;
+  const queue = order.map(seat => ({ seat, figureIds: eligible(seat) })).filter(q => q.figureIds.length > 0);
+  if (queue.length === 0) {
+    s.glyphs = s.glyphs.filter(g => g.at !== at); // temporary — nothing to do, it fades
+    pushLog(s, 'glyph', mode === 'curse' ? 'Massive Curse — no figures on the field.' : 'Resurrection — no fallen to raise.');
+    delete s.pendingChoice;
+    return;
+  }
+  s.pendingChoice = { kind: 'roll_ceremony', mode, seat: queue[0].seat, at, queue, selectedFigureId: null, results: [], risers: [] };
+}
+
+/** Apply ONE ceremony roll to its selected figure, record it, and advance the queue. Mutates `s`.
+ *  Curse: a 1 destroys the figure (its Spirit, if any, is handled by the caller's win/Spirit check).
+ *  Resurrect: a 20 marks it a riser (placed later via `openSturlaPlacement`). Closes the ceremony
+ *  when every figure has rolled — removing the temporary glyph, then opening the Sturla placement
+ *  queue (resurrect) and checking the elimination win (curse). */
+function applyCeremonyRoll(s: HSState, pc: Extract<HSPendingChoice, { kind: 'roll_ceremony' }>, figureId: string, d20: number): void {
+  const fig = s.figures.find(f => f.id === figureId);
+  const label = fig ? figureLabel(s, fig) : 'A figure';
+  let outcome: 'died' | 'rose' | 'safe' = 'safe';
+  if (pc.mode === 'curse') {
+    if (d20 === 1 && fig && fig.at != null) {
+      fig.at = null; fig.at2 = null; outcome = 'died';
+      pushLog(s, 'glyph', `Massive Curse — ${playerName(s, fig.ownerSeat)} rolls 1 for ${label} — it is DESTROYED!`);
+    } else {
+      pushLog(s, 'glyph', `Massive Curse — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20} for ${label} — it resists.`);
+    }
+  } else {
+    if (d20 === 20 && fig && fig.at == null) {
+      pc.risers.push(figureId); outcome = 'rose';
+      pushLog(s, 'glyph', `Resurrection — ${playerName(s, fig.ownerSeat)} rolls 20 for ${label} — it RISES! Place it in your start zone.`);
+    } else {
+      pushLog(s, 'glyph', `Resurrection — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20} for ${label} (needs 20) — it stays fallen.`);
+    }
+  }
+  pc.results.push({ figureId, seat: fig?.ownerSeat ?? pc.seat, d20, outcome });
+  setLastRoll(s, {
+    title: pc.mode === 'curse' ? 'Glyph of Mitonsoul — Massive Curse' : 'Glyph of Sturla — Resurrection',
+    dice: [d20],
+    success: outcome !== 'safe',
+    detail: outcome === 'died' ? `${label} is destroyed!` : outcome === 'rose' ? `${label} rises!` : `${label} — ${d20}`,
+  });
+  // Drop the rolled figure from the current owner's list; advance past any drained owner.
+  pc.queue[0].figureIds = pc.queue[0].figureIds.filter(id => id !== figureId);
+  while (pc.queue.length > 0 && pc.queue[0].figureIds.length === 0) pc.queue.shift();
+  pc.selectedFigureId = null;
+  if (pc.queue.length > 0) {
+    pc.seat = pc.queue[0].seat; // next roller (its owner); the pending object stays open
+    return;
+  }
+  // Ceremony over — remove the temporary glyph, then resolve the aftermath.
+  s.glyphs = s.glyphs.filter(g => g.at !== pc.at);
+  delete s.pendingChoice;
+  if (pc.mode === 'resurrect') {
+    openSturlaPlacement(s, pc.risers); // each riser placed FRESH by its owner
+  } else {
+    checkEliminationWin(s); // a curse can wipe a side
+  }
+}
+
 // ============================================================================
 // Movement
 // ============================================================================
@@ -2868,28 +2941,18 @@ function applyOneGlyph(s: HSState, fig: Figure, g: HSGlyph): void {
     return;
   }
   if (g.id === 'mitonsoul') {
-    // Massive Curse — every figure on the board rolls a d20 (the action layer rolls them);
-    // each 1 is destroyed. Opens a NO-CHOICE pending the server fills + auto-resolves
-    // in-request, then the temporary glyph is removed (at resolution).
-    s.pendingChoice = {
-      kind: 'glyph_mitonsoul',
-      seat: fig.ownerSeat,
-      at: g.at,
-      figureIds: s.figures.filter(f => f.at != null).map(f => f.id),
-    };
+    // Massive Curse — every LIVING figure rolls a d20; a 1 destroys it. Opens the interactive
+    // ROLL CEREMONY (owners roll their own figures one at a time, all watching, in turn order).
     pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Mitonsoul — a Massive Curse sweeps the field!`);
+    openRollCeremony(s, 'curse', g.at, fig.ownerSeat);
     return;
   }
   if (g.id === 'sturla') {
-    // Resurrection — each DESTROYED figure rolls a d20 (action layer); a 20 returns it to its
-    // owner's start zone. No human choice; auto-resolved in-request, then the glyph is removed.
-    s.pendingChoice = {
-      kind: 'glyph_sturla',
-      seat: fig.ownerSeat,
-      at: g.at,
-      figureIds: s.figures.filter(f => f.at == null && !f.reserve).map(f => f.id),
-    };
+    // Resurrection — every DESTROYED figure rolls a d20; a 20 raises it FRESH (its owner then
+    // places it via glyph_sturla_place). Opens the interactive ROLL CEREMONY (owners roll their
+    // own fallen one at a time, all watching, in turn order); fizzles if no one has fallen.
     pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Sturla — the fallen may rise!`);
+    openRollCeremony(s, 'resurrect', g.at, fig.ownerSeat);
     return;
   }
   if (g.id === 'oreld') {
@@ -5562,6 +5625,32 @@ function doAirborneDropPlace(state: HSState, seat: number, placements: HexKey[])
 
 function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolution): HSResult {
   const pc = state.pendingChoice!;
+
+  // --- ROLL CEREMONY (Mitonsoul curse / Sturla resurrection): the current roller SELECTS one of
+  //     their figures (it highlights for everyone), then ROLLS it. One figure at a time, in turn
+  //     order; all players watch. The d20 is rolled by the action layer (like every glyph d20).
+  //     Handled BEFORE the kind-match guard below: one pending (roll_ceremony) takes TWO different
+  //     resolution kinds (select + roll), so they never equal pc.kind. ---
+  if (pc.kind === 'roll_ceremony' && choice.kind === 'roll_ceremony_select') {
+    const mine = pc.queue[0]?.figureIds ?? [];
+    if (!mine.includes(choice.figureId)) return { error: 'Select one of your own un-rolled figures' };
+    const s = clone(state);
+    const npc = s.pendingChoice;
+    if (npc?.kind === 'roll_ceremony') npc.selectedFigureId = choice.figureId; // shared highlight
+    return s;
+  }
+  if (pc.kind === 'roll_ceremony' && choice.kind === 'roll_ceremony_roll') {
+    if (!Number.isInteger(choice.d20) || choice.d20! < 1 || choice.d20! > 20) return { error: 'Malformed ceremony roll' };
+    const figureId = pc.selectedFigureId;
+    if (!figureId) return { error: 'Select a figure before rolling' };
+    if (!(pc.queue[0]?.figureIds ?? []).includes(figureId)) return { error: 'That figure is not up to roll' };
+    const s = clone(state);
+    const npc = s.pendingChoice;
+    if (npc?.kind !== 'roll_ceremony') return { error: 'Ceremony already resolved' };
+    applyCeremonyRoll(s, npc, figureId, choice.d20!);
+    return s;
+  }
+
   if (pc.kind !== choice.kind) {
     return { error: `Expected a ${pc.kind} resolution` };
   }
@@ -5569,68 +5658,6 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
   // --- Airborne Elite THE DROP placement (the landing step after a 13+ roll) ---
   if (pc.kind === 'airborne_drop' && choice.kind === 'airborne_drop') {
     return doAirborneDropPlace(state, seat, choice.placements);
-  }
-
-  // --- Glyph of Mitonsoul: Massive Curse (one d20 per figure; each 1 is destroyed) ---
-  if (pc.kind === 'glyph_mitonsoul' && choice.kind === 'glyph_mitonsoul') {
-    for (const r of choice.rolls) {
-      if (!Number.isInteger(r.d20) || r.d20 < 1 || r.d20 > 20) return { error: 'Malformed Mitonsoul roll' };
-    }
-    const s = clone(state);
-    const killed: string[] = [];
-    for (const r of choice.rolls) {
-      if (r.d20 !== 1) continue;
-      const f = s.figures.find(x => x.id === r.figureId);
-      if (f && f.at != null) { killed.push(figureLabel(s, f)); f.at = null; f.at2 = null; }
-    }
-    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
-    pushLog(
-      s,
-      'glyph',
-      killed.length
-        ? `Massive Curse — destroyed: ${killed.join(', ')}.`
-        : 'Massive Curse — every figure resists (no 1s rolled).',
-    );
-    delete s.pendingChoice;
-    checkEliminationWin(s); // a wipe can end the game
-    return s;
-  }
-
-  // --- Glyph of Sturla: Resurrection — one d20 PER dead figure, attributed to its OWNER;
-  //     a 20 returns it FRESH (no wounds) to that owner's start zone. Each roll is logged so the
-  //     resurrection isn't a silent "it's back". ---
-  if (pc.kind === 'glyph_sturla' && choice.kind === 'glyph_sturla') {
-    for (const r of choice.rolls) {
-      if (!Number.isInteger(r.d20) || r.d20 < 1 || r.d20 > 20) return { error: 'Malformed Sturla roll' };
-    }
-    const s = clone(state);
-    const risers: string[] = []; // figures that rolled a 20 — to be PLACED by their owners
-    for (const r of choice.rolls) {
-      const f = s.figures.find(x => x.id === r.figureId);
-      if (!f || f.at != null || f.reserve) continue; // not a dead figure (e.g. already revived)
-      const owner = playerName(s, f.ownerSeat);
-      if (r.d20 === 20) {
-        risers.push(f.id);
-        pushLog(s, 'glyph', `Resurrection — ${owner} rolls 20 for ${figureLabel(s, f)} — it RISES! Place it in your start zone.`);
-      } else {
-        pushLog(s, 'glyph', `Resurrection — ${owner} rolls ${r.d20} for ${figureLabel(s, f)} (needs 20) — it stays fallen.`);
-      }
-    }
-    // Surface the dice in the overlay so the rolls are SEEN, not just logged.
-    if (choice.rolls.length > 0) {
-      setLastRoll(s, {
-        title: 'Glyph of Sturla — Resurrection',
-        dice: choice.rolls.map(r => r.d20),
-        success: risers.length > 0,
-        detail: risers.length ? `${risers.length} rise${risers.length === 1 ? 's' : ''} — owners place them` : 'None roll a 20 — none rise.',
-      });
-    }
-    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
-    if (risers.length === 0) pushLog(s, 'glyph', 'Resurrection — none rise (no 20s rolled).');
-    // Each riser is now PLACED by its OWNER, one at a time (cross-player queue). Clears the
-    // pending if no one rose (or no one has room).
-    openSturlaPlacement(s, risers);
-    return s;
   }
 
   // --- Glyph of Sturla PLACEMENT: the current owner sets their risen figure down on an empty
@@ -6205,6 +6232,17 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     const pick = mine.reduce((b, f) => (pts(f) < pts(b) ? f : b), mine[0]);
     return { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: pick.id } };
   }
+  // ROLL CEREMONY (Mitonsoul / Sturla) — the bot rolls its figures one at a time: SELECT the next
+  // un-rolled figure (highlight), then ROLL it (the d20 is injected by aiEngineAction). Two calls
+  // per figure; the ai_step driver loops until the ceremony's seat is no longer this bot.
+  if (pc.kind === 'roll_ceremony') {
+    if (pc.selectedFigureId == null) {
+      const next = pc.queue[0]?.figureIds[0];
+      if (!next) return null;
+      return { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_select', figureId: next } };
+    }
+    return { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll' } }; // d20 added by the action layer
+  }
   // Glyph of Sturla — place a resurrected figure on the first available start-zone hex.
   if (pc.kind === 'glyph_sturla_place') {
     const hexes = sturlaPlacementHexes(state, pc.figureId);
@@ -6605,6 +6643,11 @@ export function aiEngineAction(
     const throwerId = pc && pc.kind === 'grenade_throw' ? pc.throwers[0] : '';
     const defs = grenadeDefenders(state, throwerId, intent.targetId);
     return { ...intent, attackRoll: rollers.rollDice(2), defenseRolls: defs.map(d => ({ figureId: d.figureId, roll: rollers.rollDice(d.defense) })) };
+  }
+  // ROLL CEREMONY roll — the bot "presses Roll"; the d20 is rolled server-side here (the engine
+  // validates it 1..20 at resolution), mirroring the human path's makeMoveHS injection.
+  if (intent.kind === 'resolve_choice' && intent.choice.kind === 'roll_ceremony_roll') {
+    return { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll', d20: rollers.d20() } };
   }
   return intent;
 }
