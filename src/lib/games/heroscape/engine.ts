@@ -1883,8 +1883,12 @@ function raelinAuraReaches(state: HSState, defender: Figure): boolean {
     // intervening figures (neither endpoint) blocking exactly as in combat LOS.
     // Figures do NOT block line of sight — only terrain does (on-map obstacles may
     // come later) — so the aura's clear-sight check passes no figure blockers.
+    // Raelin is a TALL FLYER, so her aura's clear sight is cast from HER height, not the default
+    // hex+1 ground eye — she sees over low hills/land and only tall walls break it (user: "she is
+    // taller than the land"). Source eye = her hex height + her figure Height; targets stay normal.
+    const raelinEye = heightOfKey(state, raelin.at!) + cardDefFor(state, raelin).height;
     return hasLineOfSight3D(map.cells, raelin.at!, defender.at!, [], (k: HexKey) =>
-      eyeHeightOfKey(state, k),
+      k === raelin.at ? raelinEye : eyeHeightOfKey(state, k),
     );
   });
 }
@@ -3572,11 +3576,14 @@ export function auraCoverageHexes(state: HSState): Set<HexKey> {
     if (src.at == null || isCardNegated(state, src.cardUid)) continue;
     const id = cardDefFor(state, src).id;
     if (id === RAELIN_CARD_ID) {
+      // Cast from Raelin's tall flyer eye (her Height), matching raelinAuraReaches — so the gold
+      // coverage line and the actual +2 defence agree, and low terrain doesn't wrongly clip it.
+      const raelinEye = heightOfKey(state, src.at) + cardDefFor(state, src).height;
       for (const h of Object.keys(map.cells)) {
         if (h === src.at) continue;
         const d = rangeDistance(map.cells, src.at, h);
         if (d == null || d > RAELIN_AURA_RANGE) continue;
-        if (hasLineOfSight3D(map.cells, src.at, h, [], (k: HexKey) => eyeHeightOfKey(state, k))) out.add(h);
+        if (hasLineOfSight3D(map.cells, src.at, h, [], (k: HexKey) => k === src.at ? raelinEye : eyeHeightOfKey(state, k))) out.add(h);
       }
     } else if (id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID) {
       for (const lobe of figureHexes(src)) {

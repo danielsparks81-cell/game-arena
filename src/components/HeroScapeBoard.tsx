@@ -1379,7 +1379,7 @@ export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
-  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onOverextend, onTheDrop,
+  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onOverextend, onTheDrop, onOrient,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -2081,6 +2081,9 @@ export default function HeroScapeBoard({
     : displayState;
   // Selecting a different figure (or deselecting) abandons a pending orientation pick.
   useEffect(() => { setOrientLead(null); }, [selectedId]);
+  // Drop the optional reorient prompt the moment the move phase ends (End move / first attack) so it
+  // never lingers into the attack phase — the move is already committed, nothing to lose here.
+  useEffect(() => { if (state.movementEnded) setOrientLead(null); }, [state.movementEnded]);
   const anyBigHeroPower =
     iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
   // Wild Swing's blast (armed target + its neighbours) — the SAME orange "blast zone" ring as the
@@ -2661,17 +2664,13 @@ export default function HeroScapeBoard({
       }
       return;
     }
-    // 2-HEX ORIENTATION PICK — the lead destination was tapped; this 2nd tap chooses which way
-    // the peanut's tail faces (among the anti-spin options highlighted). Tapping the lead itself
-    // confirms the previewed default; tapping another legal lead re-targets; else cancel.
+    // 2-HEX REORIENT (optional, AFTER the move already committed) — tap a highlighted tail hex to
+    // swing the trailing lobe there via onOrient: a FREE in-place pivot (no re-move, no reset, no
+    // turn cost). The move is already locked in, so this can never snap the figure back or lose the
+    // turn. Tapping anything else just dismisses the prompt (the move stays exactly where it is).
     if (orientLead && selected) {
-      if (orientTails.has(key)) { onMoveFigure(selected.id, orientLead, key); setOrientLead(null); return; }
-      if (key === orientLead && orientDefaultTail) { onMoveFigure(selected.id, orientLead, orientDefaultTail); setOrientLead(null); return; }
-      if (selIs2Hex && destinations.has(key)) {
-        const opts = moveTailOptions(state, selected.id, key);
-        if (opts.size >= 2) { setOrientLead(key); return; }
-        if (opts.size >= 1) { onMoveFigure(selected.id, key, [...opts][0]); setOrientLead(null); return; }
-      }
+      const dir = neighborKeys(orientLead).indexOf(key);
+      if (orientTails.has(key) && dir >= 0) { onOrient(selected.id, dir); setOrientLead(null); return; }
       setOrientLead(null);
       // fall through — e.g. a tap to select another of my figures
     }
@@ -2683,9 +2682,13 @@ export default function HeroScapeBoard({
     if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); return; }
       if (selIs2Hex) {
+        // Commit the move NOW with the default tail orientation — never leave it in an uncommitted
+        // "pick the tail" preview that End Move could throw away (that was the turn-loss bug). If the
+        // landing has more than one legal facing, offer an optional in-place reorient afterward
+        // (onOrient — a FREE pivot of the trailing lobe that never re-moves or resets).
         const opts = moveTailOptions(state, selected.id, key);
-        if (opts.size >= 2) { setOrientLead(key); return; }
         onMoveFigure(selected.id, key, [...opts][0]);
+        setOrientLead(opts.size >= 2 ? key : null);
         return;
       }
       onMoveFigure(selected.id, key);
@@ -3695,7 +3698,7 @@ export default function HeroScapeBoard({
               {carryAim && (!carryAim.pass
                 ? '🪽 Carry — click a highlighted friendly figure to pick up'
                 : `🪽 Carry ${figName(carryAim.pass)} — click where Theracus flies; ${figName(carryAim.pass)} rides along and lands beside him`)}
-              {orientLead && '↻ Orientation — tap a highlighted space to set the tail (no full spin)'}
+              {orientLead && '↻ Reorient (optional) — tap a highlighted hex to pivot the tail in place, or just End move / attack to keep it as is'}
             </span>
             <button
               type="button"

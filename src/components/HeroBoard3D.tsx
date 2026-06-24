@@ -878,7 +878,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
       {/* GOLD AURA OUTLINE — a thin, soft gold line around just the PERIMETER of each aura's
           reach (interior edges skipped); players read "inside the line = buffed". */}
       {auraOutline && (
-        <Line points={auraOutline} segments color="#d9b44a" lineWidth={1.25} transparent opacity={0.42} depthWrite={false} toneMapped={false} raycast={() => null} />
+        <Line points={auraOutline} segments color="#e3c25a" lineWidth={2.6} transparent opacity={0.62} depthWrite={false} toneMapped={false} raycast={() => null} />
       )}
       {/* Power glyphs sit on the ground (rendered after tiles, before figures). */}
       {(state.glyphs ?? []).map(g => {
