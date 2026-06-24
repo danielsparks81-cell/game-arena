@@ -3779,7 +3779,12 @@ export function fireLineTargets(state: HSState, attackerId: string, dir: number)
   const spaces = new Set(fireLineSpaces(state, attackerId, dir));
   if (spaces.size === 0) return [];
   const aHexes = figureHexes(attacker);
-  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  // Mimring is a HUGE dragon, so his fire line is cast from HIS height (not the default hex+1
+  // ground eye) — it clears low hills/land the way a towering figure would, instead of being
+  // wrongly blocked by terrain it plainly sees over. Only the tall wall pillars stop it. (Same
+  // height-aware sight as Raelin's aura.) Source hexes use the dragon's eye; targets stay normal.
+  const atkH = cardDefFor(state, attacker).height;
+  const eye = (k: HexKey) => (aHexes.includes(k) ? heightOfKey(state, k) + atkH : eyeHeightOfKey(state, k));
   const out: Figure[] = [];
   for (const f of state.figures) {
     if (f.id === attacker.id || f.at == null) continue;
