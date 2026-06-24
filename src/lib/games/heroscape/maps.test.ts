@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, STAR_FIELD, MAPS } from './maps';
+import { parseMap, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, STAR_FIELD, TRISKELION, CROSSROADS, PENTAD, MAPS } from './maps';
+import type { HSMap } from './maps';
+import { mapSupportsCount } from './engine';
 import { hexKey, offsetToAxial, axialToOffset, neighborKeys } from './board';
+import type { HexKey } from './types';
 
 const at = (col: number, row: number) => {
   const { q, r } = offsetToAxial(col, row);
@@ -254,5 +257,116 @@ describe('Star Field — symmetric terrain (mound + walls + arm ridges)', () => 
     for (const zone of Object.values(STAR_FIELD.startZones)) {
       for (const k of zone) expect(STAR_FIELD.cells[k]).toMatchObject({ height: 1, terrain: 'grass' });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Symmetric multiplayer battlefields (3 / 4 / 5 players)
+// ---------------------------------------------------------------------------
+
+const ax = (k: HexKey) => { const i = k.indexOf(','); return { q: Number(k.slice(0, i)), r: Number(k.slice(i + 1)) }; };
+const cube = (q: number, r: number) => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r));
+const hexD = (a: HexKey, b: HexKey) => { const x = ax(a), y = ax(b); return cube(x.q - y.q, x.r - y.r); };
+const isWall = (m: HSMap, k: HexKey) => m.cells[k].terrain === 'rock' && m.cells[k].height >= 15;
+
+/** Shared invariants every designed symmetric map must satisfy. */
+function checkMapInvariants(m: HSMap, count: number) {
+  const keys = Object.keys(m.cells) as HexKey[];
+  // Registered + gated to EXACTLY its player count.
+  expect(MAPS[m.id]).toBe(m);
+  expect(mapSupportsCount(m, count)).toBe(true);
+  expect(mapSupportsCount(m, count === 6 ? 5 : count + 1)).toBe(false);
+  expect(mapSupportsCount(m, count - 1)).toBe(false);
+  expect(Object.keys(m.zonesByCount ?? {})).toEqual([String(count)]);
+
+  // EXACTLY `count` start zones, all the SAME size, flat grass, disjoint.
+  const zones = Object.values(m.startZones);
+  expect(zones).toHaveLength(count);
+  const sizes = new Set(zones.map(z => z.length));
+  expect(sizes.size).toBe(1); // every player gets an identical zone
+  const seen = new Set<HexKey>();
+  for (const z of zones) for (const k of z) {
+    expect(m.cells[k]).toMatchObject({ height: 1, terrain: 'grass' }); // flat deploy
+    expect(seen.has(k)).toBe(false); // disjoint
+    seen.add(k);
+  }
+
+  // No two zones within Range 9 — a deploy can't be sniped on turn one.
+  let minInter = Infinity;
+  for (let i = 0; i < zones.length; i++) for (let j = i + 1; j < zones.length; j++)
+    for (const a of zones[i]) for (const b of zones[j]) minInter = Math.min(minInter, hexD(a, b));
+  expect(minInter).toBeGreaterThanOrEqual(10);
+
+  // Walls exist, but the board is fully CONNECTED over non-wall cells (no sealed path / stranded zone).
+  const passable = new Set(keys.filter(k => !isWall(m, k)));
+  expect([...passable].some(k => isWall(m, k))).toBe(false);
+  expect(keys.some(k => isWall(m, k))).toBe(true); // there ARE walls
+  const start = m.startZones[0][0];
+  const seenBFS = new Set<HexKey>([start]); const q = [start];
+  while (q.length) { const cur = q.shift()!; for (const n of neighborKeys(cur) as HexKey[]) if (passable.has(n) && !seenBFS.has(n)) { seenBFS.add(n); q.push(n); } }
+  for (const k of passable) expect(seenBFS.has(k)).toBe(true); // every walkable hex reachable
+
+  // Elevation present (more than one height besides the walls).
+  const heights = new Set(keys.filter(k => !isWall(m, k)).map(k => m.cells[k].height));
+  expect(heights.size).toBeGreaterThanOrEqual(2);
+
+  // Glyph anchors: real, passable, off start zones, never adjacent (so a 2-hex figure can't cover two).
+  const anchors = m.glyphAnchors ?? [];
+  expect(anchors.length).toBeGreaterThanOrEqual(4);
+  for (const k of anchors) {
+    expect(m.cells[k]).toBeTruthy();
+    expect(isWall(m, k)).toBe(false);
+    expect(seen.has(k)).toBe(false); // not on a start zone
+  }
+  for (let i = 0; i < anchors.length; i++) for (let j = i + 1; j < anchors.length; j++)
+    expect((neighborKeys(anchors[i]) as HexKey[]).includes(anchors[j])).toBe(false);
+}
+
+describe('Triskelion Vale (3-player, true 3-fold rotational symmetry)', () => {
+  it('passes the shared symmetric-battlefield invariants', () => checkMapInvariants(TRISKELION, 3));
+  it('terrain is EXACTLY invariant under 120° rotation (rot120)', () => {
+    const rot120 = (q: number, r: number): [number, number] => { let a = q, b = r; for (let i = 0; i < 2; i++) { const na = -b, nb = a + b; a = na; b = nb; } return [a, b]; };
+    for (const k of Object.keys(TRISKELION.cells) as HexKey[]) {
+      const { q, r } = ax(k);
+      const [rq, rr] = rot120(q, r);
+      const rk = hexKey(rq, rr);
+      expect(TRISKELION.cells[rk]).toBeTruthy(); // the rotated hex exists
+      expect(TRISKELION.cells[rk].height).toBe(TRISKELION.cells[k].height);
+      expect(TRISKELION.cells[rk].terrain).toBe(TRISKELION.cells[k].terrain);
+    }
+  });
+});
+
+describe('Crossroads Keep (4-player, 4-quadrant mirror symmetry)', () => {
+  it('passes the shared symmetric-battlefield invariants', () => checkMapInvariants(CROSSROADS, 4));
+  it('terrain is invariant under both offset mirror axes (4 identical quadrants)', () => {
+    const off = (k: HexKey) => axialToOffset(k);
+    let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+    for (const k of Object.keys(CROSSROADS.cells) as HexKey[]) { const { col, row } = off(k); minC = Math.min(minC, col); maxC = Math.max(maxC, col); minR = Math.min(minR, row); maxR = Math.max(maxR, row); }
+    for (const k of Object.keys(CROSSROADS.cells) as HexKey[]) {
+      const { col, row } = off(k);
+      for (const [mc, mr] of [[maxC - (col - minC), row], [col, maxR - (row - minR)], [maxC - (col - minC), maxR - (row - minR)]] as [number, number][]) {
+        const { q, r } = offsetToAxial(mc, mr);
+        const mk = hexKey(q, r);
+        expect(CROSSROADS.cells[mk]).toBeTruthy();
+        expect(CROSSROADS.cells[mk].height).toBe(CROSSROADS.cells[k].height);
+        expect(CROSSROADS.cells[mk].terrain).toBe(CROSSROADS.cells[k].terrain);
+      }
+    }
+  });
+});
+
+describe('Pentad Crucible (5-player, 5-fold angular symmetry)', () => {
+  it('passes the shared symmetric-battlefield invariants', () => checkMapInvariants(PENTAD, 5));
+  it('the five zones are evenly spread around the rim (each a similar distance from centre)', () => {
+    // A hex grid can't be EXACTLY 5-fold, but the five zone centroids should sit at a near-equal
+    // radius from the board centre (the rim) and at ~72° apart — i.e. fairly placed.
+    const centroidR = Object.values(PENTAD.startZones).map(z => {
+      const avg = z.reduce((acc, k) => { const { q, r } = ax(k); return { q: acc.q + q, r: acc.r + r }; }, { q: 0, r: 0 });
+      return cube(avg.q / z.length, avg.r / z.length);
+    });
+    const lo = Math.min(...centroidR), hi = Math.max(...centroidR);
+    expect(hi - lo).toBeLessThanOrEqual(3); // all five zones ~same distance out (within 3 hexes)
+    expect(lo).toBeGreaterThanOrEqual(8);   // and out near the rim, not clumped at centre
   });
 });

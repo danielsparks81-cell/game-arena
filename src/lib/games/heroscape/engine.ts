@@ -722,6 +722,14 @@ function generateGlyphs(s: HSState, seed: number): HSGlyph[] {
   if (!map) return [];
   const rnd = mulberry32(seed);
   const cells = map.cells;
+  // SYMMETRIC maps declare fixed glyph anchor positions — keep the layout symmetric, but still
+  // give a random GLYPH (id) per anchor each game. (Rectangles + the star have no anchors → the
+  // fair-equidistant algorithm below runs instead.)
+  if (map.glyphAnchors && map.glyphAnchors.length > 0) {
+    const spots = map.glyphAnchors.filter(k => cells[k] && cells[k].terrain !== 'water');
+    const gids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, spots.length);
+    return spots.map((at, i): HSGlyph => ({ id: gids[i], at, faceUp: false }));
+  }
   const seats = s.players.map(p => p.seat);
   // Distance from each seat's ACTUAL start zone (zonesByCount for the star) to every cell.
   const fields = seats.map(seat => flatDistField(cells, startZoneFor(s, seat)));
