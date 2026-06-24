@@ -150,8 +150,9 @@ describe('Big-Hero powers — board UI panel', () => {
     // A legal flight destination that still has a free neighbour to set the passenger down on.
     const dest = [...legalDestinations(s, hero)].find(d => neighborKeys(d).some(n => cells[n] && !occupied.has(n) && n !== d))!;
     const landing = neighborKeys(dest).find(n => cells[n] && !occupied.has(n) && n !== dest)!;
-    // Arming Carry must NOT dispatch — it starts the 3-click flow (like Throw).
-    fireEvent.click(screen.getByRole('button', { name: /Carry a friendly/i }));
+    // Tapping Carry ON THE CARD arms the 3-click flow directly (no separate panel step) and
+    // must NOT dispatch yet.
+    fireEvent.click(screen.getByRole('button', { name: /Carry Before moving/i }));
     expect(cb.onCarry).not.toHaveBeenCalled();
     // 1) pick the passenger, 2) pick Theracus's flight destination, 3) pick the landing hex.
     fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!);

@@ -2063,9 +2063,17 @@ export default function HeroScapeBoard({
     if (hintTimer.current) clearTimeout(hintTimer.current);
     hintTimer.current = setTimeout(() => setPowerHint(null), 3500);
   };
-  const onCardPower = () => {
+  const onCardPower = (power?: { name: string; text: string }) => {
     const cid = activeCard?.cardId;
     if (!cid || !canAct) return;
+    // CARRY is shared by Theracus today and future carriers, so key the one-tap flow off the
+    // POWER name (not the card id): tapping Carry on the card arms the board-click sequence
+    // directly — pick an adjacent friendly base, fly, set it down — no separate "arm" step.
+    if (power?.name === 'Carry') {
+      if (carryList.length > 0) setCarryAim({});
+      else showPowerHint('Carry — no unengaged small or medium friendly figure adjacent.');
+      return;
+    }
     switch (cid) {
       case 'tarn_vikings':
         if (canBerserk) onBerserkerCharge();
