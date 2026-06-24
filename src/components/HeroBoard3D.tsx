@@ -534,8 +534,10 @@ function GlyphMarker({ x, z, topY, active, faceUp, letter }: {
         <meshStandardMaterial color="#3b0a0a" emissive={GLYPH_MAROON} emissiveIntensity={lit ? 0.6 : 0.22} side={THREE.DoubleSide} transparent opacity={0.85} />
       </mesh>
       {/* Hidden → a persistent "?"; revealed → the glyph's LETTER (matches the panel badge), which
-          FLIPS in when it mounts (i.e. the moment the glyph is revealed). */}
-      <Html center position={[0, faceUp ? 0.07 : 0.06, 0]} style={{ pointerEvents: 'none' }}>
+          FLIPS in when it mounts (i.e. the moment the glyph is revealed). `occlude="blending"` makes
+          the DOM label respect the depth buffer so it HIDES behind wall pillars + figures in front of
+          it (a plain <Html> always draws over the canvas, which is why the "?" showed through walls). */}
+      <Html center occlude="blending" position={[0, faceUp ? 0.07 : 0.06, 0]} style={{ pointerEvents: 'none' }}>
         {faceUp ? (
           <div
             key="up"
