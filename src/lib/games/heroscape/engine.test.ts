@@ -22,6 +22,7 @@ import {
   effectiveAttackDice,
   effectiveDefenseDice,
   auraBuffedFigureIds,
+  auraCoverageHexes,
   effectiveMove,
   effectiveRange,
   moveConsequences,
@@ -2106,6 +2107,36 @@ describe('aura-active indicators (auraBuffedFigureIds)', () => {
     const b = auraBuffedFigureIds(s);
     expect(b.has(TV(1))).toBe(true);
     expect(b.has(RAEL)).toBe(false);
+  });
+
+  it('auraCoverageHexes outlines an aura’s REACH, follows the source, and is empty for a negated source', () => {
+    // Finn — an ADJACENCY aura: exactly his on-map hex-neighbours, never his own hex.
+    let f = customBattle(['finn'], ['marro_warriors'], 'p1');
+    f = clearExcept(f, 's0-finn-1', 's1-marro_warriors-1');
+    f = place(f, 's0-finn-1', at(3, 3));
+    f = place(f, 's1-marro_warriors-1', at(0, 0));
+    const cells = MAPS[f.mapId].cells;
+    const finnNbrs = neighborKeys(at(3, 3)).filter(n => cells[n]);
+    const covF = auraCoverageHexes(f);
+    expect(finnNbrs.length).toBeGreaterThan(0);
+    for (const n of finnNbrs) expect(covF.has(n)).toBe(true);
+    expect(covF.has(at(3, 3))).toBe(false);
+    expect(covF.size).toBe(finnNbrs.length); // Finn alone = exactly his neighbours
+    // The outline MOVES with the source: old neighbours clear, the new ones light.
+    const covF2 = auraCoverageHexes(place(f, 's0-finn-1', at(5, 1)));
+    expect(neighborKeys(at(5, 1)).some(n => covF2.has(n))).toBe(true);
+    expect(neighborKeys(at(3, 3)).every(n => !covF2.has(n))).toBe(true);
+    // A Glyph-of-Nilrend-negated source projects NO aura outline.
+    expect(auraCoverageHexes({ ...f, negatedCardUids: ['s0-finn'] }).size).toBe(0);
+
+    // Raelin — a RANGE-4 + clear-sight aura: reaches FAR more than mere adjacency.
+    let r = customBattle(['raelin'], ['marro_warriors'], 'p1');
+    r = clearExcept(r, 's0-raelin-1', 's1-marro_warriors-1');
+    r = place(r, 's0-raelin-1', at(3, 3));
+    r = place(r, 's1-marro_warriors-1', at(0, 0));
+    const covR = auraCoverageHexes(r);
+    expect(covR.size).toBeGreaterThan(neighborKeys(at(3, 3)).length); // bigger than just neighbours
+    expect(covR.has(at(3, 3))).toBe(false); // not her own hex
   });
 });
 

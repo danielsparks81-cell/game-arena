@@ -3554,6 +3554,38 @@ export function auraBuffedFigureIds(state: HSState): Set<string> {
   return out;
 }
 
+/** The HEXES every living, non-negated aura SOURCE on the board reaches — the area a
+ *  friendly figure standing there would be buffed in. Drives the board's always-on GOLD
+ *  aura outline (so you can see, e.g., exactly where Raelin's +2 defense lands and watch it
+ *  move with her). Geometry mirrors the stat folds: Raelin = within `RAELIN_AURA_RANGE`
+ *  range-spaces + clear LOS; Finn/Thorgrim/Grimnak = the source's hex-neighbours. Includes
+ *  every owner's auras (it's a reach indicator, not an ownership one). Recomputed from
+ *  positions; a Nilrend-negated source contributes nothing (it grants no aura). */
+export function auraCoverageHexes(state: HSState): Set<HexKey> {
+  const out = new Set<HexKey>();
+  const map = MAPS[state.mapId];
+  if (!map) return out;
+  for (const src of state.figures) {
+    if (src.at == null || isCardNegated(state, src.cardUid)) continue;
+    const id = cardDefFor(state, src).id;
+    if (id === RAELIN_CARD_ID) {
+      for (const h of Object.keys(map.cells)) {
+        if (h === src.at) continue;
+        const d = rangeDistance(map.cells, src.at, h);
+        if (d == null || d > RAELIN_AURA_RANGE) continue;
+        if (hasLineOfSight3D(map.cells, src.at, h, [], (k: HexKey) => eyeHeightOfKey(state, k))) out.add(h);
+      }
+    } else if (id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID) {
+      for (const lobe of figureHexes(src)) {
+        for (const n of neighborKeys(lobe)) {
+          if (map.cells[n] && n !== src.at && n !== src.at2) out.add(n);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Effective MOVE for `fig` (05-glyphs): printed Move + Glyph of Valda (+2 if the
  * figure's seat controls Valda). VALDA EXIT CAVEAT (resolutions): "Do not use

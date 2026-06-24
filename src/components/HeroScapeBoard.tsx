@@ -74,6 +74,7 @@ import {
   sturlaPlacementHexes,
   legalTargets,
   auraBuffedFigureIds,
+  auraCoverageHexes,
   placeableHexes,
   placeable2Leads,
   figureLabel,
@@ -1785,6 +1786,12 @@ export default function HeroScapeBoard({
   // battlefield information), whenever figures are on the board.
   const auraIds = useMemo(
     () => (state.phase === 'playing' ? auraBuffedFigureIds(state) : new Set<string>()),
+    [state],
+  );
+  // The HEXES every aura reaches — drives the always-on GOLD aura outline (Raelin's +2 defense
+  // area, Finn/Thorgrim adjacency, …) so you can see exactly where it lands and watch it move.
+  const auraHexes = useMemo(
+    () => (state.phase === 'playing' ? auraCoverageHexes(state) : new Set<string>()),
     [state],
   );
 
@@ -4245,6 +4252,7 @@ export default function HeroScapeBoard({
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? []), ...choiceFigIds])}
             actionableIds={glowIds}
             auraIds={auraIds}
+            auraHexes={auraHexes}
             splashIds={splashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}

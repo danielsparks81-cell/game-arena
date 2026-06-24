@@ -96,6 +96,9 @@ type Interact = {
    *  a soft, static gold disc glow so the player can SEE an aura is live. Lowest-priority ring
    *  (selection / attack target / power target / "still to act" all override it). */
   auraIds?: Set<string>;
+  /** HEXES inside an aura's reach (Raelin/Finn/Thorgrim/Grimnak) — drawn with an always-on GOLD
+   *  ring so the player can SEE the whole area an aura covers and watch it move with the source. */
+  auraHexes?: Set<string>;
   /** Figures a pending blast (Grenade aim) will hit — the armed target + its neighbours, friend or
    *  foe — an ORANGE "blast zone" ring shown while aiming, above the fuchsia candidate-target ring. */
   splashIds?: Set<string>;
@@ -803,6 +806,21 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
             blocked={isBlocked(key)}
             onClick={it.onHexClick ? () => it.onHexClick!(key) : undefined}
           />
+        );
+      })}
+      {/* GOLD AURA OUTLINE — a hexagonal ring on every hex an aura reaches (always on). The
+          6-segment ring with thetaStart -90° matches the tile's 6-sided prism, so it traces the
+          hex edge; raycast is disabled so it never steals a tap meant for the tile beneath. */}
+      {[...(it.auraHexes ?? [])].map(key => {
+        const cell = map?.cells[key];
+        if (!cell) return null;
+        const [ax, az] = worldXZ(...parseQR(key));
+        const aTop = Math.max(0.2, cell.height * LEVEL) * (cell.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(key) ? GLYPH_RAISE : 0);
+        return (
+          <mesh key={`aura-${key}`} position={[ax, aTop + 0.06, az]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
+            <ringGeometry args={[SIZE * 0.8, SIZE * 1.0, 6, 1, -Math.PI / 2]} />
+            <meshBasicMaterial color="#facc15" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
+          </mesh>
         );
       })}
       {/* Power glyphs sit on the ground (rendered after tiles, before figures). */}

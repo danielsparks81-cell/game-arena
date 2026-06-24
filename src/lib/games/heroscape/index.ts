@@ -76,6 +76,7 @@ export {
   effectiveAttackDice,
   effectiveDefenseDice,
   auraBuffedFigureIds,
+  auraCoverageHexes,
   effectiveMove,
   effectiveRange,
   moveConsequences,
