@@ -44,6 +44,8 @@ import {
   throwTargets,
   throwLandingHexes,
   carryPassengers,
+  erlandDestinations,
+  erlandSummonableIds,
 } from './engine';
 import { HS_CARDS } from './content';
 import { MAPS } from './maps';
@@ -307,6 +309,31 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
       kind: 'resolve_choice',
       choice: { kind: 'glyph_oreld', d20: d, cardUid: e.cardUid, markerIndex: e.markerIndex },
     });
+  }
+  // wave-3 CHOICE glyphs — exercise the human/AI decision paths under random play.
+  if (pc.kind === 'glyph_erland') {
+    const figs = erlandSummonableIds(s);
+    const dests = erlandDestinations(s);
+    if (!figs.length || !dests.length) return null; // engine should have fizzled
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_erland', figureId: pick(rng, figs), to: pick(rng, dests) } });
+  }
+  if (pc.kind === 'glyph_nilrend') {
+    if (pc.d20 == null) return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', d20: d20(rng) } });
+    const eligible = pc.d20 === 1 ? pc.ownCardUids : pc.foeCardUids;
+    if (!eligible.length) return null; // engine fizzles the empty side at the roll
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', cardUid: pick(rng, eligible) } });
+  }
+  if (pc.kind === 'glyph_wannok') {
+    if (pc.d20 == null) return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: d20(rng) } });
+    const teamOf = (seat: number) => s.players.find(p => p.seat === seat)?.team ?? -1 - seat;
+    const opps = s.players.filter(p => teamOf(p.seat) !== teamOf(pc.seat) && s.figures.some(f => f.at != null && f.ownerSeat === p.seat)).map(p => p.seat);
+    if (!opps.length) return null;
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', opponentSeat: pick(rng, opps) } });
+  }
+  if (pc.kind === 'glyph_wannok_victim') {
+    const mine = s.figures.filter(f => f.at != null && f.ownerSeat === pc.seat).map(f => f.id);
+    if (!mine.length) return null;
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: pick(rng, mine) } });
   }
   return null;
 }
