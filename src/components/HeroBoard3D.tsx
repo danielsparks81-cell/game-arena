@@ -1037,7 +1037,12 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
   // whole field in view and stops it floating high with a big black margin (where the panels land).
   const camPos: [number, number, number] = [0, fit.dist * 0.63, fit.dist * 0.776];
   return (
-    <div className={`relative h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
+    // `isolate` = its own stacking context: the WebGL canvas AND drei's <Html> labels (glyph runes,
+    // height numbers, the negated badge) render with z-indices up to ~16.7M, which would otherwise
+    // punch ABOVE the game's UI panels (the GLYPHS roster, the army/order-marker hands at z-20) and
+    // read as "the board is in front of the panels" — also stealing their hovers/clicks. Isolating
+    // confines all of that to the board's own layer, so the panels reliably sit on top.
+    <div className={`relative isolate h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
       <Canvas shadows camera={{ position: camPos, fov: 45 }} dpr={[1, 2]}>
         <hemisphereLight args={['#cfe3ff', '#3a3320', 0.7]} />
         <ambientLight intensity={0.25} />
