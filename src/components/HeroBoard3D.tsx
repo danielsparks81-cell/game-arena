@@ -12,10 +12,10 @@
 // Coordinate model: pointy-top axial (q,r) → world (x,z); elevation → y. Board
 // recentered on the origin so camera/orbit target sit at (0,0,0).
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Billboard, Edges, Html } from '@react-three/drei';
+import { OrbitControls, Billboard, Edges, Html, Line } from '@react-three/drei';
 import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid } from '@/lib/games/heroscape';
+import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
 
@@ -791,6 +791,36 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.lastEffect?.seq]);
 
+  // AURA PERIMETER — only the OUTER boundary of the covered region (an edge whose neighbour is NOT
+  // covered), as line segments, so a thin gold line traces the area instead of ringing every hex.
+  // The shared edge is the perpendicular-bisector segment between the two centres (length = hex
+  // side = centre-distance / √3); layout-agnostic, read straight from the world positions.
+  const auraOutline = useMemo<[number, number, number][] | null>(() => {
+    const hexes = it.auraHexes;
+    if (!hexes || hexes.size === 0 || !map) return null;
+    const pts: [number, number, number][] = [];
+    const INV_SQRT3 = 1 / Math.sqrt(3);
+    for (const key of hexes) {
+      const cell = map.cells[key];
+      if (!cell) continue;
+      const [cxk, czk] = worldXZ(...parseQR(key));
+      const y = Math.max(0.2, cell.height * LEVEL) * (cell.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 0.07;
+      for (const n of neighborKeys(key)) {
+        if (hexes.has(n)) continue; // interior edge — skip; only draw where the region ends
+        const [nx, nz] = worldXZ(...parseQR(n));
+        let dx = nx - cxk, dz = nz - czk;
+        const D = Math.hypot(dx, dz) || 1;
+        dx /= D; dz /= D;
+        const mx = cxk + (D / 2) * dx, mz = czk + (D / 2) * dz; // the shared edge midpoint
+        const half = (D * INV_SQRT3) / 2; // half a hex side
+        pts.push([mx - dz * half, y, mz + dx * half]); // ± perpendicular to the centre line
+        pts.push([mx + dz * half, y, mz - dx * half]);
+      }
+    }
+    return pts.length ? pts : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [it.auraHexes, map, glyphSet]);
+
   return (
     <group rotation={[0, faceAngle, 0]}>
     <group position={[-cx, 0, -cz]}>
@@ -808,21 +838,11 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           />
         );
       })}
-      {/* GOLD AURA OUTLINE — a hexagonal ring on every hex an aura reaches (always on). The
-          6-segment ring with thetaStart -90° matches the tile's 6-sided prism, so it traces the
-          hex edge; raycast is disabled so it never steals a tap meant for the tile beneath. */}
-      {[...(it.auraHexes ?? [])].map(key => {
-        const cell = map?.cells[key];
-        if (!cell) return null;
-        const [ax, az] = worldXZ(...parseQR(key));
-        const aTop = Math.max(0.2, cell.height * LEVEL) * (cell.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(key) ? GLYPH_RAISE : 0);
-        return (
-          <mesh key={`aura-${key}`} position={[ax, aTop + 0.06, az]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
-            <ringGeometry args={[SIZE * 0.8, SIZE * 1.0, 6, 1, -Math.PI / 2]} />
-            <meshBasicMaterial color="#facc15" transparent opacity={0.85} side={THREE.DoubleSide} depthWrite={false} toneMapped={false} />
-          </mesh>
-        );
-      })}
+      {/* GOLD AURA OUTLINE — a thin, soft gold line around just the PERIMETER of each aura's
+          reach (interior edges skipped); players read "inside the line = buffed". */}
+      {auraOutline && (
+        <Line points={auraOutline} segments color="#d9b44a" lineWidth={1.25} transparent opacity={0.42} depthWrite={false} toneMapped={false} raycast={() => null} />
+      )}
       {/* Power glyphs sit on the ground (rendered after tiles, before figures). */}
       {(state.glyphs ?? []).map(g => {
         const gc = map?.cells[g.at];
