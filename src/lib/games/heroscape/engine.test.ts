@@ -5402,7 +5402,7 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
     // MARRO(1) is destroyed (off the board, not reserve) — eligible for resurrection.
     s = JSON.parse(JSON.stringify(s)) as HSState;
     const marro = s.figures.find(f => f.id === MARRO(1))!;
-    marro.at = null; marro.at2 = null;
+    marro.at = null; marro.at2 = null; marro.wounds = 2; // died carrying wounds
     const glyphHex = at(3, 1);
     s = setGlyphs(s, [{ id: 'sturla', at: glyphHex, faceUp: false }]);
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
@@ -5416,6 +5416,7 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
     }));
     const z1 = MAPS[back.mapId].startZones[1] ?? [];
     expect(fig(back, MARRO(1)).at).not.toBeNull(); // resurrected
+    expect(fig(back, MARRO(1)).wounds).toBe(0); // returns FRESH — no leftover wound markers
     expect(z1).toContain(fig(back, MARRO(1)).at); // into seat-1's start zone
     expect(back.glyphs.find(g => g.at === glyphHex)).toBeUndefined(); // temporary glyph removed
     // A non-20 leaves it destroyed.

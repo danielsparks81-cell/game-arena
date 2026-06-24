@@ -1321,23 +1321,33 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
   const last = state.initiativeRolls[state.initiativeRolls.length - 1];
   const rollOf = (seat: number) => last?.find(a => a.seat === seat)?.roll;
   const nameOf = (seat: number) => state.players.find(p => p.seat === seat)?.username ?? '?';
+  const rolled = state.initiative.length > 0 && !!last;
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px]">
-      {order.map((seat, i) => {
-        const active = seat === state.turnSeat;
-        const r = rollOf(seat);
-        return (
-          <span key={seat} className="flex items-center gap-1">
-            {i > 0 && <span className="text-neutral-600">→</span>}
-            <span
-              className={'rounded px-1.5 py-0.5 font-semibold tabular-nums ' + (active ? 'bg-emerald-900/40 ring-2 ring-emerald-400' : 'bg-neutral-800/60')}
-              style={{ color: seatColor(seat) }}
-            >
-              {active ? '⚔ ' : ''}{nameOf(seat)}{r != null ? ` (${r})` : ''}
+    <div className="mt-1.5">
+      <div className="flex flex-wrap items-center gap-1 text-[11px]">
+        {order.map((seat, i) => {
+          const active = seat === state.turnSeat;
+          const r = rollOf(seat);
+          const winner = rolled && i === 0; // turn order is winner-first, so order[0] won initiative
+          return (
+            <span key={seat} className="flex items-center gap-1">
+              {i > 0 && <span className="text-neutral-600">→</span>}
+              <span
+                className={'rounded px-1.5 py-0.5 font-semibold tabular-nums ' + (active ? 'bg-emerald-900/40 ring-2 ring-emerald-400' : 'bg-neutral-800/60')}
+                style={{ color: seatColor(seat) }}
+                title={winner ? `Won initiative (rolled ${r}) — acts first` : r != null ? `Rolled ${r} for initiative` : undefined}
+              >
+                {active ? '⚔ ' : winner ? '👑 ' : ''}{nameOf(seat)}{r != null ? ` (${r})` : ''}
+              </span>
             </span>
-          </span>
-        );
-      })}
+          );
+        })}
+      </div>
+      {rolled && (
+        <div className="mt-0.5 text-[10px] text-neutral-500">
+          👑 highest roll acts first — then play passes <span className="text-neutral-400">left around the table</span> (by seat, not by roll)
+        </div>
+      )}
     </div>
   );
 }

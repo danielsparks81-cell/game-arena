@@ -1941,12 +1941,13 @@ function resurrectToStartZone(s: HSState, fig: Figure): boolean {
   if (baseSizeOf(cardDefFor(s, fig)) === 2) {
     for (const lead of free) {
       const tail = tailFor(map.cells, new Set(free.filter(h => h !== lead)), lead);
-      if (tail != null) { fig.at = lead; fig.at2 = tail; return true; }
+      if (tail != null) { fig.at = lead; fig.at2 = tail; fig.wounds = 0; return true; }
     }
     return false;
   }
   if (free.length === 0) return false;
   fig.at = free[0]; fig.at2 = null;
+  fig.wounds = 0; // a resurrected figure returns FRESH — no leftover wound markers
   return true;
 }
 
@@ -5546,7 +5547,9 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     return s;
   }
 
-  // --- Glyph of Sturla: Resurrection (one d20 per dead figure; a 20 returns it to its start zone) ---
+  // --- Glyph of Sturla: Resurrection — one d20 PER dead figure, attributed to its OWNER;
+  //     a 20 returns it FRESH (no wounds) to that owner's start zone. Each roll is logged so the
+  //     resurrection isn't a silent "it's back". ---
   if (pc.kind === 'glyph_sturla' && choice.kind === 'glyph_sturla') {
     for (const r of choice.rolls) {
       if (!Number.isInteger(r.d20) || r.d20 < 1 || r.d20 > 20) return { error: 'Malformed Sturla roll' };
@@ -5554,9 +5557,24 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     const s = clone(state);
     const back: string[] = [];
     for (const r of choice.rolls) {
-      if (r.d20 !== 20) continue;
       const f = s.figures.find(x => x.id === r.figureId);
-      if (f && f.at == null && !f.reserve && resurrectToStartZone(s, f)) back.push(figureLabel(s, f));
+      if (!f || f.at != null || f.reserve) continue; // not a dead figure (e.g. already revived)
+      const owner = playerName(s, f.ownerSeat);
+      if (r.d20 === 20 && resurrectToStartZone(s, f)) {
+        back.push(figureLabel(s, f));
+        pushLog(s, 'glyph', `Resurrection — ${owner} rolls 20 for ${figureLabel(s, f)} — it RISES, returned fresh to their start zone!`);
+      } else {
+        pushLog(s, 'glyph', `Resurrection — ${owner} rolls ${r.d20} for ${figureLabel(s, f)} (needs 20) — it stays fallen.`);
+      }
+    }
+    // Surface the dice in the overlay so the rolls are SEEN, not just logged.
+    if (choice.rolls.length > 0) {
+      setLastRoll(s, {
+        title: 'Glyph of Sturla — Resurrection',
+        dice: choice.rolls.map(r => r.d20),
+        success: back.length > 0,
+        detail: back.length ? `${back.length} rise${back.length === 1 ? 's' : ''}! ${back.join(', ')}` : 'None roll a 20 — none rise.',
+      });
     }
     s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
     pushLog(
