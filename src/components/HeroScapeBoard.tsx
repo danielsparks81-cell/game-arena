@@ -4032,7 +4032,7 @@ export default function HeroScapeBoard({
         )}
         {/* GLYPH FLASH — a transient banner so a triggered glyph (esp. a one-time one that vanishes)
             is never silent. Auto-dismisses; click to close early. z-30 sits above the seat panels. */}
-        {glyphFlash && (
+        {glyphFlash && !ceremony && (
           <div key={glyphFlash.nonce} className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-2">
             <button
               type="button"
