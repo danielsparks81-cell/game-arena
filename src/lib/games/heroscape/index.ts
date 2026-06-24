@@ -9,6 +9,7 @@ export {
   aiNextAction,
   aiPendingSeat,
   aiEngineAction,
+  aiPlaceMarkers,
   livingSeats,
   initiativeReadySeats,
   getActivePlayerId,

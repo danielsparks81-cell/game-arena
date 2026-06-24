@@ -85,6 +85,7 @@ import {
   aiPendingSeat as hsAiPendingSeat,
   aiNextAction as hsAiNextAction,
   aiEngineAction as hsAiEngineAction,
+  aiPlaceMarkers as hsAiPlaceMarkers,
   initiativeReadySeats as hsInitiativeReadySeats,
   FUN_BOT_NAMES,
   attackDiceRequirements as hsAttackDiceRequirements,
@@ -1635,6 +1636,30 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       const readied = applyActionHS(state, placeBot.playerId, { kind: 'placement_ready' });
       if ('error' in readied) throw new Error(readied.error);
       next = readied;
+    } else if (action.kind === 'ai_step' && state.phase === 'playing' && state.subPhase === 'place_markers') {
+      // No bot can hard-lock the place-ORDER-MARKERS phase either (mirrors the turn/placement
+      // recoveries above — the guarantee that a bot can NEVER freeze the room). A bot wedges here on
+      // its Airborne "The Drop" step: a duplicate / raced ai_step trips the once-per-round Drop guard
+      // and the engine rejects it, which used to fall through to the throw below and 500 the room
+      // (the host then re-fires forever — the freeze the user hit). Force the stuck bot forward:
+      // satisfy the Drop gate + drop any pending Drop choice (its squad simply stays in reserve this
+      // round, far better than a frozen game) and lock in its default order markers so the round can
+      // still reach the initiative roll.
+      const ms = state.markersReady ?? [];
+      const pcSeat = state.pendingChoice?.seat;
+      const stuck = (pcSeat != null && state.players.find(p => p.seat === pcSeat)?.bot)
+        ? state.players.find(p => p.seat === pcSeat)
+        : state.players.find(p => p.bot && !ms.includes(p.seat));
+      if (stuck?.bot) {
+        const cleaned: HSState = JSON.parse(JSON.stringify(state));
+        cleaned.pendingChoice = undefined;
+        cleaned.airborneDropRound = cleaned.round;
+        const forced = applyActionHS(cleaned, stuck.playerId, hsAiPlaceMarkers(cleaned, stuck.seat));
+        if ('error' in forced) throw new Error(forced.error);
+        next = forced;
+      } else {
+        throw new Error(next.error);
+      }
     } else {
       throw new Error(next.error);
     }

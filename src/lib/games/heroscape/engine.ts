@@ -6268,7 +6268,7 @@ function aiPlace(state: HSState, seat: number): HSAction {
   return { kind: 'placement_ready' };
 }
 
-function aiPlaceMarkers(state: HSState, seat: number): HSAction {
+export function aiPlaceMarkers(state: HSState, seat: number): HSAction {
   // Put 1/2/3 on the strongest cards (by points); X (decoy) on the best. Prefer cards
   // with figures ON THE BOARD — a reserve-only card (e.g. Airborne Elite that missed The
   // Drop this round, rolled BEFORE markers) can't take a turn, so a marker on it is wasted.
