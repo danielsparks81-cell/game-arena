@@ -131,8 +131,9 @@ describe('Big-Hero powers — board UI panel', () => {
     put(s, 's1-marro_warriors-1', ring[0]); // small/medium in range
     const cb = spies();
     const { container } = renderBoard(s, cb);
-    // Board-click: arm Acid Breath, tap the target on the board, then Breathe.
-    fireEvent.click(screen.getByRole('button', { name: 'aim →' }));
+    // One-click flow: tap the Acid Breath ability ON THE CARD to start picking (no separate
+    // "aim" step), tap the target's base on the board, then Breathe.
+    fireEvent.click(screen.getByRole('button', { name: /Poisonous Acid Breath/ }));
     fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!);
     fireEvent.click(screen.getByRole('button', { name: /Breathe/ }));
     expect(cb.onAcidBreath).toHaveBeenCalledWith(hero, ['s1-marro_warriors-1']);

@@ -2110,8 +2110,14 @@ export default function HeroScapeBoard({
         if (canExplode) setExplosionMode(m => !m); // then click an enemy in range
         else showPowerHint('Explosion — no enemy in clear sight within Range 7.');
         return;
+      case 'braxas':
+        // Tapping Acid Breath on the card goes STRAIGHT into pick-on-board mode (no
+        // separate "aim" step): tap up to 3 figure bases, then "Breathe" on the panel.
+        if (acidList.length > 0) { setBhAim({ kind: 'acid', picks: [] }); revealPowerPanel(); }
+        else showPowerHint('Acid Breath — no small or medium figure adjacent.');
+        return;
       default:
-        revealPowerPanel(); // Big Heroes (Ice Shard / Queglix / …) & passive cards
+        revealPowerPanel(); // other Big Heroes (Ice Shard / Queglix / …) & passive cards
         return;
     }
   };
@@ -3642,18 +3648,20 @@ export default function HeroScapeBoard({
                   )}
                 </div>
               )}
-              {/* Braxas — Poisonous Acid Breath (≤3 small/medium) — aim, tap up to 3 on the board */}
+              {/* Braxas — Poisonous Acid Breath (≤3 small/medium). One-click flow: tap the
+                  ability itself to start picking (no separate "aim" step), tap up to 3 figure
+                  bases on the board, then "Breathe" to fire. */}
               {acidList.length > 0 && bhHeroId && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-lime-300">☣ Acid Breath (pick ≤3):</span>
                   {bhAim?.kind === 'acid' ? (
                     <>
-                      <span className="text-[11px] text-orange-200">{bhAim.picks.length}/3 picked — tap figures (orange)</span>
+                      <span className="font-semibold text-lime-300">☣ Acid Breath</span>
+                      <span className="text-[11px] text-orange-200">{bhAim.picks.length}/3 picked — tap figure bases (orange)</span>
                       <button disabled={bhAim.picks.length === 0} onClick={() => { onAcidBreath(bhHeroId, bhAim.picks); setBhAim(null); }} className="rounded border border-lime-600 px-2 py-0.5 font-semibold text-lime-300 hover:bg-lime-900/40 disabled:opacity-40">☣ Breathe ({bhAim.picks.length})</button>
                       <button onClick={() => setBhAim(null)} className="rounded border border-neutral-600 px-2 py-0.5 text-neutral-300 hover:bg-neutral-800">Cancel</button>
                     </>
                   ) : (
-                    <button onClick={() => setBhAim({ kind: 'acid', picks: [] })} className="rounded border border-lime-600 px-2 py-0.5 font-semibold text-lime-300 hover:bg-lime-900/40">aim →</button>
+                    <button onClick={() => setBhAim({ kind: 'acid', picks: [] })} className="rounded border border-lime-600 px-2 py-0.5 font-semibold text-lime-300 hover:bg-lime-900/40">☣ Acid Breath (pick ≤3)</button>
                   )}
                 </div>
               )}
