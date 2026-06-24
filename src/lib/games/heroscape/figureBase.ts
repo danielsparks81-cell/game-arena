@@ -68,7 +68,7 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'tarn_vikings-2': { x: 0.44, y: 0.84 },
   'tarn_vikings-3': { x: 0.37, y: 0.80 },
   'tarn_vikings-4': { x: 0.48, y: 0.83 },
-  thorgrim: { x: 0.49, y: 0.77 },
+  thorgrim: { x: 0.55, y: 0.80 },
   'zettian_guards-1': { x: 0.40, y: 0.80 },
   'zettian_guards-2': { x: 0.40, y: 0.79 },
   // 2-hex big figures — Y (cut) applies; X is ignored for double-space figures (they stay
