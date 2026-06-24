@@ -2839,6 +2839,29 @@ describe('wave-3 CHOICE glyphs — Erland / Nilrend / Wannok', () => {
     expect(eff.dice).toBe(3); // base Tarn attack, no buff
   });
 
+  it("a Nilrend-negated Finn does NOTHING — no aura to ANOTHER army AND no Spirit on death (the user's report)", () => {
+    // "finn was hit with the negation glyph — none of his powers should have worked, including
+    // buffing another army." Both halves of that, end to end, through one negated card.
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' })); // p2 acts → its Marro can attack
+    s = clearExcept(s, FINN, TARN(1), MARRO(1));
+    s = place(s, FINN, at(3, 4));
+    s = place(s, TARN(1), at(3, 5)); // p1's OTHER army (Range-1), adjacent to Finn → eligible for the aura
+    s = place(s, MARRO(1), at(3, 3)); // p2 attacker, adjacent to Finn
+    // Baseline (Finn NOT negated): the Tarn Viking — a DIFFERENT army — gets Finn's +1 aura.
+    expect(effectiveAttackDice(s, fig(s, TARN(1)), fig(s, MARRO(1))).breakdown).toContain('+1 Finn aura');
+    // Negate Finn's card (Glyph of Nilrend).
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.negatedCardUids = ['s0-finn'];
+    // 1) The other army no longer gets the aura — base stats.
+    expect(effectiveAttackDice(s, fig(s, TARN(1)), fig(s, MARRO(1))).breakdown).not.toContain('+1 Finn aura');
+    // 2) Killing the negated Finn leaves NO Warrior's Attack Spirit to place.
+    s = wound(s, FINN, 3); // Life 4 → one unblocked skull finishes him
+    s = unwrap(applyAction(s, 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
+    expect(fig(s, FINN).at).toBeNull(); // destroyed
+    expect(s.phase).toBe('playing'); // p1's Tarn alive → game continues
+    expect(s.pendingChoice).toBeUndefined(); // …and NO Spirit placement — every Finn power was off
+  });
+
   it('a negated card cannot use its special attack (Fire Line blocked server-side)', () => {
     // Mimring active + movement ended → Fire Line is normally available; negation blocks it.
     let s = customBattle(['mimring'], ['marro_warriors'], 'p1');
