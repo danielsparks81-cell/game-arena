@@ -4221,6 +4221,9 @@ function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
   const spirit: 'attack' | 'defense' | null =
     cardId === FINN_CARD_ID ? 'attack' : cardId === THORGRIM_CARD_ID ? 'defense' : null;
   if (!spirit) return;
+  // Warrior's Attack/Armor Spirit is a CARD POWER — a Glyph-of-Nilrend-negated card has no
+  // powers (base stats only), so a negated Finn/Thorgrim leaves no Spirit when it dies.
+  if (isCardNegated(s, destroyed.cardUid)) return;
   const ownerSeat = destroyed.ownerSeat;
   // "place this figure on any unique Army Card" (verified card text) — every card in
   // play is unique, so offer ALL that still have at least one living figure (a card

@@ -2321,6 +2321,23 @@ describe('slice 4: Warrior Spirits on destroy', () => {
     expect(s.cards.find(c => c.uid === 's1-marro_warriors')!.defenseMod).toBe(1);
   });
 
+  it('a NEGATED Finn leaves no Attack Spirit when destroyed (Glyph of Nilrend strips the power)', () => {
+    // The user hit this: a negated Finn died and STILL prompted a Warrior's Attack Spirit.
+    // Negation = base stats only, so the death-trigger power must not fire.
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' })); // p2 acts → its Marro attacks
+    s = clearExcept(s, FINN, TARN(1), MARRO(1));
+    s = place(s, FINN, at(3, 4));
+    s = wound(s, FINN, 3); // Life 4 — one unblocked skull finishes him
+    s = place(s, MARRO(1), at(3, 5)); // p2 attacker, adjacent
+    s = place(s, TARN(1), at(0, 0)); // a p1 figure survives → game continues
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.negatedCardUids = ['s0-finn']; // Finn's card is negated
+    s = unwrap(applyAction(s, 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
+    expect(fig(s, FINN).at).toBeNull(); // Finn is destroyed
+    expect(s.phase).toBe('playing'); // game continues (Tarn alive)
+    expect(s.pendingChoice).toBeUndefined(); // …but NO Spirit placement — the power was negated
+  });
+
   it('the Spirit is SKIPPED when the destruction ends the game', () => {
     // Finn is p2's LAST figure; destroying him wins — no Spirit prompt.
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
@@ -5573,5 +5590,30 @@ describe('Random per-game glyph layout', () => {
         }
       }
     }
+  });
+});
+
+describe('combat: a tie favours the DEFENDER (shields ≥ skulls fully blocks)', () => {
+  it('2 skulls vs 2 shields leaves a fresh Life-1 Viking alive — even with an Attack Spirit', () => {
+    // Mirrors a user report ("why did the Viking die? he blocked the 2 shields"): a Krav Maga
+    // with a Warrior's Attack Spirit (+1 die) rolls 2 skulls; the Tarn Viking rolls 2 shields.
+    // Each shield cancels one skull, ties go to the defender → 0 wounds, the Viking survives.
+    let s = customBattle(['krav_maga'], ['tarn_vikings'], 'p1');
+    const KM = 's0-krav_maga-1';
+    const TV = 's1-tarn_vikings-1';
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.cards.find(c => c.uid === 's0-krav_maga')!.attackMod = 1; // Warrior's Attack Spirit
+    s = place(s, KM, at(3, 3));
+    s = place(s, TV, at(3, 4)); // adjacent
+    expect(attackDiceRequirements(s, KM, TV)!.attack).toBe(4); // Attack 3 + 1 Spirit = 4 dice
+    const st = unwrap(applyAction(s, 'p1', {
+      kind: 'attack', attackerId: KM, targetId: TV,
+      attackRoll: F('kkbb'), defenseRoll: F('ssbb'), // 2 skulls vs 2 shields
+    }));
+    expect(st.lastAttack?.skulls).toBe(2);
+    expect(st.lastAttack?.shields).toBe(2);
+    expect(st.lastAttack?.wounds).toBe(0); // a tie is a full block
+    expect(st.lastAttack?.destroyed).toBe(false);
+    expect(fig(st, TV).at).not.toBeNull(); // survives
   });
 });
