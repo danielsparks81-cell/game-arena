@@ -254,6 +254,11 @@ export type LastAttack = {
    *  "see each roll of defense"). Absent for normal single-target attacks — the
    *  overlay then falls back to the single `defenseRoll`. */
   defenseGroups?: { label: string; roll: CombatFace[]; shields: number; wounds: number; destroyed: boolean }[];
+  /** d20-ROLL special attacks (Poisonous Acid Breath, …) don't use skull/shield dice — each chosen
+   *  figure rolls a d20 against a threshold. This carries one entry per figure so the LAST ATTACK
+   *  panel shows the actual ROLLS + outcomes instead of a meaningless "0 skulls vs 0 shields". When
+   *  present, the panel renders THESE rows and hides the skull/shield rows. */
+  d20Rolls?: { label: string; d20: number; need: number; destroyed: boolean }[];
   skulls: number;
   shields: number;
   /** Unblocked skulls = wounds inflicted (skulls − shields, min 0). */

@@ -281,6 +281,13 @@ describe('Braxas — Poisonous Acid Breath', () => {
     ] }));
     expect(at(s, 's1-marro_warriors-1')).toBeNull();
     expect(at(s, 's1-marro_warriors-2')).not.toBeNull();
+    // The LAST ATTACK panel reads these — each chosen figure's d20 + outcome (NOT skulls/shields).
+    const rolls = s.lastAttack?.d20Rolls;
+    expect(rolls).toBeDefined();
+    expect(rolls!.length).toBe(2);
+    expect(rolls!.find(r => r.d20 === 8)!.destroyed).toBe(true);
+    expect(rolls!.find(r => r.d20 === 7)!.destroyed).toBe(false);
+    expect(rolls!.every(r => r.need === 8)).toBe(true); // Squad threshold
     expect(errOf(applyAction(s, 'p1', { kind: 'attack', attackerId: hero, targetId: 's1-marro_warriors-2', attackRoll: F('k'), defenseRoll: F('bbb') }))).toMatch(/already/i);
   });
 

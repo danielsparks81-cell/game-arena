@@ -5227,6 +5227,7 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
   s.turnAttacks.push({ attackerId: braxas.id, targetId: rolls[0].targetId, special: 'acid_breath' });
   const lodin = lodinD20Bonus(state, seat); // Glyph of Lodin: +1 to each acid d20
   const results: string[] = [];
+  const d20Rolls: { label: string; d20: number; need: number; destroyed: boolean }[] = [];
   for (const roll of rolls) {
     const t = s.figures.find(f => f.id === roll.targetId);
     if (!t || t.at == null) continue;
@@ -5235,6 +5236,7 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
     const destroyed = roll.d20 + lodin >= threshold;
     if (destroyed) { t.at = null; t.at2 = null; }
     results.push(`${figureLabel(s, t)} — rolled ${roll.d20}${lodin ? ` +${lodin} Lodin` : ''} (needs ${threshold}+) ${destroyed ? '→ destroyed!' : '→ survives'}`);
+    d20Rolls.push({ label: figureLabel(s, t), d20: roll.d20 + lodin, need: threshold, destroyed });
   }
   s.lastAttack = {
     attackerId: braxas.id,
@@ -5243,10 +5245,11 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
     targetLabel: `Acid Breath — ${rolls.length} figure${rolls.length === 1 ? '' : 's'}`,
     attackRoll: [],
     defenseRoll: [],
+    d20Rolls, // each chosen figure's d20 vs its threshold — the panel shows THESE, not skulls/shields
     skulls: 0,
     shields: 0,
     wounds: 0,
-    destroyed: false,
+    destroyed: d20Rolls.some(r => r.destroyed),
     heightBonusAttacker: 0,
     heightBonusDefender: 0,
     breakdown: ['Poisonous Acid Breath (instead of attacking)', `d20: Squad ${ACID_SQUAD_THRESHOLD}+, Hero ${ACID_HERO_THRESHOLD}+ → destroyed`],

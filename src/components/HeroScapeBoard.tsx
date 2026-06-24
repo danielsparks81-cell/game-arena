@@ -3944,6 +3944,20 @@ export default function HeroScapeBoard({
                   {state.lastAttack.breakdown && state.lastAttack.breakdown.length > 0 && (
                     <div className="mb-1 text-[10px] font-semibold text-amber-300">{state.lastAttack.breakdown.join('  ·  ')}</div>
                   )}
+                  {state.lastAttack.d20Rolls && state.lastAttack.d20Rolls.length > 0 ? (
+                    // A d20-roll special (Acid Breath …): show each figure's ROLL + outcome, not skulls/shields.
+                    <div className="flex flex-col gap-0.5">
+                      {state.lastAttack.d20Rolls.map((r, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <span className={'inline-flex h-5 w-5 items-center justify-center rounded border text-[11px] font-bold tabular-nums ' + (r.destroyed ? 'border-red-400 text-red-300' : 'border-neutral-500 text-neutral-200')}>{r.d20}</span>
+                          <span className="text-neutral-300">{r.label}</span>
+                          <span className="text-neutral-500">(needs {r.need}+)</span>
+                          <span className={r.destroyed ? 'font-bold text-red-400' : 'text-neutral-500'}>{r.destroyed ? '→ destroyed!' : '→ survives'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                  <>
                   <div className="flex flex-wrap items-center gap-1">
                     <span className="text-orange-300">⚔</span>
                     {state.lastAttack.attackRoll.map((f, i) => <DieFace key={i} face={f} />)}
@@ -3963,6 +3977,8 @@ export default function HeroScapeBoard({
                           ? 'Stealth Dodge — all damage blocked!'
                           : 'Attack blocked.'}
                   </div>
+                  </>
+                  )}
                   {state.lastAttack.counterWounds != null && state.lastAttack.counterWounds > 0 && (
                     <div className="mt-1 font-semibold text-fuchsia-300">⚔ Counter Strike — {state.lastAttack.targetLabel} reflects {state.lastAttack.counterWounds} wound{state.lastAttack.counterWounds === 1 ? '' : 's'} onto {state.lastAttack.attackerLabel}!</div>
                   )}
