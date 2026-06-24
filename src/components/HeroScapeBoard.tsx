@@ -935,7 +935,8 @@ function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: nu
 function TeamsPanel({ state, seatColor }: { state: HSState; seatColor: (seat: number) => string }) {
   // Collapsible so it can fold to a single header when the rail is tight — it sits
   // directly below the turn/status panel ([order:-1], just under that panel's -2).
-  const [collapsed, setCollapsed] = useState(false);
+  // Defaults COLLAPSED (just the header + "alive" count); click to expand the full standings.
+  const [collapsed, setCollapsed] = useState(true);
   if (state.players.length < 3 || state.phase !== 'playing') return null;
   const hasTeams = state.players.some(p => p.team !== undefined);
   const effTeam = (p: HSState['players'][number]) => p.team ?? -1 - p.seat;
