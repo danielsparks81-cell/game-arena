@@ -2590,11 +2590,13 @@ export default function HeroScapeBoard({
       if (!carryAim.pass) {
         const p = occupantAt(key);
         if (p && carryList.includes(p.id)) setCarryAim({ pass: p.id });
-      } else if (!carryAim.dest) {
-        if (legalDestinations(state, bhHeroId).has(key)) setCarryAim({ ...carryAim, dest: key });
-      } else if (carryLandSet?.has(key)) {
-        onCarry(bhHeroId, carryAim.dest, carryAim.pass, key);
-        setCarryAim(null);
+      } else if (legalDestinations(state, bhHeroId).has(key)) {
+        // ONE click finishes Carry: Theracus flies to `key` and the passenger AUTO-teleports to a
+        // free space beside his new position (the engine places it for us). No separate "set it
+        // down" step — the passenger just rides along, as the user asked. lands[0] = any valid spot.
+        const lands = carryLandingHexes(state, bhHeroId, key, carryAim.pass);
+        if (lands.length > 0) { onCarry(bhHeroId, key, carryAim.pass, lands[0]); setCarryAim(null); }
+        else showPowerHint('Carry — no free space beside that spot to set the passenger down; pick another.');
       }
       return; // while carrying, a click never falls through to move/attack
     }
@@ -3692,9 +3694,7 @@ export default function HeroScapeBoard({
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
               {carryAim && (!carryAim.pass
                 ? '🪽 Carry — click a highlighted friendly figure to pick up'
-                : !carryAim.dest
-                  ? `🪽 Carry ${figName(carryAim.pass)} — click where Theracus flies`
-                  : `🪽 Carry — click an empty space next to Theracus to set ${figName(carryAim.pass)} down`)}
+                : `🪽 Carry ${figName(carryAim.pass)} — click where Theracus flies; ${figName(carryAim.pass)} rides along and lands beside him`)}
               {orientLead && '↻ Orientation — tap a highlighted space to set the tail (no full spin)'}
             </span>
             <button
