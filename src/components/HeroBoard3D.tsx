@@ -33,7 +33,16 @@ const GLYPH_RAISE = 0.16; // a glyph's whole hex sits slightly higher than its n
 const GLYPH_MAROON = '#7f1d1d'; // glyph hex tint + rune colour (maroon)
 // BASE_CROP / BASE_CROP_BY_CARD now live in figureBase.ts (shared with the 2D gallery).
 
-const TERRAIN_COLOR: Record<string, string> = { grass: '#4f7a3a', rock: '#8b8b8f', sand: '#cdbb86', water: '#2f6f9f' };
+// Hexes are coloured by their HEIGHT BAND (not terrain material) so elevation reads at a glance —
+// the player's cue for height advantage: water = the low band (blue, kept sunken + translucent),
+// ground 1–2 = green, hills 3–4 = tan, mountains 5+ = grey. Glyph hexes override to maroon (caller).
+const HEIGHT_BAND_COLOR = { water: '#2f6f9f', ground: '#4f7a3a', hills: '#b3934f', mountains: '#83858c' } as const;
+function bandColor(height: number, terrain: string): string {
+  if (terrain === 'water') return HEIGHT_BAND_COLOR.water;
+  if (height >= 5) return HEIGHT_BAND_COLOR.mountains; // mountains
+  if (height >= 3) return HEIGHT_BAND_COLOR.hills;     // hills
+  return HEIGHT_BAND_COLOR.ground;                     // ground (1–2)
+}
 const SEAT_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 // Team colours (allies share one); index = team id − 1 (lobby assigns ids 1/2/3).
 const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80'];
@@ -131,7 +140,7 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
   // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
   const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1) + (glyph ? GLYPH_RAISE : 0);
   // Out of a moving ranged figure's reach → darken the base so the in-range island pops.
-  const baseColor = glyph ? GLYPH_MAROON : (TERRAIN_COLOR[terrain] ?? '#666');
+  const baseColor = glyph ? GLYPH_MAROON : bandColor(height, terrain);
   // `blocked` = in range but no line of sight (a wall is between): flat, desaturated
   // grey so it's clearly NOT a shootable hex, distinct from both the bright clear-shot
   // tiles and the darkened out-of-range ones. (dimmed/blocked are mutually exclusive —
