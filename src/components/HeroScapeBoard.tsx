@@ -2711,7 +2711,7 @@ export default function HeroScapeBoard({
     // The strip is only as wide as its cards (w-fit), but wraps within the column
     // when a big army would overflow (max-w-full).
     return (
-      <div className={'w-fit max-w-full rounded-lg border bg-neutral-900/55 px-2 py-1 shadow-lg shadow-black/40 backdrop-blur-sm ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
+      <div className={'w-fit max-w-full rounded-lg border bg-neutral-900/75 px-2 py-1 shadow-lg shadow-black/40 ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
         <div className="flex flex-wrap items-center gap-2">
           {/* NAME on the LEFT (user request). */}
           <span className="flex items-center gap-1.5">
