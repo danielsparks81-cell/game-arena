@@ -3445,7 +3445,7 @@ export default function HeroScapeBoard({
     // browser window does not). The columns STRETCH to the fixed row height
     // (items-stretch) so their overflow-y-auto actually engages. Narrow screens
     // stack (flex-col) and scroll the window naturally.
-    <div className="flex w-full flex-col gap-2 p-1.5 lg:h-full lg:min-h-0 lg:flex-row lg:items-stretch lg:overflow-hidden">
+    <div className="flex w-full flex-col gap-2 p-1.5 lg:h-[calc(100vh-5rem)] lg:flex-row lg:items-stretch lg:overflow-hidden">
       {/* Board-scoped keyframes (no global stylesheet): the pulsing base-glow that
           marks a figure with actions left. */}
       <style>{`@keyframes hsBaseGlow { 0%,100% { opacity: 0.28; } 50% { opacity: 0.62; } } .hs-base-glow { animation: hsBaseGlow 1.4s ease-in-out infinite; }`}</style>

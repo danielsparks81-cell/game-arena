@@ -272,7 +272,7 @@ export default function RoomClient({
           />
         ) : undefined}
       />
-    <main className={`mx-auto grid w-full max-w-[2200px] flex-1 grid-cols-1 gap-2 overflow-x-clip p-2 lg:min-h-0 lg:overflow-hidden lg:grid-rows-[minmax(0,1fr)] ${sidebarCollapsed ? '' : 'lg:grid-cols-[1fr_320px]'}`}>
+    <main className={`mx-auto grid w-full max-w-[2200px] flex-1 grid-cols-1 gap-2 overflow-x-clip p-2 lg:min-h-0 lg:overflow-hidden ${sidebarCollapsed ? '' : 'lg:grid-cols-[1fr_320px]'}`}>
       {/* Sidebar collapse toggle — always visible at top-right of the viewport
           on desktop. Hidden on mobile (where the sidebar already stacks below). */}
       <button
