@@ -748,7 +748,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'remove_bot'; seat: number }
   | { game: 'heroscape'; kind: 'ai_step' }
   | { game: 'heroscape'; kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
-  | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string }
+  | { game: 'heroscape'; kind: 'move_figure'; figureId: string; to: string; to2?: string }
   | { game: 'heroscape'; kind: 'move_step'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'undo_move' }
   | { game: 'heroscape'; kind: 'end_move' }
@@ -1203,7 +1203,7 @@ type HSWireAction =
   | { kind: 'remove_bot'; seat: number }
   | { kind: 'ai_step' }
   | { kind: 'place_markers'; assignments: { marker: HSOrderMarkerValue; cardUid: string }[] }
-  | { kind: 'move_figure'; figureId: string; to: string }
+  | { kind: 'move_figure'; figureId: string; to: string; to2?: string }
   // STEP-BY-STEP move (tap each space). Like move_figure, the per-step swipe / fall
   // dice are rolled server-side (the engine recomputes the need and re-validates).
   | { kind: 'move_step'; figureId: string; to: string }
@@ -1390,13 +1390,16 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // engagement: one attack die per abandoned enemy. An unknown figure id
     // yields no consequences and the engine rejects the move on its own.
     const mover: HSFigure | undefined = state.figures?.find(f => f.id === action.figureId);
+    // The chosen orientation (to2) changes the END footprint, so the leaving-engagement
+    // need must be computed FROM it — pass it through to the consequences helper.
     const cons = mover
-      ? hsMoveConsequences(state, mover, action.to)
+      ? hsMoveConsequences(state, mover, action.to, action.to2)
       : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
     engineAction = {
       kind: 'move_figure',
       figureId: action.figureId,
       to: action.to,
+      ...(action.to2 ? { to2: action.to2 } : {}),
       ...(cons.tier === 'extreme'
         ? { extremeFallD20: d20() }
         : cons.fallDice > 0

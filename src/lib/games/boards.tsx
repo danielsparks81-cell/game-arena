@@ -273,7 +273,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onRemoveBot={(seat: number) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'remove_bot', seat }); })}
       onAiStep={() => { gameMove(roomId, { game: 'heroscape', kind: 'ai_step' }); }}
       onPlaceMarkers={(assignments: { marker: HSOrderMarkerValue; cardUid: string }[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_markers', assignments }); })}
-      onMoveFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to }); })}
+      onMoveFigure={(figureId: string, to: HSHexKey, to2?: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_figure', figureId, to, ...(to2 ? { to2 } : {}) }); })}
       onMoveStep={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'move_step', figureId, to }); })}
       onGrappleMove={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grapple_move', figureId, to }); })}
       onFireLine={(attackerId: string, dir: number) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'fire_line', attackerId, dir }); })}

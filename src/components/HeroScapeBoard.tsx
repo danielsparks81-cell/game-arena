@@ -36,6 +36,7 @@ import {
   MIN_POINT_BUDGET,
   MAX_POINT_BUDGET,
   legalDestinations,
+  moveTailOptions,
   movementRangeHexes,
   shootingRangeHexes,
   shootBlockedHexes,
@@ -198,7 +199,7 @@ type Props = {
   onRemoveBot?: (seat: number) => void;
   onAiStep?: () => void;
   onPlaceMarkers: (assignments: Assignment[]) => void;
-  onMoveFigure: (figureId: string, to: HexKey) => void;
+  onMoveFigure: (figureId: string, to: HexKey, to2?: HexKey) => void;
   /** Walk a figure ONE adjacent hex (tap-to-step movement). */
   onMoveStep: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
@@ -1370,6 +1371,10 @@ export default function HeroScapeBoard({
   // flight destination, then the empty space to set the passenger down. `pass`/`dest` fill in
   // as you click; the final landing click fires the carry_move.
   const [carryAim, setCarryAim] = useState<{ pass?: string; dest?: HexKey } | null>(null);
+  // DOUBLE-SPACE orientation pick: after a 2-hex figure's LEAD destination is tapped, the
+  // peanut's trailing hex has >1 legal (anti-spin) orientation — this holds that pending lead
+  // while the player taps a 2nd hex to choose which way the figure faces.
+  const [orientLead, setOrientLead] = useState<HexKey | null>(null);
   // GRENADE splash preview: the first tap ARMS a target (the board shows the full blast — that
   // figure + its neighbours), a second tap on it (or the Throw button) confirms. Prevents the
   // old one-tap misfire and shows exactly who gets caught (friend or foe).
@@ -2017,14 +2022,33 @@ export default function HeroScapeBoard({
   const carryPreviewFoot = carryAim?.pass && carryAim.dest && bhHeroId
     ? carryDestFootprint(state, bhHeroId, carryAim.dest)
     : null;
-  const boardState = carryPreviewFoot && bhHeroId
+  // DOUBLE-SPACE orientation pick: the legal (anti-spin) trailing hexes for the tapped lead, plus
+  // a default so the board PREVIEWS the peanut at the lead while the player chooses which way it
+  // faces. moveTailOptions guarantees no orientation steals an extra step of reach (no full spin).
+  const selIs2Hex = !!selected && selected.at2 != null;
+  const orientTails = useMemo(
+    () => (orientLead && selected ? moveTailOptions(state, selected.id, orientLead) : new Set<HexKey>()),
+    [orientLead, selected, state],
+  );
+  const orientDefaultTail = orientLead ? ([...orientTails][0] ?? null) : null;
+  // One optimistic preview footprint feeds the board: carry wins (you can't carry + orient at once),
+  // else the orientation preview shows the peanut sitting at the lead with its default tail.
+  const previewFoot: [HexKey, HexKey | null] | null = carryPreviewFoot
+    ? [carryPreviewFoot[0], carryPreviewFoot[1] ?? null]
+    : orientLead && orientDefaultTail
+      ? [orientLead, orientDefaultTail]
+      : null;
+  const previewId = carryPreviewFoot ? bhHeroId : orientLead ? selected?.id : undefined;
+  const boardState = previewFoot && previewId
     ? {
         ...displayState,
         figures: displayState.figures.map(f =>
-          f.id === bhHeroId ? { ...f, at: carryPreviewFoot[0], at2: carryPreviewFoot[1] ?? null } : f,
+          f.id === previewId ? { ...f, at: previewFoot[0], at2: previewFoot[1] } : f,
         ),
       }
     : displayState;
+  // Selecting a different figure (or deselecting) abandons a pending orientation pick.
+  useEffect(() => { setOrientLead(null); }, [selectedId]);
   const anyBigHeroPower =
     iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
   // Wild Swing's blast (armed target + its neighbours) — the SAME orange "blast zone" ring as the
@@ -2568,13 +2592,34 @@ export default function HeroScapeBoard({
       }
       return;
     }
-    // SMART MOVE: click ANY highlighted space in range to walk straight there (the
-    // engine routes it + rolls any leaving-engagement swipe / fall on arrival). A RED
-    // space still moves — it just warns the swipe will happen. Grapple-Gun mode is a
-    // one-space jump. For a 2-hex figure the front leads to the clicked hex.
+    // 2-HEX ORIENTATION PICK — the lead destination was tapped; this 2nd tap chooses which way
+    // the peanut's tail faces (among the anti-spin options highlighted). Tapping the lead itself
+    // confirms the previewed default; tapping another legal lead re-targets; else cancel.
+    if (orientLead && selected) {
+      if (orientTails.has(key)) { onMoveFigure(selected.id, orientLead, key); setOrientLead(null); return; }
+      if (key === orientLead && orientDefaultTail) { onMoveFigure(selected.id, orientLead, orientDefaultTail); setOrientLead(null); return; }
+      if (selIs2Hex && destinations.has(key)) {
+        const opts = moveTailOptions(state, selected.id, key);
+        if (opts.size >= 2) { setOrientLead(key); return; }
+        if (opts.size >= 1) { onMoveFigure(selected.id, key, [...opts][0]); setOrientLead(null); return; }
+      }
+      setOrientLead(null);
+      // fall through — e.g. a tap to select another of my figures
+    }
+    // SMART MOVE: click ANY highlighted space in range to walk straight there (the engine routes
+    // it + rolls any leaving-engagement swipe / fall on arrival). A RED space still moves — it just
+    // warns the swipe will happen. Grapple-Gun mode is a one-space jump. A 2-hex figure whose
+    // landing has MORE THAN ONE legal orientation enters an orientation pick (tap the lead, then
+    // tap which way the peanut faces); a single legal orientation just moves.
     if (selected && destinations.has(key)) {
-      if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); }
-      else onMoveFigure(selected.id, key);
+      if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); return; }
+      if (selIs2Hex) {
+        const opts = moveTailOptions(state, selected.id, key);
+        if (opts.size >= 2) { setOrientLead(key); return; }
+        onMoveFigure(selected.id, key, [...opts][0]);
+        return;
+      }
+      onMoveFigure(selected.id, key);
       return;
     }
     // Select / deselect one of my own figures (click either hex of a 2-hex one).
@@ -3571,7 +3616,7 @@ export default function HeroScapeBoard({
             {powerHint}
           </div>
         )}
-        {(fireLineMode || grappleMode || throwAim || explosionMode || carryAim) && (
+        {(fireLineMode || grappleMode || throwAim || explosionMode || carryAim || orientLead) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
               {fireLineMode && '🔥 Fire Line — click a direction; highlighted figures will be hit'}
@@ -3583,10 +3628,11 @@ export default function HeroScapeBoard({
                 : !carryAim.dest
                   ? `🪽 Carry ${figName(carryAim.pass)} — click where Theracus flies`
                   : `🪽 Carry — click an empty space next to Theracus to set ${figName(carryAim.pass)} down`)}
+              {orientLead && '↻ Orientation — tap a highlighted space to set the tail (no full spin)'}
             </span>
             <button
               type="button"
-              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); setCarryAim(null); }}
+              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); setCarryAim(null); setOrientLead(null); }}
               className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
             >
               Cancel
@@ -4167,7 +4213,7 @@ export default function HeroScapeBoard({
             state={boardState}
             onHexClick={clickHex}
             selectedId={selectedId}
-            moveHexes={carryDestSet ?? (grappleMode ? destinations : safeMoveHexes)}
+            moveHexes={orientLead ? orientTails : (carryDestSet ?? (grappleMode ? destinations : safeMoveHexes))}
             dangerHexes={disengageHexes}
             shootHexes={shootRange}
             shootBlockedHexes={shootBlocked}

@@ -11,6 +11,7 @@ import {
   projectStateForViewer,
   legalDestinations,
   legalStepHexes,
+  moveTailOptions,
   movementRangeHexes,
   shootingRangeHexes,
   shootBlockedHexes,
@@ -1883,6 +1884,50 @@ describe('step-by-step movement (move_step)', () => {
       return !('error' in c) && c.newAt2 === at(3, 2);
     });
     expect(tailStep).toBeDefined();
+  });
+
+  it('a 2-hex move offers MULTIPLE anti-spin orientations for a common-neighbour lead; a chosen tail lands exactly that peanut', () => {
+    let s = customBattle(['grimnak'], ['finn'], 'p1');
+    const G = 's0-grimnak-1';
+    s = clearExcept(s, G, ENEMY);
+    s = place(s, ENEMY, at(6, 7));
+    s = place2(s, G, at(3, 3), at(3, 2));
+    // The 2nd-click case: a landing whose trailing hex has more than one legal orientation.
+    const lead = [...legalDestinations(s, G)].find(l => moveTailOptions(s, G, l).size >= 2);
+    expect(lead).toBeDefined();
+    const tails = [...moveTailOptions(s, G, lead!)];
+    // ANTI-SPIN: every offered tail is a same-distance neighbour of the lead (never the lead
+    // itself) AND is itself a hex the figure could reach (a legal lead) or a current hex — so no
+    // orientation extends the peanut past what its Move paid for (no full-spin → extra step).
+    const reachable = new Set<string>([...movementRangeHexes(s, G), fig(s, G).at!, fig(s, G).at2!]);
+    for (const t of tails) {
+      expect(t).not.toBe(lead);
+      expect(neighborKeys(lead!).includes(t)).toBe(true);
+      expect(reachable.has(t)).toBe(true);
+    }
+    // Committing with an explicit, legal orientation lands EXACTLY {lead, tail}.
+    const landed = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: lead!, to2: tails[1] }));
+    expect(fig(landed, G).at).toBe(lead);
+    expect(fig(landed, G).at2).toBe(tails[1]);
+  });
+
+  it('a 2-hex move REJECTS an orientation outside the anti-spin set (no free spin to steal a step)', () => {
+    let s = customBattle(['grimnak'], ['finn'], 'p1');
+    const G = 's0-grimnak-1';
+    s = clearExcept(s, G, ENEMY);
+    s = place(s, ENEMY, at(6, 7));
+    s = place2(s, G, at(3, 3), at(3, 2));
+    const lead = [...legalDestinations(s, G)].find(l => moveTailOptions(s, G, l).size >= 1)!;
+    // tail === lead is a degenerate 1-hex footprint — rejected…
+    expect('error' in applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: lead, to2: lead })).toBe(true);
+    // …and so is a hex the engine never offered (here, two rings out, not adjacent to the lead).
+    const options = moveTailOptions(s, G, lead);
+    const bogus = neighborKeys(lead).flatMap(n => neighborKeys(n)).find(h => h !== lead && !neighborKeys(lead).includes(h) && !options.has(h));
+    if (bogus) {
+      expect('error' in applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: lead, to2: bogus })).toBe(true);
+    }
+    // Omitting to2 entirely still works (legacy single-orientation auto-pick).
+    expect('error' in applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: lead })).toBe(false);
   });
 
   it('a 2-hex FLYER (Mimring) ignores elevation — it can step onto a higher hex (flat-only deferral fixed)', () => {

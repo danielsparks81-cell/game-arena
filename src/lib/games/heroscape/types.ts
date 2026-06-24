@@ -863,6 +863,11 @@ export type HSAction =
       kind: 'move_figure';
       figureId: string;
       to: HexKey;
+      /** DOUBLE-SPACE only: the chosen trailing-hex orientation for the landing
+       *  peanut. The player picks it (2nd click) among the anti-spin options
+       *  (`moveTailOptions`). Omitted ⇒ the engine picks deterministically
+       *  (`moveTailFor`), the legacy single-orientation behaviour. */
+      to2?: HexKey;
       /** SERVER-rolled falling dice, supplied ONLY when the destination
        *  triggers a Fall/Major Fall (03-movement §4). The engine recomputes
        *  whether — and how many — dice are due and rejects a roll of the wrong

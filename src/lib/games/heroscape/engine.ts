@@ -517,7 +517,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       }
       let res: HSResult;
       if (action.kind === 'move_figure')
-        res = doMove(state, action.figureId, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
+        res = doMove(state, action.figureId, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls, action.to2);
       else if (action.kind === 'move_step')
         res = doMoveStep(state, me.seat, action);
       else if (action.kind === 'grapple_move')
@@ -2149,15 +2149,15 @@ function movementDestinations2(
   state: HSState,
   fig: Figure,
   moveOverride?: number,
-): { leads: Set<HexKey>; tailOf: Map<HexKey, HexKey> } {
-  const out = { leads: new Set<HexKey>(), tailOf: new Map<HexKey, HexKey>() };
+): { leads: Set<HexKey>; tailOf: Map<HexKey, HexKey>; reach: Set<HexKey> } {
+  const out = { leads: new Set<HexKey>(), tailOf: new Map<HexKey, HexKey>(), reach: new Set<HexKey>() };
   const map = MAPS[state.mapId];
   if (!map || fig.at == null) return out;
   const def = cardDefFor(state, fig);
   const move = moveOverride ?? effectiveMove(state, fig).dice;
   const occ = occupancyLookup(state, fig); // excludes the mover's BOTH hexes
   const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk };
-  const reach = new Set<HexKey>();
+  const reach = out.reach;
   for (const start of figureHexes(fig)) {
     for (const k of reachableDestinations(map.cells, start, move, occ, def.height, opts)) reach.add(k);
   }
@@ -2180,6 +2180,35 @@ function movementDestinations2(
  *  lead for it right now. */
 function moveTailFor(state: HSState, fig: Figure, to: HexKey): HexKey | null {
   return movementDestinations2(state, fig).tailOf.get(to) ?? null;
+}
+
+/** DOUBLE-SPACE only: the legal trailing-hex ORIENTATIONS for a landing `lead` —
+ *  the set the player chooses among on the 2nd click. ANTI-SPIN by construction:
+ *  a tail may only sit on a free, same-level neighbour of `lead` that the figure
+ *  could ALSO reach this move (∈ reach, or one of its current hexes). So no
+ *  orientation ever extends the peanut past what its Move paid for — you can't
+ *  spin a full turn to steal an extra hex of reach. Excludes the figure's CURRENT
+ *  placement (that's a no-move). Empty for a 1-hex figure or a lead it can't reach. */
+export function moveTailOptions(state: HSState, figureId: string, lead: HexKey): Set<HexKey> {
+  const out = new Set<HexKey>();
+  const fig = state.figures.find(f => f.id === figureId);
+  const map = MAPS[state.mapId];
+  if (!fig || fig.at == null || !map) return out;
+  if (baseSizeOf(cardDefFor(state, fig)) !== 2) return out;
+  const { leads, reach } = movementDestinations2(state, fig);
+  if (!leads.has(lead) || !map.cells[lead]) return out; // not a legal lead right now
+  const occ = occupancyLookup(state, fig); // the mover's own two hexes read free
+  const lh = map.cells[lead].height;
+  const reachable = (k: HexKey) => reach.has(k) || k === fig.at || k === fig.at2;
+  for (const t of neighborKeys(lead)) {
+    if (t === lead || !map.cells[t]) continue;
+    if (map.cells[t].height !== lh) continue;          // a 2-hex figure rests LEVEL
+    if (occ(t) != null) continue;                      // another figure is there
+    if (!reachable(t)) continue;                       // ANTI-SPIN: tail stays within paid reach
+    if ((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)) continue; // no-move
+    out.add(t);
+  }
+  return out;
 }
 
 function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
@@ -2293,6 +2322,7 @@ function doMove(
   fallRoll?: CombatFace[],
   extremeFallD20?: number,
   leaveRolls?: { enemyFigureId: string; roll: CombatFace }[],
+  to2Choice?: HexKey,
 ): HSResult {
   const r = movableFigure(state, figureId);
   if ('error' in r) return r;
@@ -2301,12 +2331,22 @@ function doMove(
   if (!movementDestinations(state, r.fig).has(to)) {
     return { error: 'That hex is out of reach for this figure' };
   }
-  // A double-space figure also lands its trailing hex (resolved deterministically
-  // from the lead, so the board only had to send `to`).
+  // A double-space figure also lands its trailing hex. The player MAY choose the
+  // orientation (2nd click → `to2Choice`); it's validated against the anti-spin
+  // option set so a chosen tail can never steal reach. Without a choice the engine
+  // resolves it deterministically (legacy single-orientation behaviour).
   const def = cardDefFor(state, r.fig);
-  const to2 = baseSizeOf(def) === 2 ? moveTailFor(state, r.fig, to) : null;
-  if (baseSizeOf(def) === 2 && to2 == null) {
-    return { error: 'That hex is out of reach for this figure' };
+  let to2: HexKey | null = null;
+  if (baseSizeOf(def) === 2) {
+    if (to2Choice != null) {
+      if (!moveTailOptions(state, figureId, to).has(to2Choice)) {
+        return { error: 'That orientation is not legal for this move' };
+      }
+      to2 = to2Choice;
+    } else {
+      to2 = moveTailFor(state, r.fig, to);
+    }
+    if (to2 == null) return { error: 'That hex is out of reach for this figure' };
   }
   // Reachability passed → resolve the move (dice validation + execution) through
   // the shared path Grapple Gun also uses. "moves to" is the normal-move log.

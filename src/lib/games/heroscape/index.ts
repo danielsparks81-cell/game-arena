@@ -18,6 +18,7 @@ export {
   getActiveCardUid,
   legalDestinations,
   legalStepHexes,
+  moveTailOptions,
   movementRangeHexes,
   shootingRangeHexes,
   shootBlockedHexes,
