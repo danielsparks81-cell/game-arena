@@ -1974,6 +1974,32 @@ describe('step-by-step movement (move_step)', () => {
     expect(s.stepMove?.usedCost).toBe(budget);
     expect(movementRangeHexes(s, TV(1)).size).toBe(0); // Move exhausted → no range left
   });
+
+  it('a whole walk collapses to ONE log line "origin → dest", not a line per hex', () => {
+    let s = walker();
+    const before = s.log.filter(e => e.tag === 'move').length;
+    let steps = 0;
+    for (;;) {
+      const opts = [...legalStepHexes(s, TV(1))];
+      if (opts.length === 0 || steps >= 3) break;
+      s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: TV(1), to: opts[0] }));
+      steps++;
+    }
+    expect(steps).toBeGreaterThanOrEqual(2); // genuinely multi-hex
+    const moveLines = s.log.filter(e => e.tag === 'move');
+    expect(moveLines.length).toBe(before + 1); // ONE line for the whole walk, not one per step
+    expect(moveLines[moveLines.length - 1].text).toMatch(/moves .+→.+/); // the "x → y" form
+  });
+
+  it('a turn start logs one "<card> activates" line tagged for the active seat colour', () => {
+    const s = inTurns('p1', { p1: 's0-finn' });
+    const acts = s.log.filter(e => e.tag === 'activate');
+    expect(acts).toHaveLength(1);
+    expect(acts[0].seat).toBe(0); // coloured in the owner's hue on the board
+    expect(acts[0].text.endsWith(' activates')).toBe(true);
+    // the old verbose "…reveals order marker N — … acts." headline is gone for a live card
+    expect(s.log.some(e => /reveals order marker.*acts/.test(e.text))).toBe(false);
+  });
 });
 
 // --- aura-active indicators -------------------------------------------------

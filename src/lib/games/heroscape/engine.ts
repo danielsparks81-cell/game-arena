@@ -1423,10 +1423,11 @@ function doPlaceMarkers(
     const a = assignments.find(x => x.marker === v)!;
     s.cards.find(c => c.uid === a.cardUid)!.orderMarkers.push({ marker: v, revealed: false });
   }
+  // Readiness drives the board's "waiting on…" UI; it deliberately does NOT log a
+  // per-player line — that secret-phase bookkeeping just clutters the battle log
+  // (and is value-free: opponents may know THAT you locked in, never where the
+  // numbers went). The single per-round banner marks the placement step instead.
   s.markersReady.push(seat);
-  // Value-free by design: opponents may know THAT you locked in, never where
-  // the numbers (or the X decoy) went.
-  pushLog(s, 'info', `${playerName(s, seat)} locks in their order markers.`);
   return s;
 }
 
@@ -1570,11 +1571,9 @@ function beginTurnOrSkip(s: HSState): void {
       s.movementEnded = false;
       s.moveHistory = [];
       resetTurnScratch(s);
-      pushLog(
-        s,
-        'info',
-        `Round ${s.round}, turn ${s.turnNumber}: ${playerName(s, seat)} reveals order marker ${s.turnNumber} — ${HS_CARDS[holder.cardId].name} acts.`,
-      );
+      // One clean, colour-coded headline per turn ("Braxas activates" in the
+      // owner's hue) instead of the old verbose "Round/turn/marker reveals…" line.
+      pushLog(s, 'activate', `${HS_CARDS[holder.cardId].name} activates`, seat);
       return;
     }
     if (holder) {
@@ -2759,9 +2758,18 @@ function doMoveStep(
   const f = s.figures.find(x => x.id === figureId)!;
   const moverLabel = figureLabel(s, f);
   const fromKey = f.at!;
+  const walkOrigin = sm?.startHex ?? fromKey;
   f.at = cons.newAt;
   f.at2 = cons.newAt2;
-  pushLog(s, 'move', `${moverLabel} steps to ${hexLabel(cons.newAt)}.`);
+  // Collapse the whole walk into ONE log line that grows "origin → current" as the
+  // figure steps, instead of a line per hex. The first step pushes the line; later
+  // steps rewrite that same entry in place (found by its seq) so movement stays at
+  // a single line no matter how far the figure walks.
+  const moveText = `${moverLabel} moves ${hexLabel(walkOrigin)} → ${hexLabel(cons.newAt)}.`;
+  const prevMoveEntry = sm?.moveLogSeq != null ? s.log.find(e => e.seq === sm.moveLogSeq) : undefined;
+  if (prevMoveEntry) prevMoveEntry.text = moveText;
+  else pushLog(s, 'move', moveText);
+  const moveLogSeq = prevMoveEntry ? prevMoveEntry.seq : s.logSeq;
 
   // --- leaving-engagement swipes resolve as the figure steps away (1 unblockable
   // wound per skull); a swipe that kills the mover ends the walk before any fall. ---
@@ -2817,6 +2825,7 @@ function doMoveStep(
       startHex: sm?.startHex ?? fromKey,
       swiped,
       stopped: cons.forcedStop || undefined,
+      moveLogSeq,
     };
   }
 
@@ -6794,9 +6803,9 @@ function clone(state: HSState): HSState {
   return JSON.parse(JSON.stringify(state)) as HSState;
 }
 
-function pushLog(s: HSState, tag: HSLogEntry['tag'], text: string): void {
+function pushLog(s: HSState, tag: HSLogEntry['tag'], text: string, seat?: number): void {
   s.logSeq += 1;
-  s.log.push({ seq: s.logSeq, text, tag });
+  s.log.push({ seq: s.logSeq, text, tag, ...(seat != null ? { seat } : {}) });
   if (s.log.length > LOG_MAX) s.log = s.log.slice(-LOG_MAX);
 }
 

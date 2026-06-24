@@ -222,8 +222,13 @@ export type HSLogEntry = {
   text: string;
   /** 'fall' surfaces falling-damage and leaving-engagement swipe rolls; 'power'
    *  surfaces special-power triggers (Berserker Charge, Water Clone, Spirits);
-   *  'glyph' surfaces glyph activations/heals; the rest are slice-2 categories. */
-  tag: 'info' | 'roll' | 'move' | 'attack' | 'fall' | 'win' | 'power' | 'glyph';
+   *  'glyph' surfaces glyph activations/heals; 'activate' marks a card taking its
+   *  turn (the board prints it bold in the owner's colour); the rest are slice-2
+   *  categories. */
+  tag: 'info' | 'roll' | 'move' | 'attack' | 'fall' | 'win' | 'power' | 'glyph' | 'activate';
+  /** When set, the board colours this line in that seat's player colour (used by
+   *  'activate' so "Braxas activates" reads in the owner's hue). */
+  seat?: number;
 };
 
 /**
@@ -656,7 +661,7 @@ export type HSState = {
    *  figure's CURRENT footprint, so engaging an enemy mid-walk and then leaving still provokes
    *  it. `usedCost` = Move points spent so far (≤ effectiveMove). `stopped` once a water/glyph
    *  forced-stop step was taken. Cleared when the walk finalizes / the mover dies / turn ends. */
-  stepMove?: { figureId: string; usedCost: number; startHex: HexKey; swiped: string[]; stopped?: boolean };
+  stepMove?: { figureId: string; usedCost: number; startHex: HexKey; swiped: string[]; stopped?: boolean; moveLogSeq?: number };
   /** Set true by "End move": the player has finished the MOVE phase and entered the ATTACK
    *  phase. While true no figure may move (movableFigure blocks it) and the board only lets the
    *  player attack. Cleared at each turn boundary and when Berserker Charge re-grants movement. */

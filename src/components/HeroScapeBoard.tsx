@@ -3290,7 +3290,11 @@ export default function HeroScapeBoard({
           )}
           <div className="max-h-44 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-2 text-[11px] leading-relaxed text-neutral-400">
             {state.log.slice(-12).reverse().map(e => (
-              <div key={e.seq} className={e.tag === 'roll' ? 'text-sky-300/80' : ''}>{e.text}</div>
+              <div
+                key={e.seq}
+                className={e.tag === 'activate' ? 'font-bold' : e.tag === 'roll' ? 'text-sky-300/80' : ''}
+                style={e.seat != null ? { color: seatColor(e.seat) } : undefined}
+              >{e.text}</div>
             ))}
           </div>
         </div>
@@ -3985,7 +3989,11 @@ export default function HeroScapeBoard({
                 </div>
               )}
               {state.log.slice(-40).reverse().map(e => (
-                <div key={e.seq} className={e.tag === 'win' ? 'font-bold text-amber-300' : e.tag === 'attack' ? 'text-red-300/80' : e.tag === 'fall' ? 'text-orange-300/90' : ''}>{e.text}</div>
+                <div
+                  key={e.seq}
+                  className={e.tag === 'win' ? 'font-bold text-amber-300' : e.tag === 'activate' ? 'mt-1 font-bold' : e.tag === 'attack' ? 'text-red-300/80' : e.tag === 'fall' ? 'text-orange-300/90' : ''}
+                  style={e.seat != null ? { color: seatColor(e.seat) } : undefined}
+                >{e.text}</div>
               ))}
             </div>
           )}
