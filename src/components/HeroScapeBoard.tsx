@@ -132,10 +132,12 @@ const AI_STEP_FAST_MS = 360;
 // Player-panel SCREEN anchors (lg+ overlay). You are always slot 0 = bottom-left; the rest fan
 // out by SEAT order (stable round-to-round, so seat adjacency = turn-order adjacency). The 4
 // corners for ≤4 players; 6 spots (corners + top/bottom centre) for 5-6.
-const PANEL_ANCHORS_4 = ['bottom-2 left-2', 'top-2 left-2', 'top-2 right-2', 'bottom-2 right-2'];
+// Seat-slot CORNERS for the player panels (slot 0 = you, bottom-left; then clockwise). The `-1`
+// insets keep every panel hugging the board corner with just a hair of padding (tightened from -2).
+const PANEL_ANCHORS_4 = ['bottom-1 left-1', 'top-1 left-1', 'top-1 right-1', 'bottom-1 right-1'];
 const PANEL_ANCHORS_6 = [
-  'bottom-2 left-2', 'top-2 left-2', 'top-2 left-1/2 -translate-x-1/2',
-  'top-2 right-2', 'bottom-2 right-2', 'bottom-2 left-1/2 -translate-x-1/2',
+  'bottom-1 left-1', 'top-1 left-1', 'top-1 left-1/2 -translate-x-1/2',
+  'top-1 right-1', 'bottom-1 right-1', 'bottom-1 left-1/2 -translate-x-1/2',
 ];
 const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
@@ -4140,16 +4142,19 @@ export default function HeroScapeBoard({
             the column flow) so the board owns the whole centre — the wrapper is
             click-through except over the panels themselves. On mobile they stack
             above the board as before. */}
-        {state.players.some(p => !me || p.seat !== me.seat) && (
-          // On lg+ each opponent's panel is pinned to its SEAT anchor around the board
-          // (panelSlotAnchor — you are bottom-left, others fan out by seat); on mobile they
-          // stack at the top in normal flow (lg:contents drops the wrapper box on desktop).
+        {state.players.length > 0 && (
+          // EVERY player's panel — YOURS included — is pinned to its seat-slot corner around the
+          // board via panelSlotAnchor (you = slot 0 = bottom-LEFT; opponents fan out by seat).
+          // Rendering them all through ONE path is what keeps your hand symmetric with the
+          // opponents: on the board's lower-left, exactly as an opponent sits on the upper-left.
+          // (renderArmyRow makes YOUR row the interactive hand.) On mobile they stack in normal
+          // flow at the top; lg:contents drops the wrapper box on desktop so each pins to its corner.
           <div className="flex flex-col items-start gap-1 lg:contents">
             {state.players
-              .filter(p => !me || p.seat !== me.seat)
+              .slice()
               .sort((a, b) => a.seat - b.seat)
               .map(p => (
-                <div key={p.seat} className={'lg:pointer-events-none lg:absolute lg:z-20 lg:p-1 ' + panelSlotAnchor(p.seat)}>
+                <div key={p.seat} className={'lg:pointer-events-none lg:absolute lg:z-20 lg:p-0.5 ' + panelSlotAnchor(p.seat)}>
                   <div className="lg:pointer-events-auto lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:overscroll-contain">{renderArmyRow(p.seat)}</div>
                 </div>
               ))}
@@ -4558,22 +4563,10 @@ export default function HeroScapeBoard({
           </div>
         )}
 
-        {/* My army cards — below the board (my figures' side, where the
-            per-viewer flip puts my start zone). Markers above each card; during
-            placement my strip is interactive. Compact + shrink-0 so the board
-            stays the biggest element. */}
-        {/* My army strip — in normal play it OVERLAYS the bottom of the board (lg)
-            to save vertical space; on mobile it sits below. But during PLACEMENT the
-            in-hand tray already sits at the column bottom, so the overlay collided
-            with it (chips printed over the cards). During placement keep the strip in
-            NORMAL FLOW so it stacks cleanly below the tray. */}
-        {me && (
-          // Always pinned BOTTOM-LEFT (slot-0 anchor) as an OVERLAY — in placement too, now that the
-          // in-hand tray moved to the rail — so a player panel never pushes/shrinks the board.
-          <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:bottom-2 lg:left-2 lg:z-20">
-            <div className="lg:pointer-events-auto lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:overscroll-contain">{renderArmyRow(me.seat)}</div>
-          </div>
-        )}
+        {/* (Your army hand is rendered above, in the unified player-panel loop — pinned to your
+            slot-0 corner (bottom-left) ON the board, symmetric with the opponent panels. It is no
+            longer a separate block buried in the board box, which is what made it drift below the
+            board.) */}
       </div>
 
       {/* (Battle log moved into the right rail, under End turn.) */}
