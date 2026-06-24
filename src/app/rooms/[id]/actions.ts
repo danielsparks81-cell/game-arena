@@ -770,6 +770,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'acid_breath'; attackerId: string; targetIds: string[] }
   | { game: 'heroscape'; kind: 'throw_figure'; attackerId: string; targetId: string; to: string }
   | { game: 'heroscape'; kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
+  | { game: 'heroscape'; kind: 'overextend'; figureId: string }
   | { game: 'heroscape'; kind: 'the_drop' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
   | { game: 'heroscape'; kind: 'end_turn' }
@@ -1250,6 +1251,9 @@ type HSWireAction =
   | { kind: 'acid_breath'; attackerId: string; targetIds: string[] }
   | { kind: 'throw_figure'; attackerId: string; targetId: string; to: string }
   | { kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
+  // Eldgrim OVEREXTEND ATTACK: no dice — the self-wound is automatic; the board
+  // sends only the active Eldgrim figure. The engine validates + applies the wound.
+  | { kind: 'overextend'; figureId: string }
   // Airborne Elite THE DROP (slice 8): the d20 is rolled server-side; the board
   // sends only the chosen landing hexes (one per reserve Airborne figure).
   | { kind: 'the_drop' }
@@ -1575,6 +1579,11 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
         ? { leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollDie() })) }
         : {}),
     };
+  } else if (action.kind === 'overextend') {
+    // Eldgrim OVEREXTEND ATTACK — no dice (the self-wound is automatic); pass the
+    // chosen figure through. The engine validates (active, non-negated, once/round,
+    // survives the wound) and applies the wound + fresh turn.
+    engineAction = { kind: 'overextend', figureId: action.figureId };
   } else if (action.kind === 'the_drop') {
     // Airborne Elite THE DROP — ROLL only: the server rolls the d20 (global). On
     // 13+ the engine opens an `airborne_drop` pending choice; the landings then

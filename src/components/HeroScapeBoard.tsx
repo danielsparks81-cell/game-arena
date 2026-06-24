@@ -57,6 +57,8 @@ import {
   // Airborne Elite THE DROP (slice 8).
   canTheDrop,
   theDropHexes,
+  // Eldgrim OVEREXTEND ATTACK.
+  canOverextend,
   // Big Heroes special powers (slice 8b).
   iceShardTargets,
   queglixTargets,
@@ -221,6 +223,7 @@ type Props = {
   onAcidBreath: (attackerId: string, targetIds: string[]) => void;
   onThrow: (attackerId: string, targetId: string, to: HexKey) => void;
   onCarry: (figureId: string, to: HexKey, passengerId: string, passengerTo: HexKey) => void;
+  onOverextend: (figureId: string) => void;
   onTheDrop: () => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
   onUndoMove: () => void;
@@ -1361,7 +1364,7 @@ export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
-  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onTheDrop,
+  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onOverextend, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1950,6 +1953,13 @@ export default function HeroScapeBoard({
     [state, dwHeroId, explosionMode],
   );
 
+  // Eldgrim OVEREXTEND ATTACK — after he's taken his turn, place a wound and act AGAIN (once/round).
+  // The active Eldgrim figure + whether the power is usable now (the engine's single-source gate).
+  const eldHeroId = activeCard?.cardId === 'eldgrim'
+    ? (state.figures.find(f => f.cardUid === activeCardUid && f.at != null)?.id ?? null)
+    : null;
+  const canOver = !!(canAct && me && canOverextend(state, me.seat));
+
   // slice 8: Ne-Gok-Sa MIND SHACKLE — offered when my active Ne-Gok-Sa has an
   // adjacent enemy and hasn't attacked. In shackle mode the adjacent enemy
   // figures (the engine's single-source target set) highlight; a click sends it.
@@ -2178,6 +2188,17 @@ export default function HeroScapeBoard({
         if (acidList.length > 0) { setBhAim({ kind: 'acid', picks: [] }); revealPowerPanel(); }
         else showPowerHint('Acid Breath — no small or medium figure adjacent.');
         return;
+      case 'eldgrim': {
+        // OVEREXTEND ATTACK — one tap: place a wound on Eldgrim and take another turn with him.
+        if (canOver && eldHeroId) { onOverextend(eldHeroId); return; }
+        const eld = state.figures.find(f => f.cardUid === activeCardUid && f.at != null);
+        const life = HS_CARDS['eldgrim']?.life ?? 3;
+        showPowerHint(
+          activeCard?.overextendRound === state.round ? 'Overextend — already used this round.'
+            : eld && eld.wounds + 1 >= life ? 'Overextend — the wound would destroy Eldgrim.'
+              : 'Overextend — take a turn with Eldgrim first, then press on for another.');
+        return;
+      }
       default:
         revealPowerPanel(); // other Big Heroes (Ice Shard / Queglix / …) & passive cards
         return;
@@ -2186,7 +2207,7 @@ export default function HeroScapeBoard({
   // Does the now-acting card have a power you can trigger by tapping it? (drives the hint)
   const activeCardHasTapPower =
     !!activeCard &&
-    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite', 'deathwalker_9000'].includes(
+    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite', 'deathwalker_9000', 'eldgrim'].includes(
       activeCard.cardId,
     ) ||
       !!anyBigHeroPower);
@@ -2200,6 +2221,7 @@ export default function HeroScapeBoard({
               : activeCard?.cardId === 'drake' ? canGrapple
                 : activeCard?.cardId === 'airborne_elite' ? canThrowGrenade
                   : activeCard?.cardId === 'deathwalker_9000' ? canExplode
+                    : activeCard?.cardId === 'eldgrim' ? canOver
                     : !!anyBigHeroPower;
   /** Readable label for a figure id (card short name + squad index + hex). */
   const figName = (id: string): string => {

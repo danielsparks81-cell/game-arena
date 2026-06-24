@@ -167,6 +167,9 @@ export type ArmyCardInstance = {
   /** Eldgrim's Warrior's SWIFTNESS Spirit adds +1 to the move number forever (same
    *  permanent-Spirit model as attack/defense). Optional → absent reads as 0. */
   moveMod?: number;
+  /** Eldgrim's OVEREXTEND ATTACK is once PER ROUND — the round number in which this
+   *  card last Overextended. Eligible again when it differs from `state.round`. */
+  overextendRound?: number;
   /** Airborne Elite GRENADE SPECIAL ATTACK is ONCE PER GAME (the single grenade
    *  marker). Set true when the squad throws; never reset. Absent → not yet
    *  used. Only ever set on the Airborne Elite card. */
@@ -1110,6 +1113,12 @@ export type HSAction =
       kind: 'orient_figure';
       figureId: string;
       dir: number;
+    }
+  | {
+      // Eldgrim OVEREXTEND ATTACK: place an (unblockable) wound on Eldgrim and take
+      // ANOTHER turn with him — once per round, only while he'd survive the wound.
+      kind: 'overextend';
+      figureId: string;
     }
   | { kind: 'end_turn' };
 

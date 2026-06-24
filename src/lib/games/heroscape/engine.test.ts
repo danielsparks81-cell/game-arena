@@ -8,6 +8,7 @@ import {
   getActivePlayerId,
   getOrderedPlayerIds,
   getActiveCardUid,
+  canOverextend,
   projectStateForViewer,
   legalDestinations,
   legalStepHexes,
@@ -2496,6 +2497,78 @@ describe('slice 4: Warrior Spirits on destroy', () => {
     expect(s.cards.find(c => c.uid === tarnUid)!.moveMod).toBe(1);
     expect(effectiveMove(s, fig(s, T)).dice).toBe(before + 1);
     expect(effectiveMove(s, fig(s, T)).breakdown).toContain('+1 Swiftness Spirit');
+  });
+
+  describe('Eldgrim — OVEREXTEND ATTACK (a wound buys another turn; once per round)', () => {
+    const E = 's0-eldgrim-1';
+    const ENEMY = 's1-marro_warriors-1';
+    /** Eldgrim active for p1, parked away from a lone enemy on the flat field (so the
+     *  enemy survives and the game keeps going while we exercise the power). */
+    function staged(): HSState {
+      let s = customBattle(['eldgrim'], ['marro_warriors'], 'p1');
+      s = clearExcept(s, E, ENEMY);
+      s = place(s, E, at(3, 3));
+      s = place(s, ENEMY, at(6, 7));
+      return s;
+    }
+
+    it('is NOT offered until he has taken his turn, then accepts: self-wound + FRESH turn, still active', () => {
+      let s = staged();
+      expect(getActiveCardUid(s)).toBe('s0-eldgrim');
+      // "After taking a turn" — before he acts, the power is unavailable and rejected.
+      expect(canOverextend(s, 0)).toBe(false);
+      expect(errOf(applyAction(s, 'p1', { kind: 'overextend', figureId: E }))).toMatch(/Overextend/);
+      // Ending his move counts as taking his turn → now available.
+      s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+      expect(s.movementEnded).toBe(true);
+      expect(canOverextend(s, 0)).toBe(true);
+      const round = s.round;
+      s = unwrap(applyAction(s, 'p1', { kind: 'overextend', figureId: E }));
+      expect(fig(s, E).wounds).toBe(1);                              // the self-wound landed
+      expect(s.turnSeat).toBe(0);                                    // STILL his turn
+      expect(getActiveCardUid(s)).toBe('s0-eldgrim');                // STILL the active card
+      expect(s.movementEnded).toBe(false);                           // a FRESH turn — he can move again
+      expect(s.cards.find(c => c.uid === 's0-eldgrim')!.overextendRound).toBe(round);
+      expect(s.log.some(e => /Overextends/.test(e.text))).toBe(true);
+    });
+
+    it('is ONCE PER ROUND — a second Overextend is rejected even after another move', () => {
+      let s = staged();
+      s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+      s = unwrap(applyAction(s, 'p1', { kind: 'overextend', figureId: E }));
+      expect(canOverextend(s, 0)).toBe(false);                       // spent for the round
+      s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));        // take the bonus turn…
+      expect(canOverextend(s, 0)).toBe(false);                       // …still can't go a third time
+      expect(errOf(applyAction(s, 'p1', { kind: 'overextend', figureId: E }))).toMatch(/Overextend/);
+    });
+
+    it('is BLOCKED when the self-wound would destroy him (no suicide)', () => {
+      let s = staged();
+      s = wound(s, E, 2);                                            // Life 3 → one more wound is lethal
+      s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+      expect(canOverextend(s, 0)).toBe(false);
+      expect(errOf(applyAction(s, 'p1', { kind: 'overextend', figureId: E }))).toMatch(/Overextend/);
+    });
+
+    it('is BLOCKED while Eldgrim is negated by the Glyph of Nilrend (base stats only — no power)', () => {
+      let s = staged();
+      s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+      expect(canOverextend(s, 0)).toBe(true);
+      s.negatedCardUids = ['s0-eldgrim'];
+      expect(canOverextend(s, 0)).toBe(false);
+      // The dispatcher's special-power-negation gate catches it first → the shared negation message.
+      expect(errOf(applyAction(s, 'p1', { kind: 'overextend', figureId: E }))).toMatch(/negated by the Glyph of Nilrend/);
+    });
+
+    it('AI presses on — a HEALTHY Eldgrim that fought Overextends; a WOUNDED one banks the wound and ends', () => {
+      let s = staged();
+      // Simulate "he took his turn and swung": attack phase + a recorded Eldgrim attack.
+      s = { ...s, movementEnded: true, turnAttacks: [{ attackerId: E, targetId: ENEMY }] };
+      expect(aiNextAction(s, 0)).toEqual({ kind: 'overextend', figureId: E });
+      // The same bot, already wounded, won't grind itself down — it ends the turn instead.
+      const hurt = { ...s, figures: s.figures.map(f => (f.id === E ? { ...f, wounds: 1 } : f)) };
+      expect(aiNextAction(hurt, 0)?.kind).toBe('end_turn');
+    });
   });
 
   it('a NEGATED Finn leaves no Attack Spirit when destroyed (Glyph of Nilrend strips the power)', () => {

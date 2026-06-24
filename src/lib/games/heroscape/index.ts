@@ -56,6 +56,7 @@ export {
   carryPassengers,
   carryLandingHexes,
   carryDestFootprint,
+  canOverextend,
   erlandDestinations,
   erlandSummonableIds,
   sturlaPlacementHexes,

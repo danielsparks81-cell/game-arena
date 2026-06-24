@@ -374,7 +374,7 @@ function doRemoveBot(state: HSState, seat: number): HSResult {
 const SPECIAL_POWER_ACTION_KINDS: ReadonlySet<HSAction['kind']> = new Set([
   'fire_line', 'explosion', 'grenade', 'berserker_charge', 'water_clone',
   'mind_shackle', 'chomp', 'ice_shard', 'queglix', 'wild_swing', 'acid_breath',
-  'throw_figure', 'carry_move',
+  'throw_figure', 'carry_move', 'overextend',
 ] as HSAction['kind'][]);
 
 export function applyAction(state: HSState, playerId: string, action: HSAction): HSResult {
@@ -493,6 +493,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'throw_figure':
     case 'carry_move':
     case 'orient_figure':
+    case 'overextend':
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
@@ -547,6 +548,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
         ended.movementEnded = true;
         res = ended;
       }
+      else if (action.kind === 'overextend') res = doOverextend(state, me.seat, action.figureId);
       else res = doEndTurn(state, me.seat);
       // COMMIT BOUNDARY for movement-undo: a move/grapple PUSHES its own undo snapshot
       // (inside applyValidatedMove); orienting is a free reposition that leaves the stack
@@ -6010,6 +6012,52 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
 // End turn
 // ============================================================================
 
+/** Can `seat`'s active Eldgrim OVEREXTEND right now? — the turns phase, his turn, the active card is
+ *  a LIVING, non-negated Eldgrim that hasn't Overextended THIS round, and the self-wound would NOT
+ *  kill him. The single source for the board button + the engine gate + the AI. */
+export function canOverextend(state: HSState, seat: number): boolean {
+  if (state.subPhase !== 'turns' || state.turnSeat !== seat) return false;
+  const auid = getActiveCardUid(state);
+  if (!auid) return false;
+  const card = state.cards.find(c => c.uid === auid);
+  if (!card || card.cardId !== ELDGRIM_CARD_ID) return false;
+  if (isCardNegated(state, auid)) return false; // Nilrend strips the power
+  if (card.overextendRound === state.round) return false; // once per round
+  const fig = state.figures.find(f => f.cardUid === auid && f.at != null);
+  if (!fig) return false;
+  if (fig.wounds + 1 >= cardDefFor(state, fig).life) return false; // must survive the wound
+  // "After taking a turn" (card text): Eldgrim must have actually taken his turn — moved,
+  // ended his move, or attacked — before he may press on. This honours the timing AND stops
+  // a player from wasting the self-wound by triggering it before doing anything.
+  return state.movementEnded
+    || state.movedFigureIds.includes(fig.id)
+    || state.turnAttacks.some(a => a.attackerId === fig.id);
+}
+
+/** Eldgrim OVEREXTEND ATTACK (verified card text): place an unblockable wound on Eldgrim and take
+ *  ANOTHER turn with him — reset the per-turn scratch but keep him the active card (his Order Marker
+ *  stays revealed), so the player moves + attacks again. Once per round; he must survive the wound. */
+function doOverextend(state: HSState, seat: number, figureId: string): HSResult {
+  if (!canOverextend(state, seat)) return { error: 'Eldgrim can’t Overextend right now' };
+  const auid = getActiveCardUid(state)!;
+  const active = state.figures.find(f => f.cardUid === auid && f.at != null);
+  if (!active || active.id !== figureId) return { error: 'Overextend uses the active Eldgrim figure' };
+  const s = clone(state);
+  const f = s.figures.find(x => x.id === figureId)!;
+  const card = s.cards.find(c => c.uid === f.cardUid)!;
+  f.wounds += 1; // unblockable self-wound (canOverextend guarantees he survives)
+  card.overextendRound = s.round; // spent for this round
+  // FRESH turn: clear the per-turn scratch but keep Eldgrim active so he can move + attack again.
+  s.movedFigureIds = [];
+  s.turnAttacks = [];
+  s.stepMove = undefined;
+  s.movementEnded = false;
+  s.moveHistory = [];
+  resetTurnScratch(s);
+  pushLog(s, 'power', `${playerName(s, seat)}'s Eldgrim Overextends — takes a wound and presses on for another turn.`);
+  return s;
+}
+
 function doEndTurn(state: HSState, seat: number): HSResult {
   const s = clone(state);
   pushLog(s, 'info', `${playerName(s, seat)} ends the turn.`);
@@ -6550,6 +6598,16 @@ function aiTurn(state: HSState, seat: number): HSAction {
       }
     }
     if (best) return { kind: 'attack', attackerId: best.attackerId, targetId: best.targetId, attackRoll: [], defenseRoll: [] };
+    // OVEREXTEND (Eldgrim) — after a full turn in which he actually FOUGHT, if he's still at
+    // full health take a self-wound to act AGAIN rather than ending. canOverextend enforces the
+    // once-per-round + survive-the-wound + not-negated rules; the extra wounds===0 gate keeps the
+    // bot from grinding itself to the brink. doOverextend's once-per-round flag prevents any loop
+    // (the very next aiTurn finds canOverextend false and falls through to end_turn here).
+    if (canOverextend(state, seat)) {
+      const eld = myFigs[0]; // a Champion is a single figure → the active Eldgrim
+      const fought = state.turnAttacks.some(a => a.attackerId === eld.id);
+      if (fought && eld.wounds === 0) return { kind: 'overextend', figureId: eld.id };
+    }
     return { kind: 'end_turn' };
   }
 
