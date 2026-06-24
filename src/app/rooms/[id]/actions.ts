@@ -1328,7 +1328,9 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       if (!hsInitiativeReadySeats(state)) { await notifyRoom(roomId); return; }
     } else {
       actorId = bot.playerId;
-      engineAction = hsAiEngineAction(state, intent, { rollDie, rollDice, d20 });
+      // rng drives the bot's WEIGHTED-RANDOM draft pick (the engine stays pure; the
+      // randomness is injected here, like the dice).
+      engineAction = hsAiEngineAction(state, intent, { rollDie, rollDice, d20, rng: () => Math.random() });
     }
   } else if (action.kind === 'attack') {
     // Roll exactly the required Attack/Defense dice counts (printed stat +

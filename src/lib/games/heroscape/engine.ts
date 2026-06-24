@@ -5850,34 +5850,17 @@ function aiAttackScore(state: HSState, attacker: Figure, target: Figure): number
   return expDmg * 2 + (likelyKill ? 8 : 0) + tdef.attack * 0.6 + tdef.points / 80;
 }
 
-function aiDraft(state: HSState, seat: number): HSAction {
-  const d = state.draft!;
-  const def = (id: string) => effectiveCardDef(id, state.edition);
-  const ptsOf = (id: string) => def(id)?.points ?? 0;
-  const remaining = teamRemainingInDraft(state, seat);
-  // Airborne Elite is now fully playable by the bot (The Drop deploys them each round,
-  // Grenade is its squad special), so it drafts like any other card.
-  const affordable = d.pool.filter(id => ptsOf(id) <= remaining);
-  if (affordable.length === 0) return { kind: 'draft_pass' };
-  const army = d.armies[seat] ?? [];
-  const isSquad = (id: string) => def(id)?.type === 'squad';
-  // Bodies win — grab a strong SQUAD early if the army has none yet, so it isn't a
-  // fragile, easily-outnumbered hero-only force.
-  if (army.length <= 2 && !army.some(isSquad)) {
-    const squads = affordable.filter(isSquad);
-    if (squads.length) return { kind: 'draft_card', cardId: squads.reduce((b, id) => (ptsOf(id) > ptsOf(b) ? id : b), squads[0]) };
-  }
-  // SYNERGY — tilt the pick toward cards that COMBINE with what's already drafted,
-  // grounded in the ACTUAL powers (data-driven on species / class / range) so the army
-  // hangs together instead of being a pile of unrelated models:
-  //   • Range Enhancement — Deathwalker 9000 boosts adjacent Soulborg GUARDS (Zettian).
-  //   • Orc Warrior Enh.  — Grimnak boosts adjacent Orc WARRIORS (none in the roster yet
-  //                         → scores 0, correctly: there is nothing to enhance).
-  //   • Attack Aura       — Finn boosts adjacent friendly Range-1 (melee) squads.
-  //   • Defence Aura      — Thorgrim / Raelin shield clustered friendlies (squads gain most).
-  // Plus a small SAME-SPECIES cohesion nudge (Marro+Marro, a Soulborg or Dragon core).
-  // The score is raw strength (points) PLUS synergy, so the bot still values strong units
-  // but, between comparable picks, builds the army that actually works together.
+// SYNERGY scoring for the draft — tilt picks toward cards that COMBINE with what's
+// already drafted, grounded in the ACTUAL powers (data-driven on species / class /
+// range) so the army hangs together instead of being a pile of unrelated models:
+//   • Range Enhancement — Deathwalker 9000 boosts adjacent Soulborg GUARDS (Zettian).
+//   • Orc Warrior Enh.  — Grimnak boosts adjacent Orc WARRIORS (none in the roster yet).
+//   • Attack Aura       — Finn boosts adjacent friendly Range-1 (melee) squads.
+//   • Defence Aura      — Thorgrim / Raelin shield clustered friendlies (squads gain most).
+// Plus a small SAME-SPECIES cohesion nudge. Score = raw strength (points) PLUS synergy.
+const DRAFT_SYN_PTS = 40; // one power synergy ≈ 40 pts of pick value; a species match ≈ 10.
+function draftCardScore(state: HSState, army: string[], id: string): number {
+  const def = (x: string) => effectiveCardDef(x, state.edition);
   const buffs = (sourceId: string, target: ReturnType<typeof def>): boolean => {
     if (!target) return false;
     switch (sourceId) {
@@ -5889,32 +5872,72 @@ function aiDraft(state: HSState, seat: number): HSAction {
       default: return false;
     }
   };
-  const SYN_PTS = 40; // one power synergy ≈ 40 pts of pick value; a species match ≈ 10.
-  const synergyOf = (id: string): number => {
-    const cDef = def(id);
-    let s = 0;
-    for (const m of army) {
-      const mDef = def(m);
-      if (buffs(m, cDef)) s += 1;   // an owned buff-source would enhance this pick
-      if (buffs(id, mDef)) s += 1;  // this pick (a buff-source) would enhance an owned unit
-      if (cDef && mDef && cDef.species === mDef.species) s += 0.25; // same-species core
-    }
-    return s;
-  };
-
-  const poolPts = d.pool.map(ptsOf).filter(p => p > 0);
-  const cheapest = poolPts.length ? Math.min(...poolPts) : 0;
-  const scored = affordable
-    .map(id => ({ id, score: ptsOf(id) + synergyOf(id) * SYN_PTS, pts: ptsOf(id) }))
-    .sort((a, b) => b.score - a.score || b.pts - a.pts);
-  let pick = scored[0].id;
-  // First two picks: leave room for at least one more unit so the army isn't a single
-  // model — among the room-leaving options, still take the highest-scoring.
-  if (army.length < 2) {
-    const leavesRoom = scored.find(s => remaining - s.pts >= cheapest);
-    if (leavesRoom) pick = leavesRoom.id;
+  const cDef = def(id);
+  let syn = 0;
+  for (const m of army) {
+    const mDef = def(m);
+    if (buffs(m, cDef)) syn += 1;   // an owned buff-source would enhance this pick
+    if (buffs(id, mDef)) syn += 1;  // this pick (a buff-source) would enhance an owned unit
+    if (cDef && mDef && cDef.species === mDef.species) syn += 0.25; // same-species core
   }
-  return { kind: 'draft_card', cardId: pick };
+  return (def(id)?.points ?? 0) + syn * DRAFT_SYN_PTS;
+}
+
+/** The strategically-constrained draft candidate set (affordable, with the bodies-first
+ *  squad anchor + leave-room-early rules applied). Empty ⇒ the bot should pass. Shared by
+ *  the deterministic pick (aiDraft) and the weighted-random pick (aiDraftWeightedPick). */
+function draftCandidates(state: HSState, seat: number): string[] {
+  const d = state.draft!;
+  const ptsOf = (id: string) => effectiveCardDef(id, state.edition)?.points ?? 0;
+  const isSquad = (id: string) => effectiveCardDef(id, state.edition)?.type === 'squad';
+  const remaining = teamRemainingInDraft(state, seat);
+  const affordable = d.pool.filter(id => ptsOf(id) <= remaining);
+  if (affordable.length === 0) return [];
+  const army = d.armies[seat] ?? [];
+  let candidates = affordable;
+  // Bodies win — anchor a SQUAD early if the army has none, so it isn't a fragile,
+  // easily-outnumbered hero-only force.
+  if (army.length <= 2 && !army.some(isSquad)) {
+    const squads = affordable.filter(isSquad);
+    if (squads.length) candidates = squads;
+  }
+  // First two picks: leave room for at least one more unit so the army isn't a single model.
+  if (army.length < 2) {
+    const poolPts = d.pool.map(ptsOf).filter(p => p > 0);
+    const cheapest = poolPts.length ? Math.min(...poolPts) : 0;
+    const roomLeavers = candidates.filter(id => remaining - ptsOf(id) >= cheapest);
+    if (roomLeavers.length) candidates = roomLeavers;
+  }
+  return candidates;
+}
+
+/** Deterministic draft pick (used by aiNextAction + the tests): the single
+ *  highest-scoring candidate. The action layer picks RANDOMLY instead (below). */
+function aiDraft(state: HSState, seat: number): HSAction {
+  const army = state.draft!.armies[seat] ?? [];
+  const candidates = draftCandidates(state, seat);
+  if (candidates.length === 0) return { kind: 'draft_pass' };
+  const ptsOf = (id: string) => effectiveCardDef(id, state.edition)?.points ?? 0;
+  const best = candidates.reduce((b, id) => {
+    const sb = draftCardScore(state, army, b), si = draftCardScore(state, army, id);
+    return si > sb || (si === sb && ptsOf(id) > ptsOf(b)) ? id : b;
+  }, candidates[0]);
+  return { kind: 'draft_card', cardId: best };
+}
+
+/** WEIGHTED-RANDOM draft pick — stronger cards are likelier but never certain, so the bot
+ *  doesn't open with the same unit every game. Weight = score² (a 110-pt squad ≈ 2.4× a
+ *  70-pt one head-to-head, not 100%). `rng()` ∈ [0,1) is INJECTED by the action layer, so
+ *  the engine stays pure (no Math.random); aiEngineAction calls this for a draft_card. */
+function aiDraftWeightedPick(state: HSState, seat: number, rng: () => number): HSAction {
+  const army = state.draft!.armies[seat] ?? [];
+  const candidates = draftCandidates(state, seat);
+  if (candidates.length === 0) return { kind: 'draft_pass' };
+  const weighted = candidates.map(id => ({ id, w: Math.max(1, draftCardScore(state, army, id)) ** 2 }));
+  const total = weighted.reduce((s, x) => s + x.w, 0);
+  let r = rng() * total;
+  for (const x of weighted) { r -= x.w; if (r <= 0) return { kind: 'draft_card', cardId: x.id }; }
+  return { kind: 'draft_card', cardId: weighted[weighted.length - 1].id }; // float-rounding fallback
 }
 
 function aiPlace(state: HSState, seat: number): HSAction {
@@ -6353,8 +6376,16 @@ function aiTurn(state: HSState, seat: number): HSAction {
 export function aiEngineAction(
   state: HSState,
   intent: HSAction,
-  rollers: { rollDie: () => CombatFace; rollDice: (n: number) => CombatFace[]; d20: () => number },
+  rollers: { rollDie: () => CombatFace; rollDice: (n: number) => CombatFace[]; d20: () => number; rng?: () => number },
 ): HSAction {
+  // DRAFT — pick weighted-randomly (stronger cards likelier, not certain) so the bot varies
+  // its army each game. ONLY when the caller injects an `rng` (the live action layer passes
+  // Math.random); without one — the deterministic tests/fuzzer/playthroughs — we keep the
+  // intent's deterministic pick (aiDraft) so those stay reproducible. Engine stays pure.
+  if (intent.kind === 'draft_card' && rollers.rng) {
+    const seat = state.draft?.turnSeat;
+    if (seat != null) return aiDraftWeightedPick(state, seat, rollers.rng);
+  }
   if (intent.kind === 'attack') {
     const req = attackDiceRequirements(state, intent.attackerId, intent.targetId);
     return {

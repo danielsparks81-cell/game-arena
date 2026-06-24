@@ -277,6 +277,19 @@ describe('HeroScape AI — synergy draft', () => {
     const s = draftWith([], ['airborne_elite', 'tarn_vikings']);
     expect(aiNextAction(s, 0)).toEqual({ kind: 'draft_card', cardId: 'airborne_elite' });
   });
+
+  it('the LIVE draft is weighted-random — the favourite usually, the underdog sometimes', () => {
+    // aiNextAction is deterministic (the favourite), but the action layer routes the pick
+    // through aiEngineAction with an injected rng → a weighted-random choice (weight = score²).
+    // So the bot no longer opens with the same unit every game.
+    const s = draftWith([], ['airborne_elite', 'tarn_vikings']);
+    const rollers = (rng: () => number) => ({ rollDie: () => 'blank' as const, rollDice: () => [], d20: () => 1, rng });
+    const intent = { kind: 'draft_card' as const, cardId: 'airborne_elite' };
+    // A low roll lands on the heavy favourite (the priciest squad)...
+    expect(aiEngineAction(s, intent, rollers(() => 0))).toEqual({ kind: 'draft_card', cardId: 'airborne_elite' });
+    // ...a high roll can still land on the underdog — variety the deterministic path never gave.
+    expect(aiEngineAction(s, intent, rollers(() => 0.999))).toEqual({ kind: 'draft_card', cardId: 'tarn_vikings' });
+  });
 });
 
 describe('HeroScape AI — order markers skip a reserve-only card', () => {
