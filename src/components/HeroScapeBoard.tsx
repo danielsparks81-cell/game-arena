@@ -975,6 +975,7 @@ function TeamsPanel({ state, seatColor }: { state: HSState; seatColor: (seat: nu
               <div className="flex items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: out ? '#525252' : color }} />
+                  {!hasTeams && members[0].bot && <span className="shrink-0 text-[10px] leading-none opacity-70" title="AI">🤖</span>}
                   <span className="truncate text-[11px] font-bold" style={{ color: out ? '#737373' : color }}>
                     {hasTeams ? `Team ${String.fromCharCode(64 + team)}` : members[0].username}
                   </span>

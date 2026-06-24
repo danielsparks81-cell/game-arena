@@ -322,13 +322,13 @@ export function removePlayer(state: HSState, playerId: string): HSState {
   return { ...state, players: state.players.filter(p => p.playerId !== playerId) };
 }
 
-/** Thematic AI names — the HeroScape generals, assigned in add order. */
-/** Fun, original bot names (NOT the HeroScape generals). The server picks one at random
- *  per bot (see makeMoveHS); this list is the fallback when a name isn't supplied. */
+/** Fun, original bot names — kept SHORT (one punchy word) so they fit the standings,
+ *  turn-order, and card panels without truncating. The server picks one at random per
+ *  bot (see makeMoveHS); this list is the fallback when a name isn't supplied. */
 export const FUN_BOT_NAMES = [
-  'General Chaos', 'Sir Stabsalot', 'Lord Bonk', 'Madam Mayhem', 'Brigadier Bumble',
-  'Old Crusher', 'Captain Calamity', 'Grumpus', 'Wreckage', 'Sir Pounce',
-  'Vlad the Impatient', 'Sergeant Snuggles', 'The Smasher', 'Baron von Bash', 'Tiny Tank', 'Boomer',
+  'Chaos', 'Stabsalot', 'Bonk', 'Mayhem', 'Bumble',
+  'Crusher', 'Calamity', 'Grumpus', 'Wreckage', 'Pounce',
+  'Vlad', 'Snuggles', 'Smasher', 'Bash', 'Tank', 'Boomer',
 ];
 
 /** Add an AI opponent to the lowest empty seat (lobby only). Synthetic playerId
@@ -346,7 +346,9 @@ function doAddBot(state: HSState, team?: number, name?: string): HSResult {
   const player = {
     seat,
     playerId: `bot-${seat}`,
-    username: `${chosen} (AI)`,
+    // No " (AI)" suffix — the `bot` flag drives the 🤖 marker in the panels, and a
+    // shorter username fits the standings / turn-order / card panels without truncating.
+    username: chosen,
     bot: true,
     ...(team !== undefined ? { team } : {}),
   };

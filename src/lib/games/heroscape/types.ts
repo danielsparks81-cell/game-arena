@@ -800,7 +800,8 @@ export type HSAction =
       // team assigns it to a side. The bot drafts / places / plays via ai_step.
       kind: 'add_bot';
       team?: number;
-      /** Server-picked fun name (without the " (AI)" suffix). Falls back to the pool. */
+      /** Server-picked fun name (short, no suffix — the `bot` flag marks it as AI).
+       *  Falls back to the pool when omitted. */
       name?: string;
     }
   | {
