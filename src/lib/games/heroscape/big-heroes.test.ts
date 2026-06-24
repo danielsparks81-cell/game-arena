@@ -404,6 +404,25 @@ describe('Theracus — Carry', () => {
     expect(rangeDistance(MAPS[carried.mapId].cells, c.at!, passTo)).toBe(1);
   });
 
+  it('a glyph under the SET-DOWN passenger triggers (was missed — only the carrier fired before)', () => {
+    let { s, hero } = stage('theracus');
+    const h = at(s, hero)!;
+    const passHex = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!;
+    s = put(s, 's0-tarn_vikings-1', passHex);
+    const to = cellAtDist(s, h, 2, [passHex]);
+    const dry = applyAction(s, 'p1', { kind: 'move_figure', figureId: hero, to });
+    if ('error' in dry) throw new Error(`dry-run move failed: ${dry.error}`);
+    const moved = dry.figures.find(f => f.id === hero)!;
+    const foot = [moved.at, moved.at2].filter(Boolean) as string[];
+    const occupied = new Set(dry.figures.filter(f => f.at != null).flatMap(f => [f.at, f.at2].filter(Boolean) as string[]));
+    const passTo = neighborKeys(moved.at!).find(k => MAPS[s.mapId].cells[k] && !foot.includes(k) && !occupied.has(k))!;
+    // A face-down glyph sits exactly where the carried figure will be set down.
+    s = { ...s, glyphs: [{ id: 'gerda', at: passTo, faceUp: false }] };
+    const carried = unwrap(applyAction(s, 'p1', { kind: 'carry_move', figureId: hero, to, passengerId: 's0-tarn_vikings-1', passengerTo: passTo }));
+    expect(at(carried, 's0-tarn_vikings-1')).toBe(passTo);
+    expect(carried.glyphs.find(g => g.at === passTo)?.faceUp).toBe(true); // the passenger triggered it
+  });
+
   it('carryLandingHexes is footprint-aware — exactly the empty cells around BOTH of 2-hex Theracus’s lobes', () => {
     let { s, hero } = stage('theracus');
     const h = at(s, hero)!;

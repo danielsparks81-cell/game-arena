@@ -1309,11 +1309,11 @@ function D20RollOverlay({ roll, onDismiss }: { roll: LastRoll; onDismiss: () => 
   );
 }
 
-/** The round's TURN ORDER as a snake: players sorted by initiative roll (highest
- *  first), the active player ringed in their seat colour, roll shown in parens.
- *  For 4-6 players it wraps boustrophedon — row 1 left→right, row 2 right→left
- *  (right-aligned) — like a draft snake, so the flow reads continuously. Falls
- *  back to seat order before initiative is rolled. */
+/** The round's TURN ORDER, in the ACTUAL play order (`state.initiative`): the initiative
+ *  winner first, then seat order rotated to them (p. 9 — "passes to the left"), NOT sorted by
+ *  roll. Rendered as ONE continuous arrow chain (wrapping naturally) so every player — the
+ *  viewer included — stays in the group; the active player is ringed, the roll shown in parens.
+ *  Falls back to seat order before initiative is rolled. */
 function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat: number) => string }) {
   const order = state.initiative.length > 0
     ? state.initiative
@@ -1321,33 +1321,21 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
   const last = state.initiativeRolls[state.initiativeRolls.length - 1];
   const rollOf = (seat: number) => last?.find(a => a.seat === seat)?.roll;
   const nameOf = (seat: number) => state.players.find(p => p.seat === seat)?.username ?? '?';
-  const cols = Math.min(3, Math.max(1, order.length));
-  const rows: number[][] = [];
-  for (let i = 0; i < order.length; i += cols) rows.push(order.slice(i, i + cols));
   return (
-    <div className="mt-1.5 flex flex-col gap-1 text-[11px]">
-      {rows.map((chunk, ri) => {
-        const odd = ri % 2 === 1;
-        const display = odd ? [...chunk].reverse() : chunk; // row 2 reads right→left
-        const arrow = odd ? '←' : '→';
+    <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px]">
+      {order.map((seat, i) => {
+        const active = seat === state.turnSeat;
+        const r = rollOf(seat);
         return (
-          <div key={ri} className={'flex flex-wrap items-center gap-1 ' + (odd ? 'self-end' : 'self-start')}>
-            {display.map((seat, ci) => {
-              const active = seat === state.turnSeat;
-              const r = rollOf(seat);
-              return (
-                <span key={seat} className="flex items-center gap-1">
-                  {ci > 0 && <span className="text-neutral-600">{arrow}</span>}
-                  <span
-                    className={'rounded px-1.5 py-0.5 font-semibold tabular-nums ' + (active ? 'bg-emerald-900/40 ring-2 ring-emerald-400' : 'bg-neutral-800/60')}
-                    style={{ color: seatColor(seat) }}
-                  >
-                    {active ? '⚔ ' : ''}{nameOf(seat)}{r != null ? ` (${r})` : ''}
-                  </span>
-                </span>
-              );
-            })}
-          </div>
+          <span key={seat} className="flex items-center gap-1">
+            {i > 0 && <span className="text-neutral-600">→</span>}
+            <span
+              className={'rounded px-1.5 py-0.5 font-semibold tabular-nums ' + (active ? 'bg-emerald-900/40 ring-2 ring-emerald-400' : 'bg-neutral-800/60')}
+              style={{ color: seatColor(seat) }}
+            >
+              {active ? '⚔ ' : ''}{nameOf(seat)}{r != null ? ` (${r})` : ''}
+            </span>
+          </span>
         );
       })}
     </div>

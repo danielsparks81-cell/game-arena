@@ -5461,10 +5461,10 @@ describe('Glyph of Oreld — Remove Marker on reveal', () => {
 });
 
 describe('Random per-game glyph layout', () => {
-  it('count scales with map size (small → 2, capped at 10)', () => {
+  it('count scales with map size (small → 2, capped at 7)', () => {
     expect(glyphCountForMap(56)).toBe(2); // Training Field-sized → minimum 2
     expect(glyphCountForMap(300)).toBe(5); // ~1 per 60 hexes
-    expect(glyphCountForMap(661)).toBe(10); // Star Field-sized → capped at 10
+    expect(glyphCountForMap(661)).toBe(7); // Star Field-sized → capped at 7
   });
 
   it('a seed places distinct active-pool glyphs off start zones + water; same seed is deterministic', () => {
@@ -5489,5 +5489,23 @@ describe('Random per-game glyph layout', () => {
     }
     expect(start(98765).glyphs).toEqual(s.glyphs); // deterministic per seed
     expect(start(11111).glyphs).not.toEqual(s.glyphs); // different seed → different layout
+  });
+
+  it('never places two glyphs on adjacent hexes (across many seeds)', () => {
+    const layout = (seed: number): HSState => {
+      let s = initialState();
+      s = addPlayer(s, 'p1', 'A', 0, '#10b981');
+      s = addPlayer(s, 'p2', 'B', 1, '#ef4444');
+      return unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'quick', mapId: 'training_field', glyphSeed: seed }));
+    };
+    for (let seed = 1; seed <= 25; seed++) {
+      const s = layout(seed);
+      for (const a of s.glyphs) {
+        for (const b of s.glyphs) {
+          if (a.at === b.at) continue;
+          expect(neighborKeys(a.at).includes(b.at)).toBe(false); // never adjacent
+        }
+      }
+    }
   });
 });

@@ -655,9 +655,9 @@ function shuffleSeeded<T>(arr: readonly T[], rnd: () => number): T[] {
 const GLYPH_POOL: HSGlyphId[] = (Object.keys(HS_GLYPHS) as HSGlyphId[]).filter(
   id => HS_GLYPHS[id].active && id !== 'brandar',
 );
-/** Glyph count for a map: ~1 per 60 hexes, clamped to [2, 10]. */
+/** Glyph count for a map: ~1 per 60 hexes, clamped to [2, 7]. */
 export function glyphCountForMap(cellCount: number): number {
-  return Math.min(10, Math.max(2, Math.round(cellCount / 60)));
+  return Math.min(7, Math.max(2, Math.round(cellCount / 60)));
 }
 /** Multi-source flat BFS: path distance (around voids; height ignored) from a set of source
  *  hexes to every reachable cell. Used to measure how "close" a hex is to a start zone so
@@ -703,8 +703,17 @@ function generateGlyphs(s: HSState, seed: number): HSGlyph[] {
     return Math.max(...ds) - Math.min(...ds);
   };
   const count = Math.min(glyphCountForMap(Object.keys(cells).length), candidates.length, GLYPH_POOL.length);
-  const hexes = shuffleSeeded(candidates, rnd).sort((a, b) => imbalance(a) - imbalance(b)).slice(0, count);
-  const ids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, count);
+  // Pick the most-equidistant hexes, but GREEDILY skip any adjacent to one already chosen so
+  // two glyphs never sit next to each other (a 2-hex figure could otherwise cover both, and
+  // they read as cramped). May yield fewer than `count` if the map can't space them out.
+  const ranked = shuffleSeeded(candidates, rnd).sort((a, b) => imbalance(a) - imbalance(b));
+  const hexes: HexKey[] = [];
+  for (const k of ranked) {
+    if (hexes.length >= count) break;
+    if (hexes.some(h => neighborKeys(h).includes(k))) continue;
+    hexes.push(k);
+  }
+  const ids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, hexes.length);
   return hexes.map((at, i): HSGlyph => ({ id: ids[i], at, faceUp: false }));
 }
 /** The glyph layout for a game: the seeded fair-random layout when the server supplied a
@@ -2764,11 +2773,31 @@ function doGrappleMove(
  * (Erland/Mitonsoul) are inert — logged but the glyph stays (so the framework
  * is visible) per the slice-4 "treat as inert, still a forced stop" rule.
  */
+/** Glyph ids whose effect opens a player CHOICE (a pendingChoice). Only one choice can be open
+ *  at a time, so a second such glyph hit in the SAME move (a 2-hex figure on two, or a carried
+ *  passenger) is revealed but its effect is deferred rather than lost-silently. */
+const GLYPH_OPENS_CHOICE: ReadonlySet<HSGlyphId> = new Set(['mitonsoul', 'sturla', 'oreld', 'erland', 'nilrend']);
+
+/** Fire EVERY glyph under a figure's footprint when it stops — a 2-hex figure (Braxas, Theracus)
+ *  can sit on more than one, and they should ALL trigger (not just the first). The carried
+ *  passenger of a Carry move is a separate figure and gets its own call (doCarryMove). */
 function applyGlyphOnStop(s: HSState, fig: Figure): void {
-  // A 2-hex figure claims a glyph under EITHER lobe — both halves of its footprint
-  // count (e.g. Braxas ending with only its BACK lobe on the glyph still reveals it).
-  const g = figureHexes(fig).map(h => glyphAt(s, h)).find((x): x is HSGlyph => x != null);
-  if (!g) return;
+  const glyphs = figureHexes(fig).map(h => glyphAt(s, h)).filter((x): x is HSGlyph => x != null);
+  for (const g of glyphs) {
+    // A 2nd choice-glyph can't open while one is already pending — reveal it, defer its effect.
+    if (s.pendingChoice && GLYPH_OPENS_CHOICE.has(g.id)) {
+      if (!g.faceUp) {
+        g.faceUp = true;
+        pushLog(s, 'glyph', `${figureLabel(s, fig)} also reveals the ${HS_GLYPHS[g.id].name} — its effect waits for the open choice.`);
+      }
+      continue;
+    }
+    applyOneGlyph(s, fig, g);
+  }
+}
+
+/** Apply ONE revealed glyph's effect to the figure that stopped on it. */
+function applyOneGlyph(s: HSState, fig: Figure, g: HSGlyph): void {
   // A glyph starts HIDDEN (face-down); the instant a figure stops on it, flip it face-up — only
   // then can it take effect (the stat helpers + seatControlsGlyph all gate on faceUp).
   if (!g.faceUp) {
@@ -5307,6 +5336,10 @@ function doCarryMove(
   passenger.at = action.passengerTo;
   passenger.at2 = null;
   pushLog(s, 'power', `${figureLabel(s, carrier)} carries ${figureLabel(s, passenger)} along, setting it down at ${action.passengerTo}.`);
+  // The set-down passenger STOPS on its landing space, so a glyph there triggers for it too
+  // (Theracus's own glyph(s) already fired inside doMove). A glyph kill can end the game.
+  applyGlyphOnStop(s, passenger);
+  checkEliminationWin(s);
   return s;
 }
 
