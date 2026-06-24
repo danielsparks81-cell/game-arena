@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { sounds } from '@/lib/sounds';
 import {
   CARDS,
@@ -9,7 +9,9 @@ import {
   DRAFT_ROUNDS,
   eventText,
   eventSeat,
+  cardDealsDamage,
   type CardId,
+  type CardDef,
   type DraftSeatState,
   type PlayerState,
   type ResolvedTarget,
@@ -18,6 +20,53 @@ import {
   type Seat,
   type TargetSpec,
 } from '@/lib/games/spellduel';
+
+/** Is this card locked out for `p` right now by a silence? Mirrors the engine's
+ *  play-time gate exactly (cardDealsDamage → silencedDamage; else silencedUtility). */
+function cardSilencedFor(p: PlayerState, card: CardDef): boolean {
+  return cardDealsDamage(card) ? !!p.silencedDamage : !!p.silencedUtility;
+}
+
+/** Look up a card definition by display name (some log events carry only the name). */
+function cardByName(name: string): CardDef | undefined {
+  return Object.values(CARDS).find(c => c.name === name);
+}
+
+/** A card name in the log that you can hover for the full card text. */
+function LogCardName({ name, cardId }: { name: string; cardId?: CardId }) {
+  const card = cardId ? CARDS[cardId] : cardByName(name);
+  return (
+    <span
+      className="cursor-help font-semibold text-neutral-100 underline decoration-dotted decoration-neutral-500 underline-offset-2"
+      title={card ? `${card.name} (${card.rarity}, ${card.cost} mana) — ${card.description}` : name}
+    >
+      {name}
+    </span>
+  );
+}
+
+/** Render one log event as rich JSX — card names become hoverable; the damage
+ *  source is named instead of "?". Falls back to the plain eventText for the rest. */
+function renderEvent(ev: SDEvent, mySeat: Seat | null, players: SDState['players']): ReactNode {
+  const isMe = (s: Seat) => mySeat !== null && s === mySeat;
+  const who = (s: Seat, name: string) => (isMe(s) ? 'You' : name);
+  switch (ev.kind) {
+    case 'card_play':
+      return <>{who(ev.seat, ev.username)} played <LogCardName name={ev.cardName} cardId={ev.cardId} />.</>;
+    case 'damage':
+      return <>{who(ev.from, players[ev.from].username)} dealt {ev.amount} damage to {who(ev.to, ev.toName)}.</>;
+    case 'copy_spell':
+      return <>{who(ev.seat, ev.username)} copied <LogCardName name={ev.cardName} />.</>;
+    case 'countered':
+      return <>{who(ev.reactor, ev.reactorName)} countered <LogCardName name={ev.cardName} />!</>;
+    case 'reflected':
+      return <>{who(ev.reactor, ev.reactorName)} reflected <LogCardName name={ev.cardName} /> — {ev.amount} damage back at {who(ev.caster, players[ev.caster].username)}.</>;
+    case 'reaction_window':
+      return <>{who(ev.caster, players[ev.caster].username)} {isMe(ev.caster) ? 'are' : 'is'} casting <LogCardName name={ev.cardName} /> — {who(ev.reactor, ev.reactorName)} may react.</>;
+    default:
+      return eventText(ev, mySeat);
+  }
+}
 
 // One transient "floater" rendered on a player panel (e.g. -2 in red,
 // +3 in green). The `key` is unique per spawn so React re-mounts the
@@ -102,6 +151,13 @@ export default function SpellduelBoard({
   const [floaters, setFloaters] = useState<Floater[]>([]);
   const [hitKey,  setHitKey]  = useState<{ A: number; B: number }>({ A: 0, B: 0 });
   const [healKey, setHealKey] = useState<{ A: number; B: number }>({ A: 0, B: 0 });
+
+  // Keep the (now full-history) battle log pinned to its newest line as events arrive.
+  const logScrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = logScrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [state.log.length]);
 
   useEffect(() => {
     const start = lastSeenIdx.current;
@@ -281,12 +337,16 @@ export default function SpellduelBoard({
             }
             const effMana = me.mana + me.manaBonusThisTurn;
             const canAfford = effMana >= card.cost;
-            const cardDisabled = disabled || !mySeat || !isMyTurn || !canAfford || matchOver || !!targeting || !!pr;
+            // Silence locks out a whole category — strike those cards through and
+            // never let them look playable (matches the engine's play-time gate).
+            const silenced = cardSilencedFor(me, card);
+            const cardDisabled = disabled || !mySeat || !isMyTurn || !canAfford || matchOver || !!targeting || !!pr || silenced;
             return (
               <Card
                 key={idx}
                 cardId={cardId}
                 disabled={cardDisabled}
+                silenced={silenced}
                 onClick={() => {
                   // Card with no targets — play immediately.
                   if (!card.targets || card.targets.length === 0) {
@@ -316,17 +376,18 @@ export default function SpellduelBoard({
         </div>
       )}
 
-      {/* Action log (anchored at the bottom) */}
+      {/* Action log — the FULL match history (auto-scrolls to the newest line; scroll
+          up to review). Card names are hoverable for their details. */}
       <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 p-2">
         <div className="mb-1 flex items-center justify-between text-[10px] uppercase tracking-wider text-neutral-500">
-          <span>Recent</span>
+          <span>Battle log</span>
           <span>turn {state.turn}</span>
         </div>
-        <div className="max-h-32 space-y-0.5 overflow-y-auto font-mono text-[11px] leading-snug">
+        <div ref={logScrollRef} className="max-h-48 space-y-0.5 overflow-y-auto font-mono text-[11px] leading-snug">
           {state.log.length === 0 ? (
             <div className="text-neutral-600">No actions yet.</div>
           ) : (
-            state.log.slice(-8).map((ev, i) => {
+            state.log.map((ev, i) => {
               const s = eventSeat(ev);
               const color =
                 s === 'system' ? 'text-neutral-500'
@@ -334,7 +395,7 @@ export default function SpellduelBoard({
                 : 'text-rose-300';
               return (
                 <div key={i} className={color}>
-                  {eventText(ev, mySeat)}
+                  {renderEvent(ev, mySeat, state.players)}
                 </div>
               );
             })
@@ -352,6 +413,14 @@ export default function SpellduelBoard({
               <span className="font-medium text-white">{pendingCard?.name ?? 'a spell'}</span>. Respond with a
               reaction, or let it resolve.
             </div>
+            {/* The incoming card, in full — so the reactor knows EXACTLY what they're
+                countering or reflecting (e.g. how much damage a Reflect would bounce). */}
+            {pr.cardId && CARDS[pr.cardId] && (
+              <div className="mb-3 flex flex-col items-center gap-1">
+                <span className="text-[10px] uppercase tracking-wider text-neutral-500">Incoming spell</span>
+                <Card cardId={pr.cardId} disabled onClick={() => {}} />
+              </div>
+            )}
             <div className="flex flex-col gap-2">
               {myReactionOptions.length === 0 && (
                 <div className="text-xs text-neutral-500">No reactions in hand.</div>
@@ -554,12 +623,36 @@ function PlayerPanel({
             style={{ backgroundColor: accent }}
             aria-hidden
           />
-          <span className="truncate text-sm font-medium text-neutral-100">
+          <span className={`relative truncate text-sm font-medium text-neutral-100 ${p.burns.length > 0 ? 'sd-burning' : ''}`}>
             {p.username || '(empty seat)'}
           </span>
+          {/* Burning — a flame badge that pulses while a damage-over-time ticks. The
+              opponent sees it too (burns are public). Tooltip lists the total per turn. */}
+          {p.burns.length > 0 && (
+            <span
+              className="animate-sd-burn select-none text-sm leading-none"
+              title={`Burning — ${p.burns.reduce((s, b) => s + b.amount, 0)} damage at the start of ${isYou ? 'your' : 'their'} turn (${p.burns.map(b => `${b.amount}/${b.turns}t`).join(', ')})`}
+            >
+              🔥
+            </span>
+          )}
           {isYou && <span className="text-[10px] uppercase tracking-wider text-neutral-500">you</span>}
+          {/* Silenced — a category is locked out on this player's next turn. */}
+          {(p.silencedDamage || p.silencedUtility) && (
+            <span
+              className="rounded bg-rose-600/20 px-1.5 py-0.5 text-[10px] font-medium text-rose-300"
+              title={`Silenced — can't cast ${p.silencedDamage && p.silencedUtility ? 'any' : p.silencedDamage ? 'damage' : 'non-damage'} spells next turn`}
+            >
+              🤐 silenced
+            </span>
+          )}
+          {/* Armed triggers — shown ONLY to the owner (projection hides them from the
+              opponent). Tooltip names what's armed (e.g. "Counter"). */}
           {p.pendingTriggers.length > 0 && (
-            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+            <span
+              className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-300"
+              title={`Armed: ${p.pendingTriggers.map(t => t.source).join(', ')}`}
+            >
               {p.pendingTriggers.length}× armed
             </span>
           )}
@@ -647,11 +740,13 @@ function rarityStyle(rarity: 'common' | 'uncommon' | 'rare') {
 }
 
 function Card({
-  cardId, disabled, onClick,
+  cardId, disabled, onClick, silenced = false,
 }: {
   cardId: CardId;
   disabled: boolean;
   onClick: () => void;
+  /** Locked out by a silence — drawn with a red diagonal slash, not playable. */
+  silenced?: boolean;
 }) {
   const card = CARDS[cardId];
   const rs = rarityStyle(card.rarity);
@@ -664,8 +759,10 @@ function Card({
         disabled
           ? 'border-neutral-800 opacity-40'
           : `${rs.border} ${rs.hoverBorder} ${rs.glow} hover:-translate-y-1 hover:shadow-lg`
-      }`}
-      title={`${card.name} (${card.rarity}) — ${card.description}`}
+      } ${silenced ? 'border-rose-700/70' : ''}`}
+      title={silenced
+        ? `${card.name} — silenced (can't cast ${cardDealsDamage(card) ? 'damage' : 'non-damage'} spells this turn)`
+        : `${card.name} (${card.rarity}) — ${card.description}`}
     >
       <div className="flex items-center justify-between gap-1">
         <span className={`truncate text-sm font-semibold ${rs.name}`}>{card.name}</span>
@@ -682,6 +779,13 @@ function Card({
           {card.rarity === 'rare' ? '◆' : card.rarity === 'uncommon' ? '◈' : '◇'}
         </span>
       </div>
+      {/* Silence slash — a red diagonal line + "silenced" tag across the card. */}
+      {silenced && (
+        <span className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg">
+          <span className="absolute left-[-15%] top-1/2 h-[2px] w-[130%] -translate-y-1/2 rotate-[-20deg] bg-rose-500/80" />
+          <span className="absolute bottom-1 right-1 rounded bg-rose-600/80 px-1 text-[9px] font-bold uppercase tracking-wider text-white">silenced</span>
+        </span>
+      )}
     </button>
   );
 }

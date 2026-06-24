@@ -509,6 +509,10 @@ export type SDState = {
   seats: { A?: string; B?: string };
   players: { A: PlayerState; B: PlayerState };
   currentSeat: Seat;
+  /** Which seat took the FIRST turn (chosen at random when the duel begins). Used by
+   *  the lobby's in-game list to order players by real turn order, not seat A→B.
+   *  Absent on pre-2026-06 saves — callers fall back to seat order. */
+  firstSeat?: Seat;
   turn: number;
   log: SDEvent[];
   winner: Seat | 'draw' | null;
@@ -705,6 +709,7 @@ function finalizeDraftAndStart(next: SDState): SDState {
   next.draft = undefined;
   next.phase = 'playing';
   next.currentSeat = Math.random() < 0.5 ? 'A' : 'B';
+  next.firstSeat = next.currentSeat; // who actually went first (the lobby list orders by this)
   next.players[next.currentSeat].maxMana = 1;
   next.players[next.currentSeat].mana = 1;
   next.log.push({ kind: 'system', text: 'Decks locked in — the duel begins!' });
@@ -1071,8 +1076,9 @@ function resolveDynamic(state: SDState, caster: Seat, card: CardDef): Effect[] {
   return [];
 }
 
-/** True if a card counts as a "damage spell" for silence purposes. */
-function cardDealsDamage(card: CardDef): boolean {
+/** True if a card counts as a "damage spell" for silence purposes. Exported so the
+ *  board can grey/strike the same cards the engine would reject under a silence. */
+export function cardDealsDamage(card: CardDef): boolean {
   if (card.effects.some(e => e.kind === 'damage' || e.kind === 'burn')) return true;
   return card.dynamic === 'combo' || card.dynamic === 'last_gasp';
 }
@@ -1369,7 +1375,10 @@ function beginTurn(state: SDState, seat: Seat): void {
 // Called from the server action after each state update.
 // =====================================================================
 
-export const LOG_MAX = 25;
+// Kept generous so the board can scroll a WHOLE match's history (events are tiny
+// records; a duel — 20 HP, burst damage — rarely exceeds ~100 of them). Still
+// bounded so a pathologically long game can't grow the synced JSON without limit.
+export const LOG_MAX = 400;
 export function trimLog(state: SDState): SDState {
   if (state.log.length <= LOG_MAX) return state;
   return { ...state, log: state.log.slice(-LOG_MAX) };
@@ -1437,6 +1446,11 @@ export function projectStateForViewer(state: SDState, viewerId: string | null): 
     // Hand contents are private from anyone who isn't this seat.
     if (mySeat !== seat) {
       p.hand = p.hand.map(() => HIDDEN_CARD as CardId);
+      // Armed triggers (e.g. Counter) are HIDDEN from the opponent — like a face-down
+      // trap, the threat is yours to know and theirs to guess. The owner still sees
+      // their own (the board renders the "N× armed" badge only from this list). The
+      // reaction WINDOW reveals a trigger when it actually fires; before that it's secret.
+      p.pendingTriggers = [];
     }
   }
 

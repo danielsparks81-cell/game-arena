@@ -24,6 +24,7 @@ import {
   seatJoinerAndStart,
   trimLog,
   LOG_MAX,
+  cardDealsDamage,
   type SDState,
 } from './spellduel';
 
@@ -403,6 +404,17 @@ describe('spellduel: projectStateForViewer (hand privacy)', () => {
     expect(aliceView.players.B.deck.every(c => (c as string) === HIDDEN_CARD)).toBe(true);
   });
 
+  it("hides a player's ARMED triggers from the opponent, keeps them for the owner", () => {
+    const s = setupDuel({ firstSeat: 'A' });
+    s.players.A.pendingTriggers = [{ kind: 'prevent_damage', amount: 1, source: 'Counter' }];
+    // Bob (the opponent) must not see Alice's armed trigger — it's a face-down secret.
+    expect(projectStateForViewer(s, 'bob-id').players.A.pendingTriggers).toEqual([]);
+    // Spectators see neither side's armed triggers.
+    expect(projectStateForViewer(s, 'nobody').players.A.pendingTriggers).toEqual([]);
+    // Alice (the owner) still sees her own.
+    expect(projectStateForViewer(s, 'alice-id').players.A.pendingTriggers.length).toBe(1);
+  });
+
   it("preserves public state (HP, mana, discard, log) so the board still renders correctly", () => {
     const s = setupDuel({ firstSeat: 'A' });
     const view = projectStateForViewer(s, 'alice-id');
@@ -739,5 +751,14 @@ describe('spellduel: reactions (Counterspell / Reflect)', () => {
     const primed = primeForCard(s, 'counterspell');
     const result = applyMove(primed, { kind: 'play', cardIdx: 0 }, 'alice-id');
     expect('error' in result).toBe(true);
+  });
+});
+
+describe('spellduel: cardDealsDamage (silence category — board mirrors this)', () => {
+  it('classifies damage spells as damage and utility spells as not', () => {
+    expect(cardDealsDamage(CARDS.strike)).toBe(true);  // Deal damage
+    expect(cardDealsDamage(CARDS.scorch)).toBe(true);  // damage + burn
+    expect(cardDealsDamage(CARDS.tome)).toBe(false);   // Draw cards
+    expect(cardDealsDamage(CARDS.ward)).toBe(false);   // Shield (utility)
   });
 });

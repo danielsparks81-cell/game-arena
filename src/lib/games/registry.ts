@@ -598,8 +598,11 @@ export const GAMES: Record<string, GameDef> = {
       return o.seats[o.currentSeat] ?? null;
     },
     getOrderedPlayerIds: (s) => {
-      const o = (s ?? {}) as { seats?: { A?: string; B?: string } };
-      return [o.seats?.A, o.seats?.B].filter((x): x is string => !!x);
+      // Order by who actually went FIRST (chosen at random at duel start), not seat
+      // A→B — otherwise the host always sits on top even when they moved second.
+      const o = (s ?? {}) as { seats?: { A?: string; B?: string }; firstSeat?: 'A' | 'B' };
+      const order: ('A' | 'B')[] = o.firstSeat === 'B' ? ['B', 'A'] : ['A', 'B'];
+      return order.map(k => o.seats?.[k]).filter((x): x is string => !!x);
     },
     // We deliberately don't register addPlayer here: spellduel's state.players
     // is keyed by seat ({A, B}) not an array, so it doesn't match the cross-
