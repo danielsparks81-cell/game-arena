@@ -2622,7 +2622,7 @@ export default function HeroScapeBoard({
     // The strip is only as wide as its cards (w-fit), but wraps within the column
     // when a big army would overflow (max-w-full).
     return (
-      <div className={'w-fit max-w-full rounded-lg border bg-neutral-900/40 px-2 py-1 ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
+      <div className={'w-fit max-w-full rounded-lg border bg-neutral-900/55 px-2 py-1 shadow-lg shadow-black/40 backdrop-blur-sm ' + (isActive ? 'border-amber-700/70' : 'border-neutral-800')}>
         <div className="flex flex-wrap items-center gap-2">
           {/* NAME on the LEFT (user request). */}
           <span className="flex items-center gap-1.5">
@@ -4023,7 +4023,7 @@ export default function HeroScapeBoard({
               .sort((a, b) => a.seat - b.seat)
               .map(p => (
                 <div key={p.seat} className={'lg:pointer-events-none lg:absolute lg:z-20 lg:p-1 ' + panelSlotAnchor(p.seat)}>
-                  <div className="lg:pointer-events-auto">{renderArmyRow(p.seat)}</div>
+                  <div className="lg:pointer-events-auto lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:overscroll-contain">{renderArmyRow(p.seat)}</div>
                 </div>
               ))}
           </div>
@@ -4443,7 +4443,7 @@ export default function HeroScapeBoard({
           // Always pinned BOTTOM-LEFT (slot-0 anchor) as an OVERLAY — in placement too, now that the
           // in-hand tray moved to the rail — so a player panel never pushes/shrinks the board.
           <div className="flex flex-col items-start gap-1 lg:pointer-events-none lg:absolute lg:bottom-2 lg:left-2 lg:z-20">
-            <div className="lg:pointer-events-auto">{renderArmyRow(me.seat)}</div>
+            <div className="lg:pointer-events-auto lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:overscroll-contain">{renderArmyRow(me.seat)}</div>
           </div>
         )}
       </div>

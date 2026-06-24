@@ -335,7 +335,13 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
   // lobe radius is < the 1-hex disc so it doesn't read too "deep"; the waist pinch is
   // what makes it a peanut rather than a uniform pill.
   const peanut = useMemo(() => (span > 0 ? peanutShape(span / 2, SIZE * 0.62, SIZE * 0.34) : null), [span]);
-  const discProps = { color, emissive: ring ?? '#000000', emissiveIntensity: strongRing ? 0.9 : actionable ? 0.5 : aura ? 0.4 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
+  // A chosen attack target or a PICKED blast/breath square reads as a SOLID highlight disc
+  // (recolour the whole base, not just add a glow), so a picked figure is unmistakable next to
+  // a merely-ELIGIBLE candidate — which keeps its seat-colour disc with only a coloured glow.
+  // This is what fixes "can't tell which figures are picked for the breath": eligible = seat
+  // disc + fuchsia glow; PICKED = solid orange disc.
+  const solidPick = (target || splash) ? strongRing : null;
+  const discProps = { color: solidPick ?? color, emissive: ring ?? '#000000', emissiveIntensity: strongRing ? (solidPick ? 1.0 : 0.9) : actionable ? 0.5 : aura ? 0.4 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
   // 2-hex SWAY: a double-space figure must not billboard freely or its wide plane swings
   // perpendicular and hangs off the peanut. Keep its footprint along the peanut's long axis,
   // letting it sway toward the camera only up to the angle where its base edge still fits
