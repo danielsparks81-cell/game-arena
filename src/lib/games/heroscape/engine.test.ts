@@ -47,6 +47,7 @@ import {
   canFireLine,
   erlandDestinations,
   erlandSummonableIds,
+  sturlaPlacementHexes,
   POINT_BUDGETS,
   glyphCountForMap,
 } from './engine';
@@ -5409,22 +5410,86 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
     expect(moved.pendingChoice?.kind).toBe('glyph_sturla');
     const ids = moved.pendingChoice?.kind === 'glyph_sturla' ? moved.pendingChoice.figureIds : [];
     expect(ids).toContain(MARRO(1)); // the dead figure is eligible to roll
-    // Roll a 20 for MARRO, a miss for any other dead figure → only MARRO returns.
-    const back = unwrap(applyAction(moved, 'p1', {
+    // Roll a 20 for MARRO, a miss for any other dead figure → only MARRO rises and must be PLACED.
+    const rolled = unwrap(applyAction(moved, 'p1', {
       kind: 'resolve_choice',
       choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: id === MARRO(1) ? 20 : 7 })) },
     }));
-    const z1 = MAPS[back.mapId].startZones[1] ?? [];
-    expect(fig(back, MARRO(1)).at).not.toBeNull(); // resurrected
+    // The roll does NOT auto-place — it opens a placement choice OWNED by the figure's owner (seat 1).
+    expect(rolled.pendingChoice?.kind).toBe('glyph_sturla_place');
+    expect(rolled.pendingChoice?.kind === 'glyph_sturla_place' && rolled.pendingChoice.figureId).toBe(MARRO(1));
+    expect(rolled.pendingChoice?.kind === 'glyph_sturla_place' && rolled.pendingChoice.seat).toBe(1); // seat-1 owns Marro
+    expect(fig(rolled, MARRO(1)).at).toBeNull(); // still off-board until its owner sets it down
+    expect(rolled.glyphs.find(g => g.at === glyphHex)).toBeUndefined(); // temporary glyph already removed
+    // The OWNER (p2) taps a free start-zone hex; the figure returns FRESH.
+    const z1 = MAPS[rolled.mapId].startZones[1] ?? [];
+    const spots = sturlaPlacementHexes(rolled, MARRO(1));
+    expect(spots.length).toBeGreaterThan(0);
+    expect(spots.every(h => z1.includes(h))).toBe(true); // only its owner's start zone
+    const back = unwrap(applyAction(rolled, 'p2', {
+      kind: 'resolve_choice',
+      choice: { kind: 'glyph_sturla_place', hex: spots[0] },
+    }));
+    expect(fig(back, MARRO(1)).at).toBe(spots[0]); // placed where the owner chose
     expect(fig(back, MARRO(1)).wounds).toBe(0); // returns FRESH — no leftover wound markers
-    expect(z1).toContain(fig(back, MARRO(1)).at); // into seat-1's start zone
-    expect(back.glyphs.find(g => g.at === glyphHex)).toBeUndefined(); // temporary glyph removed
-    // A non-20 leaves it destroyed.
+    expect(back.pendingChoice).toBeUndefined(); // queue drained — back to normal play
+    // A non-20 leaves it destroyed with NO placement step at all.
     const stay = unwrap(applyAction(moved, 'p1', {
       kind: 'resolve_choice',
       choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: 7 })) },
     }));
+    expect(stay.pendingChoice).toBeUndefined(); // nobody rose → no placement pending
     expect(fig(stay, MARRO(1)).at).toBeNull();
+  });
+
+  it('places risers one at a time, each owned by that figure\'s owner (cross-player queue)', () => {
+    // Two seats each lose a figure; both roll 20 → two placement choices, in turn, each owned
+    // by the respective owner. Confirms the queue advances owner-by-owner and drains fully.
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
+    // Keep one SURVIVOR alive per seat (Finn for seat 0, Thorgrim for seat 1) so killing the
+    // risers can't trigger an elimination win before the glyph fires.
+    s = clearExcept(s, FINN, TARN(1), THORGRIM, MARRO(1));
+    s = place(s, FINN, at(3, 0));
+    s = place(s, THORGRIM, at(0, 7)); // seat-1 survivor, parked out of the way
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    // TARN(1) is seat-0's dead figure; MARRO(1) is seat-1's. Both off-board, both eligible.
+    for (const id of [TARN(1), MARRO(1)]) {
+      const f = s.figures.find(x => x.id === id)!;
+      f.at = null; f.at2 = null; f.wounds = 1;
+    }
+    const glyphHex = at(3, 1);
+    s = setGlyphs(s, [{ id: 'sturla', at: glyphHex, faceUp: false }]);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    const ids = moved.pendingChoice?.kind === 'glyph_sturla' ? moved.pendingChoice.figureIds : [];
+    // Roll 20 only for our two stage-managed figures (others among the cleared dead miss) → exactly two rise.
+    const risers = new Set([TARN(1), MARRO(1)]);
+    let cur = unwrap(applyAction(moved, 'p1', {
+      kind: 'resolve_choice',
+      choice: { kind: 'glyph_sturla', rolls: ids.map(id => ({ figureId: id, d20: risers.has(id) ? 20 : 7 })) },
+    }));
+    // Drain the placement queue: each step is owned by the current riser's owner; place into its zone.
+    const placedOwners: number[] = [];
+    let guard = 0;
+    while (cur.pendingChoice?.kind === 'glyph_sturla_place' && guard++ < 10) {
+      const pc = cur.pendingChoice;
+      placedOwners.push(pc.seat);
+      const spots = sturlaPlacementHexes(cur, pc.figureId);
+      expect(spots.length).toBeGreaterThan(0);
+      // Only the riser's OWNER may resolve it — an outsider is rejected.
+      expect(errOf(applyAction(cur, pc.seat === 0 ? 'p2' : 'p1', {
+        kind: 'resolve_choice', choice: { kind: 'glyph_sturla_place', hex: spots[0] },
+      }))).toBeTruthy();
+      cur = unwrap(applyAction(cur, pc.seat === 0 ? 'p1' : 'p2', {
+        kind: 'resolve_choice',
+        choice: { kind: 'glyph_sturla_place', hex: spots[0] },
+      }));
+    }
+    expect(cur.pendingChoice).toBeUndefined(); // fully drained
+    expect(placedOwners.sort()).toEqual([0, 1]); // one placement per owner (cross-player)
+    expect(fig(cur, TARN(1)).at).not.toBeNull();
+    expect(fig(cur, MARRO(1)).at).not.toBeNull();
+    expect(fig(cur, TARN(1)).wounds).toBe(0);
+    expect(fig(cur, MARRO(1)).wounds).toBe(0);
   });
 });
 

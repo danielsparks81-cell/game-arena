@@ -70,6 +70,7 @@ import {
   carryDestFootprint,
   erlandDestinations,
   erlandSummonableIds,
+  sturlaPlacementHexes,
   legalTargets,
   auraBuffedFigureIds,
   placeableHexes,
@@ -2225,6 +2226,13 @@ export default function HeroScapeBoard({
     () => new Set(wannokVictimChoice && me ? state.figures.filter(f => f.at != null && f.ownerSeat === me.seat).map(f => f.id) : []),
     [wannokVictimChoice, me, state],
   );
+  // Sturla (Resurrection) placement: after the owner's d20s, each figure that rolled a 20
+  // rises one at a time — the OWNER taps a free start-zone hex to set it down (fresh, no wounds).
+  const sturlaPlaceChoice = myChoice?.kind === 'glyph_sturla_place' ? myChoice : null;
+  const sturlaPlaceSet = useMemo(
+    () => new Set(sturlaPlaceChoice ? sturlaPlacementHexes(state, sturlaPlaceChoice.figureId) : []),
+    [sturlaPlaceChoice, state],
+  );
   // All figure ids the open choice lets me tap — fed into the board's powerTarget ring.
   const choiceFigIds = useMemo(
     () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet]),
@@ -2428,6 +2436,11 @@ export default function HeroScapeBoard({
     if (wannokVictimChoice && !disabled) {
       const occV = occupantAt(key);
       if (occV && wannokOwnSet.has(occV.id)) onResolveChoice({ kind: 'glyph_wannok_victim', figureId: occV.id });
+      return;
+    }
+    // Sturla placement: the owner taps a free start-zone hex to set the risen figure down.
+    if (sturlaPlaceChoice && !disabled) {
+      if (sturlaPlaceSet.has(key)) onResolveChoice({ kind: 'glyph_sturla_place', hex: key });
       return;
     }
     if (!canAct) return;
@@ -3829,6 +3842,22 @@ export default function HeroScapeBoard({
           </div>
         )}
 
+        {/* Glyph of Sturla — a figure rolled a 20 and rises; its owner taps a free start-zone hex. */}
+        {sturlaPlaceChoice && (() => {
+          const riser = state.figures.find(f => f.id === sturlaPlaceChoice.figureId);
+          const more = sturlaPlaceChoice.remaining.length;
+          return (
+            <div className="rounded-lg border-2 border-emerald-500 bg-neutral-900/80 px-3 py-2">
+              <div className="text-sm font-bold text-emerald-300">✟ Glyph of Sturla — Resurrection</div>
+              <div className="mt-0.5 text-[11px] text-neutral-300">
+                {riser ? <><span className="font-semibold text-emerald-200">{figureLabel(state, riser)}</span> rises! </> : 'A figure rises! '}
+                Tap a glowing hex in your start zone to set it down (fresh, no wounds).
+                {more > 0 && <span className="text-neutral-400"> {more} more to place after this.</span>}
+              </div>
+            </div>
+          );
+        })()}
+
         {/* UNDO MOVE — repeatable full rewind. Shown only while moves remain on the
             undo stack this turn and nothing has been committed (no attack yet). */}
         {myTurn && !pending && !state.movementEnded && state.turnAttacks.length === 0 && (
@@ -4013,7 +4042,7 @@ export default function HeroScapeBoard({
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
             placeHexes={placeHexes}
-            dropHexes={erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
+            dropHexes={sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
           />
         ) : (
@@ -4051,7 +4080,8 @@ export default function HeroScapeBoard({
             const ctr = toScreen(key); // iso top-face center
             const sides = sideFaces(key); // column quads (empty for water/h0)
             const isPlaceHex = placeHexes.has(key); // slice 5 placement target
-            const isDest = destinations.has(key) || isPlaceHex;
+            const isSturlaPlace = sturlaPlaceChoice != null && sturlaPlaceSet.has(key); // Sturla resurrection drop
+            const isDest = destinations.has(key) || isPlaceHex || isSturlaPlace;
             const isFireHex = fireLineMode && fireLineDirs.has(key); // slice 8 fire-line target space
             const isCloneOpt = cloneOptions.has(key);
             const isDropPick = !!dropPlacing && dropPicks.includes(key); // slice 8 chosen Drop landing
@@ -4063,7 +4093,7 @@ export default function HeroScapeBoard({
             const startZoneSeat = Object.entries(startZones).find(([, keys]) => keys.includes(key))?.[0];
             const fig = figureAt(key); // ANCHOR figure (drawn once, here)
             const occupied = !!occupantAt(key); // either hex of a 2-hex figure
-            const clickable = canAct || isCloneOpt || (!!dropPlacing && (isDropLegal || isDropPick)) || (canPlace && (isPlaceHex || occupied));
+            const clickable = canAct || isCloneOpt || isSturlaPlace || (!!dropPlacing && (isDropLegal || isDropPick)) || (canPlace && (isPlaceHex || occupied));
 
             // --- glyph on this hex (drawn between tile top and standee) ---
             const glyph = (state.glyphs ?? []).find(g => g.at === key);

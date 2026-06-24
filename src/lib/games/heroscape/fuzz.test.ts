@@ -46,6 +46,7 @@ import {
   carryPassengers,
   erlandDestinations,
   erlandSummonableIds,
+  sturlaPlacementHexes,
 } from './engine';
 import { HS_CARDS } from './content';
 import { MAPS } from './maps';
@@ -300,6 +301,11 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
       kind: 'resolve_choice',
       choice: { kind: pc.kind, rolls: pc.figureIds.map(figureId => ({ figureId, d20: d20(rng) })) },
     });
+  }
+  if (pc.kind === 'glyph_sturla_place') {
+    const hexes = sturlaPlacementHexes(s, pc.figureId);
+    if (!hexes.length) return null; // engine should have skipped this riser
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_sturla_place', hex: pick(rng, hexes) } });
   }
   if (pc.kind === 'glyph_oreld') {
     const d = d20(rng);

@@ -57,6 +57,7 @@ export {
   carryDestFootprint,
   erlandDestinations,
   erlandSummonableIds,
+  sturlaPlacementHexes,
   placeableHexes,
   placeable2Leads,
   orientationOptions,

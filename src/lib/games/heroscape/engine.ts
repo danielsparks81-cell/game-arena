@@ -1932,23 +1932,37 @@ function hasFriendlyAdjacent(state: HSState, fig: Figure): boolean {
 /** Resurrect `fig` (currently destroyed) onto an EMPTY space in its OWNER's starting zone —
  *  a 1-hex figure on any free start hex, a 2-hex figure on a free same-level adjacent pair
  *  (Glyph of Sturla). Mutates `s` in place; returns true if it found room (false = stays dead). */
-function resurrectToStartZone(s: HSState, fig: Figure): boolean {
-  const map = MAPS[s.mapId];
-  if (!map) return false;
+/** The empty start-zone hexes a resurrected figure (Glyph of Sturla) may be placed on by its
+ *  OWNER — every free hex for a 1-hex figure; for a 2-hex figure, the lead hexes that have a
+ *  free same-zone tail. Single source for the board highlight + the placement validation. */
+export function sturlaPlacementHexes(state: HSState, figureId: string): HexKey[] {
+  const map = MAPS[state.mapId];
+  const fig = state.figures.find(f => f.id === figureId);
+  if (!map || !fig) return [];
   const occupied = new Set<HexKey>();
-  for (const f of s.figures) { if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
+  for (const f of state.figures) { if (f.id === figureId) continue; if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
   const free = (map.startZones[fig.ownerSeat] ?? []).filter(h => !occupied.has(h));
-  if (baseSizeOf(cardDefFor(s, fig)) === 2) {
-    for (const lead of free) {
-      const tail = tailFor(map.cells, new Set(free.filter(h => h !== lead)), lead);
-      if (tail != null) { fig.at = lead; fig.at2 = tail; fig.wounds = 0; return true; }
-    }
-    return false;
+  if (baseSizeOf(cardDefFor(state, fig)) === 2) {
+    return free.filter(lead => tailFor(map.cells, new Set(free.filter(h => h !== lead)), lead) != null);
   }
-  if (free.length === 0) return false;
-  fig.at = free[0]; fig.at2 = null;
-  fig.wounds = 0; // a resurrected figure returns FRESH — no leftover wound markers
-  return true;
+  return free;
+}
+
+/** Open the next Sturla PLACEMENT choice (owned by that figure's owner). Skips a riser with no
+ *  legal spot (start zone full) — it stays fallen. Clears the pending when the queue is empty. */
+function openSturlaPlacement(s: HSState, risers: string[]): void {
+  let queue = risers;
+  while (queue.length > 0) {
+    const figureId = queue[0];
+    const fig = s.figures.find(f => f.id === figureId);
+    if (fig && fig.at == null && sturlaPlacementHexes(s, figureId).length > 0) {
+      s.pendingChoice = { kind: 'glyph_sturla_place', seat: fig.ownerSeat, figureId, remaining: queue.slice(1) };
+      return;
+    }
+    if (fig) pushLog(s, 'glyph', `Resurrection — no room in ${playerName(s, fig.ownerSeat)}'s start zone for ${figureLabel(s, fig)}; it stays fallen.`);
+    queue = queue.slice(1);
+  }
+  delete s.pendingChoice; // all risers placed (or skipped)
 }
 
 // ============================================================================
@@ -5555,14 +5569,14 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
       if (!Number.isInteger(r.d20) || r.d20 < 1 || r.d20 > 20) return { error: 'Malformed Sturla roll' };
     }
     const s = clone(state);
-    const back: string[] = [];
+    const risers: string[] = []; // figures that rolled a 20 — to be PLACED by their owners
     for (const r of choice.rolls) {
       const f = s.figures.find(x => x.id === r.figureId);
       if (!f || f.at != null || f.reserve) continue; // not a dead figure (e.g. already revived)
       const owner = playerName(s, f.ownerSeat);
-      if (r.d20 === 20 && resurrectToStartZone(s, f)) {
-        back.push(figureLabel(s, f));
-        pushLog(s, 'glyph', `Resurrection — ${owner} rolls 20 for ${figureLabel(s, f)} — it RISES, returned fresh to their start zone!`);
+      if (r.d20 === 20) {
+        risers.push(f.id);
+        pushLog(s, 'glyph', `Resurrection — ${owner} rolls 20 for ${figureLabel(s, f)} — it RISES! Place it in your start zone.`);
       } else {
         pushLog(s, 'glyph', `Resurrection — ${owner} rolls ${r.d20} for ${figureLabel(s, f)} (needs 20) — it stays fallen.`);
       }
@@ -5572,17 +5586,39 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
       setLastRoll(s, {
         title: 'Glyph of Sturla — Resurrection',
         dice: choice.rolls.map(r => r.d20),
-        success: back.length > 0,
-        detail: back.length ? `${back.length} rise${back.length === 1 ? 's' : ''}! ${back.join(', ')}` : 'None roll a 20 — none rise.',
+        success: risers.length > 0,
+        detail: risers.length ? `${risers.length} rise${risers.length === 1 ? 's' : ''} — owners place them` : 'None roll a 20 — none rise.',
       });
     }
     s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
-    pushLog(
-      s,
-      'glyph',
-      back.length ? `Resurrection — returned to the field: ${back.join(', ')}.` : 'Resurrection — none rise (no 20s rolled).',
-    );
-    delete s.pendingChoice;
+    if (risers.length === 0) pushLog(s, 'glyph', 'Resurrection — none rise (no 20s rolled).');
+    // Each riser is now PLACED by its OWNER, one at a time (cross-player queue). Clears the
+    // pending if no one rose (or no one has room).
+    openSturlaPlacement(s, risers);
+    return s;
+  }
+
+  // --- Glyph of Sturla PLACEMENT: the current owner sets their risen figure down on an empty
+  //     start-zone hex (returns FRESH); then the queue advances to the next riser's owner. ---
+  if (pc.kind === 'glyph_sturla_place' && choice.kind === 'glyph_sturla_place') {
+    if (!sturlaPlacementHexes(state, pc.figureId).includes(choice.hex)) {
+      return { error: 'Place the figure on an empty space in its start zone' };
+    }
+    const s = clone(state);
+    const fig = s.figures.find(f => f.id === pc.figureId)!;
+    const map = MAPS[s.mapId]!;
+    fig.wounds = 0; // returns FRESH
+    if (baseSizeOf(cardDefFor(s, fig)) === 2) {
+      const occupied = new Set(s.figures.filter(f => f.id !== fig.id && f.at != null).flatMap(f => figureHexes(f)));
+      const freeZone = new Set((map.startZones[fig.ownerSeat] ?? []).filter(h => !occupied.has(h) && h !== choice.hex));
+      const tail = tailFor(map.cells, freeZone, choice.hex);
+      if (tail == null) return { error: 'That space has no room for the 2-hex figure' };
+      fig.at = choice.hex; fig.at2 = tail;
+    } else {
+      fig.at = choice.hex; fig.at2 = null;
+    }
+    pushLog(s, 'glyph', `Resurrection — ${playerName(s, fig.ownerSeat)} returns ${figureLabel(s, fig)} to the battlefield.`);
+    openSturlaPlacement(s, pc.remaining); // next riser (its own owner), or done
     return s;
   }
 
@@ -6133,6 +6169,12 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     const pts = (f: Figure) => cardDefFor(state, f).points;
     const pick = mine.reduce((b, f) => (pts(f) < pts(b) ? f : b), mine[0]);
     return { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: pick.id } };
+  }
+  // Glyph of Sturla — place a resurrected figure on the first available start-zone hex.
+  if (pc.kind === 'glyph_sturla_place') {
+    const hexes = sturlaPlacementHexes(state, pc.figureId);
+    if (hexes.length === 0) return null; // engine skips it
+    return { kind: 'resolve_choice', choice: { kind: 'glyph_sturla_place', hex: hexes[0] } };
   }
   // Airborne Elite THE DROP — land all reserve Airborne on the planned non-adjacent hexes
   // (closest to the enemy). The Drop is all-or-nothing, so deploy the full squad only when

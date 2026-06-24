@@ -417,12 +417,23 @@ export type HSPendingChoice =
     }
   | {
       // Glyph of Sturla (Resurrection) — fires when a figure stops on it. The action layer
-      // rolls one d20 per listed DESTROYED figure (`figureIds`); on a 20 it returns to an
-      // empty space in its owner's starting zone. No human choice — auto-resolved in-request.
+      // rolls one d20 per listed DESTROYED figure (`figureIds`, attributed to each owner). The
+      // rolls are SEEN (logged + dice overlay); each figure that rolls a 20 then goes into a
+      // per-owner PLACEMENT queue (glyph_sturla_place) so its owner chooses where it returns.
       kind: 'glyph_sturla';
       seat: number;
       at: HexKey;
       figureIds: string[];
+    }
+  | {
+      // Glyph of Sturla — PLACEMENT step. After the rolls, each figure that rose is placed by
+      // ITS OWNER, one at a time: `seat` = that owner, `figureId` = the figure to place now,
+      // `remaining` = the still-to-place risers (each placed by its own owner in turn). The
+      // owner picks an empty hex in their start zone; the figure returns FRESH (no wounds).
+      kind: 'glyph_sturla_place';
+      seat: number;
+      figureId: string;
+      remaining: string[];
     }
   | {
       // Glyph of Oreld (Remove Marker) — fires when a figure stops on it. The action layer
@@ -487,6 +498,7 @@ export type HSChoiceResolution =
   | { kind: 'airborne_drop'; placements: HexKey[] } // landings for all reserve Airborne Elite
   | { kind: 'glyph_mitonsoul'; rolls: { figureId: string; d20: number }[] } // a d20 per figure
   | { kind: 'glyph_sturla'; rolls: { figureId: string; d20: number }[] } // a d20 per dead figure
+  | { kind: 'glyph_sturla_place'; hex: HexKey } // where the current owner places their risen figure
   | { kind: 'glyph_oreld'; d20: number; cardUid: string; markerIndex: number } // d20 + chosen marker (markerIndex<0 = none)
   | { kind: 'glyph_erland'; figureId: string; to: HexKey } // figure to summon + its destination hex
   | { kind: 'glyph_nilrend'; d20?: number; cardUid?: string } // d20 = the server roll step; cardUid = the human pick step
