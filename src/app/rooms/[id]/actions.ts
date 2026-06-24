@@ -1642,6 +1642,16 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
           kind: 'resolve_choice',
           choice: { kind: 'glyph_oreld', d20: d, cardUid: e.cardUid, markerIndex: e.markerIndex },
         });
+      } else if (pc?.kind === 'glyph_nilrend' && pc.d20 == null) {
+        // Negation STEP 1 — roll the controller's d20 server-side, then STOP: the engine
+        // narrows to the eligible side and leaves the choice open for the human/AI to PICK
+        // (or fizzles if that side is empty). The loop then breaks (pending now has a d20).
+        resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', d20: d20() } });
+      } else if (pc?.kind === 'glyph_wannok' && pc.d20 == null) {
+        // Wannok STEP 1 — roll the controller's d20: on a 1 the engine auto-wounds the figure on
+        // the glyph + rolls the next round; on 2+ it leaves the choice open for the controller to
+        // name an opponent. Either way the loop breaks afterward (a 1 clears it; a 2+ awaits input).
+        resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: d20() } });
       } else {
         break;
       }

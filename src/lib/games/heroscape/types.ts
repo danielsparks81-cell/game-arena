@@ -434,6 +434,49 @@ export type HSPendingChoice =
       at: HexKey;
       ownCandidates: { cardUid: string; markerIndex: number }[];
       foeCandidates: { cardUid: string; markerIndex: number }[];
+    }
+  | {
+      // Glyph of Erland (Summoning, temporary) — fires when a figure stops on it. The
+      // controller (the stopper's seat) picks ANY one figure on the board (friend or foe)
+      // and a destination space; it teleports next to the figure on the glyph. Pure
+      // teleport: any EMPTY on-map space adjacent to `summonerFigureId`, ignoring height
+      // and engagement (no leaving-engagement swipes, no fall). `at` is the glyph hex.
+      kind: 'glyph_erland';
+      seat: number;
+      at: HexKey;
+      summonerFigureId: string;
+    }
+  | {
+      // Glyph of Nilrend (Negation, temporary) — fires when a figure stops on it. The
+      // action layer rolls a d20 (recorded into `d20`, then this stays open for the human):
+      // on a 1 the controller chooses one of their OWN unique cards (`ownCardUids`); on 2+
+      // any opponent's unique card (`foeCardUids`). The chosen card's special powers are
+      // negated for the rest of the game. `d20` is null until the server rolls it.
+      kind: 'glyph_nilrend';
+      seat: number;
+      at: HexKey;
+      d20: number | null;
+      ownCardUids: string[];
+      foeCardUids: string[];
+    }
+  | {
+      // Glyph of Wannok (Curse, permanent) — fires at the END of each round while a figure
+      // stands on it. The action layer rolls the controller's d20 into `d20`: on a 1 the
+      // figure ON the glyph takes a wound (auto-resolved); on 2+ the controller picks an
+      // opponent seat, which opens a `glyph_wannok_victim` choice for that player. `d20` is
+      // null until the server rolls it. Resolving this (any branch) rolls the next round.
+      kind: 'glyph_wannok';
+      seat: number;
+      at: HexKey;
+      d20: number | null;
+    }
+  | {
+      // Glyph of Wannok step 2 — the opponent named by the controller must choose one of
+      // THEIR OWN living figures to take a wound. Owned by that opponent's `seat`.
+      kind: 'glyph_wannok_victim';
+      seat: number;
+      at: HexKey;
+      controllerSeat: number;
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -444,7 +487,11 @@ export type HSChoiceResolution =
   | { kind: 'airborne_drop'; placements: HexKey[] } // landings for all reserve Airborne Elite
   | { kind: 'glyph_mitonsoul'; rolls: { figureId: string; d20: number }[] } // a d20 per figure
   | { kind: 'glyph_sturla'; rolls: { figureId: string; d20: number }[] } // a d20 per dead figure
-  | { kind: 'glyph_oreld'; d20: number; cardUid: string; markerIndex: number }; // d20 + chosen marker (markerIndex<0 = none)
+  | { kind: 'glyph_oreld'; d20: number; cardUid: string; markerIndex: number } // d20 + chosen marker (markerIndex<0 = none)
+  | { kind: 'glyph_erland'; figureId: string; to: HexKey } // figure to summon + its destination hex
+  | { kind: 'glyph_nilrend'; d20?: number; cardUid?: string } // d20 = the server roll step; cardUid = the human pick step
+  | { kind: 'glyph_wannok'; d20?: number; opponentSeat?: number } // d20 = the server roll step; opponentSeat = the controller's pick (on 2+)
+  | { kind: 'glyph_wannok_victim'; figureId: string }; // the named opponent's own figure to wound
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`
@@ -641,6 +688,11 @@ export type HSState = {
    *  permanent glyph's effect is active only while a figure stands on its hex —
    *  recomputed from positions, never stored as a token. */
   glyphs: HSGlyph[];
+  /** Army-card uids whose SPECIAL POWERS are negated for the rest of the game by the
+   *  Glyph of Nilrend. A negated card's figures fight with only their base printed stats
+   *  (no auras, special attacks, or passive powers). Glyph bonuses + height still apply
+   *  (those are not the card's powers). Absent/empty = nothing negated. */
+  negatedCardUids?: string[];
   /** An open player decision (slice 4). While set, ONLY the owning seat may act
    *  and ONLY via resolve_choice. Public — projection adds no hidden info. */
   pendingChoice?: HSPendingChoice;

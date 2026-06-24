@@ -689,7 +689,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'permanent',
     power: 'Curse',
     effect: 'At end of each round the controller rolls a d20: on 1 the figure here takes a wound; on 2+ choose an opponent who must wound one of their own figures.',
-    active: false, // wave 3: end-of-round trigger + choice
+    active: true, // wave 3: end-of-round trigger + cross-player choice
   },
   brandar: {
     id: 'brandar',
@@ -717,7 +717,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'temporary',
     power: 'Summoning',
     effect: "Move any one figure (yours or an opponent's) to a space adjacent to the figure on this glyph. No leaving-engagement attacks.",
-    active: false, // wave 3: summon (pick any figure → adjacent)
+    active: true, // wave 3: summon (pick any figure → adjacent, pure teleport)
   },
   mitonsoul: {
     id: 'mitonsoul',
@@ -744,7 +744,7 @@ export const HS_GLYPHS: Record<HSGlyphId, HSGlyphDef> = {
     kind: 'temporary',
     power: 'Negation',
     effect: "Roll a d20: on 1 choose one of your unique figures; on 2+ choose any opponent's unique figure — its special powers are negated for the rest of the game.",
-    active: false, // wave 3: d20 + negate powers
+    active: true, // wave 3: d20 + negate the chosen card's powers (game-long)
   },
   oreld: {
     id: 'oreld',

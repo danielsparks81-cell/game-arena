@@ -55,6 +55,8 @@ export {
   carryPassengers,
   carryLandingHexes,
   carryDestFootprint,
+  erlandDestinations,
+  erlandSummonableIds,
   placeableHexes,
   placeable2Leads,
   orientationOptions,

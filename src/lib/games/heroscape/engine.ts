@@ -333,6 +333,15 @@ function doRemoveBot(state: HSState, seat: number): HSResult {
 // Apply action
 // ============================================================================
 
+/** Action kinds that USE the active card's special power (so a Glyph of Nilrend
+ *  negation blocks them server-side). Normal move/attack/end are NOT here — a
+ *  negated unit still moves and makes normal attacks at base stats. */
+const SPECIAL_POWER_ACTION_KINDS: ReadonlySet<HSAction['kind']> = new Set([
+  'fire_line', 'explosion', 'grenade', 'berserker_charge', 'water_clone',
+  'mind_shackle', 'chomp', 'ice_shard', 'queglix', 'wild_swing', 'acid_breath',
+  'throw_figure', 'carry_move',
+] as HSAction['kind'][]);
+
 export function applyAction(state: HSState, playerId: string, action: HSAction): HSResult {
   if (!state.players.some(p => p.playerId === playerId)) {
     return { error: 'You are not seated in this game' };
@@ -452,6 +461,15 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
       if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
+      // Glyph of Nilrend — the active card's SPECIAL POWERS are negated: server-side block of
+      // every special-power action (the canX gates also hide them for the board/AI). A negated
+      // unit may still move + make NORMAL attacks (those aren't powers), so move/attack/end pass.
+      if (SPECIAL_POWER_ACTION_KINDS.has(action.kind)) {
+        const auid = getActiveCardUid(state);
+        if (auid && isCardNegated(state, auid)) {
+          return { error: 'This unit’s special powers are negated by the Glyph of Nilrend.' };
+        }
+      }
       // Movement UNDO (repeatable, full rewind) — pops the pre-move snapshot stack.
       if (action.kind === 'undo_move') return doUndoMove(state, me.seat);
       // FINALIZE an in-progress tap-walk: anything other than continuing to step the SAME figure
@@ -1538,8 +1556,36 @@ function advanceSlot(s: HSState): boolean {
     s.turnNumber = (s.turnNumber + 1) as 2 | 3;
     return true;
   }
-  startNextRound(s);
+  endRound(s);
   return false;
+}
+
+/** Roll over to the next round, then fire the Glyph of Wannok if a figure controls it.
+ *  Wannok's curse resolves at the round boundary, BEFORE order markers — we roll the new
+ *  round first (so the pendingChoice gate then blocks markers until the curse resolves),
+ *  which keeps a curse-caused death (and any resulting Spirit) on the normal pending rails
+ *  without a deferred-rollover dance. */
+function endRound(s: HSState): void {
+  startNextRound(s);
+  if (s.phase !== 'playing') return; // stalemate/last-army may have finished the game
+  if (!HS_GLYPHS.wannok?.active) return;
+  const w = (s.glyphs ?? []).find(g => g.id === 'wannok' && g.faceUp);
+  const occupant = w ? s.figures.find(f => f.at != null && figureHexes(f).includes(w.at)) : undefined;
+  if (w && occupant) {
+    s.pendingChoice = { kind: 'glyph_wannok', seat: occupant.ownerSeat, at: w.at, d20: null };
+    pushLog(s, 'glyph', `Glyph of Wannok — ${playerName(s, occupant.ownerSeat)} rolls its curse before order markers.`);
+  }
+}
+
+/** Deal exactly one (unblockable) wound to a figure and remove it if that meets its Life.
+ *  Used by the Glyph of Wannok. Queues a Finn/Thorgrim Spirit on death (the caller must have
+ *  already cleared any pendingChoice so the Spirit can open), then the caller checks the win. */
+function woundOneFigure(s: HSState, fig: Figure, reason: string): void {
+  fig.wounds += 1;
+  const dead = fig.wounds >= cardDefFor(s, fig).life;
+  if (dead) { fig.at = null; fig.at2 = null; }
+  pushLog(s, 'glyph', `${reason}: ${figureLabel(s, fig)} takes a wound${dead ? ' and is destroyed!' : '.'}`);
+  if (dead) maybeQueueSpiritOnDestroy(s, fig);
 }
 
 /** End of round (p. 8/14): markers return to the owners' pools — revealed and
@@ -1734,6 +1780,7 @@ function hasFiguresAdjacentLivingCard(
       o.at != null &&
       o.ownerSeat === seat &&
       cardDefFor(state, o).id === cardId &&
+      !isCardNegated(state, o.cardUid) && // Nilrend: a negated source grants no aura
       figuresAdjacent(state, fig, o),
   );
 }
@@ -1773,6 +1820,7 @@ function raelinAuraReaches(state: HSState, defender: Figure): boolean {
     if (raelin.ownerSeat !== defender.ownerSeat) return false; // figures YOU control
     if (raelin.id === defender.id) return false; // does not affect Raelin herself
     if (cardDefFor(state, raelin).id !== RAELIN_CARD_ID) return false;
+    if (isCardNegated(state, raelin.cardUid)) return false; // Nilrend: a negated Raelin projects no aura
     // Within 6 range-spaces (around gaps, elevation-free). Both `at`s are guarded
     // non-null above (the `!` is just for the closure, which widens the param).
     const dist = rangeDistance(map.cells, raelin.at!, defender.at!);
@@ -1842,9 +1890,26 @@ function rannveigSuppressesFlying(state: HSState): boolean {
 }
 
 /** Effective Flying for a card def — its printed Flying unless a Glyph of Rannveig is
- *  occupied (strips Flying from every figure). The single source for movement decisions. */
+ *  occupied (strips Flying from every figure). The single source for movement decisions.
+ *  (A Nilrend-negated card already has `flying:false` via cardDefFor's power-strip.) */
 function effectiveFlying(state: HSState, def: HSCardDef): boolean {
   return !!def.flying && !rannveigSuppressesFlying(state);
+}
+
+/** Is this army card's special powers NEGATED for the game (Glyph of Nilrend)? The
+ *  chosen card's figures then fight with only base stats. Threaded into: cardDefFor
+ *  (strips the passive power FLAGS), the aura-source scans (hasFiguresAdjacentLivingCard /
+ *  raelinAuraReaches / Carr / Zettian self-buffs), maxAttacks (Syvarris), and the
+ *  special-power action gate. Glyph bonuses + height are NOT card powers — unaffected. */
+function isCardNegated(state: HSState, cardUid: string | undefined): boolean {
+  return cardUid != null && (state.negatedCardUids ?? []).includes(cardUid);
+}
+
+/** Is the ACTIVE card (the one taking this turn) negated? Every special power is used by the
+ *  active card, so this hides all of them — used at the top of each can-X / targets-X gate so
+ *  the board never shows a negated card's power button and the AI never proposes it. */
+function activeCardNegated(state: HSState): boolean {
+  return isCardNegated(state, getActiveCardUid(state) ?? undefined);
 }
 
 /** Is a FRIENDLY figure (same seat, not `fig` itself) in a space adjacent to `fig`? Used by
@@ -2775,13 +2840,83 @@ function applyGlyphOnStop(s: HSState, fig: Figure): void {
     pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Oreld — an order marker will be lost!`);
     return;
   }
+  if (g.id === 'erland') {
+    // Summoning (temporary) — pure teleport. The controller (stopper) picks ANY single-hex
+    // figure on the board and an EMPTY space adjacent to the figure on the glyph; it moves
+    // there with no swipes/fall. Fizzle (remove, no effect) when there is no one to summon
+    // or no empty adjacent space. Resolved by the human/AI via a glyph_erland choice.
+    const dests = emptyNeighborsOf(s, fig);
+    const summonable = s.figures.filter(o => o.at != null && o.at2 == null && o.id !== fig.id);
+    if (dests.length === 0 || summonable.length === 0) {
+      s.glyphs = s.glyphs.filter(x => x.at !== g.at);
+      pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Erland — but there is no one to summon. It fades.`);
+      return;
+    }
+    s.pendingChoice = { kind: 'glyph_erland', seat: fig.ownerSeat, at: g.at, summonerFigureId: fig.id };
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Erland — summon any figure to an adjacent space!`);
+    return;
+  }
+  if (g.id === 'nilrend') {
+    // Negation (temporary) — the action layer rolls the controller's d20 (recorded into the
+    // pending), THEN the controller picks a UNIQUE card to negate for the game: one of their
+    // own on a 1, any opponent's on 2+. Candidates = unique cards (not Common) with a living
+    // figure, not already negated. `d20:null` until the server rolls it.
+    const myTeam = teamOfSeat(s, fig.ownerSeat);
+    const isUnique = (c: ArmyCardInstance) => !effectiveCardDef(c.cardId, s.edition)?.common;
+    const cardsWhere = (pred: (c: ArmyCardInstance) => boolean) =>
+      s.cards.filter(c => pred(c) && isUnique(c) && cardHasLivingFigures(s, c.uid) && !isCardNegated(s, c.uid)).map(c => c.uid);
+    s.pendingChoice = {
+      kind: 'glyph_nilrend',
+      seat: fig.ownerSeat,
+      at: g.at,
+      d20: null,
+      ownCardUids: cardsWhere(c => c.ownerSeat === fig.ownerSeat),
+      foeCardUids: cardsWhere(c => teamOfSeat(s, c.ownerSeat) !== myTeam),
+    };
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Nilrend — a unique figure's powers will be negated!`);
+    return;
+  }
   if (def.kind === 'permanent' && def.active) {
     pushLog(s, 'glyph', `${figureLabel(s, fig)} claims the ${def.name} — ${def.effect}`);
     return;
   }
-  // Deferred / inert glyph (Erland, Mitonsoul, Brandar): a forced stop with no
-  // effect yet (slice 5 / scenario). Log it so the framework is visible.
+  // Deferred / inert glyph (Brandar artifact): a forced stop with no effect (scenario-only).
   pushLog(s, 'glyph', `${figureLabel(s, fig)} stops on the ${def.name} — no effect yet.`);
+}
+
+/** Empty, on-map spaces adjacent to `fig` (either lobe of a 2-hex figure), excluding the
+ *  figure's own hexes, any occupied hex, and any glyph hex — the legal landings for a
+ *  Glyph of Erland summon (pure teleport; height/engagement ignored). */
+function emptyNeighborsOf(s: HSState, fig: Figure): HexKey[] {
+  const cells = MAPS[s.mapId]?.cells;
+  if (!cells) return [];
+  const own = new Set(figureHexes(fig));
+  const occupied = new Set(s.figures.flatMap(f => figureHexes(f)));
+  const onGlyph = new Set((s.glyphs ?? []).map(g => g.at));
+  const out = new Set<HexKey>();
+  for (const h of figureHexes(fig)) {
+    for (const n of neighborKeys(h)) {
+      if (cells[n] && !occupied.has(n) && !onGlyph.has(n) && !own.has(n)) out.add(n);
+    }
+  }
+  return [...out];
+}
+
+/** Board helper — the EMPTY adjacent spaces a Glyph of Erland summon may land on (only
+ *  meaningful while a glyph_erland choice is open). Empty otherwise. */
+export function erlandDestinations(state: HSState): HexKey[] {
+  const pc = state.pendingChoice;
+  if (!pc || pc.kind !== 'glyph_erland') return [];
+  const summoner = state.figures.find(f => f.id === pc.summonerFigureId);
+  return summoner ? emptyNeighborsOf(state, summoner) : [];
+}
+
+/** Board helper — the figure ids a Glyph of Erland may summon (any single-hex figure on
+ *  the board other than the figure standing on the glyph). Empty unless a choice is open. */
+export function erlandSummonableIds(state: HSState): string[] {
+  const pc = state.pendingChoice;
+  if (!pc || pc.kind !== 'glyph_erland') return [];
+  return state.figures.filter(o => o.at != null && o.at2 == null && o.id !== pc.summonerFigureId).map(o => o.id);
 }
 
 /** Apply a resolved fall to the mover (03-movement §4). Fall/Major: 1 wound per
@@ -2834,8 +2969,9 @@ function applyFall(
  * is a per-figure budget, not a forced second roll, so the player may simply
  * stop after one. Data-driven on card id (only Syvarris in this roster).
  */
-function maxAttacks(card: HSCardDef): number {
-  return card.id === SYVARRIS_CARD_ID ? 2 : 1;
+function maxAttacks(state: HSState, fig: Figure): number {
+  if (isCardNegated(state, fig.cardUid)) return 1; // Nilrend: Double Attack negated
+  return cardDefFor(state, fig).id === SYVARRIS_CARD_ID ? 2 : 1;
 }
 
 /** How many times `figureId` has already attacked this turn — counted from the
@@ -2862,7 +2998,7 @@ function attackReadyFigure(state: HSState, attackerId: string): { fig: Figure } 
   // Per-figure attack budget (slice 6): a figure may attack while its count this
   // turn is below maxAttacks (1 for a normal figure, 2 for Syvarris's Double
   // Attack). Replaces the old boolean "has this figure attacked" gate.
-  if (attacksThisTurn(state, attackerId) >= maxAttacks(cardDefFor(state, fig))) {
+  if (attacksThisTurn(state, attackerId) >= maxAttacks(state, fig)) {
     return { error: 'That figure has already attacked this turn' };
   }
   return { fig };
@@ -3052,7 +3188,12 @@ export function effectiveAttackDice(
   // Agent Carr's SWORD OF RECKONING 4 (slice 6, cards.md): "If Agent Carr is
   // attacking an adjacent figure, add 4 dice to Agent Carr's attack." NORMAL
   // attacks only (special attacks are unmodifiable; Carr has none here).
-  if (def.id === AGENT_CARR_CARD_ID && isNormalAttack && figuresAdjacent(state, attacker, target)) {
+  if (
+    def.id === AGENT_CARR_CARD_ID &&
+    !isCardNegated(state, attacker.cardUid) && // Nilrend negates Carr's own power
+    isNormalAttack &&
+    figuresAdjacent(state, attacker, target)
+  ) {
     dice += SWORD_OF_RECKONING_BONUS;
     breakdown.push(`+${SWORD_OF_RECKONING_BONUS} Sword of Reckoning`);
   }
@@ -3076,7 +3217,11 @@ export function effectiveAttackDice(
   // (so the second Guard — and only the second — gets +1). The preview reads the
   // same turnAttacks, keeping the single source intact. Imperative "add" — not
   // optional.
-  if (def.id === ZETTIAN_CARD_ID && zettianTargetingApplies(state, attacker, target)) {
+  if (
+    def.id === ZETTIAN_CARD_ID &&
+    !isCardNegated(state, attacker.cardUid) && // Nilrend negates Zettian Targeting
+    zettianTargetingApplies(state, attacker, target)
+  ) {
     dice += 1;
     breakdown.push('+1 Zettian Targeting');
   }
@@ -3364,6 +3509,7 @@ const FIRE_LINE_ATTACK = 4;
 /** Only Mimring has Fire Line, and only when he could otherwise attack — it IS
  *  his attack (it spends his turn's attack and ends his movement). */
 export function canFireLine(state: HSState, attackerId: string): boolean {
+  if (activeCardNegated(state)) return false; // Glyph of Nilrend
   const r = attackReadyFigure(state, attackerId);
   if ('error' in r) return false;
   return cardDefFor(state, r.fig).id === 'mimring';
@@ -3566,6 +3712,7 @@ export function explosionDefenders(
 /** Can the active Deathwalker Explode now (card active, hasn't attacked, ≥1 enemy
  *  in range + sight)? The board shows the control + highlights the targets. */
 export function canExplosion(state: HSState, seat: number): boolean {
+  if (activeCardNegated(state)) return false; // Glyph of Nilrend
   if (state.subPhase !== 'turns' || state.turnSeat !== seat || state.turnAttacks.length > 0 || state.pendingChoice) {
     return false;
   }
@@ -3718,6 +3865,7 @@ export function grenadeDefenders(
 /** Can the active Airborne Elite throw grenades now — squad active, marker
  *  unused, no attack yet, no open choice, and ≥1 Elite has a figure in range. */
 export function canGrenade(state: HSState, seat: number): boolean {
+  if (activeCardNegated(state)) return false; // Glyph of Nilrend
   if (state.subPhase !== 'turns' || state.turnSeat !== seat) return false;
   if (state.turnAttacks.length > 0 || state.pendingChoice) return false;
   const active = state.cards.find(c => c.uid === getActiveCardUid(state));
@@ -4200,6 +4348,7 @@ const NE_GOK_SA_CARD_ID = 'ne_gok_sa';
  *  turn, before attacking, with the one attempt unspent (the board highlights
  *  these as shackle targets). */
 export function mindShackleTargets(state: HSState, seat: number): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
   if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
   if (state.turnAttacks.length > 0 || state.mindShackleSpent) return [];
   const activeUid = getActiveCardUid(state);
@@ -4317,6 +4466,7 @@ function isChompable(def: HSCardDef): boolean {
  *  could Chomp right now (the board highlights these). Empty unless it is this
  *  seat's Grimnak turn, before attacking, with the one chomp unspent. */
 export function chompTargets(state: HSState, seat: number): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
   if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
   if (state.turnAttacks.length > 0 || state.chompedThisTurn) return [];
   const active = state.cards.find(c => c.uid === getActiveCardUid(state));
@@ -4610,6 +4760,7 @@ function iceShardHitIds(state: HSState, attackerId: string): Set<string> {
  *  hit this turn). Empty unless it is his active turn with shots left and he has
  *  not made a NORMAL/other attack. */
 export function iceShardTargets(state: HSState, attackerId: string): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
   const r = activeSpecialFigure(state, attackerId);
   if ('error' in r) return [];
   const nilf = r.fig;
@@ -4690,6 +4841,7 @@ function doIceShard(
 /** Enemy figures Major Q9 could Queglix right now (Range 6 + LOS), if he has
  *  dice left and has not made a normal attack. */
 export function queglixTargets(state: HSState, attackerId: string): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
   const r = activeSpecialFigure(state, attackerId);
   if ('error' in r) return [];
   const q9 = r.fig;
@@ -4774,6 +4926,7 @@ function doQueglix(
 /** Enemy figures adjacent to the active Jotun he may Wild Swing (the primary
  *  target). Empty unless his active turn, before attacking. */
 export function wildSwingTargets(state: HSState, attackerId: string): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
   const r = activeSpecialFigure(state, attackerId);
   if ('error' in r) return [];
   const jotun = r.fig;
@@ -4883,6 +5036,7 @@ function doWildSwing(
  *  clear sight, any owner but Braxas. (Friendly fire is allowed in this engine;
  *  the card says "figures", not "enemy figures".) Empty after Braxas attacks. */
 export function acidBreathTargets(state: HSState, seat: number): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
   const activeUid = getActiveCardUid(state);
   const active = state.cards.find(c => c.uid === activeUid);
   if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
@@ -4972,6 +5126,7 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
 /** Small/medium non-flying figures adjacent to the active Jotun he may Throw
  *  (any owner). Empty unless his active turn, before attacking, throw unspent. */
 export function throwTargets(state: HSState, seat: number): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
   const activeUid = getActiveCardUid(state);
   const active = state.cards.find(c => c.uid === activeUid);
   if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
@@ -5404,6 +5559,125 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     return s;
   }
 
+  // --- Glyph of Erland: Summoning (teleport any single-hex figure to an empty space
+  //     adjacent to the figure on the glyph; no swipes/fall) ---
+  if (pc.kind === 'glyph_erland' && choice.kind === 'glyph_erland') {
+    const summoner = state.figures.find(f => f.id === pc.summonerFigureId);
+    if (!summoner || summoner.at == null) {
+      const s = clone(state);
+      s.glyphs = s.glyphs.filter(g => g.at !== pc.at);
+      delete s.pendingChoice;
+      return s; // summoner gone — fizzle
+    }
+    const target = state.figures.find(f => f.id === choice.figureId);
+    if (!target || target.at == null || target.at2 != null || target.id === pc.summonerFigureId) {
+      return { error: 'Choose a single-hex figure to summon' };
+    }
+    if (!emptyNeighborsOf(state, summoner).includes(choice.to)) {
+      return { error: 'Choose an empty space adjacent to the figure on the glyph' };
+    }
+    const s = clone(state);
+    const f = s.figures.find(x => x.id === choice.figureId)!;
+    f.at = choice.to;
+    f.at2 = null;
+    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once
+    delete s.pendingChoice;
+    pushLog(s, 'glyph', `Erland — ${figureLabel(s, f)} is summoned beside ${figureLabel(s, summoner)} (no swipes).`);
+    return s;
+  }
+
+  // --- Glyph of Nilrend: Negation — STEP 1 the server d20 (narrow to the eligible side);
+  //     STEP 2 the controller picks a unique card → its powers off for the game ---
+  if (pc.kind === 'glyph_nilrend' && choice.kind === 'glyph_nilrend') {
+    if (pc.d20 == null) {
+      if (choice.d20 == null || !Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) {
+        return { error: 'Nilrend needs a d20 roll' };
+      }
+      const eligible = choice.d20 === 1 ? pc.ownCardUids : pc.foeCardUids;
+      const whose = choice.d20 === 1 ? 'your own' : "an opponent's";
+      const s = clone(state);
+      setLastRoll(s, { title: 'Glyph of Nilrend', dice: [choice.d20], success: choice.d20 >= 2, detail: `${choice.d20} — negate ${whose} unique figure.` });
+      if (eligible.length === 0) {
+        s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // fizzle — nothing on that side
+        delete s.pendingChoice;
+        pushLog(s, 'glyph', `Nilrend — ${playerName(s, seat)} rolls ${choice.d20}, but there is no ${whose} unique figure to negate. It fades.`);
+        return s;
+      }
+      s.pendingChoice = { ...pc, d20: choice.d20 }; // keep open for the human pick
+      pushLog(s, 'glyph', `Nilrend — ${playerName(s, seat)} rolls ${choice.d20}: choose ${whose} unique figure to negate.`);
+      return s;
+    }
+    if (choice.cardUid == null) return { error: 'Choose a unique card to negate' };
+    const eligible = pc.d20 === 1 ? pc.ownCardUids : pc.foeCardUids;
+    if (!eligible.includes(choice.cardUid)) return { error: 'That card is not an eligible Nilrend target' };
+    const s = clone(state);
+    s.negatedCardUids = [...(s.negatedCardUids ?? []), choice.cardUid];
+    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once
+    delete s.pendingChoice;
+    const card = s.cards.find(c => c.uid === choice.cardUid);
+    pushLog(s, 'glyph', `Nilrend — ${card ? HS_CARDS[card.cardId].name : 'a unique card'}'s special powers are negated for the rest of the game.`);
+    return s;
+  }
+
+  // --- Glyph of Wannok: end-of-round Curse. STEP 1 the server d20 (1 → wound the figure on
+  //     the glyph; 2+ → the controller names an opponent). The round has ALREADY rolled over,
+  //     so resolving just applies the wound / opens the next step and clears the pending. ---
+  if (pc.kind === 'glyph_wannok' && choice.kind === 'glyph_wannok') {
+    if (pc.d20 == null) {
+      if (choice.d20 == null || !Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) {
+        return { error: 'Wannok needs a d20 roll' };
+      }
+      const s = clone(state);
+      setLastRoll(s, {
+        title: 'Glyph of Wannok',
+        dice: [choice.d20],
+        success: choice.d20 >= 2,
+        detail: choice.d20 === 1 ? '1 — the figure on the glyph is cursed.' : `${choice.d20} — choose an opponent to curse.`,
+      });
+      if (choice.d20 === 1) {
+        delete s.pendingChoice; // clear FIRST so a curse death can queue its Spirit
+        const occupant = s.figures.find(f => f.at != null && figureHexes(f).includes(pc.at));
+        if (occupant) woundOneFigure(s, occupant, 'Wannok curse (rolled 1)');
+        else pushLog(s, 'glyph', 'Wannok — rolled 1, but no figure stands on the glyph.');
+        checkEliminationWin(s);
+        return s;
+      }
+      // 2+ — the controller must name an opponent (next step). If there are no opponents to
+      // curse (shouldn't happen in a live game), the curse simply fizzles.
+      const hasOpponent = livingSeats(s).some(st => teamOfSeat(s, st) !== teamOfSeat(s, pc.seat));
+      if (!hasOpponent) {
+        delete s.pendingChoice;
+        pushLog(s, 'glyph', `Wannok — ${playerName(s, pc.seat)} rolls ${choice.d20}, but there is no opponent to curse.`);
+        return s;
+      }
+      s.pendingChoice = { ...pc, d20: choice.d20 };
+      pushLog(s, 'glyph', `Wannok — ${playerName(s, pc.seat)} rolls ${choice.d20}: choose an opponent who must wound one of their own.`);
+      return s;
+    }
+    // STEP 2 — the controller names an opponent → open that opponent's victim choice.
+    if (choice.opponentSeat == null) return { error: 'Choose an opponent' };
+    if (teamOfSeat(state, choice.opponentSeat) === teamOfSeat(state, seat)) return { error: 'Choose an OPPONENT, not an ally' };
+    if (!livingSeats(state).includes(choice.opponentSeat)) return { error: 'That opponent has no figures left' };
+    const s = clone(state);
+    s.pendingChoice = { kind: 'glyph_wannok_victim', seat: choice.opponentSeat, at: pc.at, controllerSeat: seat };
+    pushLog(s, 'glyph', `Wannok — ${playerName(s, choice.opponentSeat)} must wound one of their own figures.`);
+    return s;
+  }
+
+  // --- Glyph of Wannok step 2: the named opponent wounds one of their OWN living figures. ---
+  if (pc.kind === 'glyph_wannok_victim' && choice.kind === 'glyph_wannok_victim') {
+    const victim = state.figures.find(f => f.id === choice.figureId);
+    if (!victim || victim.at == null || victim.ownerSeat !== pc.seat) {
+      return { error: 'Choose one of YOUR living figures to take the wound' };
+    }
+    const s = clone(state);
+    delete s.pendingChoice; // clear FIRST so a curse death can queue its Spirit
+    const f = s.figures.find(x => x.id === choice.figureId)!;
+    woundOneFigure(s, f, 'Wannok curse');
+    checkEliminationWin(s);
+    return s;
+  }
+
   // --- Spirit placement (Finn/Thorgrim on destroy) ---
   if (pc.kind === 'spirit_placement' && choice.kind === 'spirit_placement') {
     if (!pc.options.includes(choice.cardUid)) {
@@ -5742,6 +6016,50 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     const hex = pc.placements[0]?.options[0];
     if (hex) return { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex } };
   }
+  // Glyph of Erland — drag the most valuable ENEMY single-hex figure next to the summoner
+  // (so the controller's army can focus it); fall back to any summonable figure. Destination
+  // = any empty adjacent space. The pending only opens when both lists are non-empty.
+  if (pc.kind === 'glyph_erland') {
+    const dests = erlandDestinations(state);
+    const summonable = erlandSummonableIds(state);
+    if (dests.length === 0 || summonable.length === 0) return null;
+    const foeIds = new Set(aiEnemies(state, seat).map(e => e.id));
+    const pts = (id: string) => { const f = state.figures.find(x => x.id === id); return f ? cardDefFor(state, f).points : 0; };
+    const foes = summonable.filter(id => foeIds.has(id));
+    const pool = foes.length ? foes : summonable;
+    const figureId = pool.reduce((b, id) => (pts(id) > pts(b) ? id : b), pool[0]);
+    return { kind: 'resolve_choice', choice: { kind: 'glyph_erland', figureId, to: dests[0] } };
+  }
+  // Glyph of Nilrend — STEP 2 only (the server rolls the d20 in the action layer). Negate the
+  // biggest threat: on a foe roll (2+) the highest-point opponent card; on an own roll (1)
+  // sacrifice the LEAST valuable own card. Returns null until the d20 is recorded.
+  if (pc.kind === 'glyph_nilrend') {
+    if (pc.d20 == null) return null;
+    const eligible = pc.d20 === 1 ? pc.ownCardUids : pc.foeCardUids;
+    if (eligible.length === 0) return null;
+    const pts = (uid: string) => effectiveCardDef(state.cards.find(c => c.uid === uid)?.cardId ?? '', state.edition)?.points ?? 0;
+    const pick = pc.d20 === 1
+      ? eligible.reduce((b, u) => (pts(u) < pts(b) ? u : b), eligible[0]) // bad roll — give up the cheapest
+      : eligible.reduce((b, u) => (pts(u) > pts(b) ? u : b), eligible[0]); // negate the biggest threat
+    return { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', cardUid: pick } };
+  }
+  // Glyph of Wannok — controller side (the server rolls the d20). On a 2+ name any living
+  // opponent to be cursed. Returns null until the d20 is recorded (or on a 1, which the
+  // engine auto-resolves without a choice).
+  if (pc.kind === 'glyph_wannok') {
+    if (pc.d20 == null || pc.d20 === 1) return null;
+    const opp = livingSeats(state).find(st => teamOfSeat(state, st) !== teamOfSeat(state, seat));
+    if (opp == null) return null;
+    return { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', opponentSeat: opp } };
+  }
+  // Glyph of Wannok — the cursed opponent sacrifices their LEAST valuable living figure.
+  if (pc.kind === 'glyph_wannok_victim') {
+    const mine = state.figures.filter(f => f.ownerSeat === seat && f.at != null);
+    if (mine.length === 0) return null;
+    const pts = (f: Figure) => cardDefFor(state, f).points;
+    const pick = mine.reduce((b, f) => (pts(f) < pts(b) ? f : b), mine[0]);
+    return { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: pick.id } };
+  }
   // Airborne Elite THE DROP — land all reserve Airborne on the planned non-adjacent hexes
   // (closest to the enemy). The Drop is all-or-nothing, so deploy the full squad only when
   // the plan fits every reserve figure; otherwise DECLINE with [] (they stay in reserve).
@@ -5787,6 +6105,10 @@ function aiTurn(state: HSState, seat: number): HSAction {
 
   // ATTACK PHASE (after End Move): take the single best legal attack, else end.
   if (state.movementEnded) {
+    // Glyph of Nilrend — a negated active card has NO special powers: skip every special
+    // below (proposing one would be rejected by the engine and freeze the bot's turn) and
+    // fall straight through to a normal attack / end. Base-stat fighting only.
+    if (!isCardNegated(state, active.uid)) {
     // Grimnak CHOMP first — a FREE auto-kill of an adjacent figure that does NOT use his
     // normal attack (he still swings after, next tick, once chomp is spent). Pure
     // aggression: a Squad figure is devoured for certain, a Hero on a d20 of 16+. Always
@@ -5923,6 +6245,7 @@ function aiTurn(state: HSState, seat: number): HSAction {
       }
       if (bestFoes >= 2) return { kind: 'grenade' };
     }
+    } // end Glyph of Nilrend specials-off guard
 
     let best: { attackerId: string; targetId: string; score: number } | null = null;
     for (const f of myFigs) {
@@ -6279,7 +6602,24 @@ function cardDefFor(state: HSState, fig: Figure): HSCardDef {
   const card = state.cards.find(c => c.uid === fig.cardUid);
   // Resolve through the active edition so Classic combat stats (e.g. Raelin/Marro
   // Range, Izumi Attack) are what the engine actually fights with.
-  return effectiveCardDef(card?.cardId ?? '', state.edition) ?? HS_CARDS.finn;
+  const def = effectiveCardDef(card?.cardId ?? '', state.edition) ?? HS_CARDS.finn;
+  // Glyph of Nilrend negation — strip the PASSIVE power flags so every read-site
+  // (movement/defense: flying, ghost walk, disengage, stealth dodge, counter strike,
+  // Thorian Speed, grapple) sees them off. Printed STATS (attack/defense/move/range/
+  // life/size/height/id/species) are kept — a negated card still fights at base stats.
+  if (isCardNegated(state, fig.cardUid)) {
+    return {
+      ...def,
+      flying: false,
+      ghostWalk: false,
+      disengage: false,
+      stealthDodge: false,
+      counterStrike: false,
+      thorianSpeed: false,
+      grappleGun: 0,
+    };
+  }
+  return def;
 }
 
 /** The PERMANENT Spirit mods on `fig`'s army card (slice 4). Defaults to 0/0 if

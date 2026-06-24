@@ -44,6 +44,9 @@ import {
   fireLineSpaces,
   fireLineTargets,
   fireLineDefenders,
+  canFireLine,
+  erlandDestinations,
+  erlandSummonableIds,
   POINT_BUDGETS,
   glyphCountForMap,
 } from './engine';
@@ -2640,7 +2643,7 @@ describe('slice 4: glyph forced stop', () => {
     expect(fig(moved, FINN).at).toBe(glyphHex);
   });
 
-  it('a deferred glyph (Erland) is inert: still a forced stop, no effect, not removed', () => {
+  it('Erland (Summoning) is a forced stop AND opens a summon choice', () => {
     let s = inTurnsOn(CORRIDOR_MAP_ID, 'p1', { p1: 's0-finn' });
     s = clearExcept(s, FINN, THORGRIM);
     s = place(s, FINN, at(2, 1));
@@ -2651,10 +2654,115 @@ describe('slice 4: glyph forced stop', () => {
     expect(legalDestinations(s, FINN).has(at(2, 3))).toBe(false);
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
     expect(fig(moved, FINN).at).toBe(glyphHex);
-    // Inert: the glyph stays (not removed like a temporary that fired) and grants
-    // nothing — Erland does not control anything for the effective-stat helpers.
+    // Now LIVE: stopping on Erland opens a glyph_erland choice (the glyph is removed at
+    // resolution, so it's still present here). Thorgrim is a summonable single-hex figure.
+    expect(moved.pendingChoice?.kind).toBe('glyph_erland');
     expect(moved.glyphs.find(g => g.id === 'erland')).toBeDefined();
-    expect(moved.log.some(e => e.tag === 'glyph' && /no effect yet/.test(e.text))).toBe(true);
+    expect(erlandSummonableIds(moved)).toContain(THORGRIM);
+    expect(erlandDestinations(moved).length).toBeGreaterThan(0);
+  });
+});
+
+describe('wave-3 CHOICE glyphs — Erland / Nilrend / Wannok', () => {
+  // ---------------- ERLAND: Summoning (pure teleport) ----------------
+  it('Erland summons any single-hex figure to an empty adjacent space, then fades', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, THORGRIM, MARRO(1));
+    s = place(s, FINN, at(3, 2));
+    s = place(s, THORGRIM, at(0, 0)); // an opponent figure, far away
+    s = place(s, MARRO(1), at(6, 6)); // keeps p2 alive elsewhere
+    s = setGlyphs(s, [{ id: 'erland', at: at(3, 3), faceUp: true }]);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 3) }));
+    expect(moved.pendingChoice?.kind).toBe('glyph_erland');
+    const dest = erlandDestinations(moved)[0];
+    expect(dest).toBeTruthy();
+    // teleport the opponent's Thorgrim next to Finn — no swipes, no fall
+    const after = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_erland', figureId: THORGRIM, to: dest } }));
+    expect(fig(after, THORGRIM).at).toBe(dest);
+    expect(after.pendingChoice).toBeUndefined();
+    expect(after.glyphs.find(g => g.id === 'erland')).toBeUndefined(); // temporary — consumed
+  });
+
+  // ---------------- NILREND: Negation ----------------
+  it('Nilrend: stop → server d20 (2+) → controller negates an opponent unique card (game-long)', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, MARRO(1));
+    s = place(s, FINN, at(3, 2));
+    s = place(s, MARRO(1), at(6, 6));
+    s = setGlyphs(s, [{ id: 'nilrend', at: at(3, 3), faceUp: true }]);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 3) }));
+    expect(moved.pendingChoice?.kind).toBe('glyph_nilrend');
+    // server rolls the d20 (≥2 → the OPPONENT side); the pick stays open
+    const rolled = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', d20: 18 } }));
+    expect(rolled.pendingChoice?.kind).toBe('glyph_nilrend');
+    const marroCard = rolled.cards.find(c => c.cardId === 'marro_warriors')!;
+    const done = unwrap(applyAction(rolled, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', cardUid: marroCard.uid } }));
+    expect(done.negatedCardUids).toContain(marroCard.uid);
+    expect(done.glyphs.find(g => g.id === 'nilrend')).toBeUndefined(); // temporary — consumed
+  });
+
+  it('a negated card stops granting its aura (Finn Attack Aura turns off → base stats)', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
+    s = clearExcept(s, FINN, TARN(1), THORGRIM);
+    s = place(s, FINN, at(3, 3));
+    s = place(s, TARN(1), at(3, 4)); // adjacent Range-1 friendly → +1 Finn aura
+    s = place(s, THORGRIM, at(3, 5));
+    expect(effectiveAttackDice(s, fig(s, TARN(1)), fig(s, THORGRIM)).breakdown).toContain('+1 Finn aura');
+    const finnCard = s.cards.find(c => c.cardId === 'finn')!;
+    const neg = { ...s, negatedCardUids: [finnCard.uid] };
+    const eff = effectiveAttackDice(neg, fig(neg, TARN(1)), fig(neg, THORGRIM));
+    expect(eff.breakdown).not.toContain('+1 Finn aura'); // Nilrend killed the aura
+    expect(eff.dice).toBe(3); // base Tarn attack, no buff
+  });
+
+  it('a negated card cannot use its special attack (Fire Line blocked server-side)', () => {
+    // Mimring active + movement ended → Fire Line is normally available; negation blocks it.
+    let s = customBattle(['mimring'], ['marro_warriors'], 'p1');
+    s = clearExcept(s, 's0-mimring-1', 's1-marro_warriors-1');
+    s = place(s, 's0-mimring-1', at(2, 2));
+    s = place(s, 's1-marro_warriors-1', at(2, 3));
+    s = { ...s, movementEnded: true }; // attack phase
+    expect(canFireLine(s, 's0-mimring-1')).toBe(true);
+    const mimCard = s.cards.find(c => c.cardId === 'mimring')!;
+    const neg = { ...s, negatedCardUids: [mimCard.uid] };
+    expect(canFireLine(neg, 's0-mimring-1')).toBe(false); // gate hidden
+    expect(errOf(applyAction(neg, 'p1', { kind: 'fire_line', attackerId: 's0-mimring-1', dir: 0, attackRoll: [], defenseRolls: [] }))).toMatch(/negat/i);
+  });
+
+  // ---------------- WANNOK: end-of-round Curse ----------------
+  it('Wannok rolled 1 → the figure ON the glyph takes a wound', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, MARRO(1));
+    const glyphHex = at(3, 3);
+    s = place(s, FINN, glyphHex);
+    s = place(s, MARRO(1), at(6, 6));
+    s = setGlyphs(s, [{ id: 'wannok', at: glyphHex, faceUp: true }]);
+    s = { ...s, pendingChoice: { kind: 'glyph_wannok', seat: 0, at: glyphHex, d20: null } };
+    const after = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: 1 } }));
+    expect(fig(after, FINN).wounds).toBe(1);
+    expect(after.pendingChoice).toBeUndefined();
+  });
+
+  it('Wannok rolled 2+ → controller names an opponent who then wounds one of THEIR own', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, MARRO(1), MARRO(2));
+    const glyphHex = at(3, 3);
+    s = place(s, FINN, glyphHex);
+    s = place(s, MARRO(1), at(6, 6));
+    s = place(s, MARRO(2), at(6, 5));
+    s = setGlyphs(s, [{ id: 'wannok', at: glyphHex, faceUp: true }]);
+    s = { ...s, pendingChoice: { kind: 'glyph_wannok', seat: 0, at: glyphHex, d20: null } };
+    // server roll 2+ → controller (seat 0) must name an opponent
+    let s2 = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: 12 } }));
+    expect(s2.pendingChoice?.kind).toBe('glyph_wannok');
+    s2 = unwrap(applyAction(s2, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', opponentSeat: 1 } }));
+    expect(s2.pendingChoice?.kind).toBe('glyph_wannok_victim');
+    expect(s2.pendingChoice?.seat).toBe(1); // the named opponent decides
+    // the controller cannot decide for the opponent
+    expect(errOf(applyAction(s2, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: MARRO(1) } }))).toBeTruthy();
+    const after = unwrap(applyAction(s2, 'p2', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: MARRO(1) } }));
+    expect(fig(after, MARRO(1)).wounds).toBe(1);
+    expect(after.pendingChoice).toBeUndefined();
   });
 });
 

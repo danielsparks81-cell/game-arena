@@ -68,6 +68,8 @@ import {
   carryPassengers,
   carryLandingHexes,
   carryDestFootprint,
+  erlandDestinations,
+  erlandSummonableIds,
   legalTargets,
   auraBuffedFigureIds,
   placeableHexes,
@@ -2193,6 +2195,44 @@ export default function HeroScapeBoard({
     [clonePlacement, cloneChosen],
   );
 
+  // ----- wave-3 CHOICE glyphs (Erland / Nilrend / Wannok) board resolution -----
+  // Erland (Summoning): a two-tap board flow — tap a summonable figure, then an empty
+  // adjacent space. `erlandPick` is the figure chosen to teleport.
+  const erlandChoice = myChoice?.kind === 'glyph_erland' ? myChoice : null;
+  const erlandSummonSet = useMemo(() => new Set(erlandChoice ? erlandSummonableIds(state) : []), [erlandChoice, state]);
+  const erlandDestSet = useMemo(() => new Set(erlandChoice ? erlandDestinations(state) : []), [erlandChoice, state]);
+  const [erlandPick, setErlandPick] = useState<string | null>(null);
+  useEffect(() => { if (!erlandChoice) setErlandPick(null); }, [erlandChoice]);
+  // Nilrend (Negation): after the d20, tap any figure of an ELIGIBLE unique card to negate it.
+  const nilrendChoice = myChoice?.kind === 'glyph_nilrend' && myChoice.d20 != null ? myChoice : null;
+  const nilrendCardSet = useMemo(
+    () => new Set(nilrendChoice ? (nilrendChoice.d20 === 1 ? nilrendChoice.ownCardUids : nilrendChoice.foeCardUids) : []),
+    [nilrendChoice],
+  );
+  const nilrendFigSet = useMemo(
+    () => new Set(state.figures.filter(f => f.at != null && nilrendCardSet.has(f.cardUid)).map(f => f.id)),
+    [state.figures, nilrendCardSet],
+  );
+  // Wannok (Curse) controller step (2+): tap an OPPONENT figure to name that player.
+  const seatTeam = (seat: number) => { const p = state.players.find(x => x.seat === seat); return p ? effTeam(p) : -1 - seat; };
+  const wannokChoice = myChoice?.kind === 'glyph_wannok' && myChoice.d20 != null ? myChoice : null;
+  const wannokOppSet = useMemo(
+    () => new Set(wannokChoice && me ? state.figures.filter(f => f.at != null && seatTeam(f.ownerSeat) !== seatTeam(me.seat)).map(f => f.id) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [wannokChoice, me, state],
+  );
+  // Wannok victim step: the named opponent taps one of THEIR OWN figures to wound.
+  const wannokVictimChoice = myChoice?.kind === 'glyph_wannok_victim' ? myChoice : null;
+  const wannokOwnSet = useMemo(
+    () => new Set(wannokVictimChoice && me ? state.figures.filter(f => f.at != null && f.ownerSeat === me.seat).map(f => f.id) : []),
+    [wannokVictimChoice, me, state],
+  );
+  // All figure ids the open choice lets me tap — fed into the board's powerTarget ring.
+  const choiceFigIds = useMemo(
+    () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet]),
+    [erlandSummonSet, nilrendFigSet, wannokOppSet, wannokOwnSet],
+  );
+
   // ----- 2.5D ISOMETRIC geometry (renderer; board.ts owns the pure math) -----
   // Same data as the flat board, projected to stacked hex PRISMS via the iso
   // helpers. The per-viewer 180° flip now happens in AXIAL space (mirror the
@@ -2364,6 +2404,32 @@ export default function HeroScapeBoard({
               : [...prev, key],
         );
       }
+      return;
+    }
+    // --- wave-3 CHOICE glyphs (resolve by board tap; work outside a turn) ---
+    // Erland: tap a highlighted summonable figure, then an empty adjacent space.
+    if (erlandChoice && !disabled) {
+      const occE = occupantAt(key);
+      if (erlandPick && erlandDestSet.has(key)) { onResolveChoice({ kind: 'glyph_erland', figureId: erlandPick, to: key }); setErlandPick(null); }
+      else if (occE && erlandSummonSet.has(occE.id)) setErlandPick(occE.id); // pick / re-pick the figure to summon
+      return;
+    }
+    // Nilrend: tap any figure of an eligible unique card to negate that card.
+    if (nilrendChoice && !disabled) {
+      const occN = occupantAt(key);
+      if (occN && nilrendFigSet.has(occN.id)) onResolveChoice({ kind: 'glyph_nilrend', cardUid: occN.cardUid });
+      return;
+    }
+    // Wannok controller (2+): tap an opponent figure to name that player.
+    if (wannokChoice && !disabled) {
+      const occW = occupantAt(key);
+      if (occW && wannokOppSet.has(occW.id)) onResolveChoice({ kind: 'glyph_wannok', opponentSeat: occW.ownerSeat });
+      return;
+    }
+    // Wannok victim: the named opponent taps one of their own figures to wound.
+    if (wannokVictimChoice && !disabled) {
+      const occV = occupantAt(key);
+      if (occV && wannokOwnSet.has(occV.id)) onResolveChoice({ kind: 'glyph_wannok_victim', figureId: occV.id });
       return;
     }
     if (!canAct) return;
@@ -3690,6 +3756,81 @@ export default function HeroScapeBoard({
           </div>
         )}
 
+        {/* Glyph of Erland — Summoning (board-tap: figure → empty adjacent space) */}
+        {erlandChoice && (
+          <div className="rounded-lg border-2 border-fuchsia-500 bg-neutral-900/80 px-3 py-2">
+            <div className="text-sm font-bold text-fuchsia-300">✨ Glyph of Erland — Summoning</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">
+              {erlandPick
+                ? 'Now tap a highlighted empty space (beside the figure on the glyph) to place it.'
+                : "Tap any highlighted figure — yours or an opponent's — then an empty space beside the figure on the glyph."}
+            </div>
+            {erlandPick && (
+              <button onClick={() => setErlandPick(null)} className="mt-1 rounded border border-neutral-600 px-2 py-0.5 text-[11px] text-neutral-300 transition hover:border-neutral-400">
+                Pick a different figure
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Glyph of Nilrend — Negation (tap a highlighted figure, or a card button) */}
+        {nilrendChoice && (
+          <div className="rounded-lg border-2 border-violet-500 bg-neutral-900/80 px-3 py-2">
+            <div className="text-sm font-bold text-violet-300">🚫 Glyph of Nilrend — rolled {nilrendChoice.d20}</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">
+              Negate {nilrendChoice.d20 === 1 ? 'one of YOUR' : "an opponent's"} unique cards for the rest of the game — it drops to base stats.
+            </div>
+            <div className="mt-2 flex flex-col gap-1">
+              {[...nilrendCardSet].map(uid => {
+                const c = state.cards.find(x => x.uid === uid);
+                const def = HS_CARDS[c?.cardId ?? ''];
+                const ownerName = state.players.find(p => p.seat === c?.ownerSeat)?.username ?? '';
+                return (
+                  <button
+                    key={uid}
+                    onClick={() => onResolveChoice({ kind: 'glyph_nilrend', cardUid: uid })}
+                    disabled={disabled}
+                    className="flex items-center justify-between rounded-md border border-violet-700 px-2 py-1 text-left text-xs text-violet-100 transition hover:border-violet-400 hover:bg-violet-900/30 disabled:opacity-40"
+                  >
+                    <span className="font-semibold">{def?.name ?? uid}</span>
+                    <span className="text-[10px] text-neutral-400">{ownerName}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Glyph of Wannok — controller names an opponent (2+) */}
+        {wannokChoice && me && (
+          <div className="rounded-lg border-2 border-rose-500 bg-neutral-900/80 px-3 py-2">
+            <div className="text-sm font-bold text-rose-300">☠️ Glyph of Wannok — rolled {wannokChoice.d20}</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">Choose an opponent — they must wound one of their own figures.</div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {state.players
+                .filter(p => seatTeam(p.seat) !== seatTeam(me.seat) && state.figures.some(f => f.at != null && f.ownerSeat === p.seat))
+                .map(p => (
+                  <button
+                    key={p.seat}
+                    onClick={() => onResolveChoice({ kind: 'glyph_wannok', opponentSeat: p.seat })}
+                    disabled={disabled}
+                    className="rounded-md border border-rose-700 px-2 py-1 text-xs text-rose-100 transition hover:border-rose-400 hover:bg-rose-900/30 disabled:opacity-40"
+                  >
+                    {p.username}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* Glyph of Wannok — the cursed opponent taps their own figure to wound */}
+        {wannokVictimChoice && (
+          <div className="rounded-lg border-2 border-rose-500 bg-neutral-900/80 px-3 py-2">
+            <div className="text-sm font-bold text-rose-300">☠️ Glyph of Wannok — choose your sacrifice</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">The curse falls on you — tap one of your highlighted figures to take a wound.</div>
+          </div>
+        )}
+
         {/* UNDO MOVE — repeatable full rewind. Shown only while moves remain on the
             undo stack this turn and nothing has been committed (no attack yet). */}
         {myTurn && !pending && !state.movementEnded && state.turnAttacks.length === 0 && (
@@ -3867,14 +4008,14 @@ export default function HeroScapeBoard({
             shootBlockedHexes={shootBlocked}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
-            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? [])])}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? []), ...choiceFigIds])}
             actionableIds={glowIds}
             auraIds={auraIds}
             splashIds={splashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
             placeHexes={placeHexes}
-            dropHexes={carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
+            dropHexes={erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
           />
         ) : (
