@@ -323,12 +323,18 @@ export default function SpellduelBoard({
         floaters={floaters.filter(f => f.seat === meSeat)}
       />
 
-      {/* Your hand — clickable */}
+      {/* Your hand — clickable, sorted by mana cost (cheapest first). We keep each
+          card's ORIGINAL hand index for onPlay/targeting (the engine plays by index),
+          so the display order is purely cosmetic. Stable sort keeps equal-cost cards
+          in draw order. */}
       <div className="flex flex-wrap items-stretch justify-center gap-2 pt-1">
         {me.hand.length === 0 ? (
           <div className="text-xs text-neutral-600">empty hand</div>
         ) : (
-          me.hand.map((cardId, idx) => {
+          me.hand
+            .map((cardId, idx) => ({ cardId, idx }))
+            .sort((a, b) => (CARDS[a.cardId]?.cost ?? 99) - (CARDS[b.cardId]?.cost ?? 99))
+            .map(({ cardId, idx }) => {
             const card = CARDS[cardId];
             // Spectators (and any unexpected leak of the HIDDEN_CARD sentinel)
             // see a face-down card — never an exception trying to read .cost.
