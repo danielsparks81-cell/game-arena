@@ -2593,13 +2593,15 @@ export default function HeroScapeBoard({
       if (!carryAim.pass) {
         const p = occupantAt(key);
         if (p && carryList.includes(p.id)) setCarryAim({ pass: p.id });
-      } else if (legalDestinations(state, bhHeroId).has(key)) {
-        // ONE click finishes Carry: Theracus flies to `key` and the passenger AUTO-teleports to a
-        // free space beside his new position (the engine places it for us). No separate "set it
-        // down" step — the passenger just rides along, as the user asked. lands[0] = any valid spot.
-        const lands = carryLandingHexes(state, bhHeroId, key, carryAim.pass);
-        if (lands.length > 0) { onCarry(bhHeroId, key, carryAim.pass, lands[0]); setCarryAim(null); }
-        else showPowerHint('Carry — no free space beside that spot to set the passenger down; pick another.');
+      } else if (!carryAim.dest) {
+        // STEP 2: tap where Theracus FLIES (one of his highlighted reachable hexes, ≤ his Move). Don't
+        // commit yet — record the destination and light up where the passenger may land beside it.
+        if (legalDestinations(state, bhHeroId).has(key)) setCarryAim({ ...carryAim, dest: key });
+      } else if (carryLandSet?.has(key)) {
+        // STEP 3: tap where to SET THE PASSENGER DOWN — any empty hex next to Theracus's new spot,
+        // INCLUDING a glyph, so you choose it. carry_move fires here (Theracus flies + passenger lands).
+        onCarry(bhHeroId, carryAim.dest, carryAim.pass, key);
+        setCarryAim(null);
       }
       return; // while carrying, a click never falls through to move/attack
     }
@@ -3696,8 +3698,10 @@ export default function HeroScapeBoard({
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
               {carryAim && (!carryAim.pass
-                ? '🪽 Carry — click a highlighted friendly figure to pick up'
-                : `🪽 Carry ${figName(carryAim.pass)} — click where Theracus flies; ${figName(carryAim.pass)} rides along and lands beside him`)}
+                ? '🪽 Carry — STEP 1: click a highlighted friendly figure to pick up'
+                : !carryAim.dest
+                  ? `🪽 Carry ${figName(carryAim.pass)} — STEP 2: click where Theracus flies`
+                  : `🪽 Carry — STEP 3: click an empty hex next to Theracus (a glyph counts) to set ${figName(carryAim.pass)} down`)}
               {orientLead && '↻ Reorient (optional) — tap a highlighted hex to pivot the tail in place, or just End move / attack to keep it as is'}
             </span>
             <button
@@ -4546,20 +4550,9 @@ export default function HeroScapeBoard({
         {/* (The placement in-hand tray now lives in the RIGHT RAIL's Deploy panel so the
             board owns the whole centre — see the deploy section above.) */}
 
-        {myTurn && (
-          <div className="shrink-0 text-center text-[11px] text-neutral-500">
-            {selected
-              ? (() => {
-                  // slice 7: a small flyer / ghost-walk hint on the selected figure.
-                  const def = HS_CARDS[state.cards.find(c => c.uid === selected.cardUid)?.cardId ?? ''];
-                  const tag = def?.flying ? '✈ Flying — ' : def?.ghostWalk ? '👻 Ghost Walk — ' : '';
-                  return grappleMode
-                    ? `🪝 Grapple Gun armed — click an adjacent hex (up to 25 levels higher) to grapple there.`
-                    : `${tag}${figureLabel(state, selected)} — click a highlighted hex to move, a marked enemy to attack, or another of your figures.`;
-                })()
-              : `Order marker ${state.turnNumber} is revealed — only ${activeCardDef?.name ?? 'that card'}'s figures act this turn.`}
-          </div>
-        )}
+        {/* (Removed the bottom status line — "Order marker N revealed…" / the per-figure move hint.
+            It was an in-flow shrink-0 element that stole height from the board only on your turn,
+            making the board jump in size. The card panel + the amber action strip already guide.) */}
         {placing && me && !iAmReady && (
           <div className="shrink-0 text-center text-[11px] text-neutral-500">
             Pick a chip on your army strip, then click a card to schedule that turn.
