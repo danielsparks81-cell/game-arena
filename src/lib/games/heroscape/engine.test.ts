@@ -1190,6 +1190,25 @@ describe('projectStateForViewer (order-marker secrecy)', () => {
     projectStateForViewer(s, null);
     expect(JSON.stringify(s)).toBe(before);
   });
+
+  it('strips glyphSeed so a client cannot recompute face-down glyph ids', () => {
+    // generateGlyphs(seed) is deterministic and the map (incl. glyphAnchors) is in the client
+    // bundle — so shipping the seed would let a modified client read every face-down glyph id,
+    // defeating the id mask. The seed must never reach the wire.
+    const s = JSON.parse(JSON.stringify(lobby())) as HSState;
+    s.glyphSeed = 1234567;
+    s.glyphs = [
+      { id: 'mitonsoul', at: at(2, 2), faceUp: false },
+      { id: 'astrid', at: at(3, 2), faceUp: true },
+    ];
+    for (const viewer of ['p1', 'p2', null] as const) {
+      const proj = projectStateForViewer(s, viewer);
+      expect(proj.glyphSeed).toBeUndefined();                               // seed never ships
+      expect(proj.glyphs.find(g => g.at === at(2, 2))!.id).toBe('hidden');  // face-down id masked
+      expect(proj.glyphs.find(g => g.at === at(3, 2))!.id).toBe('astrid');  // face-up id stays public
+    }
+    expect(s.glyphSeed).toBe(1234567); // input not mutated (seed survives server-side)
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -3643,9 +3643,11 @@ export function attackDiceRequirements(
 // ============================================================================
 // SPECIAL ATTACKS (slice 8) — Mimring's FIRE LINE.
 //
-// A special attack is never modified by glyphs, other powers, or height
-// advantage (04-combat): the ATTACK is a flat printed value, and the DEFENDER
-// keeps its defensive powers/auras but gets NO height advantage. The attack is
+// A special attack's ATTACK roll is never modified by glyphs, other powers, or
+// height (04-combat §117 — the unmodifiable rule constrains the ATTACKER only):
+// it is a flat printed value. The DEFENDER, however, keeps its FULL defense —
+// defensive powers/auras AND height advantage (a defender on high ground still
+// gets +1, per the §117 Samurai example). The attack is
 // rolled ONCE for all affected figures; each affected figure rolls defense
 // SEPARATELY. Fire Line hits EVERY figure (friend OR foe) on a straight line of
 // 8 spaces from Mimring that he has line of sight to.
@@ -3805,7 +3807,8 @@ function doFireLine(
 // Choose an enemy figure in clear sight within Range 7; the target AND every
 // figure adjacent to it (friend OR foe — INCLUDING Deathwalker himself) are hit.
 // 3 attack dice rolled ONCE for all affected; each defends separately. Special
-// attack → flat printed Attack, and defenders get NO height bonus.
+// attack → flat printed Attack (unmodifiable); defenders KEEP their full defense
+// incl. height advantage (§117 constrains the attacker only).
 // ============================================================================
 const EXPLOSION_RANGE = 7;
 const EXPLOSION_ATTACK = 3;
@@ -4815,8 +4818,9 @@ function doWaterClone(
 //
 // SPECIAL-ATTACK convention (matches doFireLine / doGrenadeThrow): the attack
 // rolls its FIXED printed value (no height advantage, no attack auras); each
-// defender rolls its EFFECTIVE defense (printed + defensive auras + glyphs, no
-// height). The slice-7 defender powers (Stealth Dodge / Counter Strike) are NOT
+// defender rolls its EFFECTIVE defense (printed + defensive auras + glyphs AND
+// height — §117 constrains the attacker only). The slice-7 defender powers
+// (Stealth Dodge / Counter Strike) are NOT
 // applied to special attacks here, exactly as the two existing splash specials
 // already omit them — kept consistent so the special-attack damage model is one
 // thing across the engine.
@@ -6771,6 +6775,11 @@ export function projectStateForViewer(state: HSState, viewerId: string | null): 
   // wire state (the UI already renders these as "?"; the real id returns the instant it flips
   // faceUp server-side). Applies to all viewers — glyphs are neutral, hidden from everyone.
   next.glyphs = next.glyphs.map(g => (g.faceUp ? g : { ...g, id: 'hidden' as HSGlyphId }));
+  // STRIP the glyph SEED from the wire: generateGlyphs(seed) is deterministic and the map (incl.
+  // glyphAnchors) is in the client bundle, so a modified client holding the seed could recompute
+  // every face-down glyph's id — defeating the mask above. The server keeps it on the DB row; the
+  // layout is already materialized into `glyphs`, so clients never need the seed.
+  delete next.glyphSeed;
   return next;
 }
 

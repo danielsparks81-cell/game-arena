@@ -1,196 +1,131 @@
-# HeroScape engine audit
+# HeroScape engine audit — 2026-06-24
 
-Method: five parallel read-only system audits + cross-system interaction trace + full-game
-playthroughs (fuzzer + scripted 2p/3p games). Each finding has a file:line and severity.
-Status: **in progress** — sections fill in as audits land.
+Full end-to-end audit (five system buckets, one read-only subagent each, then synthesis +
+self-verification) run after a large batch of changes: the **interactive roll ceremony**
+(Mitonsoul curse / Sturla resurrection), the **turn-order ring** fix, the **negation→Spirit**
+suppression, and **three new symmetric battlefields** (3 / 4 / 5 players).
 
-Severity: 🔴 High (wrong result / crash / cheat) · 🟠 Med (fidelity hole, narrow) · 🟡 Low (cosmetic / known-deferred).
-
----
-
-## 2. Movement, engagement, terrain, falls, 2-hex  ✅ audited
-
-**Overview.** Well-architected and faithful. `board.ts` holds pure hex math (Dijkstra
-`reachableDestinations`, `stepCost`, `canStepUp`, `dragStep`, `computeFall`, `areEngaged`);
-`engine.ts` layers card behavior (flying, ghost-walk, grapple, carry, The Drop, 2-hex slither).
-Both `move_figure` (destination) and `move_step` (per-step) route through single-source helpers
-(`moveConsequences`/`stepConsequences`) that the server calls for dice and the engine re-validates,
-so highlight/roll/apply can't diverge. **No high-severity bugs found.**
-
-**Findings**
-- 🟠 **2-hex figures never take falls** (engine.ts:2358 + 2051-2057). Grimnak can walk off any cliff with no fall check. Known/documented deferral, but a real fidelity hole once tall maps ship.
-- 🟡 **Leaving-engagement swipe is once-per-walk, not once-per-disengagement-event** (engine.ts:2349-2354; locked by test engine.test.ts:1655-1678). Leave→return→leave suppresses the 2nd swipe. Defensible (anti-grief) but diverges from the literal rule.
-- 🟡 **Extreme-fall log prints the raw d20**, not the Lodin-adjusted value (engine.ts:2795) — "d20 18: survives" looks wrong when it was 18+1. Cosmetic.
-- 🟡 **2-hex tail is deterministic first-found** (movementDestinations2 engine.ts:1953-1959); a legal destination can appear illegal if the first tail hex is occupied while another free same-level neighbor existed. Documented simplification.
-
-**Fidelity gaps vs docs/heroscape/03-movement**
-- 2-hex falling (deferred). Leave-then-return swipe (once-per-walk). Ruin-between engagement exception (omitted by design — no ruin pieces yet). Overhang/tight-quarters clearance (not modeled — no such maps). Flyer-ignores-water-stop-on-landing (board.ts:243) is a card-text assumption worth re-confirming vs the Army Card scans.
-- Correct ✓: Major/Extreme fall bands (computeFall board.ts:561-571), climb limit as levels (canStepUp), glyph/water add no height.
-
-**Dead/stale code**
-- `baseLevel` alias (engine.ts:1607-1609) — likely vestigial in the movement path.
-- `ReachOptions.doubleSpace` is unread by `reachableDestinations` (only `dragStep` uses it) — the doc comment implying double-space Dijkstra handling is misleading.
-
-**Test-coverage gaps** (coverage is otherwise strong)
-- No test for a ground 2-hex taking a fall (because it never does — see above).
-- **Carry (Theracus) has no engine test at all** — full pick→fly→set-down, passenger-no-fall, drop-footprint adjacency all unvalidated.
-- **The Drop placement legality untested** (mutual non-adjacency / not-on-glyph / not-adjacent-to-figure).
-- Rannveig no-fly glyph: movement consequences of suppressed flight untested.
+**Headline verdict:** the engine is in good shape — combat, movement, turn flow, AI, and the new
+maps are faithful and crash-free; the fuzzer + playthroughs are green (487 tests). The new
+subsystems this session (ceremony, turn-order ring, negation fix, maps) all verify correct. The
+audit surfaced **one real hidden-info leak** (now fixed), **one broad fidelity bug** (Warrior's
+Spirit dropped on special/curse deaths — deferred fix, documented), and a handful of rulings +
+latent edges. No 🔴 shipping bug remains open.
 
 ---
 
-## 1. Turn flow, draft, placement, pending-choices, win  ✅ audited
+## Fixed in this audit pass (shipped)
 
-**Overview.** Well-engineered and faithful. The round loop (`place_markers` → `roll_initiative` →
-turn loop) keys on `livingSeats`, so eliminated seats in 3+ player games are skipped, not soft-locked.
-The `pendingChoice` gate (engine.ts:398-419) is correct and load-bearing: while a choice is open every
-non-`resolve_choice` action is blocked for all seats, it's never auto-resolved, and no path advances the
-turn/round while one is open. True-snake draft, per-team budgets, can't-pass-empty-army, placement
-ready-gate, reserve exclusion, and last-team-standing win are all implemented as documented. **No
-high-severity bugs.**
+1. **🔴 `glyphSeed` hidden-info leak — FIXED.** `projectStateForViewer` masked face-down glyph
+   ids but shipped `state.glyphSeed`. Since `generateGlyphs(seed)` is deterministic and the map
+   (incl. `glyphAnchors`) is in the client bundle, a modified client could recompute every
+   face-down glyph's id, defeating the mask. Fix: `delete next.glyphSeed` in projection
+   (engine.ts `projectStateForViewer`). Regression test added (engine.test.ts "strips glyphSeed…").
+2. **🟡 Stale comments — FIXED.** Three block comments claimed special-attack *defenders* lose
+   height; the code correctly KEEPS it (§117 constrains the attacker only). Comments corrected
+   (engine.ts Fire Line / Explosion / Big-Hero headers). No behavior change.
 
-**Findings**
-- 🟠 **`doGrenade` isn't re-gated by `canGrenade`** (engine.ts:3711-3738) — a `grenade` action sent when no target exists burns the once-per-game power + the squad's whole attack. UI gates it, so low blast radius; every *other* special re-validates internally. Easy fix: re-check `canGrenade` at the top of `doGrenade`.
-- 🟠 **Total-mutual-wipeout soft-lock** (engine.ts:4014-4039, 4058). If the *last figures of the last two teams* die on one blow (most plausibly Izumi Counter Strike destroying the attacker as the attacker destroys the defender's last figure), `checkEliminationWin` no-ops (0 teams alive) and `stalemateResolve` bails (`teams.length <= 1`) → `phase` stays `'playing'` forever. Rare but real. Fix: if no team has a living figure, finish with **no winner**.
-- 🟠 **Non-contiguous seats → placement soft-lock — CONFIRMED reachable at the engine level.** `removePlayer` (engine.ts) only filters, it does **not** re-pack seats, and `addPlayer` takes an arbitrary `seat`. So seats can be `{1,2}`; then `start_game` on the Star Field reads `zonesByCount[2][seat=2]` = `undefined` → `startZoneFor` returns `[]` → that player gets no placeable hexes and can never ready up = soft-lock. (Whether it's *triggerable* depends on how the room UI assigns seats, but the engine is undefended.) Fix: re-pack `players` to seats `0..n-1` at the top of `doStartGame`.
-- 🟡 **`doSetLobbyConfig` doesn't prune stale `teamBudgets`** (engine.ts:771-776) — inert (read by current team only), config hygiene.
-- 🟡 **Warrior's Spirit placement allows any living card incl. an opponent's**, and *cannot* place on the owner's own card if it has 0 living figures (engine.ts:3997, 5337-5339). Literal card text is ambiguous; self-harmful so no exploit. Decide intent + restrict to own cards or document.
+## Ranked OPEN issues (deferred — need a fix or a ruling)
 
-**Dead/stale code**
-- Common-card draft branch (engine.ts:1014-1020) — fully built but dead (whole roster is Unique); forward-looking.
-- **Per-turn flag resets are duplicated 4×** (beginTurnOrSkip, startNextRound, doEndTurn, enterPlaying) — maintenance hazard; extract a `resetTurnScratch(s)` helper so a new per-turn flag can't leak across turns.
-
-**Test-coverage gaps**
-- **The fuzzer bypasses draft AND placement** (builds the `'playing'` state directly) and is **glyph-free** — the draft snake/all-pass/budget, placement ready-gate, The Drop / glyph pending-choices during `place_markers`, and a seat eliminated *during* `place_markers` are only covered by deterministic tests (or not at all).
-- No test for the total-mutual-wipeout hang, nor for `start_game` with non-contiguous seats.
-
-## 3. Combat, line-of-sight, height, special attacks  ✅ audited
-
-**Overview.** Combat core is solid: server-rolled dice re-validated against one source
-(`attackDiceRequirements`/`effectiveAttack/DefenseDice`), skulls-vs-shields ties-to-defender,
-per-skull wounds, `wounds>=life` destruction — all correct (doAttack engine.ts:3846-3887). Height
-advantage is symmetric +1 with the "+2" band off the lower figure's Height. LOS is the elevation-aware
-3-D tracer (`hasLineOfSight3D`), figures correctly don't block. All 13 special attacks are implemented
-(despite stale "no special attacks yet" comments) and most modifiers are faithful. **But two real
-HIGH bugs:**
-
-**Findings**
-- 🔴 **Splash specials strip the DEFENDER's height advantage.** `fireLineDefenders` (3401), `explosionDefenders` (3543), `grenadeDefenders` (3693) all do `Math.max(0, d.dice - h.defender)` — subtracting the defender's height bonus, which can drive a high-ground defender to **0 defense dice**. Canonical text (docs/heroscape/05-glyphs line 117, with a worked grenade example: Samurai = 5 Def + 1 height = **6** dice) says only the *attacker's* dice are unmodifiable — defense bonuses must NOT be stripped. **Inconsistent**, too: Ice Shard, Queglix, and Wild Swing do *not* strip it. Fix: stop subtracting `h.defender` in the three splash defenders (match the others).
-- 🔴 **Range-1 melee ignores the elevation-exception adjacency rule.** `targetBlockReason` (2908-2925) gates melee on `rangeDistance <= range` (flat hex-adjacency + LOS), but a figure on a tall ledge is *not* adjacent to one below (`figuresAdjacent`/`areEngaged` say so, per docs/03-movement line 127). So a height-broken melee attack is wrongly allowed (and Counter Strike then won't trigger, since it keys on `figuresAdjacent`). Fix: require `figuresAdjacent(attacker, target)` when `effectiveRange === 1`.
-- 🟡 **Engaged figure may pick a non-engaged PRIMARY target** for Explosion/Fire Line/Grenade (3503/3365/3656) — the "engaged → only engaged enemies" restriction isn't applied to these (Ice Shard/Queglix do apply it). Rulebook isn't explicit for splash specials; low confidence.
-- 🟡 **Mind Shackle doesn't enforce "unique figure"** (4209-4214) — inert (whole roster is Unique), matters only if a common squad is added.
-
-**Dead/stale code**
-- `hasLineOfSight` (flat 2-D, board.ts:423) is exported but unused by HeroScape (everything uses `hasLineOfSight3D`); test-only.
-- Stale comments: Raelin aura "+1 / 6 spaces" in comments (engine.ts:3107, 1764, cards.md:374) vs the correct +2 / 4 in code; "slice 7 — no special attacks yet" blocks (2864, 2977) now false.
-- ⚠️ **Comment-vs-code mismatch:** engine.ts:1733-1740 says auras use "simple hex-adjacency, NOT elevation-broken engagement," but the aura path actually goes through `figuresAdjacent`→`areEngaged` (which *does* apply the elevation exception). Reconcile — either the comment is wrong or auras have an unintended height carve-out. (Hand to the interactions audit.)
-
-**Test-coverage gaps**
-- Nothing exercises height bugs B1/B2 — all splash-defender and melee tests use flat maps / 1-level diffs. A high-ground splash defender, and a Range-1 attack across a height break, are both untested.
-- No test asserting Ice Shard/Queglix/Wild Swing defenders *keep* height (the correct side of the inconsistency).
-
-## 4. Cross-system interactions  ✅ audited
-
-**Overview.** 6 of 7 interaction areas are correctly and faithfully wired — including the subtle ones.
-The one real defect (height × special attacks) independently confirms §3's B1.
-
-**Interaction matrix**
-
-| A × B | Verdict | Note |
-|---|---|---|
-| Glyphs × combat (Astrid +1 atk; Gerda +1 / Jalgard +2 def) | ✅ | fold into rolled dice; gated friendly + faceUp + footprint (`seatControlsGlyph` 1798) |
-| Glyph control (Ivor) | ✅ | it's **Range +2** (not attack — my prompt mislabeled it); code correct (3235) |
-| Lodin × d20 rolls | ⚠️ 1 gap | applied to initiative/extreme-fall/Berserker/Mind Shackle/Chomp/Water Clone/Acid/The Drop — **missing on Jotun Throw** |
-| Auras × combat (Finn/Thorgrim/Raelin/Grimnak) | ✅ | alive-gated, footprint-aware, stack additively |
-| Height × normal attack | ✅ | single source `heightAdvantage` (2952) |
-| Height × special attacks | 🔴 | **broken — see below (confirms §3 B1)** |
-| LOS × ranged vs auras | ✅ | ranged needs LOS; auras are adjacency; only Raelin uses LOS (correct) |
-| Flying × engagement/water/glyph + Rannveig/Thorian/Proftaka | ✅ | flyer waives climb/water-stop but still glyph-stops + still provokes swipes |
-| Pending choice × turn flow | ✅ | glyph choices raised only *after* the move commits; resolve doesn't touch turn state |
-
-**Findings**
-- 🔴 **Height × splash specials inverted** (Fire Line 3401, Explosion 3543, Grenade 3693) — *second independent confirmation* of §3 B1. Latent on flat maps (height 0 → subtracting 0 is a no-op), wrong the moment an elevation map ships. No test pins the wrong value, so the fix won't break tests.
-- 🔴 **Lodin +1 missing on Jotun's Throw** (`doThrow` throw-roll 4993, damage-roll 5013). Every sibling Big-Hero power adds `lodinD20Bonus`; Throw doesn't. **Live now** (no elevation needed) when a Jotun owner controls a Lodin glyph: should throw on a raw 13 / wound on a raw 10 but can't. Fix: add `lodinD20Bonus(state, seat)` to both comparisons.
-- 🟡 **AI has no resolver for glyph_mitonsoul/sturla/oreld** (`aiResolveChoice` 5659-5701 returns null) — masked because `actions.ts` auto-resolves them in the same tick; fragile if the AI engine is ever driven directly. Defense-in-depth.
-- 🟡 **Aura adjacency comment vs code** (engine.ts:1733-1740 says "simple hex-adjacency, not elevation-broken," but auras route through `figuresAdjacent`→`areEngaged`, which *does* apply the elevation exception). Behavior may be fine, but the comment is wrong and an aura could fail to reach a hex-adjacent-but-height-broken ally — reconcile intent.
-- ℹ️ Stale docs: glyphs.md still lists Mitonsoul/Sturla/Oreld as *planned* (they're live + tested); Raelin "+1/6" comments vs the correct +2/4 constants.
-
-## 5. AI, projection, full-game playthroughs  ✅ audited
-
-**Overview.** The AI is complete and coherent: drafts, deploys (2-hex first), places markers, moves
-(wall-routing BFS, climbs for height, detours onto glyphs), attacks (kills-first), and resolves most
-choices. It **uses every special power except Carry** (Theracus). Server-authoritative + RNG-free
-confirmed (engine never calls Math.random; all dice/seeds injected by actions.ts). Full-game
-playthroughs are healthy.
-
-**Findings**
-- 🔴 **Projection leaks face-down glyph ids — LIVE, exploitable now.** `projectStateForViewer` (engine.ts:6155-6165) masks opponents' order markers but passes the full `glyphs[]` through with real `id`s. Confirmed empirically: a non-owner projection returns `{id:'mitonsoul', faceUp:false}` — a modified/devtools client reads exactly which power sits on every unrevealed glyph. The UI hides it, but the wire data doesn't. **Fix:** mask the id of face-down glyphs in projection.
-- 🟡 **AI can't resolve glyph_mitonsoul/sturla/oreld** (`aiResolveChoice` 5659-5701 returns null) — same as §4; safe only because actions.ts auto-resolves them in-tick. Add branches for defense-in-depth.
-- 🟡 **AI never uses Carry** (Theracus) — omitted from `aiTurn`; functional gap, not a bug.
-
-**Playthroughs**
-- **Fuzzer** (fuzz.test.ts): 120 games, 2-6 players, random FFA/teams, server-rolled dice. Asserts wounds/positions/winner invariants + the team-elimination invariant. >40% finish, every special kind fires ≥1×. PASS.
-- **New `audit-playthrough.test.ts`** (8 tests, kept as a regression net): full 2p, 3p+teams (2-v-1), and 3p FFA games driven lobby→draft→placement→rounds→**finish** with the AI on every seat — all reach a coherent winner/winning-team, exercise glyph reveals + special attacks, **no crashes, no stuck phases, no never-ending games**. Total suite **450/450 pass**.
-
-**Test-coverage gaps**
-- AUTO glyphs (Mitonsoul/Sturla/Oreld) are never exercised end-to-end through the AI/server path (playthroughs use no `glyphSeed` → static map glyphs only).
-- No test asserts projection hides face-down glyph ids (why the leak went unnoticed) — added with the fix.
-- Carry has no AI-brain coverage.
+| # | Sev | Where | Issue | Fix shape | Why deferred |
+|---|-----|-------|-------|-----------|--------------|
+| O1 | 🟠 | engine.ts special-attack handlers (Fire Line/Explosion/Grenade/Ice Shard/Queglix/Wild Swing/Acid Breath/Throw) + `applyCeremonyRoll` curse | A Finn/Thorgrim destroyed by a **special attack** or the **Massive Curse** leaves NO Warrior's Spirit — those kill sites never call the Spirit hook (only normal-attack / swipe / fall / Wannok do). | Add a small `pendingSpirits` queue: `enqueueSpiritOnDestroy` at every special/curse death, `openNextSpirit` after `checkEliminationWin` and after each `spirit_placement` resolves (handles a multi-kill that drops two heroes). | Multi-site refactor (~10 sites) to the death/Spirit system; pre-existing (not a regression this session). Best done with attention, not unattended. Regression tests specified below. |
+| O2 | 🟡 | engine.ts Oreld/Nilrend/Wannok d20 resolutions (+ actions.ts Oreld roll) | **Glyph of Lodin (+1 to any d20 you roll) is NOT applied** to the five wave-3 glyph d20s (Mitonsoul, Sturla, Oreld, Nilrend, Wannok). Every legacy d20 power folds in `lodinD20Bonus`; these five compare the raw d20. Each effect is self-protective for the Lodin holder (curse-immune, resurrect on 19, never self-remove/negate/wound). | Mitonsoul/Sturla: `eff = d20 + lodinD20Bonus(s, fig.ownerSeat)` in `applyCeremonyRoll` (curse `eff===1`, resurrect `eff>=20`). Oreld/Nilrend/Wannok: store the *effective* d20 in `pc.d20` at the roll step + apply Lodin in the actions.ts Oreld branch. | **Needs an owner ruling** (does Lodin make your figures curse-immune?). The Mitonsoul/Sturla half is a clean engine change; Oreld/Nilrend/Wannok touch the multi-reader `pc.d20` + the action layer. Held pending the ruling so all five land consistently. |
+| O3 | 🟡 | engine.ts `effectiveAttackDice`/`effectiveDefenseDice` (cardMod adds) | A Nilrend-**negated** card still applies a Warrior's Spirit `attackMod`/`defenseMod` it had *previously received*. Ambiguous: is a received Spirit token "that card's own power" (negated) or an external buff (kept)? | If "base stats" is literal: gate both `cardModFor` adds behind `!isCardNegated`. | **Needs a ruling.** Corner case (Spirit lands, then that card is negated). |
+| O4 | 🟡 | engine.ts `moveConsequences` vs `stepConsequences` | Whole-move (the primary click) and step-by-step movement have drifted: the whole-move path **under-counts passing swipes** for a transiently-engaged enemy (B1), **can't bridge a water hex with a 2-hex figure** (B2), and **computes a 2-hex fall the step path defers** (B3). | Route the primary click through the step engine, or document the destination-model limits. B2/B3 are latent (no figure can trigger them on current maps until a unit descends a height-15 wall). | Pre-existing; B1 is the only live one and is a model limitation, not a crash. |
+| O5 | 🟡 | maps.ts (Triskelion/Pentad) | The **central glyph** sits on a height-3 hex ringed entirely by height-2, so a **2-hex (Big Hero) figure can never stop level on it** → can't reveal/control that one glyph. 1-hex figures reach all glyphs. | Make the central hex height-2 (or raise its ring to 3) so a peanut can rest level. | Cosmetic asymmetry between figure sizes for 1 of 6–9 glyphs; symmetric across players. |
+| O6 | 🟡 | types.ts `glyph_oreld.foeCandidates` on `pendingChoice` | `foeCandidates` enumerates the *positions* (cardUid+markerIndex) of an opponent's **unrevealed** order markers, and `pendingChoice` isn't masked in projection. Not currently exploitable (Oreld auto-resolves server-side, never pausing for a human). | Mask/strip `foeCandidates` in projection, or compute it server-side only. | Pre-existing; not reachable by a client today. |
 
 ---
 
-## Ranked issues & recommendations  ✅
+## Per-system findings (condensed)
 
-### ✅ FIXED (deployed)
-- **H1 Projection leaked face-down glyph ids** (4373366) — now masked (sentinel id for face-down glyphs) + regression test.
-- **H3 Lodin +1 missing on Jotun's Throw** (4373366) — now folds `lodinD20Bonus` into both the throw and damage d20 + test.
-- **M1 grenade not re-gated** (757fb08) — `doGrenade` re-checks a target in range before spending; no more wasted once-per-game marker. + test.
-- **M2 total-mutual-wipeout hang** (757fb08) — `checkEliminationWin` finishes as a draw at 0 teams alive. + test.
-- **M3 non-contiguous seats soft-lock** (757fb08) — `doStartGame` re-packs seats to 0..n-1. + test.
-- **H2 splash specials stripped defender height** (1daa39e) — Fire Line/Explosion/Grenade now keep the height-included dice (matching Ice Shard/Queglix/Wild Swing). + test (defender keeps height vs a grenade on the cliff map).
-- **H4 melee across a height break** (1daa39e) — `targetBlockReason` now requires `figuresAdjacent` for Range-1 (elevation-aware). + test.
+### 1. Turn flow — sound
+Order markers, initiative (ties re-roll with Dagmar/Lodin bonus persisting, re-validated on both
+server + engine), round rollover, draft snake + per-team budget, placement, and last-team / draw
+elimination all verify against `docs/heroscape/02-rounds…`. **NEW:** the turn-order **ring**
+(`physicalSeatRing` → rotate-to-winner → `interleaveByTeam`) is correct — winner first, then the
+physical start-zone ring, 2-player unaffected, eliminated seats excluded, no crash on an empty
+zone. The **roll ceremony** advances owner-by-owner, clears its temp glyph at the end, can't
+soft-lock (queue strictly drains; `pc.seat` always tracks `queue[0]`), and a board-wiping curse
+ends as a draw (tested M2). Only bug: O1 (Spirit on curse death).
 
-### 🔊 Sound pass — DONE (57ec263)
-Dice rattle, per-figure hit/block/death, all six special stings, glyph reveal, win/draw. (`hsStep` footsteps deferred.)
+### 2. Movement — faithful, crash-free on the new maps
+Climb cost/limit, free descent, fall bands (+Lodin on extreme), water forced-stop, flying
+(Rannveig suppression), ghost walk, Theracus carry, The Drop decline, 2-hex slither, and
+whole-move undo all check out. **Verified no stranding/sealed paths on Triskelion/Crossroads/
+Pentad** — every non-wall hex is reachable by a Height-2 walker; height-15 walls are isolated
+(flyers cross); mounds are properly ramped. Open: O4 (whole-move vs step divergences).
 
-### Medium — robustness (remaining)
-- **M4 AI can't self-resolve AUTO-glyph choices** (5659) → add the three branches. (Masked today because actions.ts auto-resolves them server-side; defense-in-depth only.)
+### 3. Combat + LOS — faithful, no shipping bug
+`wounds = max(0, skulls − shields)` (tie → defender), `destroyed = wounds >= life`, height
+advantage, and all 11 special attacks verify line-by-line against printed card text. Special-attack
+**defenders keep height** (§117) — code correct, comments now fixed. The **negation→Spirit
+suppression** (a negated Finn/Thorgrim leaves no Spirit on death) is correct + tested. Open: O3
+(negated card keeps a *received* Spirit mod — ruling).
 
-### Low — cleanup (no gameplay impact)
-- Dead/unused: `hasLineOfSight` flat 2-D (board.ts:423), `baseLevel` alias, `ReachOptions.doubleSpace` (unread by Dijkstra).
-- Per-turn flag resets duplicated 4× → extract `resetTurnScratch(s)`.
-- Stale comments/docs: Raelin "+1/6" vs the correct +2/4; "slice 7 — no special attacks yet"; glyphs.md lists live Mitonsoul/Sturla/Oreld as "planned"; aura-adjacency comment vs code.
-- Design decisions to confirm: Warrior's Spirit may target any card incl. an opponent's and can't target the owner's own 0-figure card; Mind Shackle doesn't enforce "unique" (inert today).
+### 4. Cross-system interactions + the new maps
+Glyph buffs × combat, aura × combat (negated source removed), height × normal-vs-special,
+LOS × ranged-vs-aura, flying × engagement/water/glyph, pending-choice × turn-flow — all faithful.
+**Lodin × the five wave-3 glyph d20s is the one gap (O2).** The new maps are geometrically sound
+(fair, connected, no soft-locks; The Drop always has landings; both 1-hex AND 2-hex figures can be
+placed on every seat). Glyph generation on them is safe: `generateGlyphs` branches on
+`map.glyphAnchors` (symmetric fixed positions, random id per game, never on a wall/zone, ≤
+GLYPH_POOL ids). Note: the anchor branch bypasses `glyphCountForMap`, so Crossroads runs ~9 glyphs
+(denser than a rectangle) — by design (anchors ARE the layout).
 
-### Test gaps to backfill (alongside the fixes)
-Carry (no engine test); The Drop placement legality; projection masking (with H1); splash-defender height + melee-across-height (with H2/H4); AUTO glyphs end-to-end; Rannveig no-fly movement.
-
-### What's solid — no action
-Turn/round/draft/placement/pending-choice machinery; movement core; combat core; 6 of 7 interactions; AI plays a full coherent game using every power but Carry; server-authoritative + RNG-free; order-marker hiding. Playthroughs (120 fuzz + 8 scripted full games) all finish cleanly.
+### 5. AI + projection + RNG
+The AI drives every pending + power, **including the new ceremony** (select → roll, d20 injected
+by the action layer; the old Mitonsoul/Sturla bot-stall is closed; multi-owner hand-off correct).
+Engine is RNG-free; all dice/seeds injected by the action layer; `generateGlyphs` deterministic
+from the seed (incl. the anchor branch). Projection: the ceremony's public fields
+(`selectedFigureId`/`queue`/`results`) expose only figure ids + d20s (correct — all watch); the
+**`glyphSeed` leak (now fixed)** was the real issue; O6 (`foeCandidates` shape) is latent.
 
 ---
 
-## Re-audit pass — 2026-06-23 (post H2/H4 fixes)
+## The three new battlefields (geometry verified)
 
-A second audit (3 read-only passes) over the H2/H4/M1/M2/M3 fixes + resetTurnScratch + Warrior's Spirit found the engines faithful and the fixes correct, with **one HIGH-severity self-inflicted bug** and two cosmetic items. All now fixed:
+```
+Triskelion Vale (3p) — true 3-fold rotational     Crossroads Keep (4p) — 4 mirror quadrants
+  217 hexes · 9 walls · zones 16/16/16              289 hexes · 8 walls · zones 16/16/16/16
+  minInterZone 10 · connected · 7 glyph anchors     minInterZone 10 · connected · 9 glyph anchors
 
-### 🔴 FIXED — The Drop gate could hard-freeze a room
-The Drop-before-markers gate (added with M1–M3: order markers are blocked until an Airborne seat rolls The Drop) deadlocked the whole room when an **AI** owned Airborne Elite and the board could not seat a full, mutually-non-adjacent 4-figure drop. The old `aiNextAction` *declined the roll* (returned `place_markers`) in that case; the gate rejected it and `ai_step` threw, so the round never advanced. Fix (faithful to "you MAY place all 4"):
-- `aiNextAction` now **always rolls** `the_drop` when `canTheDrop` — the roll sets `airborneDropRound` (hit or miss), which clears the gate.
-- On a 13+ that can't fit a full squad, `aiResolveChoice` **declines the landing** (returns `placements: []`).
-- `doAirborneDropPlace` accepts `[]` as a legal **decline** (squad kept in reserve, pendingChoice cleared); a partial drop (1..n-1) is still rejected (all-or-nothing).
-- Board UI: humans get a **"Hold in reserve"** button (parity with the engine decline) so they can't soft-lock when no full squad fits.
-- +4 regression tests (AI always rolls; AI declines on a 3-hex strip; engine accepts `[]` and markers then open; partial drop rejected).
+        3 3 3 3 . . . . .                            1 1 1 1 . . . . . . . . . 2 2 2 2
+     3 3 3 3 . . . . . . .                           1 1 1 1 * . # . . . # . * 2 2 2 2
+    . . . . * . # + . . . . .                        . . . . . + . . . . . + . . . . .
+   . . # . . + ^ . . . . # . 1                       . . * . . . . . . . . . . . * . .
+  . . . . # . + + + . # . . 1 1                      . . # . + . . + + + . . + . # . .
+ . . . . . . + + + + . . . 1 1 1                     . . . . . . + ^ * ^ + . . . . . .
+. . . . . . + + * + + + * 1 1 1 1                    . . # . + . . + + + . . + . # . .
+  . . . . # ^ + + + . # . . 1 1                      . . * . . . . . . . . . . . * . .
+   . . . . . + . . . + . . . 1                       3 3 3 3 . . . . . . . . . 4 4 4 4
+    . . . . * . # . . * . . .                        3 3 3 3 * . # . . . # . * 4 4 4 4
+     2 2 2 2 . . . . . . . .
+      2 2 2 2 . # . . . . .         Pentad Crucible (5p) — 5-fold angular (approx; equal zones)
+       2 2 2 2 . . . . . .            469 hexes · 7 walls · zones 12×5 · minInterZone 11 · 6 anchors
+       ( ^=h3  +=h2  .=h1  #=wall  *=glyph anchor  1-5=start zones )
+```
+All three: flat grass start zones spaced **≥10** (no turn-one Range-9 snipe), a raised centre +
+ridges, isolated height-15 rock walls (cover / LOS breakers, never sealing), and symmetric glyph
+anchors. The Pentad is **approximately** 5-fold (a hex grid can't be exactly 5-fold) — handled
+honestly: caps are trimmed to equal size (12 each), and the symmetry test asserts only near-equal
+rim radius. `maps.test.ts` asserts the full invariant set incl. exact rot120 (3p) + offset
+double-mirror (4p) terrain invariance.
 
-### ✅ FIXED — Warrior's Spirit drifted to own-cards-only (fidelity regression)
-A prior change restricted the on-destroy Spirit to the owner's own cards and mislabeled it "per the card text". The **high-res verified card text** (extraction/cards-page-1.md) is exactly *"place this figure on any unique Army Card"* — no "your" — matching this audit's own §Low note ("may target any card incl. an opponent's"). Reverted to offer **any living unique card, any owner**; the AI resolver already prefers its own. Test updated to assert an opponent's living card is offered.
+---
 
-### ✅ FIXED — cosmetic
-- Stale "no height" comments on the **defender** side of special attacks (engine.ts grenade header + ice/queglix roller; actions.ts fire_line/grenade/ice_shard) → corrected: a defender keeps height vs a special attack (verified §117: Samurai 5 Def + 1 height = 6 dice). The attacker-side "special — no height/aura" breakdowns are correct and unchanged.
-- Draw banner showed "🏆 — wins the battle!" for a true draw → now "🤝 Draw — no army left standing."
+## Playthroughs + tests
+- Fuzzer (`fuzz.test.ts`): green (random 2-6p games + invariants).
+- `audit-playthrough.test.ts`: green (full 2p + 3p+teams + FFA, lobby→win).
+- `maps.test.ts`: 29 pass (incl. 6 new-map invariant tests).
+- **487 HeroScape tests pass; production build clean.**
 
-### Verified
-`tsc` clean · **485** engine/board tests pass · fuzzer + 9 scripted playthroughs finish · `next build` succeeds.
-
-### Still open (need user/UI, unchanged)
-M4 AI AUTO-glyph self-resolver (masked server-side); the 3 CHOICE glyphs (Erland/Nilrend/Wannok); AI Carry; flying-takeoff/order-marker sounds.
+### Recommended regression tests (for the open issues, when fixed)
+- **O1:** Explosion/Fire Line/Grenade/etc. destroying Finn or Thorgrim (with the owner's other card
+  alive) → a `spirit_placement` opens; Mitonsoul rolling a 1 on Finn → the Spirit after the
+  ceremony; a single special destroying **both** Finn and Thorgrim → **both** Spirits placeable.
+- **O2:** a Lodin holder's figure rolling a natural 1 under Mitonsoul survives (once the ruling lands).
+- **Coverage gap (independent of a fix):** the fuzzer/playthroughs never run on the new maps with a
+  `glyphSeed`, so the anchor-branch generation + AUTO/CHOICE glyphs on mounds aren't fuzzed — add a
+  seeded playthrough on Triskelion/Crossroads/Pentad that drives a ceremony to completion.
