@@ -15,7 +15,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Billboard, Edges, Html } from '@react-three/drei';
 import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { MAPS, HS_CARDS, HS_GLYPHS } from '@/lib/games/heroscape';
+import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
 
@@ -517,17 +517,14 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
  *  it face-up. Once revealed it glows brighter while a figure CONTROLS it, and its ring is wide
  *  enough to show AROUND that figure. Hovering pops a tooltip — its name + effect once revealed,
  *  or "Unknown glyph" while still hidden. */
-function GlyphMarker({ x, z, topY, active, faceUp, name, effect }: {
-  x: number; z: number; topY: number; active: boolean; faceUp: boolean; name: string; effect: string;
+function GlyphMarker({ x, z, topY, active, faceUp, letter }: {
+  x: number; z: number; topY: number; active: boolean; faceUp: boolean; letter: string;
 }) {
-  const [hover, setHover] = useState(false);
   const lit = faceUp && active; // brightest only when REVEALED and currently controlled
   return (
-    <group
-      position={[x, topY + 0.04, z]}
-      onPointerOver={e => { e.stopPropagation(); setHover(true); }}
-      onPointerOut={e => { e.stopPropagation(); setHover(false); }}
-    >
+    // No pointer handlers — glyph DETAILS live on the GLYPHS panel (hover a row there). The board
+    // marker just shows location + identity: a "?" while hidden, its LETTER once revealed.
+    <group position={[x, topY + 0.04, z]}>
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[SIZE * 0.5, SIZE * 0.84, 28]} />
         <meshStandardMaterial color={GLYPH_MAROON} emissive="#b91c1c" emissiveIntensity={lit ? 1.15 : faceUp ? 0.5 : 0.28} side={THREE.DoubleSide} transparent opacity={faceUp ? 0.95 : 0.82} metalness={0.3} roughness={0.4} />
@@ -536,29 +533,20 @@ function GlyphMarker({ x, z, topY, active, faceUp, name, effect }: {
         <circleGeometry args={[SIZE * 0.5, 28]} />
         <meshStandardMaterial color="#3b0a0a" emissive={GLYPH_MAROON} emissiveIntensity={lit ? 0.6 : 0.22} side={THREE.DoubleSide} transparent opacity={0.85} />
       </mesh>
-      {/* A hidden glyph wears a persistent "?" so its location is known but its power isn't. */}
-      {!faceUp && (
-        <Html center position={[0, 0.06, 0]} style={{ pointerEvents: 'none' }}>
-          <div style={{ fontSize: 18, fontWeight: 800, color: '#fca5a5', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>?</div>
-        </Html>
-      )}
-      {hover && (
-        <Html center position={[0, 0.55, 0]} style={{ pointerEvents: 'none' }}>
-          <div style={{ width: 172, borderRadius: 8, border: '1px solid #b91c1c', background: 'rgba(24,10,10,0.96)', padding: '6px 9px', color: '#fecaca', fontSize: 11, lineHeight: 1.35, textAlign: 'center', boxShadow: '0 2px 10px rgba(0,0,0,0.55)' }}>
-            {faceUp ? (
-              <>
-                <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>{name}{active ? ' · active' : ''}</div>
-                <div>{effect}</div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontWeight: 700, color: '#fca5a5', marginBottom: 2 }}>Unknown glyph</div>
-                <div>Hidden — step a figure onto it to reveal.</div>
-              </>
-            )}
+      {/* Hidden → a persistent "?"; revealed → the glyph's LETTER (matches the panel badge), which
+          FLIPS in when it mounts (i.e. the moment the glyph is revealed). */}
+      <Html center position={[0, faceUp ? 0.07 : 0.06, 0]} style={{ pointerEvents: 'none' }}>
+        {faceUp ? (
+          <div
+            key="up"
+            style={{ fontSize: 17, fontWeight: 800, color: '#fde68a', textShadow: '0 1px 3px rgba(0,0,0,0.85)', animation: 'sd-glyph-flip 0.5s ease-out' }}
+          >
+            {letter}
           </div>
-        </Html>
-      )}
+        ) : (
+          <div style={{ fontSize: 18, fontWeight: 800, color: '#fca5a5', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>?</div>
+        )}
+      </Html>
     </group>
   );
 }
@@ -817,7 +805,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const gTop = Math.max(0.2, gc.height * LEVEL) * (gc.terrain === 'water' ? 0.6 : 1) + GLYPH_RAISE;
         const active = state.figures.some(f => f.at === g.at); // a figure stands on it → activated
         const def = HS_GLYPHS[g.id];
-        return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} faceUp={g.faceUp} name={def?.name ?? 'Glyph'} effect={def?.effect ?? ''} />;
+        return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} faceUp={g.faceUp} letter={def?.letter ?? '?'} />;
       })}
       <Suspense fallback={null}>
         {state.figures.filter(f => f.at != null).map(f => {
@@ -940,10 +928,19 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
   // manual orbit/pan/zoom stays free. Initial value frames the viewer's army (CameraRig snaps
   // on mount — no swoop). Clicks pass straight through to the engine handler, unchanged.
   const [desired, setDesired] = useState<[number, number, number]>([0, 0, 0]);
-  // Focus = the active area: the SELECTED figure, else the figures you can still act with this
-  // turn, else your whole army. Pan-only — it keeps your current zoom (no forced re-zoom).
+  // Focus = the CURRENT ACTION, whoever's acting: a figure you've selected (when it's your turn),
+  // else the ACTIVE army — the figures of the card taking its turn right now, for ANY player — so
+  // you can watch an opponent's/AI's move. Falls back to your actionable figures, then your army.
+  // Pan-only — it keeps your current zoom (no forced re-zoom).
   const focusTarget = useCallback((): [number, number, number] => {
-    const ids = it.selectedId ? [it.selectedId] : [...(it.actionableIds ?? [])];
+    let ids: string[] = [];
+    if (it.selectedId) {
+      ids = [it.selectedId];
+    } else {
+      const activeUid = getActiveCardUid(state);
+      if (activeUid) ids = state.figures.filter(f => f.cardUid === activeUid && f.at != null).map(f => f.id);
+      if (!ids.length) ids = [...(it.actionableIds ?? [])];
+    }
     const hexes = ids
       .map(id => state.figures.find(f => f.id === id)?.at)
       .filter((h): h is HexKey => h != null);
@@ -951,7 +948,7 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     let ax = 0, az = 0;
     for (const k of hexes) { const [x, , z] = hexToWorld(k); ax += x; az += z; }
     return [Math.round((ax / hexes.length) * 2) / 2, 0, Math.round((az / hexes.length) * 2) / 2];
-  }, [it.selectedId, it.actionableIds, state.figures, hexToWorld, armyTarget]);
+  }, [it.selectedId, it.actionableIds, state, hexToWorld, armyTarget]);
   // Frame the BOARD CENTRE (origin — the board is recentred there), not the army. The board is
   // rotated per-viewer so your side still sits at the bottom, but centring on the board keeps the
   // whole field in view and stops it floating high with a big black margin (where the panels land).
@@ -978,8 +975,8 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
       <button
         type="button"
         onClick={() => setDesired(focusTarget())}
-        title="Focus on the active area"
-        aria-label="Focus on the active area"
+        title="Focus on the current action (the acting army)"
+        aria-label="Focus on the current action"
         className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
       >
         ⌖

@@ -122,6 +122,12 @@ html { scrollbar-gutter: stable; }
   0%, 100% { text-shadow: 0 0 4px rgba(249, 115, 22, 0.45); color: #fdba74; }
   50%      { text-shadow: 0 0 9px rgba(249, 115, 22, 0.85); color: #fb923c; }
 }
+/* HeroScape glyph reveal — the letter flips in (like turning the disc power-side-up). */
+@keyframes sd-glyph-flip {
+  0%   { transform: rotateY(90deg) scale(0.6); opacity: 0; }
+  60%  { transform: rotateY(-12deg) scale(1.15); opacity: 1; }
+  100% { transform: rotateY(0deg) scale(1); opacity: 1; }
+}
 
 /* Hide scrollbars while preserving scrollability — used by the pile-hover
    popups (KO / Discard / Escape / VP) so the list scrolls via wheel without

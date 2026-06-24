@@ -282,7 +282,7 @@ function MarkerChip({ m, size = 16 }: { m: OrderMarker; size?: number }) {
       style={{ width: size, height: size, fontSize: size * 0.62 }}
       title={
         faceDown
-          ? 'Face-down order marker'
+          ? "An order marker placed face-down — its number (1, 2, 3 or the X decoy) is hidden until it's revealed on that turn"
           : `Order marker ${m.marker}${m.revealed ? ' (revealed)' : ''}`
       }
     >
