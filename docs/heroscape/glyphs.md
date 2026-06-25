@@ -34,7 +34,7 @@ counts for landing on / revealing / controlling a glyph.
 | Mitonsoul | Massive Curse | Each player rolls a d20 for each of their figures on the battlefield; each that rolls a 1 is destroyed. | live |
 | Sturla | Resurrection | Each player rolls a d20 for each of their figures destroyed this battle; on a 20 place it in any of that owner's starting zones, otherwise it stays destroyed. | live |
 | Nilrend | Negation | Roll a d20: on a 1 choose one of YOUR unique figures; on 2+ choose any opponent's unique figure — its special powers are negated for the rest of the game. | live |
-| Oreld | Remove Marker | Roll a d20: on a 1 a random order marker is removed from your unrevealed markers; on 2+ remove one random order marker from an opponent's army card. | live |
+| Oreld | Remove Marker | Roll a d20 (PUBLIC): on a 1 it backfires — you lose one of your own unrevealed order markers; on 2+ you CHOOSE a player, who loses one unrevealed order marker (which one is engine-picked — markers are hidden). Temporary: spent + removed after one use. | live |
 
 ## Owner clarifications (2026-06)
 

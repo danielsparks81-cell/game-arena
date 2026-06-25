@@ -311,13 +311,14 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
     return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_sturla_place', hex: pick(rng, hexes) } });
   }
   if (pc.kind === 'glyph_oreld') {
-    const d = d20(rng);
-    const list = d === 1 ? pc.ownCandidates : pc.foeCandidates;
-    const e = list.length ? pick(rng, list) : { cardUid: '', markerIndex: -1 };
-    return applyAction(s, pid, {
-      kind: 'resolve_choice',
-      choice: { kind: 'glyph_oreld', d20: d, cardUid: e.cardUid, markerIndex: e.markerIndex },
-    });
+    if (pc.d20 == null) {
+      // STEP 1 — roll the controller's d20 (a 1 backfires + clears; 2+ opens the pick).
+      return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: d20(rng) } });
+    }
+    // STEP 2 (reached only on 2+) — name a vetted victim seat to lose an order marker.
+    const victims = pc.victimSeats ?? [];
+    if (!victims.length) return null; // engine should already have cleared an empty pick
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', victimSeat: pick(rng, victims) } });
   }
   // wave-3 CHOICE glyphs — exercise the human/AI decision paths under random play.
   if (pc.kind === 'glyph_erland') {

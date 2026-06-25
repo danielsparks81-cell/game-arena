@@ -454,15 +454,19 @@ export type HSPendingChoice =
       remaining: string[];
     }
   | {
-      // Glyph of Oreld (Remove Marker) — fires when a figure stops on it. The action layer
-      // rolls one d20 and randomly removes an UNREVEALED order marker: on a 1 from the stopper's
-      // OWN cards (`ownCandidates`), on 2+ from an opponent's (`foeCandidates`). Each candidate is
-      // a {cardUid, markerIndex}. No human choice — auto-resolved in-request.
+      // Glyph of Oreld (Remove Marker, temporary) — fires when a figure stops on it. TWO steps,
+      // mirroring Wannok. STEP 1: the action layer rolls the controller's d20 (server-side). On a
+      // 1 it BACKFIRES — the engine removes one of the controller's OWN unrevealed order markers and
+      // clears. On 2+ it records the roll in `d20` and the eligible opponent seats in `victimSeats`,
+      // then leaves the choice OPEN. STEP 2: the controller (`seat`) names a player from
+      // `victimSeats`, who loses one unrevealed order marker. Public roll → a real choice, no longer
+      // an auto-random server resolution (the old `ownCandidates`/`foeCandidates` exposed exact
+      // marker positions in projection — gone).
       kind: 'glyph_oreld';
       seat: number;
       at: HexKey;
-      ownCandidates: { cardUid: string; markerIndex: number }[];
-      foeCandidates: { cardUid: string; markerIndex: number }[];
+      d20: number | null;
+      victimSeats?: number[];
     }
   | {
       // Glyph of Erland (Summoning, temporary) — fires when a figure stops on it. The
@@ -517,7 +521,7 @@ export type HSChoiceResolution =
   | { kind: 'roll_ceremony_select'; figureId: string } // the current roller highlights a figure (shared)
   | { kind: 'roll_ceremony_roll'; d20?: number } // roll the selected figure — d20 injected by the action layer
   | { kind: 'glyph_sturla_place'; hex: HexKey } // where the current owner places their risen figure
-  | { kind: 'glyph_oreld'; d20: number; cardUid: string; markerIndex: number } // d20 + chosen marker (markerIndex<0 = none)
+  | { kind: 'glyph_oreld'; d20?: number; victimSeat?: number } // d20 = the server roll step; victimSeat = the controller's pick (on 2+)
   | { kind: 'glyph_erland'; figureId: string; to: HexKey } // figure to summon + its destination hex
   | { kind: 'glyph_nilrend'; d20?: number; cardUid?: string } // d20 = the server roll step; cardUid = the human pick step
   | { kind: 'glyph_wannok'; d20?: number; opponentSeat?: number } // d20 = the server roll step; opponentSeat = the controller's pick (on 2+)

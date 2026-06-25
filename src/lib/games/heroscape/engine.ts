@@ -3039,27 +3039,12 @@ function applyOneGlyph(s: HSState, fig: Figure, g: HSGlyph): void {
     return;
   }
   if (g.id === 'oreld') {
-    // Remove Marker — the action layer rolls a d20 and randomly removes an UNREVEALED order
-    // marker (own on a 1, an opponent's on 2+). Candidates are computed here (the engine never
-    // rolls); each is a {cardUid, markerIndex}.
-    const myTeam = teamOfSeat(s, fig.ownerSeat);
-    const candidatesWhere = (pred: (c: ArmyCardInstance) => boolean) =>
-      s.cards
-        .filter(pred)
-        .flatMap(c =>
-          c.orderMarkers
-            .map((m, markerIndex) => ({ m, markerIndex }))
-            .filter(x => !x.m.revealed)
-            .map(x => ({ cardUid: c.uid, markerIndex: x.markerIndex })),
-        );
-    s.pendingChoice = {
-      kind: 'glyph_oreld',
-      seat: fig.ownerSeat,
-      at: g.at,
-      ownCandidates: candidatesWhere(c => c.ownerSeat === fig.ownerSeat),
-      foeCandidates: candidatesWhere(c => teamOfSeat(s, c.ownerSeat) !== myTeam),
-    };
-    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Oreld — an order marker will be lost!`);
+    // Remove Marker — a PUBLIC two-step (mirrors Wannok). STEP 1: the action layer rolls the
+    // controller's d20 (the engine never rolls). On a 1 it backfires onto the controller; on 2+
+    // the controller then NAMES a player to lose an unrevealed order marker. Open the choice with
+    // d20 unrolled.
+    s.pendingChoice = { kind: 'glyph_oreld', seat: fig.ownerSeat, at: g.at, d20: null };
+    pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Oreld — roll a d20 to steal a turn!`);
     return;
   }
   if (g.id === 'erland') {
@@ -5817,26 +5802,61 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     return s;
   }
 
-  // --- Glyph of Oreld: Remove Marker (d20 1 → own unrevealed marker; 2+ → an opponent's) ---
+  // --- Glyph of Oreld: Remove Marker — a PUBLIC two-step (mirrors Wannok). STEP 1: the action
+  //     layer rolls the controller's d20 (a 1 backfires onto them; 2+ opens the pick). STEP 2: the
+  //     controller NAMES a player, who loses one unrevealed order marker. ---
   if (pc.kind === 'glyph_oreld' && choice.kind === 'glyph_oreld') {
-    if (!Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) return { error: 'Malformed Oreld roll' };
-    const list = choice.d20 === 1 ? pc.ownCandidates : pc.foeCandidates;
-    const whose = choice.d20 === 1 ? 'their own' : "an opponent's";
     const s = clone(state);
-    if (choice.markerIndex >= 0) {
-      if (!list.some(x => x.cardUid === choice.cardUid && x.markerIndex === choice.markerIndex)) {
-        return { error: 'That order marker is not an eligible Oreld target' };
+    // Remove ONE unrevealed order marker from a seat's cards. WHICH one is immaterial — markers are
+    // hidden, so the value lost is unknowable to everyone; take the first unrevealed slot. Returns
+    // whether a marker was actually removed.
+    const stripOneMarker = (st: HSState, victimSeat: number): boolean => {
+      for (const c of st.cards) {
+        if (c.ownerSeat !== victimSeat) continue;
+        const idx = c.orderMarkers.findIndex(m => !m.revealed);
+        if (idx >= 0) { c.orderMarkers.splice(idx, 1); return true; }
       }
-      const card = s.cards.find(c => c.uid === choice.cardUid);
-      const m = card?.orderMarkers[choice.markerIndex];
-      if (card && m && !m.revealed) {
-        card.orderMarkers.splice(choice.markerIndex, 1);
-        pushLog(s, 'glyph', `Oreld — ${playerName(s, seat)} rolls ${choice.d20}: removes ${whose} unrevealed order marker.`);
+      return false;
+    };
+    const myTeam = teamOfSeat(s, pc.seat);
+    const eligibleVictims = (): number[] =>
+      livingSeats(s).filter(
+        st => teamOfSeat(s, st) !== myTeam && s.cards.some(c => c.ownerSeat === st && c.orderMarkers.some(m => !m.revealed)),
+      );
+
+    // STEP 1 — the server d20 roll.
+    if (pc.d20 == null) {
+      const d = choice.d20;
+      if (!Number.isInteger(d) || (d ?? 0) < 1 || (d ?? 0) > 20) return { error: 'Malformed Oreld roll' };
+      if (d === 1) {
+        const lost = stripOneMarker(s, pc.seat); // BACKFIRE — the controller loses their own
+        pushLog(s, 'glyph', lost
+          ? `Oreld — ${playerName(s, pc.seat)} rolls 1: it backfires — they lose one of their own unrevealed order markers!`
+          : `Oreld — ${playerName(s, pc.seat)} rolls 1: it backfires, but they have no unrevealed marker to lose.`);
+        s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — spent
+        delete s.pendingChoice;
+        return s;
       }
-    } else {
-      pushLog(s, 'glyph', `Oreld — ${playerName(s, seat)} rolls ${choice.d20}: no ${whose} marker to remove.`);
+      const victims = eligibleVictims(); // 2+ — open the pick (fizzle if no one is eligible)
+      if (victims.length === 0) {
+        pushLog(s, 'glyph', `Oreld — ${playerName(s, pc.seat)} rolls ${d}: no opponent has an unrevealed order marker to take.`);
+        s.glyphs = s.glyphs.filter(g => g.at !== pc.at);
+        delete s.pendingChoice;
+        return s;
+      }
+      pushLog(s, 'glyph', `Oreld — ${playerName(s, pc.seat)} rolls ${d}: choose a player to lose an unrevealed order marker.`);
+      s.pendingChoice = { kind: 'glyph_oreld', seat: pc.seat, at: pc.at, d20: d!, victimSeats: victims };
+      return s;
     }
-    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once, now removed
+
+    // STEP 2 — the controller names the victim seat (2+ only).
+    if (choice.victimSeat == null) return { error: 'Choose a player to lose an order marker' };
+    if (!(pc.victimSeats ?? []).includes(choice.victimSeat)) return { error: 'That player is not an eligible Oreld target' };
+    const lost = stripOneMarker(s, choice.victimSeat);
+    pushLog(s, 'glyph', lost
+      ? `Oreld — ${playerName(s, pc.seat)} (rolled ${pc.d20}) takes an unrevealed order marker from ${playerName(s, choice.victimSeat)}!`
+      : `Oreld — ${playerName(s, choice.victimSeat)} had no unrevealed marker to lose.`);
+    s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — spent
     delete s.pendingChoice;
     return s;
   }
@@ -6395,6 +6415,19 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
       ? eligible.reduce((b, u) => (pts(u) < pts(b) ? u : b), eligible[0]) // bad roll — give up the cheapest
       : eligible.reduce((b, u) => (pts(u) > pts(b) ? u : b), eligible[0]); // negate the biggest threat
     return { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', cardUid: pick } };
+  }
+  // Glyph of Oreld — controller side (the server rolls the d20). On a 2+ name a player from the
+  // engine-vetted `victimSeats` to lose an order marker; pick the opponent holding the MOST
+  // unrevealed markers (the juiciest turn to steal). Returns null until the d20 is recorded (a 1
+  // backfires and is resolved without a choice).
+  if (pc.kind === 'glyph_oreld') {
+    if (pc.d20 == null || pc.d20 === 1) return null;
+    const victims = pc.victimSeats ?? [];
+    if (victims.length === 0) return null;
+    const unrevealed = (st: number) =>
+      state.cards.filter(c => c.ownerSeat === st).reduce((n, c) => n + c.orderMarkers.filter(m => !m.revealed).length, 0);
+    const pick = victims.reduce((b, st) => (unrevealed(st) > unrevealed(b) ? st : b), victims[0]);
+    return { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', victimSeat: pick } };
   }
   // Glyph of Wannok — controller side (the server rolls the d20). On a 2+ name any living
   // opponent to be cursed. Returns null until the d20 is recorded (or on a 1, which the

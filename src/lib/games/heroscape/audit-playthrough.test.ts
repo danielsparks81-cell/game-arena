@@ -311,9 +311,10 @@ describe('HeroScape audit — the ROLL CEREMONY pendingChoice IS self-resolved b
   // CONTRACT NOTE: Mitonsoul (curse) and Sturla (resurrect) used to open an AUTO pendingChoice
   // the pure-engine AI couldn't resolve (a wedge if a driver bypassed the server's auto-loop).
   // They are now an interactive ROLL CEREMONY that aiResolveChoice DOES drive — the bot selects
-  // a figure, then rolls it (the d20 is injected by the action layer / aiEngineAction). Oreld
-  // stays an AUTO glyph (still server-rolled). Any future AI driver that bypasses the
-  // server's auto-resolve loop MUST replicate it. This test pins that current behavior.
+  // a figure, then rolls it (the d20 is injected by the action layer / aiEngineAction). Oreld's
+  // d20 is still SERVER-rolled (STEP 1, auto), but on a 2+ it now opens a CHOICE the AI drives via
+  // aiResolveChoice (STEP 2 — name a player to lose a marker). Any future AI driver that bypasses
+  // the server's auto-resolve loop MUST replicate it. This test pins that current behavior.
   it('a bot owning a roll_ceremony choice drives it (select, then roll) — no stall', () => {
     let s = createInitialStateForHost({ userId: 'host', username: 'Host' });
     s = JSON.parse(JSON.stringify(s)) as HSState;

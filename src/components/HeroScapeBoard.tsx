@@ -2336,6 +2336,14 @@ export default function HeroScapeBoard({
     () => new Set(wannokVictimChoice && me ? state.figures.filter(f => f.at != null && f.ownerSeat === me.seat).map(f => f.id) : []),
     [wannokVictimChoice, me, state],
   );
+  // Oreld (Remove Marker) controller step (2+): name a player to lose an unrevealed order marker.
+  // The eligible victim seats are vetted server-side (pc.victimSeats); tap one of their figures or
+  // use the banner buttons.
+  const oreldChoice = myChoice?.kind === 'glyph_oreld' && myChoice.d20 != null ? myChoice : null;
+  const oreldOppSet = useMemo(
+    () => new Set(oreldChoice ? state.figures.filter(f => f.at != null && (oreldChoice.victimSeats ?? []).includes(f.ownerSeat)).map(f => f.id) : []),
+    [oreldChoice, state],
+  );
   // Sturla (Resurrection) placement: after the owner's d20s, each figure that rolled a 20
   // rises one at a time — the OWNER taps a free start-zone hex to set it down (fresh, no wounds).
   const sturlaPlaceChoice = myChoice?.kind === 'glyph_sturla_place' ? myChoice : null;
@@ -2368,8 +2376,8 @@ export default function HeroScapeBoard({
   // ceremony's SELECTED figure glows for everyone (a curse figure is on the board; a resurrect
   // one isn't, so the ring only shows for the curse — the panel list carries the rest).
   const choiceFigIds = useMemo(
-    () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet, ...(ceremony?.selectedFigureId ? [ceremony.selectedFigureId] : [])]),
-    [erlandSummonSet, nilrendFigSet, wannokOppSet, wannokOwnSet, ceremony?.selectedFigureId],
+    () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet, ...oreldOppSet, ...(ceremony?.selectedFigureId ? [ceremony.selectedFigureId] : [])]),
+    [erlandSummonSet, nilrendFigSet, wannokOppSet, wannokOwnSet, oreldOppSet, ceremony?.selectedFigureId],
   );
 
   // ----- 2.5D ISOMETRIC geometry (renderer; board.ts owns the pure math) -----
@@ -2569,6 +2577,12 @@ export default function HeroScapeBoard({
     if (wannokVictimChoice && !disabled) {
       const occV = occupantAt(key);
       if (occV && wannokOwnSet.has(occV.id)) onResolveChoice({ kind: 'glyph_wannok_victim', figureId: occV.id });
+      return;
+    }
+    // Oreld controller (2+): tap an eligible opponent figure to make that player lose a marker.
+    if (oreldChoice && !disabled) {
+      const occO = occupantAt(key);
+      if (occO && oreldOppSet.has(occO.id)) onResolveChoice({ kind: 'glyph_oreld', victimSeat: occO.ownerSeat });
       return;
     }
     // Sturla placement: the owner taps a free start-zone hex to set the risen figure down.
@@ -3993,6 +4007,29 @@ export default function HeroScapeBoard({
                     onClick={() => onResolveChoice({ kind: 'glyph_wannok', opponentSeat: p.seat })}
                     disabled={disabled}
                     className="rounded-md border border-rose-700 px-2 py-1 text-xs text-rose-100 transition hover:border-rose-400 hover:bg-rose-900/30 disabled:opacity-40"
+                  >
+                    {p.username}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+
+        {/* Glyph of Oreld — you rolled 2+, now NAME a player to lose an unrevealed order marker
+            (tap their glowing figure, or a button here). The roll is shown so it's a public win. */}
+        {oreldChoice && me && (
+          <div className="rounded-lg border-2 border-amber-500 bg-neutral-900/80 px-3 py-2">
+            <div className="text-sm font-bold text-amber-300">🔮 Glyph of Oreld — you rolled {oreldChoice.d20}!</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">Choose a player to lose one unrevealed order marker.</div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {state.players
+                .filter(p => (oreldChoice.victimSeats ?? []).includes(p.seat))
+                .map(p => (
+                  <button
+                    key={p.seat}
+                    onClick={() => onResolveChoice({ kind: 'glyph_oreld', victimSeat: p.seat })}
+                    disabled={disabled}
+                    className="rounded-md border border-amber-700 px-2 py-1 text-xs text-amber-100 transition hover:border-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
                   >
                     {p.username}
                   </button>

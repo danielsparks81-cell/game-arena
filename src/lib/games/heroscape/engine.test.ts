@@ -5841,36 +5841,60 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
   });
 });
 
-describe('Glyph of Oreld — Remove Marker on reveal', () => {
-  it('a d20 removes a random UNREVEALED order marker — your own on a 1, an opponent\'s on 2+', () => {
+describe('Glyph of Oreld — Remove Marker: public roll, then choose a player', () => {
+  // Shared setup: Finn (p1/seat 0) reveals Oreld; the enemy Marro (p2/seat 1) has one unrevealed
+  // marker. Finn keeps a REVEALED '1' (active card) plus one unrevealed '2'.
+  const setup = (): { s: HSState; glyphHex: string } => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' }));
     s = clearExcept(s, FINN, MARRO(1));
     s = place(s, FINN, at(3, 0));
     s = JSON.parse(JSON.stringify(s)) as HSState;
-    // Deterministic markers: Finn keeps a REVEALED '1' (so it's the active card) plus one
-    // unrevealed; the enemy Marro card has one unrevealed marker. Everyone else: none.
     for (const c of s.cards) c.orderMarkers = [];
     s.cards.find(c => c.uid === 's0-finn')!.orderMarkers = [{ marker: '1', revealed: true }, { marker: '2', revealed: false }];
     s.cards.find(c => c.uid === 's1-marro_warriors')!.orderMarkers = [{ marker: '3', revealed: false }];
     const glyphHex = at(3, 1);
     s = setGlyphs(s, [{ id: 'oreld', at: glyphHex, faceUp: false }]);
+    return { s, glyphHex };
+  };
+
+  it('STEP 1 rolls a public d20; on 2+ the controller NAMES a player who loses an unrevealed marker', () => {
+    const { s, glyphHex } = setup();
     const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
     expect(moved.pendingChoice?.kind).toBe('glyph_oreld');
-    const pc = moved.pendingChoice?.kind === 'glyph_oreld' ? moved.pendingChoice : null;
-    expect(pc!.foeCandidates).toEqual([{ cardUid: 's1-marro_warriors', markerIndex: 0 }]);
-    expect(pc!.ownCandidates).toEqual([{ cardUid: 's0-finn', markerIndex: 1 }]); // the unrevealed '2'
-    // 2+ → strips an opponent's marker; own is untouched.
-    const foe = pc!.foeCandidates[0];
-    const afterFoe = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 5, cardUid: foe.cardUid, markerIndex: foe.markerIndex } }));
-    expect(afterFoe.cards.find(c => c.uid === 's1-marro_warriors')!.orderMarkers.length).toBe(0);
-    expect(afterFoe.cards.find(c => c.uid === 's0-finn')!.orderMarkers.length).toBe(2);
-    expect(afterFoe.glyphs.find(g => g.at === glyphHex)).toBeUndefined();
-    // 1 → strips YOUR own unrevealed marker (the revealed '1' stays).
-    const own = pc!.ownCandidates[0];
-    const afterOwn = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 1, cardUid: own.cardUid, markerIndex: own.markerIndex } }));
-    const finnMarks = afterOwn.cards.find(c => c.uid === 's0-finn')!.orderMarkers;
+    expect(moved.pendingChoice?.kind === 'glyph_oreld' && moved.pendingChoice.d20).toBe(null); // unrolled
+    // STEP 1 — a 5 (a win). The choice stays OPEN with the rolled d20 + engine-vetted victim seats;
+    // the glyph is NOT spent until the pick is made.
+    const rolled = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 5 } }));
+    const pc = rolled.pendingChoice?.kind === 'glyph_oreld' ? rolled.pendingChoice : null;
+    expect(pc?.d20).toBe(5);
+    expect(pc?.victimSeats).toEqual([1]); // only the opponent has an unrevealed marker
+    expect(rolled.glyphs.find(g => g.at === glyphHex)).toBeDefined();
+    // STEP 2 — name the opponent (seat 1). They lose their unrevealed marker; OWN is untouched; glyph spent.
+    const after = unwrap(applyAction(rolled, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', victimSeat: 1 } }));
+    expect(after.cards.find(c => c.uid === 's1-marro_warriors')!.orderMarkers.length).toBe(0);
+    expect(after.cards.find(c => c.uid === 's0-finn')!.orderMarkers.length).toBe(2);
+    expect(after.pendingChoice).toBeUndefined();
+    expect(after.glyphs.find(g => g.at === glyphHex)).toBeUndefined();
+  });
+
+  it('naming a non-eligible player is rejected (only vetted victim seats)', () => {
+    const { s, glyphHex } = setup();
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    const rolled = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 9 } }));
+    // Seat 0 is the controller themselves — never a valid Oreld victim.
+    expect('error' in applyAction(rolled, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', victimSeat: 0 } })).toBe(true);
+  });
+
+  it('a roll of 1 BACKFIRES — the controller loses their OWN unrevealed marker, no pick, glyph spent', () => {
+    const { s, glyphHex } = setup();
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: glyphHex }));
+    const after = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 1 } }));
+    const finnMarks = after.cards.find(c => c.uid === 's0-finn')!.orderMarkers;
     expect(finnMarks.length).toBe(1);
-    expect(finnMarks[0].marker).toBe('1'); // the revealed one remains
+    expect(finnMarks[0].marker).toBe('1'); // the revealed '1' stays; the unrevealed '2' is lost
+    expect(after.cards.find(c => c.uid === 's1-marro_warriors')!.orderMarkers.length).toBe(1); // opponent safe
+    expect(after.pendingChoice).toBeUndefined();
+    expect(after.glyphs.find(g => g.at === glyphHex)).toBeUndefined();
   });
 });
 

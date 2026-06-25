@@ -1675,14 +1675,12 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       const pc = next.pendingChoice;
       const pid = pc ? (next.players.find(p => p.seat === pc.seat)?.playerId ?? actorId) : actorId;
       let resolved;
-      if (pc?.kind === 'glyph_oreld') {
-        const d = d20();
-        const list = d === 1 ? pc.ownCandidates : pc.foeCandidates;
-        const e = list.length ? list[Math.floor(Math.random() * list.length)] : { cardUid: '', markerIndex: -1 };
-        resolved = applyActionHS(next, pid, {
-          kind: 'resolve_choice',
-          choice: { kind: 'glyph_oreld', d20: d, cardUid: e.cardUid, markerIndex: e.markerIndex },
-        });
+      if (pc?.kind === 'glyph_oreld' && pc.d20 == null) {
+        // Oreld STEP 1 — roll the controller's d20 server-side (PUBLIC). On a 1 the engine
+        // auto-backfires (controller loses their own unrevealed marker); on 2+ it leaves the pick
+        // OPEN so the controller NAMES a player (human taps; AI via aiResolveChoice). The loop then
+        // breaks — pending is either cleared (1 / fizzle) or open with a d20 awaiting the pick.
+        resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: d20() } });
       } else if (pc?.kind === 'glyph_nilrend' && pc.d20 == null) {
         // Negation STEP 1 — roll the controller's d20 server-side, then STOP: the engine
         // narrows to the eligible side and leaves the choice open for the human/AI to PICK
