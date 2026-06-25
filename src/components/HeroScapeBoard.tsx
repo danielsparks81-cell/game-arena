@@ -1972,6 +1972,9 @@ export default function HeroScapeBoard({
     }
     return ids;
   }, [state, selected, fireLineMode]);
+  // Every hex of every possible fire LINE (all 6 directions) — lit up while aiming so the player
+  // sees the candidate rows at a glance and can click ANY hex on a row to fire that whole line.
+  const fireLineHexSet = useMemo(() => new Set<HexKey>(fireLineDirs.keys()), [fireLineDirs]);
   // Deathwalker 9000 EXPLOSION — the active Deathwalker figure + whether he can Explode now.
   const dwHeroId = activeCard?.cardId === 'deathwalker_9000'
     ? (state.figures.find(f => f.cardUid === activeCardUid && f.at != null)?.id ?? null)
@@ -2241,7 +2244,12 @@ export default function HeroScapeBoard({
   // Does the now-acting card have a power you can trigger by tapping it? (drives the hint)
   const activeCardHasTapPower =
     !!activeCard &&
-    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite', 'deathwalker_9000', 'eldgrim'].includes(
+    // The Big Heroes (Q9, Nilfheim, Jotun, Braxas, Theracus) are listed explicitly so their power
+    // is ALWAYS tappable while they're the active card — even with no live target. Otherwise the tap
+    // fell through to `anyBigHeroPower` (which needs a target), so an out-of-range Queglix gun was
+    // silently dead with NO feedback ("Q9 gun not available"). Tapping now always shows the reason.
+    (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite', 'deathwalker_9000', 'eldgrim',
+      'major_q9', 'nilfheim', 'jotun', 'braxas', 'theracus'].includes(
       activeCard.cardId,
     ) ||
       !!anyBigHeroPower);
@@ -3725,7 +3733,7 @@ export default function HeroScapeBoard({
         {(fireLineMode || grappleMode || throwAim || explosionMode || carryAim || orientLead) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
-              {fireLineMode && '🔥 Fire Line — click a direction; highlighted figures will be hit'}
+              {fireLineMode && '🔥 Fire Line — click ANY hex on a glowing line to fire that whole row; figures in it are hit'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
@@ -4347,8 +4355,8 @@ export default function HeroScapeBoard({
             selectedId={selectedId}
             moveHexes={orientLead ? orientTails : (carryDestSet ?? (grappleMode ? destinations : safeMoveHexes))}
             dangerHexes={disengageHexes}
-            shootHexes={shootRange}
-            shootBlockedHexes={shootBlocked}
+            shootHexes={fireLineMode ? fireLineHexSet : shootRange}
+            shootBlockedHexes={fireLineMode ? undefined : shootBlocked}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? []), ...choiceFigIds])}
