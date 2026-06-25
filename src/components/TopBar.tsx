@@ -48,6 +48,14 @@ export default function TopBar({
         >
           ⬡ HS figures
         </Link>
+        {/* HeroScape level creator — paint a custom battlefield, export a maps.ts block. */}
+        <Link
+          href="/heroscape-mapmaker"
+          title="HeroScape level creator — paint a custom battlefield"
+          className="hidden text-xs text-neutral-400 transition hover:text-sky-400 sm:inline"
+        >
+          ⬡ HS maps
+        </Link>
         {/* Bug-report button for everyone; admin-only bug-inbox alongside */}
         <ReportErrorButton />
         <BugInbox />
