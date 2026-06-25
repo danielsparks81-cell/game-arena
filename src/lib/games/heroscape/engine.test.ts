@@ -3123,6 +3123,116 @@ describe('wave-3 CHOICE glyphs — Erland / Nilrend / Wannok', () => {
   });
 });
 
+describe('O2 — Glyph of Lodin lifts EVERY d20 (incl. the wave-3 choice glyphs)', () => {
+  // Owner ruling 2026-06-24: "Lodin should apply to ALL d20 rolls." A raw 1 + Lodin = 2, so a
+  // Lodin holder never suffers the natural-1 backfire on Wannok / Nilrend / Oreld.
+  it('Wannok: a raw 1 + Lodin → 2 spares the figure on the glyph and opens the opponent curse', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, TARN(1), MARRO(1));
+    const wannokHex = at(3, 3);
+    const lodinHex = at(3, 1);
+    s = place(s, FINN, wannokHex); // the figure standing on the Wannok glyph
+    s = place(s, TARN(1), lodinHex); // a friendly seat-0 figure holds Lodin → seat 0 d20s get +1
+    s = place(s, MARRO(1), at(6, 6)); // an opponent to curse
+    s = setGlyphs(s, [{ id: 'wannok', at: wannokHex, faceUp: true }, { id: 'lodin', at: lodinHex, faceUp: true }]);
+    s = { ...s, pendingChoice: { kind: 'glyph_wannok', seat: 0, at: wannokHex, d20: null } };
+    const after = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: 1 } }));
+    expect(fig(after, FINN).wounds).toBe(0); // raw 1 + Lodin = 2 → NOT self-cursed
+    expect(after.pendingChoice?.kind).toBe('glyph_wannok'); // opponent-pick step opened instead
+    // …and WITHOUT Lodin the SAME raw 1 wounds the figure on the glyph (the un-buffed baseline).
+    const noLodin = setGlyphs(s, [{ id: 'wannok', at: wannokHex, faceUp: true }]);
+    const wounded = unwrap(applyAction(noLodin, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: 1 } }));
+    expect(fig(wounded, FINN).wounds).toBe(1);
+  });
+
+  it("Nilrend: a raw 1 + Lodin → 2 negates an OPPONENT card, not the controller's own", () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, TARN(1), MARRO(1));
+    const nilrendHex = at(3, 3);
+    const lodinHex = at(3, 1);
+    s = place(s, FINN, at(3, 2));
+    s = place(s, TARN(1), lodinHex); // seat 0 holds Lodin
+    s = place(s, MARRO(1), at(6, 6));
+    s = setGlyphs(s, [{ id: 'nilrend', at: nilrendHex, faceUp: true }, { id: 'lodin', at: lodinHex, faceUp: true }]);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: nilrendHex }));
+    expect(moved.pendingChoice?.kind).toBe('glyph_nilrend');
+    // raw 1 normally targets the controller's OWN side; +1 Lodin = 2 → the OPPONENT side.
+    const rolled = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', d20: 1 } }));
+    const marroCard = rolled.cards.find(c => c.cardId === 'marro_warriors')!;
+    const done = unwrap(applyAction(rolled, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', cardUid: marroCard.uid } }));
+    expect(done.negatedCardUids).toContain(marroCard.uid);
+  });
+});
+
+describe("O3 — Glyph of Nilrend strips a card's Warrior's-Spirit stat bonus", () => {
+  it('a negated card loses its placed Attack-Spirit +1 (base stats only)', () => {
+    // Owner ruling 2026-06-24: "special bonus from Warrior's Spirit and the like will also be negated."
+    let s = noGlyphs(inTurns('p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, TARN(1), MARRO(1));
+    s = place(s, TARN(1), at(3, 4));
+    s = place(s, MARRO(1), at(3, 3)); // an adjacent enemy to compute attack dice against
+    const tarnCard = s.cards.find(c => c.cardId === 'tarn_vikings')!;
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.cards.find(c => c.uid === tarnCard.uid)!.attackMod = 1; // a Warrior's Attack Spirit had been placed
+    const buffed = effectiveAttackDice(s, fig(s, TARN(1)), fig(s, MARRO(1))).dice;
+    const neg = { ...s, negatedCardUids: [tarnCard.uid] };
+    const negated = effectiveAttackDice(neg, fig(neg, TARN(1)), fig(neg, MARRO(1))).dice;
+    expect(buffed - negated).toBe(1); // negation removes the +1 Spirit — base stats only
+  });
+});
+
+describe('AI initiates Carry + Grapple (all abilities)', () => {
+  it('Theracus ferries an adjacent ally forward with carry_move', () => {
+    // Theracus (2-hex flyer) + a Marro ally adjacent, the enemy far away → the move brain flies
+    // forward AND carries the ally (one carry_move) rather than leaving it behind.
+    let s = customBattle(['theracus', 'marro_warriors'], ['finn'], 'p1');
+    const THER = 's0-theracus-1';
+    const ALLY = 's0-marro_warriors-1';
+    const FOE = 's1-finn-1';
+    s = clearExcept(s, THER, ALLY, FOE);
+    s = place(s, THER, at(2, 1));
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    fig(s, THER).at2 = at(3, 1); // a valid same-height tail (the Training Field is flat)
+    s = place(s, ALLY, at(1, 1)); // adjacent to Theracus's lead lobe, unengaged
+    s = place(s, FOE, at(3, 7)); // far away → both sides want to advance
+    const intent = aiNextAction(s, 0);
+    expect(intent?.kind).toBe('carry_move');
+    if (intent?.kind === 'carry_move') {
+      expect(intent.figureId).toBe(THER);
+      expect(intent.passengerId).toBe(ALLY);
+    }
+  });
+
+  it('Sgt. Drake scales an unclimbable ledge with grapple_move to reach a strike hex', () => {
+    // A height-6 ledge Drake (Height 5) can't STEP onto, but his Grapple Gun (cap 25) can. The
+    // enemy waits on the ledge, so grappling up is the only way to engage → the brain grapples.
+    MAPS['test_grapple'] = parseMap(
+      'test_grapple',
+      'Test Grapple',
+      `
+      row1@1: G1 G1 G1 G1 G1 G1 G1
+      row2@1: G1 G1 G1 G1 G1 G1 G1
+      row3:   G1 G6 G6 G1 G1 G1 G1
+      row4:   G1 G1 G1 G1 G1 G1 G1
+      row5@2: G1 G1 G1 G1 G1 G1 G1
+      row6@2: G1 G1 G1 G1 G1 G1 G1
+      `,
+    );
+    let s = customBattle(['drake'], ['marro_warriors'], 'p1', 'test_grapple');
+    const DRAKE = 's0-drake-1';
+    const FOE = 's1-marro_warriors-1';
+    s = clearExcept(s, DRAKE, FOE);
+    s = place(s, DRAKE, at(0, 2)); // a neutral G1 hex beside the height-6 ledge
+    s = place(s, FOE, at(2, 2)); // on the far ledge hex (height 6) — only reachable by grapple
+    const intent = aiNextAction(s, 0);
+    expect(intent?.kind).toBe('grapple_move');
+    if (intent?.kind === 'grapple_move') {
+      expect(intent.figureId).toBe(DRAKE);
+      expect(intent.to).toBe(at(1, 2)); // the ledge hex adjacent to the foe
+    }
+  });
+});
+
 describe('slice 4: hidden glyphs (face-down until stepped on)', () => {
   it('a glyph is HIDDEN until a figure stops on it, then flips face-up and grants its bonus', () => {
     let s = inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' });

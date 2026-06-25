@@ -244,8 +244,7 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
     if (walls.has(k)) return 15;
     if (peaks.has(k)) return 3;
     if (slopes.has(k)) return 2;
-    if (d === 0) return 3; // central peak
-    if (d <= 2) return 2; // central mound
+    if (d <= 2) return 2; // central plateau — FLAT (incl. the centre [0,0] glyph) so a 2-hex figure can rest level on it (owner ruling 2026-06-24)
     return 1;
   };
   const cells: Record<HexKey, HexCell> = {};
@@ -405,8 +404,7 @@ function makeSymHexMap(
     const k = hexKey(q, r); const d = cubeDist(q, r);
     let height = 1; let terrain: Terrain = 'grass';
     if (walls.has(k)) { height = 15; terrain = 'rock'; }       // impassable cover (flyers cross)
-    else if (d === 0) height = 3;                              // central peak
-    else if (d <= 2) height = 2;                              // central crater rim
+    else if (d <= 2) height = 2;                              // central plateau — FLAT (incl. the centre [0,0] glyph) so a 2-hex figure can rest level on it (owner ruling 2026-06-24)
     else if (ridge3.has(k)) height = 3;
     else if (ridge2.has(k)) height = 2;
     cells[k] = { q, r, height, terrain };

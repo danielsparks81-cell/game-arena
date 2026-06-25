@@ -2060,19 +2060,25 @@ function applyCeremonyRoll(s: HSState, pc: Extract<HSPendingChoice, { kind: 'rol
   const fig = s.figures.find(f => f.id === figureId);
   const label = fig ? figureLabel(s, fig) : 'A figure';
   let outcome: 'died' | 'rose' | 'safe' = 'safe';
+  // Glyph of Lodin: +1 to EVERY d20 the figure's owner rolls (owner ruling 2026-06-24: "Lodin applies
+  // to ALL d20 rolls"). So a Lodin-holder's figures are curse-IMMUNE (a 1 becomes a 2) and resurrect on
+  // a 19+. `eff` is the value the outcome is decided on; the die still shows the raw roll.
+  const lodin = lodinD20Bonus(s, fig?.ownerSeat ?? pc.seat);
+  const eff = d20 + lodin;
+  const lodinNote = lodin > 0 ? ` (+${lodin} Lodin → ${eff})` : '';
   if (pc.mode === 'curse') {
-    if (d20 === 1 && fig && fig.at != null) {
+    if (eff === 1 && fig && fig.at != null) {
       fig.at = null; fig.at2 = null; outcome = 'died';
       pushLog(s, 'glyph', `Massive Curse — ${playerName(s, fig.ownerSeat)} rolls 1 for ${label} — it is DESTROYED!`);
     } else {
-      pushLog(s, 'glyph', `Massive Curse — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20} for ${label} — it resists.`);
+      pushLog(s, 'glyph', `Massive Curse — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20}${lodinNote} for ${label} — it resists.`);
     }
   } else {
-    if (d20 === 20 && fig && fig.at == null) {
+    if (eff >= 20 && fig && fig.at == null) {
       pc.risers.push(figureId); outcome = 'rose';
-      pushLog(s, 'glyph', `Resurrection — ${playerName(s, fig.ownerSeat)} rolls 20 for ${label} — it RISES! Place it in your start zone.`);
+      pushLog(s, 'glyph', `Resurrection — ${playerName(s, fig.ownerSeat)} rolls ${d20}${lodinNote} for ${label} — it RISES! Place it in your start zone.`);
     } else {
-      pushLog(s, 'glyph', `Resurrection — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20} for ${label} (needs 20) — it stays fallen.`);
+      pushLog(s, 'glyph', `Resurrection — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20}${lodinNote} for ${label} (needs 20) — it stays fallen.`);
     }
   }
   pc.results.push({ figureId, seat: fig?.ownerSeat ?? pc.seat, d20, outcome });
@@ -5865,25 +5871,28 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
 
     // STEP 1 — the server d20 roll.
     if (pc.d20 == null) {
-      const d = choice.d20;
-      if (!Number.isInteger(d) || (d ?? 0) < 1 || (d ?? 0) > 20) return { error: 'Malformed Oreld roll' };
+      const raw = choice.d20;
+      if (!Number.isInteger(raw) || (raw ?? 0) < 1 || (raw ?? 0) > 20) return { error: 'Malformed Oreld roll' };
+      const lodin = lodinD20Bonus(s, pc.seat); // Glyph of Lodin: +1 to the controller's d20 (so a Lodin holder never self-backfires on a 1)
+      const d = (raw ?? 0) + lodin;
+      const rollNote = lodin ? `${raw}+${lodin} Lodin = ${d}` : `${d}`;
       if (d === 1) {
         const lost = stripOneMarker(s, pc.seat); // BACKFIRE — the controller loses their own
         pushLog(s, 'glyph', lost
-          ? `Oreld — ${playerName(s, pc.seat)} rolls 1: it backfires — they lose one of their own unrevealed order markers!`
-          : `Oreld — ${playerName(s, pc.seat)} rolls 1: it backfires, but they have no unrevealed marker to lose.`);
+          ? `Oreld — ${playerName(s, pc.seat)} rolls ${rollNote}: it backfires — they lose one of their own unrevealed order markers!`
+          : `Oreld — ${playerName(s, pc.seat)} rolls ${rollNote}: it backfires, but they have no unrevealed marker to lose.`);
         s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — spent
         delete s.pendingChoice;
         return s;
       }
       const victims = eligibleVictims(); // 2+ — open the pick (fizzle if no one is eligible)
       if (victims.length === 0) {
-        pushLog(s, 'glyph', `Oreld — ${playerName(s, pc.seat)} rolls ${d}: no opponent has an unrevealed order marker to take.`);
+        pushLog(s, 'glyph', `Oreld — ${playerName(s, pc.seat)} rolls ${rollNote}: no opponent has an unrevealed order marker to take.`);
         s.glyphs = s.glyphs.filter(g => g.at !== pc.at);
         delete s.pendingChoice;
         return s;
       }
-      pushLog(s, 'glyph', `Oreld — ${playerName(s, pc.seat)} rolls ${d}: choose a player to lose an unrevealed order marker.`);
+      pushLog(s, 'glyph', `Oreld — ${playerName(s, pc.seat)} rolls ${rollNote}: choose a player to lose an unrevealed order marker.`);
       s.pendingChoice = { kind: 'glyph_oreld', seat: pc.seat, at: pc.at, d20: d!, victimSeats: victims };
       return s;
     }
@@ -5931,21 +5940,25 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
   //     STEP 2 the controller picks a unique card → its powers off for the game ---
   if (pc.kind === 'glyph_nilrend' && choice.kind === 'glyph_nilrend') {
     if (pc.d20 == null) {
-      if (choice.d20 == null || !Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) {
+      const raw = choice.d20;
+      if (raw == null || !Number.isInteger(raw) || raw < 1 || raw > 20) {
         return { error: 'Nilrend needs a d20 roll' };
       }
-      const eligible = choice.d20 === 1 ? pc.ownCardUids : pc.foeCardUids;
-      const whose = choice.d20 === 1 ? 'your own' : "an opponent's";
+      const lodin = lodinD20Bonus(state, pc.seat); // Glyph of Lodin: +1 (a 1 → 2, so a Lodin holder never self-negates)
+      const d = raw + lodin;
+      const rollNote = lodin ? `${raw}+${lodin} Lodin = ${d}` : `${d}`;
+      const eligible = d === 1 ? pc.ownCardUids : pc.foeCardUids;
+      const whose = d === 1 ? 'your own' : "an opponent's";
       const s = clone(state);
-      setLastRoll(s, { title: 'Glyph of Nilrend', dice: [choice.d20], success: choice.d20 >= 2, detail: `${choice.d20} — negate ${whose} unique figure.` });
+      setLastRoll(s, { title: 'Glyph of Nilrend', dice: [raw], success: d >= 2, detail: `${rollNote} — negate ${whose} unique figure.` });
       if (eligible.length === 0) {
         s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // fizzle — nothing on that side
         delete s.pendingChoice;
-        pushLog(s, 'glyph', `Nilrend — ${playerName(s, seat)} rolls ${choice.d20}, but there is no ${whose} unique figure to negate. It fades.`);
+        pushLog(s, 'glyph', `Nilrend — ${playerName(s, seat)} rolls ${rollNote}, but there is no ${whose} unique figure to negate. It fades.`);
         return s;
       }
-      s.pendingChoice = { ...pc, d20: choice.d20 }; // keep open for the human pick
-      pushLog(s, 'glyph', `Nilrend — ${playerName(s, seat)} rolls ${choice.d20}: choose ${whose} unique figure to negate.`);
+      s.pendingChoice = { ...pc, d20: d }; // keep open for the human pick (store the EFFECTIVE value)
+      pushLog(s, 'glyph', `Nilrend — ${playerName(s, seat)} rolls ${rollNote}: choose ${whose} unique figure to negate.`);
       return s;
     }
     if (choice.cardUid == null) return { error: 'Choose a unique card to negate' };
@@ -5965,17 +5978,21 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
   //     so resolving just applies the wound / opens the next step and clears the pending. ---
   if (pc.kind === 'glyph_wannok' && choice.kind === 'glyph_wannok') {
     if (pc.d20 == null) {
-      if (choice.d20 == null || !Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) {
+      const raw = choice.d20;
+      if (raw == null || !Number.isInteger(raw) || raw < 1 || raw > 20) {
         return { error: 'Wannok needs a d20 roll' };
       }
+      const lodin = lodinD20Bonus(state, pc.seat); // Glyph of Lodin: +1 (a 1 → 2, so a Lodin holder's own figure is never self-cursed)
+      const d = raw + lodin;
+      const rollNote = lodin ? `${raw}+${lodin} Lodin = ${d}` : `${d}`;
       const s = clone(state);
       setLastRoll(s, {
         title: 'Glyph of Wannok',
-        dice: [choice.d20],
-        success: choice.d20 >= 2,
-        detail: choice.d20 === 1 ? '1 — the figure on the glyph is cursed.' : `${choice.d20} — choose an opponent to curse.`,
+        dice: [raw],
+        success: d >= 2,
+        detail: d === 1 ? `${rollNote} — the figure on the glyph is cursed.` : `${rollNote} — choose an opponent to curse.`,
       });
-      if (choice.d20 === 1) {
+      if (d === 1) {
         delete s.pendingChoice; // clear FIRST so a curse death can queue its Spirit
         const occupant = s.figures.find(f => f.at != null && figureHexes(f).includes(pc.at));
         if (occupant) woundOneFigure(s, occupant, 'Wannok curse (rolled 1)');
@@ -5988,11 +6005,11 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
       const hasOpponent = livingSeats(s).some(st => teamOfSeat(s, st) !== teamOfSeat(s, pc.seat));
       if (!hasOpponent) {
         delete s.pendingChoice;
-        pushLog(s, 'glyph', `Wannok — ${playerName(s, pc.seat)} rolls ${choice.d20}, but there is no opponent to curse.`);
+        pushLog(s, 'glyph', `Wannok — ${playerName(s, pc.seat)} rolls ${rollNote}, but there is no opponent to curse.`);
         return s;
       }
-      s.pendingChoice = { ...pc, d20: choice.d20 };
-      pushLog(s, 'glyph', `Wannok — ${playerName(s, pc.seat)} rolls ${choice.d20}: choose an opponent who must wound one of their own.`);
+      s.pendingChoice = { ...pc, d20: d };
+      pushLog(s, 'glyph', `Wannok — ${playerName(s, pc.seat)} rolls ${rollNote}: choose an opponent who must wound one of their own.`);
       return s;
     }
     // STEP 2 — the controller names an opponent → open that opponent's victim choice.
@@ -6734,7 +6751,7 @@ function aiTurn(state: HSState, seat: number): HSAction {
     return best;
   };
   const wantsMove = (f: Figure) => enemyTargets(f).length === 0;
-  const bestStepFor = (f: Figure): { to: HexKey; score: number } | null => {
+  const bestStepFor = (f: Figure, candidatesOverride?: Iterable<HexKey>): { to: HexKey; score: number } | null => {
     // A figure that already FINISHED its move this turn can't move again — a flyer's one-shot
     // move_figure especially (a walker's legalStepHexes is already empty once finalized, but a
     // flyer's movementDestinations isn't, so without this the bot re-picks a dragon that just flew).
@@ -6769,7 +6786,9 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const curH = heightOfKey(state, f.at!);
     // FLYERS pick a whole DESTINATION (the move plays as ONE smooth flight to the landing, animated
     // as an arc — not a hex-by-hex walk); WALKERS step one hex at a time.
-    const candidates = isFlyer ? movementDestinations(state, f) : legalStepHexes(state, f.id);
+    // A GRAPPLE GUN passes its own landing set as the override (an alternative one-space move
+    // with a climb waiver); otherwise flyers pick a whole destination and walkers one step.
+    const candidates = candidatesOverride ?? (isFlyer ? movementDestinations(state, f) : legalStepHexes(state, f.id));
     // Never step BACK to where THIS move began. That net-zero round-trip is exactly the "dance on/off
     // a glyph" the bot used to do — step off toward a foe, get yanked back by the glyph bonus, repeat —
     // which re-claims the glyph and wastes the whole turn. A figure that leaves a glyph now COMMITS.
@@ -6802,19 +6821,72 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const step = bestStepFor(movingFig);
     if (step) return { kind: 'move_step', figureId: movingFig.id, to: step.to };
   }
-  let bestMove: { figureId: string; to: HexKey; score: number; fly: boolean } | null = null;
-  for (const f of myFigs) {
-    if (!wantsMove(f)) continue;
-    const step = bestStepFor(f);
-    if (step && (!bestMove || step.score > bestMove.score)) {
-      bestMove = { figureId: f.id, to: step.to, score: step.score, fly: effectiveFlying(state, cardDefFor(state, f)) };
+  // --- Theracus CARRY — his flight ferries an unengaged adjacent ally toward the front.
+  // Whenever Theracus is advancing anyway (no enemy in his own range), bring the ally that
+  // gains the most ground: a free tempo boost that walks the slow squad up the board. One
+  // carry_move flies Theracus AND sets the passenger down adjacent to his landing; the takeoff
+  // swipes / fall are rolled in aiEngineAction. carryPassengers is empty unless the active card
+  // is Theracus before he has moved, so this is a no-op for every other army.
+  const carryable = carryPassengers(state, seat);
+  if (carryable.length > 0 && cells) {
+    const theracus = myFigs[0]; // Theracus is a single Champion → the active figure
+    // Carry REPLACES the whole move, so only ferry from a standstill: not already moved, and not
+    // mid-walk (any non-step action finalizes an open step → "already moved" on the carry).
+    if (theracus && wantsMove(theracus) && !(state.movedFigureIds ?? []).includes(theracus.id) && state.stepMove?.figureId !== theracus.id) {
+      const enemyDistOf = (k: HexKey): number => Math.min(...enemies.map(e => rangeDistance(cells, k, e.at!) ?? Infinity));
+      // Theracus flies as far forward as he can — the reachable landing closest to an enemy.
+      let to: HexKey | null = null;
+      let toD = Infinity;
+      for (const d of movementDestinations(state, theracus)) {
+        if (occupied.has(d)) continue;
+        const nd = enemyDistOf(d);
+        if (nd < toD) { toD = nd; to = d; }
+      }
+      if (to) {
+        // Ferry the ally whose set-down ends closest to the front (it must actually gain ground).
+        let pick: { passengerId: string; passengerTo: HexKey; gain: number } | null = null;
+        for (const pid of carryable) {
+          const p = state.figures.find(f => f.id === pid);
+          if (!p || p.at == null) continue;
+          const here = enemyDistOf(p.at);
+          for (const pTo of carryLandingHexes(state, theracus.id, to, pid)) {
+            const gain = here - enemyDistOf(pTo);
+            if (!pick || gain > pick.gain) pick = { passengerId: pid, passengerTo: pTo, gain };
+          }
+        }
+        if (pick && pick.gain > 0) {
+          return { kind: 'carry_move', figureId: theracus.id, to, passengerId: pick.passengerId, passengerTo: pick.passengerTo };
+        }
+      }
     }
   }
-  // A FLYER takes its whole flight in ONE move (a smooth arc to the landing); a walker steps a hex.
+
+  let bestMove: { figureId: string; to: HexKey; score: number; kind: 'move_figure' | 'move_step' | 'grapple_move' } | null = null;
+  for (const f of myFigs) {
+    if (!wantsMove(f)) continue;
+    const fly = effectiveFlying(state, cardDefFor(state, f));
+    const step = bestStepFor(f);
+    if (step && (!bestMove || step.score > bestMove.score)) {
+      // A FLYER takes its whole flight in ONE move (a smooth arc to the landing); a walker steps a hex.
+      bestMove = { figureId: f.id, to: step.to, score: step.score, kind: fly ? 'move_figure' : 'move_step' };
+    }
+    // Sgt. Drake's GRAPPLE GUN — an ALTERNATIVE one-space move that scales terrain a normal
+    // step can't (climb up to its cap, land adjacent to ANY figure). Score its landings with
+    // the same strike/closing/height heuristic and prefer it only when it STRICTLY beats Drake's
+    // normal step — on flat ground the two tie and the step wins, so flat-map play is unchanged.
+    // grappleDestinations is empty unless the figure has a Grapple Gun. NEVER offer it to a
+    // figure already mid-walk: Grapple is "instead of the normal move", and any non-step action
+    // finalizes that open step first (→ marked moved), so a grapple then rejects "already moved".
+    const grapples = state.stepMove?.figureId === f.id ? new Set<HexKey>() : grappleDestinations(state, f.id);
+    if (grapples.size > 0) {
+      const g = bestStepFor(f, grapples);
+      if (g && g.score > (step?.score ?? -Infinity) && (!bestMove || g.score > bestMove.score)) {
+        bestMove = { figureId: f.id, to: g.to, score: g.score, kind: 'grapple_move' };
+      }
+    }
+  }
   if (bestMove) {
-    return bestMove.fly
-      ? { kind: 'move_figure', figureId: bestMove.figureId, to: bestMove.to }
-      : { kind: 'move_step', figureId: bestMove.figureId, to: bestMove.to };
+    return { kind: bestMove.kind, figureId: bestMove.figureId, to: bestMove.to };
   }
   return { kind: 'end_move' };
 }
@@ -6867,6 +6939,37 @@ export function aiEngineAction(
     const mover = state.figures.find(f => f.id === intent.figureId);
     const cons = mover
       ? moveConsequences(state, mover, intent.to, intent.to2)
+      : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+    return {
+      ...intent,
+      ...(cons.tier === 'extreme' ? { extremeFallD20: rollers.d20() } : cons.fallDice > 0 ? { fallRoll: rollers.rollDice(cons.fallDice) } : {}),
+      ...(cons.abandonedEnemyIds.length > 0
+        ? { leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollers.rollDie() })) }
+        : {}),
+    };
+  }
+  // Sgt. Drake GRAPPLE GUN — resolves through the shared move path, so it needs the SAME dice
+  // as a normal move: takeoff leaving-engagement swipes if Drake started engaged, and a fall if
+  // the one-space hop drops him. The engine re-derives the need and validates the roll shape.
+  if (intent.kind === 'grapple_move') {
+    const mover = state.figures.find(f => f.id === intent.figureId);
+    const cons = mover
+      ? moveConsequences(state, mover, intent.to)
+      : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+    return {
+      ...intent,
+      ...(cons.tier === 'extreme' ? { extremeFallD20: rollers.d20() } : cons.fallDice > 0 ? { fallRoll: rollers.rollDice(cons.fallDice) } : {}),
+      ...(cons.abandonedEnemyIds.length > 0
+        ? { leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollers.rollDie() })) }
+        : {}),
+    };
+  }
+  // Theracus CARRY — his flight resolves like any flying move (the passenger set-down needs no
+  // dice), so roll Theracus's OWN takeoff swipes / fall from moveConsequences on his landing.
+  if (intent.kind === 'carry_move') {
+    const mover = state.figures.find(f => f.id === intent.figureId);
+    const cons = mover
+      ? moveConsequences(state, mover, intent.to)
       : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
     return {
       ...intent,
@@ -7134,7 +7237,11 @@ function cardDefFor(state: HSState, fig: Figure): HSCardDef {
  *  the card is missing or the fields are absent (slice-2/3 saves). */
 function cardModFor(state: HSState, fig: Figure): { attackMod: number; defenseMod: number; moveMod: number } {
   const card = state.cards.find(c => c.uid === fig.cardUid);
-  return { attackMod: card?.attackMod ?? 0, defenseMod: card?.defenseMod ?? 0, moveMod: card?.moveMod ?? 0 };
+  // A Glyph-of-Nilrend-NEGATED card drops to base stats — that includes any Warrior's-Spirit bonus
+  // (attack/defense/move) it had been granted. Owner ruling 2026-06-24: "special bonus from Warrior's
+  // Spirit and the like will also be negated." So a negated card contributes zero card-mods.
+  if (!card || isCardNegated(state, fig.cardUid)) return { attackMod: 0, defenseMod: 0, moveMod: 0 };
+  return { attackMod: card.attackMod ?? 0, defenseMod: card.defenseMod ?? 0, moveMod: card.moveMod ?? 0 };
 }
 
 function cardHasLivingFigures(state: HSState, cardUid: string): boolean {

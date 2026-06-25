@@ -371,3 +371,27 @@ describe('Star Field (5 + 6 players) — glyph anchors clear the deploy tips', (
     }
   });
 });
+
+describe('O5 — symmetric central glyphs sit on flat ground (a 2-hex figure can rest on them)', () => {
+  // Owner ruling 2026-06-24: "make those glyphs on flat ground so 2 hex can stand on them." A
+  // double-space figure rests only with BOTH lobes at the SAME height, so every glyph anchor —
+  // especially the centre [0,0], formerly an isolated height-3 peak — must have ≥1 same-height
+  // neighbour to stand level across. (Symmetry makes a whole orbit pass or fail together.)
+  for (const m of [TRISKELION, CROSSROADS, STAR_FIELD]) {
+    it(`${m.name}: every glyph anchor has a same-height neighbour`, () => {
+      const anchors = m.glyphAnchors ?? [];
+      expect(anchors.length).toBeGreaterThan(0);
+      for (const a of anchors) {
+        const h = m.cells[a].height;
+        const level = (neighborKeys(a) as HexKey[]).some(n => m.cells[n] && m.cells[n].height === h);
+        expect(level).toBe(true);
+      }
+    });
+    it(`${m.name}: the centre [0,0] is level with its ring (no isolated peak)`, () => {
+      const c = hexKey(0, 0);
+      if (!(m.glyphAnchors ?? []).includes(c)) return; // skip maps that don't anchor the exact centre
+      const h = m.cells[c].height;
+      expect((neighborKeys(c) as HexKey[]).some(n => m.cells[n] && m.cells[n].height === h)).toBe(true);
+    });
+  }
+});
