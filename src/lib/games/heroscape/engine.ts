@@ -3584,6 +3584,7 @@ export function auraCoverageHexes(state: HSState): Set<HexKey> {
   for (const src of state.figures) {
     if (src.at == null || isCardNegated(state, src.cardUid)) continue;
     const id = cardDefFor(state, src).id;
+    const isAura = id === RAELIN_CARD_ID || id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID;
     if (id === RAELIN_CARD_ID) {
       // Cast from Raelin's tall flyer eye (her Height), matching raelinAuraReaches — so the gold
       // coverage line and the actual +2 defence agree, and low terrain doesn't wrongly clip it.
@@ -3601,6 +3602,10 @@ export function auraCoverageHexes(state: HSState): Set<HexKey> {
         }
       }
     }
+    // Include the source's OWN footprint in the visual coverage so the outline has no hole where
+    // the figure stands — i.e. ONE outer perimeter, not an extra inner ring around the aura figure
+    // (board clutter). This set drives only the gold outline; the actual buff is auraBuffedFigureIds.
+    if (isAura) for (const lobe of figureHexes(src)) out.add(lobe);
   }
   return out;
 }

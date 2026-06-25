@@ -2166,7 +2166,8 @@ describe('aura-active indicators (auraBuffedFigureIds)', () => {
   });
 
   it('auraCoverageHexes outlines an aura’s REACH, follows the source, and is empty for a negated source', () => {
-    // Finn — an ADJACENCY aura: exactly his on-map hex-neighbours, never his own hex.
+    // Finn — an ADJACENCY aura: his on-map hex-neighbours PLUS his own hex (the source footprint is
+    // included so the gold outline is one clean perimeter with no inner ring around the figure).
     let f = customBattle(['finn'], ['marro_warriors'], 'p1');
     f = clearExcept(f, 's0-finn-1', 's1-marro_warriors-1');
     f = place(f, 's0-finn-1', at(3, 3));
@@ -2176,8 +2177,8 @@ describe('aura-active indicators (auraBuffedFigureIds)', () => {
     const covF = auraCoverageHexes(f);
     expect(finnNbrs.length).toBeGreaterThan(0);
     for (const n of finnNbrs) expect(covF.has(n)).toBe(true);
-    expect(covF.has(at(3, 3))).toBe(false);
-    expect(covF.size).toBe(finnNbrs.length); // Finn alone = exactly his neighbours
+    expect(covF.has(at(3, 3))).toBe(true); // own hex now filled (no inner-ring hole)
+    expect(covF.size).toBe(finnNbrs.length + 1); // Finn alone = his neighbours + his own hex
     // The outline MOVES with the source: old neighbours clear, the new ones light.
     const covF2 = auraCoverageHexes(place(f, 's0-finn-1', at(5, 1)));
     expect(neighborKeys(at(5, 1)).some(n => covF2.has(n))).toBe(true);
@@ -2192,7 +2193,7 @@ describe('aura-active indicators (auraBuffedFigureIds)', () => {
     r = place(r, 's1-marro_warriors-1', at(0, 0));
     const covR = auraCoverageHexes(r);
     expect(covR.size).toBeGreaterThan(neighborKeys(at(3, 3)).length); // bigger than just neighbours
-    expect(covR.has(at(3, 3))).toBe(false); // not her own hex
+    expect(covR.has(at(3, 3))).toBe(true); // her own hex is filled too (no inner ring)
   });
 });
 
