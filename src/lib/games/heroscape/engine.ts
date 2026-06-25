@@ -2521,7 +2521,14 @@ function applyValidatedMove(
   // effective-stat helpers, nothing to do on entry). Only fires if the mover
   // survived the swipes/fall and actually occupies the glyph hex. ---
   if (fig.at != null && fig.at === to) {
+    const glyphsBefore = JSON.stringify(s.glyphs ?? []);
     applyGlyphOnStop(s, fig);
+    // If this move REVEALED/triggered a glyph (a hidden glyph flipped face-up, a temporary glyph
+    // fired and was removed, or a choice opened), the move is NO LONGER UNDOABLE — un-revealing a
+    // glyph or replaying its one-shot effect would be an exploit. Drop the undo stack.
+    if (JSON.stringify(s.glyphs ?? []) !== glyphsBefore || s.pendingChoice) {
+      s.moveHistory = [];
+    }
   }
 
   // A mid-move destruction can win the game (last enemy of a seat removed).
@@ -3931,8 +3938,13 @@ export function explosionTargets(state: HSState, attackerId: string): string[] {
   const dw = state.figures.find(f => f.id === attackerId);
   const map = MAPS[state.mapId];
   if (!dw || dw.at == null || !map) return [];
-  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  // Deathwalker is a TALL figure, so his Explosion sight is cast from HIS height (not the default
+  // hex+1 ground eye) — it clears low hills/land the way a towering figure would, instead of being
+  // wrongly blocked by terrain it plainly sees over. Only tall wall pillars stop it. (Same
+  // height-aware sight as Mimring's Fire Line + Raelin's aura.) Source hexes use his eye; targets normal.
+  const atkH = cardDefFor(state, dw).height;
   const aHexes = figureHexes(dw);
+  const eye = (k: HexKey) => (aHexes.includes(k) ? heightOfKey(state, k) + atkH : eyeHeightOfKey(state, k));
   const out: string[] = [];
   for (const f of state.figures) {
     if (f.id === dw.id || f.at == null || f.ownerSeat === dw.ownerSeat) continue;

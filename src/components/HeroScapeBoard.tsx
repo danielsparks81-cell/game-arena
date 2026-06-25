@@ -1159,8 +1159,9 @@ function DiceRollOverlay({ attack, onDismiss, final }: { attack: LastAttack; onD
           glyph "?" markers — stay visible, and a board click neither lands on the
           panel nor dismisses it (pointer-events pass through the transparent
           wrapper). Auto-dismisses on its timer; "Skip ▸" closes early. */}
-      {/* Wide enough for FIVE big dice on one row (a 6th wraps to a second row via flex-wrap). */}
-      <div className="pointer-events-auto relative max-h-[calc(100vh-1rem)] w-[min(94vw,25rem)] overflow-y-auto rounded-2xl border-2 border-amber-700/80 bg-neutral-950/97 px-5 py-5 text-center shadow-2xl shadow-black/80">
+      {/* Wide enough for SIX big dice on one row — even with the base|bonus divider — so a row of 6
+          no longer wraps (a 7th still wraps to a second row via flex-wrap). */}
+      <div className="pointer-events-auto relative max-h-[calc(100vh-1rem)] w-[min(94vw,30rem)] overflow-y-auto rounded-2xl border-2 border-amber-700/80 bg-neutral-950/97 px-5 py-5 text-center shadow-2xl shadow-black/80">
         <button
           onClick={onDismiss}
           className="absolute right-3 top-3 rounded-md border border-neutral-700 px-2 py-0.5 text-xs font-semibold text-neutral-400 transition hover:border-neutral-400 hover:text-neutral-200"
