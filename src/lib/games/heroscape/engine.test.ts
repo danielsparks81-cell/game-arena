@@ -2115,6 +2115,59 @@ describe('step-by-step movement (move_step)', () => {
     expect(foot.some(h => fN.includes(h))).toBe(true); // a lobe is STILL adjacent to Finn → it stayed engaged
   });
 
+  it('a 2-hex FLYER may STRADDLE heights — it lands a lobe on an isolated peak (dragons on slopes, not stranded)', () => {
+    // Owner ask: a 2-hex dragon should not get stuck on a peak. A R3 hex ringed by grass has NO
+    // same-level neighbour, so under the old "rest level" rule a flyer could never put a lobe on it.
+    MAPS['test_peak'] = parseMap('test_peak', 'Test Peak', `
+      row1@1: G1 G1 G1 G1 G1
+      row2@1: G1 G1 G1 G1 G1
+      row3:   G1 G1 R3 G1 G1
+      row4:   G1 G1 G1 G1 G1
+      row5@2: G1 G1 G1 G1 G1
+      row6@2: G1 G1 G1 G1 G1
+    `);
+    let s = customBattle(['mimring'], ['marro_warriors'], 'p1', 'test_peak');
+    const MIM = 's0-mimring-1';
+    s = clearExcept(s, MIM, 's1-marro_warriors-1');
+    s = place(s, 's1-marro_warriors-1', at(0, 0)); // keep seat 1 alive, far off
+    const cells = MAPS['test_peak'].cells;
+    const peak = at(2, 2);
+    expect(cells[peak].height).toBe(3);
+    const lead = neighborKeys(peak).find(k => cells[k]?.height === 1)!;      // a low hex touching the peak
+    const tail = neighborKeys(lead).find(k => cells[k]?.height === 1 && k !== peak)!;
+    s = place2(s, MIM, lead, tail); // Mimring starts on two LEVEL grass hexes, one touching the peak
+    // Fly so a lobe lands ON the peak; the other lobe stays low → a height-SPANNING footprint.
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: MIM, to: peak }));
+    const m = moved.figures.find(x => x.id === MIM)!;
+    const foot = [m.at, m.at2].filter(Boolean) as string[];
+    expect(foot).toContain(peak); // a lobe rests on the isolated peak — the flyer is NOT stranded
+    const hs = foot.map(h => cells[h].height);
+    expect(Math.max(...hs)).toBe(3); // the peak lobe…
+    expect(Math.min(...hs)).toBeLessThan(3); // …straddling a lower hex (height-spanning allowed for flyers)
+  });
+
+  it('a GROUND 2-hex is STILL level-locked — the flyer straddle does not let walkers span the peak', () => {
+    MAPS['test_peak'] = parseMap('test_peak', 'Test Peak', `
+      row1@1: G1 G1 G1 G1 G1
+      row2@1: G1 G1 G1 G1 G1
+      row3:   G1 G1 R3 G1 G1
+      row4:   G1 G1 G1 G1 G1
+      row5@2: G1 G1 G1 G1 G1
+      row6@2: G1 G1 G1 G1 G1
+    `);
+    let s = customBattle(['grimnak'], ['marro_warriors'], 'p1', 'test_peak');
+    const G = 's0-grimnak-1';
+    s = clearExcept(s, G, 's1-marro_warriors-1');
+    s = place(s, 's1-marro_warriors-1', at(0, 0));
+    const cells = MAPS['test_peak'].cells;
+    const peak = at(2, 2);
+    const lead = neighborKeys(peak).find(k => cells[k]?.height === 1)!;
+    const tail = neighborKeys(lead).find(k => cells[k]?.height === 1 && k !== peak)!;
+    s = place2(s, G, lead, tail);
+    // A WALKING peanut has no same-level tail at the peak → no legal landing there (ground-slope slither deferred).
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: peak }))).toBeTruthy();
+  });
+
   it('the "max distance" range reflects REMAINING Move — full at the start, gone once it is spent', () => {
     let s = walker();
     const budget = effectiveMove(s, fig(s, TV(1))).dice;

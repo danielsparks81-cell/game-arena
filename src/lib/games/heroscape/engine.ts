@@ -2226,7 +2226,11 @@ function movementDestinations2(
       t =>
         t !== lead &&
         map.cells[t] &&
-        map.cells[t].height === lh && // a 2-hex figure RESTS level
+        // A WALKING 2-hex figure RESTS LEVEL (both lobes same height). A FLYER may STRADDLE two
+        // adjacent hexes of DIFFERENT heights — it flies, so it's never stranded on a peak with no
+        // same-level neighbour (owner: "dragons on slopes"). It tilts; `figureStandLevel` uses the
+        // higher lobe for height advantage, and flyers take no fall. Walkers across slopes stay deferred.
+        (opts.flyer || map.cells[t].height === lh) &&
         isFree(t) &&
         (reach.has(t) || t === fig.at || t === fig.at2) && // anti-spin
         !((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)),
@@ -2270,10 +2274,11 @@ export function moveTailOptions(state: HSState, figureId: string, lead: HexKey):
   if (!leads.has(lead) || !map.cells[lead]) return out; // not a legal lead right now
   const occ = occupancyLookup(state, fig); // the mover's own two hexes read free
   const lh = map.cells[lead].height;
+  const isFlyer = effectiveFlying(state, cardDefFor(state, fig));
   const reachable = (k: HexKey) => reach.has(k) || k === fig.at || k === fig.at2;
   for (const t of neighborKeys(lead)) {
     if (t === lead || !map.cells[t]) continue;
-    if (map.cells[t].height !== lh) continue;          // a 2-hex figure rests LEVEL
+    if (!isFlyer && map.cells[t].height !== lh) continue; // a WALKING 2-hex rests LEVEL; a FLYER may straddle heights
     if (occ(t) != null) continue;                      // another figure is there
     if (!reachable(t)) continue;                       // ANTI-SPIN: tail stays within paid reach
     if ((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)) continue; // no-move
