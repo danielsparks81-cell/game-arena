@@ -3763,22 +3763,25 @@ export function canFireLine(state: HSState, attackerId: string): boolean {
 }
 
 /** On-map spaces of the Fire Line in hex direction `dir` (0-5) from Mimring. */
-export function fireLineSpaces(state: HSState, attackerId: string, dir: number): HexKey[] {
+export function fireLineSpaces(state: HSState, attackerId: string, dir: number, origin?: HexKey): HexKey[] {
   const fig = state.figures.find(f => f.id === attackerId);
   const map = MAPS[state.mapId];
   if (!fig || fig.at == null || !map) return [];
-  return hexLine(fig.at, dir, FIRE_LINE_LEN).filter(k => !!map.cells[k]);
+  // A 2-hex dragon (Mimring) may fire from EITHER lobe — the line starts at `origin` when it's one
+  // of the figure's hexes, else the lead. Gives both straight rows out of each base.
+  const start = origin && figureHexes(fig).includes(origin) ? origin : fig.at;
+  return hexLine(start, dir, FIRE_LINE_LEN).filter(k => !!map.cells[k]);
 }
 
 /** Figures the Fire Line affects: any figure (friend OR foe, never Mimring) on a
  *  line space he has clear, elevation-aware line of sight to. Figures do NOT
  *  block the line — the fire passes through them, so everyone on the straight
  *  line is hit unless TERRAIN / height breaks the sightline. */
-export function fireLineTargets(state: HSState, attackerId: string, dir: number): Figure[] {
+export function fireLineTargets(state: HSState, attackerId: string, dir: number, origin?: HexKey): Figure[] {
   const attacker = state.figures.find(f => f.id === attackerId);
   const map = MAPS[state.mapId];
   if (!attacker || attacker.at == null || !map) return [];
-  const spaces = new Set(fireLineSpaces(state, attackerId, dir));
+  const spaces = new Set(fireLineSpaces(state, attackerId, dir, origin));
   if (spaces.size === 0) return [];
   const aHexes = figureHexes(attacker);
   // Mimring is a HUGE dragon, so his fire line is cast from HIS height (not the default hex+1
@@ -3809,10 +3812,11 @@ export function fireLineDefenders(
   state: HSState,
   attackerId: string,
   dir: number,
+  origin?: HexKey,
 ): { figureId: string; defense: number }[] {
   const attacker = state.figures.find(f => f.id === attackerId);
   if (!attacker) return [];
-  return fireLineTargets(state, attackerId, dir).map(t => {
+  return fireLineTargets(state, attackerId, dir, origin).map(t => {
     // Keep the defender's FULL dice incl. height — only the ATTACKER's special-attack roll is
     // unmodifiable (05-glyphs §117). (Was stripping height; Ice Shard/Queglix/Wild Swing keep it.)
     return { figureId: t.id, defense: effectiveDefenseDice(state, t, attacker).dice };
@@ -3824,6 +3828,7 @@ function doFireLine(
   action: {
     attackerId: string;
     dir: number;
+    origin?: HexKey;
     attackRoll: CombatFace[];
     defenseRolls: { figureId: string; roll: CombatFace[] }[];
   },
@@ -3837,12 +3842,16 @@ function doFireLine(
   if (!Number.isInteger(action.dir) || action.dir < 0 || action.dir > 5) {
     return { error: 'Invalid Fire Line direction' };
   }
+  // The line may be cast from EITHER lobe of the 2-hex dragon — `origin` must be one of its hexes.
+  if (action.origin != null && !figureHexes(attacker).includes(action.origin)) {
+    return { error: 'Fire Line must start from one of the figure\'s own hexes' };
+  }
   if (!validFaces(action.attackRoll, FIRE_LINE_ATTACK)) {
     return { error: 'Malformed Fire Line attack roll' };
   }
   // Re-derive the affected set + each defender's dice (server-authoritative) and
   // validate the supplied rolls match it exactly.
-  const defenders = fireLineDefenders(state, action.attackerId, action.dir);
+  const defenders = fireLineDefenders(state, action.attackerId, action.dir, action.origin);
   const got = new Map(action.defenseRolls.map(d => [d.figureId, d.roll] as const));
   if (got.size !== action.defenseRolls.length) return { error: 'Duplicate Fire Line defender' };
   if (defenders.length !== action.defenseRolls.length) return { error: 'Fire Line defender set mismatch' };
@@ -3900,7 +3909,7 @@ function doFireLine(
     'attack',
     `${figureLabel(s, mover)} unleashes the Fire Line (${skulls} skull${skulls === 1 ? '' : 's'}): ${results.length ? results.join('; ') : 'no figures in the line'}.`,
   );
-  setEffect(s, 'fire_line', mover.at, fireLineSpaces(state, attacker.id, action.dir)); // tunnel of fire down the line
+  setEffect(s, 'fire_line', action.origin ?? mover.at, fireLineSpaces(state, attacker.id, action.dir, action.origin)); // tunnel of fire down the line from the firing lobe
   checkEliminationWin(s); // a lethal line can remove a seat's last figures
   return s;
 }

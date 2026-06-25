@@ -953,6 +953,8 @@ export type HSAction =
       kind: 'fire_line';
       attackerId: string;
       dir: number;
+      /** The figure hex the line starts from — a 2-hex dragon may fire from EITHER lobe (default lead). */
+      origin?: HexKey;
       attackRoll: CombatFace[];
       defenseRolls: { figureId: string; roll: CombatFace[] }[];
     }

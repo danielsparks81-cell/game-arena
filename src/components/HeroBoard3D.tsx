@@ -87,6 +87,9 @@ type Interact = {
   /** Shooting-range envelope for a moving RANGED figure: the hexes within its reach
    *  (plus its own footprint). When present, every hex OUTSIDE this set is dimmed so
    *  the bright island's edge shows the furthest hex the figure could shoot from. */
+  /** Mimring's FIRE LINE candidate rows (every hex of every direction) — tinted RED while aiming;
+   *  click any one to fire that whole line. */
+  fireHexes?: Set<HexKey>;
   shootHexes?: Set<HexKey>;
   /** The BLOCKED subset of shootHexes — in range, but no line of sight (a wall/column
    *  is between). Rendered flat grey/desaturated so "in range" ≠ "can shoot". */
@@ -792,7 +795,8 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   // then the BRIGHT one-tap step set, then the FAINT remaining-Move range backdrop,
   // then placement. Bright green = tap to step here; faint green = still in reach.
   const tileHighlight = (key: HexKey): { color: string; dim?: boolean } | null =>
-    (it.dropPicks?.has(key) ? { color: '#f97316' }
+    (it.fireHexes?.has(key) ? { color: '#ef4444' } // RED = a Fire Line row (click any hex to fire it)
+      : it.dropPicks?.has(key) ? { color: '#f97316' }
       : it.dropHexes?.has(key) ? { color: '#fb923c' }
         : it.climbHexes?.has(key) ? { color: '#a855f7' } // Grapple Gun climb target — distinct from a normal move
           : it.dangerHexes?.has(key) ? { color: '#ef4444' } // RED = reachable, but moving here provokes a swipe

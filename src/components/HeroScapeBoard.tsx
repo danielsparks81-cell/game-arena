@@ -208,7 +208,7 @@ type Props = {
   /** Walk a figure ONE adjacent hex (tap-to-step movement). */
   onMoveStep: (figureId: string, to: HexKey) => void;
   onGrappleMove: (figureId: string, to: HexKey) => void;
-  onFireLine: (attackerId: string, dir: number) => void;
+  onFireLine: (attackerId: string, dir: number, origin?: HexKey) => void;
   onExplosion: (attackerId: string, targetId: string) => void;
   onOrient: (figureId: string, dir: number) => void;
   onAttack: (attackerId: string, targetId: string) => void;
@@ -1962,21 +1962,30 @@ export default function HeroScapeBoard({
       ? (state.figures.find(f => f.cardUid === activeCardUid && f.at != null)?.id ?? null)
       : null;
   const canFire = !!(mimHeroId && canFireLine(state, mimHeroId));
+  // Each lit hex remembers WHICH line it belongs to — its origin LOBE + direction — so a 2-hex
+  // dragon can fire from EITHER base (12 candidate rows). A hex shared by two lines keeps the first
+  // (lead-lobe) claim; tail-only hexes still give the tail's rows.
   const fireLineDirs = useMemo(() => {
-    const m = new Map<HexKey, number>();
-    if (canFire && mimHeroId) {
-      for (let d = 0; d < 6; d++) {
-        for (const k of fireLineSpaces(state, mimHeroId, d)) if (!m.has(k)) m.set(k, d);
+    const m = new Map<HexKey, { origin: HexKey; dir: number }>();
+    const fig = state.figures.find(f => f.id === mimHeroId);
+    if (canFire && mimHeroId && fig?.at != null) {
+      const lobes = [fig.at, fig.at2].filter(Boolean) as HexKey[];
+      for (const origin of lobes) {
+        for (let d = 0; d < 6; d++) {
+          for (const k of fireLineSpaces(state, mimHeroId, d, origin)) if (!m.has(k)) m.set(k, { origin, dir: d });
+        }
       }
     }
     return m;
   }, [state, mimHeroId, canFire]);
-  // Figures the Fire Line could hit (union across all 6 directions) — highlighted while AIMING
-  // so the player SEES who is in the fire (friend OR foe) before committing to a direction.
+  // Figures the Fire Line could hit (union across all rows from BOTH lobes) — highlighted while
+  // AIMING so the player SEES who is in the fire (friend OR foe) before committing to a line.
   const fireLineVictims = useMemo(() => {
     const ids = new Set<string>();
-    if (fireLineMode && mimHeroId) {
-      for (let d = 0; d < 6; d++) for (const f of fireLineTargets(state, mimHeroId, d)) ids.add(f.id);
+    const fig = state.figures.find(f => f.id === mimHeroId);
+    if (fireLineMode && mimHeroId && fig?.at != null) {
+      const lobes = [fig.at, fig.at2].filter(Boolean) as HexKey[];
+      for (const origin of lobes) for (let d = 0; d < 6; d++) for (const f of fireLineTargets(state, mimHeroId, d, origin)) ids.add(f.id);
     }
     return ids;
   }, [state, mimHeroId, fireLineMode]);
@@ -2652,10 +2661,11 @@ export default function HeroScapeBoard({
       return; // while carrying, a click never falls through to move/attack
     }
     // slice 8: Fire-Line mode — clicking a highlighted line space fires that straight line
-    // (Mimring's special attack), replacing his normal attack. Acts with the ACTIVE Mimring figure.
+    // (Mimring's special attack), replacing his normal attack. The line's ORIGIN lobe + direction
+    // are remembered per hex, so a 2-hex dragon fires from whichever base owns the tapped row.
     if (fireLineMode && mimHeroId) {
-      const dir = fireLineDirs.get(key);
-      if (dir != null) { onFireLine(mimHeroId, dir); setFireLineMode(false); }
+      const line = fireLineDirs.get(key);
+      if (line) { onFireLine(mimHeroId, line.dir, line.origin); setFireLineMode(false); }
       return;
     }
     const occ = occupantAt(key);
@@ -4359,8 +4369,9 @@ export default function HeroScapeBoard({
             selectedId={selectedId}
             moveHexes={orientLead ? orientTails : (carryDestSet ?? (grappleMode ? destinations : safeMoveHexes))}
             dangerHexes={disengageHexes}
-            shootHexes={fireLineMode ? fireLineHexSet : shootRange}
-            shootBlockedHexes={fireLineMode ? undefined : shootBlocked}
+            fireHexes={fireLineMode ? fireLineHexSet : undefined}
+            shootHexes={shootRange}
+            shootBlockedHexes={shootBlocked}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
             powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? []), ...choiceFigIds])}

@@ -755,7 +755,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'end_move' }
   | { game: 'heroscape'; kind: 'grapple_move'; figureId: string; to: string }
   | { game: 'heroscape'; kind: 'attack'; attackerId: string; targetId: string }
-  | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number }
+  | { game: 'heroscape'; kind: 'fire_line'; attackerId: string; dir: number; origin?: string }
   | { game: 'heroscape'; kind: 'explosion'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'orient_figure'; figureId: string; dir: number }
   | { game: 'heroscape'; kind: 'mind_shackle'; targetId: string }
@@ -1222,7 +1222,7 @@ type HSWireAction =
   | { kind: 'attack'; attackerId: string; targetId: string }
   // Mimring FIRE LINE (slice 8): the attack/defense dice are NOT on the wire —
   // the server rolls 4 attack dice once + each affected figure's defense.
-  | { kind: 'fire_line'; attackerId: string; dir: number }
+  | { kind: 'fire_line'; attackerId: string; dir: number; origin?: string }
   | { kind: 'explosion'; attackerId: string; targetId: string }
   // Player-chosen ORIENTATION (figure-presentation slice) — no dice; passed
   // through verbatim. Swings a 2-hex figure's trailing hex / sets 1-hex facing.
@@ -1354,11 +1354,12 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // affected figure's defense SEPARATELY. Defenders come from the engine's
     // single-source helper (printed defense + auras + height — a defender keeps
     // height vs a special attack); the engine re-derives the set + validates shapes.
-    const defenders = hsFireLineDefenders(state, action.attackerId, action.dir);
+    const defenders = hsFireLineDefenders(state, action.attackerId, action.dir, action.origin);
     engineAction = {
       kind: 'fire_line',
       attackerId: action.attackerId,
       dir: action.dir,
+      ...(action.origin ? { origin: action.origin } : {}),
       attackRoll: rollDice(4),
       defenseRolls: defenders.map(d => ({ figureId: d.figureId, roll: rollDice(d.defense) })),
     };
@@ -1647,10 +1648,17 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       // still reach the initiative roll.
       const ms = state.markersReady ?? [];
       const pcSeat = state.pendingChoice?.seat;
+      const pcIsHuman = pcSeat != null && !state.players.find(p => p.seat === pcSeat)?.bot;
       const stuck = (pcSeat != null && state.players.find(p => p.seat === pcSeat)?.bot)
         ? state.players.find(p => p.seat === pcSeat)
         : state.players.find(p => p.bot && !ms.includes(p.seat));
-      if (stuck?.bot) {
+      if (pcIsHuman) {
+        // A HUMAN owns an open choice here — a Glyph of Wannok curse resolves at the round boundary,
+        // BEFORE order markers, so its "pick a player" prompt lands in this place-markers phase. The
+        // bots correctly WAIT for that human; NEVER clobber their pending to push markers (that wiped
+        // the curse pick before the player could act). This ai_step is a no-op; the human resolves it.
+        next = state;
+      } else if (stuck?.bot) {
         const cleaned: HSState = JSON.parse(JSON.stringify(state));
         cleaned.pendingChoice = undefined;
         cleaned.airborneDropRound = cleaned.round;
