@@ -1932,6 +1932,51 @@ describe('step-by-step movement (move_step)', () => {
     expect('error' in applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: lead })).toBe(false);
   });
 
+  it('a 2-hex flyer DEFAULT move (no chosen tail) trails the back lobe behind the lead — never a hex past the destination (the "white dragon moves 7" bug)', () => {
+    // Mimring: Move 6, baseSize 2, Flying. Flat training field with the enemy parked
+    // in a far corner, so a move provokes no swipe/fall — committing with NO `to2`
+    // exercises the engine's DEFAULT trailing-tail placement (moveTailFor).
+    let s = customBattle(['mimring'], ['finn'], 'p1');
+    const M = 's0-mimring-1';
+    s = clearExcept(s, M, 's1-finn-1');
+    s = place(s, 's1-finn-1', at(8, 8));
+    s = place2(s, M, at(3, 3), at(2, 3)); // lead (3,3), trailing lobe one hex west
+    const cells = MAPS[s.mapId].cells;
+    const MOVE = effectiveMove(s, fig(s, M)).dice;
+    const startLead = fig(s, M).at!;
+    const startTail = fig(s, M).at2!;
+    // Distance of a hex from the figure's STARTING footprint (nearer of the two lobes).
+    const rd = (a: string, b: string) => rangeDistance(cells, a, b) ?? Infinity;
+    const dStart = (k: string) => Math.min(rd(startLead, k), rd(startTail, k));
+
+    let checked = 0;
+    let sawAdvance = false; // at least one lead where the figure actually moved off its start
+    for (const lead of legalDestinations(s, M)) {
+      const moved = applyAction(s, 'p1', { kind: 'move_figure', figureId: M, to: lead });
+      if ('error' in moved) continue;
+      const at1 = fig(moved, M).at!;
+      const at2 = fig(moved, M).at2!;
+      expect(at1).toBe(lead); // the lead lands exactly where you tapped
+      expect(neighborKeys(at1).includes(at2)).toBe(true); // a legal adjacent peanut
+      // Both lobes stay within the Move the figure paid for (no lobe at Move+1).
+      expect(dStart(at1)).toBeLessThanOrEqual(MOVE);
+      expect(dStart(at2)).toBeLessThanOrEqual(MOVE);
+      // THE FIX: whenever the lead actually advanced, the trailing lobe FOLLOWS behind —
+      // it is never farther from the start than the lead. The old default took the first
+      // neighbour (often the hex one step PAST the destination), so the tail jutted ahead
+      // and a Move-6 dragon read as travelling 7. (Skip the degenerate "shuffle onto my
+      // own start hex" lead, where dStart(lead) is 0 and a distance-1 tail is fine.)
+      const dLead = dStart(at1);
+      if (dLead >= 1) {
+        sawAdvance = true;
+        expect(dStart(at2)).toBeLessThanOrEqual(dLead);
+      }
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(20); // it really did sweep the reachable leads
+    expect(sawAdvance).toBe(true); // …including real forward moves (the bug's home)
+  });
+
   it('a 2-hex FLYER (Mimring) ignores elevation — it can step onto a higher hex (flat-only deferral fixed)', () => {
     let s = customBattle(['mimring'], ['finn'], 'p1', CLIFF_MAP_ID);
     const M = 's0-mimring-1';

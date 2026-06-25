@@ -58,6 +58,7 @@ import {
   computeFall,
   dragStep,
   hasLineOfSight3D,
+  hexDistance,
   hexLine,
   neighborKeys,
   parseHexKey,
@@ -2169,16 +2170,32 @@ function movementDestinations2(
     for (const k of reachableDestinations(map.cells, start, move, occ, def.height, opts)) reach.add(k);
   }
   const isFree = (k: HexKey) => !!map.cells[k] && occ(k) == null; // mover's own hexes read null → free
+  const origin = figureHexes(fig); // the figure's pre-move footprint (for the trailing default)
+  const distToOrigin = (k: HexKey) => Math.min(...origin.map(o => hexDistance(o, k)));
   for (const lead of reach) {
     if (!isFree(lead)) continue;
     const lh = map.cells[lead].height;
-    for (const t of neighborKeys(lead)) {
-      if (t === lead || !map.cells[t] || map.cells[t].height !== lh || !isFree(t)) continue; // all 2-hex REST level
-      if ((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)) continue; // not the current placement
-      out.leads.add(lead);
-      out.tailOf.set(lead, t);
-      break;
-    }
+    // Candidate trailing lobes: free, same-level neighbours the figure could ALSO
+    // reach this move (∈ reach, or one of its current hexes) — the SAME anti-spin
+    // bound moveTailOptions enforces, so the default placement can never jut the
+    // peanut a hex PAST the paid reach (that was the "white dragon moves 7" bug:
+    // the old code took the first neighbour, e.g. the hex one step FORWARD of the
+    // destination, with no reach check). Excludes the current no-move placement.
+    const cands = neighborKeys(lead).filter(
+      t =>
+        t !== lead &&
+        map.cells[t] &&
+        map.cells[t].height === lh && // a 2-hex figure RESTS level
+        isFree(t) &&
+        (reach.has(t) || t === fig.at || t === fig.at2) && // anti-spin
+        !((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)),
+    );
+    if (cands.length === 0) continue; // no legal in-reach tail → not a legal lead at all
+    // Default the trailing lobe to TRAIL: the candidate nearest where the figure
+    // came from, so the peanut follows BEHIND the lead instead of reaching forward.
+    const tail = cands.reduce((a, b) => (distToOrigin(b) < distToOrigin(a) ? b : a));
+    out.leads.add(lead);
+    out.tailOf.set(lead, tail);
   }
   return out;
 }

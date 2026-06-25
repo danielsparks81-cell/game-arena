@@ -2684,12 +2684,14 @@ export default function HeroScapeBoard({
     if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); return; }
       if (selIs2Hex) {
-        // Commit the move NOW with the default tail orientation — never leave it in an uncommitted
-        // "pick the tail" preview that End Move could throw away (that was the turn-loss bug). If the
-        // landing has more than one legal facing, offer an optional in-place reorient afterward
-        // (onOrient — a FREE pivot of the trailing lobe that never re-moves or resets).
+        // Commit the move NOW (never leave it in an uncommitted "pick the tail" preview that End
+        // Move could throw away — that was the turn-loss bug). Let the ENGINE place the trailing
+        // lobe: its default TRAILS behind the lead and stays within paid reach, so the peanut never
+        // juts a hex past the destination (the "white dragon moves 7" bug). If the landing has more
+        // than one legal facing, offer an optional in-place reorient afterward (onOrient — a FREE
+        // pivot that never re-moves or resets).
         const opts = moveTailOptions(state, selected.id, key);
-        onMoveFigure(selected.id, key, [...opts][0]);
+        onMoveFigure(selected.id, key);
         setOrientLead(opts.size >= 2 ? key : null);
         return;
       }
