@@ -6809,7 +6809,12 @@ function aiTurn(state: HSState, seat: number): HSAction {
     for (const g of openGlyphs) { const d = rangeDistance(cells, from, g.at); if (d != null && d < best) best = d; }
     return best;
   };
-  const wantsMove = (f: Figure) => enemyTargets(f).length === 0;
+  // A figure WANTS to move when it can improve its square. A MELEE figure only closes in (it already
+  // attacks once a foe is in reach, so it holds). A RANGED figure always re-evaluates so it can KITE —
+  // hold the FAR edge of its range, climb to higher ground, or back off when a meleer closes — and
+  // bestStepFor returns null (no move) when staying put is already its best square, so it then just shoots.
+  const wantsMove = (f: Figure) =>
+    effectiveRange(state, f).dice >= 2 ? true : enemyTargets(f).length === 0;
   const bestStepFor = (f: Figure, candidatesOverride?: Iterable<HexKey>): { to: HexKey; score: number } | null => {
     // A figure that already FINISHED its move this turn can't move again — a flyer's one-shot
     // move_figure especially (a walker's legalStepHexes is already empty once finalized, but a
@@ -6833,8 +6838,11 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // to reach a firing/melee spot — instead of just tucking in behind it. (Range only;
     // an LOS-blocked hex simply yields no real target so the figure keeps closing.)
     const range = effectiveRange(state, f).dice;
+    const isRanged = range >= 2; // a SHOOTER kites (holds its range, dodges melee); a MELEE figure charges
     const canHitFrom = (hex: HexKey): boolean =>
       !!cells && enemies.some(e => { const d = rangeDistance(cells!, hex, e.at!); return d != null && d >= 1 && d <= range; });
+    const nearestEnemyDist = (hex: HexKey): number =>
+      !cells ? Infinity : Math.min(...enemies.map(e => rangeDistance(cells, hex, e.at!) ?? Infinity));
     // A DOUBLE-SPACE figure slithers and must FINISH on two LEVEL spaces. The engine
     // permits a mid-slither climb, but the bot ends its move as soon as no better step
     // exists — which would strand the peanut on a non-level footprint (engine reject →
@@ -6852,6 +6860,27 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // a glyph" the bot used to do — step off toward a foe, get yanked back by the glyph bonus, repeat —
     // which re-claims the glyph and wastes the whole turn. A figure that leaves a glyph now COMMITS.
     const moveStart = state.stepMove?.figureId === f.id ? state.stepMove.startHex : f.at;
+    // One scorer for the candidates AND the current square (so a ranged figure only repositions when it
+    // truly improves). MELEE = AGGRESSION: a strike hex dominates, then close the gap + high ground; a
+    // glyph is a small bonus on the way. RANGED = KITING: being IN RANGE to shoot dominates; among
+    // in-range hexes prefer the FAR edge of the range (max standoff) and HIGH ground, and HEAVILY avoid
+    // sitting next to a foe (it'd be charged/meleed); when still out of range, close in (but the
+    // adjacency penalty still steers it away from ending the step in melee).
+    const scoreHex = (hex: HexKey): number => {
+      const toDist = pathDist(hex);
+      const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
+      const onG = openGlyphs.some(g => g.at === hex);
+      const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(hex) : 0;
+      const glyphScore = (chaseGlyph ? glyphGain * 2 : 0) + (onG ? 14 : 0);
+      const canHit = canHitFrom(hex);
+      if (isRanged) {
+        const ne = nearestEnemyDist(hex);
+        const standoff = Math.min(ne, range); // reward distance up to the range edge — no point fleeing past it
+        const adjacent = ne <= 1 ? 60 : 0;     // a shooter next to a foe gets charged → big penalty
+        return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + glyphScore - adjacent;
+      }
+      return (canHit ? 50 : 0) + enemyGain * 4 + glyphScore + heightOfKey(state, hex);
+    };
     let best: { to: HexKey; score: number } | null = null;
     for (const to of candidates) {
       if (occupied.has(to)) continue;
@@ -6859,19 +6888,18 @@ function aiTurn(state: HSState, seat: number): HSAction {
       if (is2hex && !isFlyer && heightOfKey(state, to) !== curH) continue; // level-keep is a WALKING-peanut limit only
       const toDist = pathDist(to);
       const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
-      const onGlyph = openGlyphs.some(g => g.at === to);
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(to) : 0;
-      const canHit = canHitFrom(to);
-      // Make progress toward SOMETHING — a hex to attack from, the enemy, or a nearby
-      // glyph (incl. stepping onto it). A pure sideways/backward step with no payoff is
-      // skipped so we never stall — but a lateral step that REACHES a strike hex counts.
-      if (enemyGain <= 0 && glyphGain <= 0 && !onGlyph && !canHit) continue;
-      // AGGRESSION FIRST: reaching a strike hex dominates, then closing the gap and high ground. A
-      // glyph is a bonus ON THE WAY, not an obsession — its pull is small (was ×5 / +30) so the bot
-      // never abandons the chase to fixate on a glyph (user: "be aggressive to win; dancing doesn't").
-      const score = (canHit ? 50 : 0) + enemyGain * 4 + (chaseGlyph ? glyphGain * 2 : 0) + (onGlyph ? 14 : 0) + heightOfKey(state, to);
+      // Make progress toward SOMETHING — a strike hex, the enemy, or a nearby glyph. A pure
+      // sideways/backward step with no payoff is skipped so we never stall — but a ranged retreat that
+      // STAYS in range (canHit) is a real payoff and survives this guard.
+      if (enemyGain <= 0 && glyphGain <= 0 && !openGlyphs.some(g => g.at === to) && !canHitFrom(to)) continue;
+      const score = scoreHex(to);
       if (!best || score > best.score) best = { to, score };
     }
+    // RANGED hold rule: only SKIP a move when the shooter is ALREADY in range — then a marginal
+    // reposition isn't worth the shuffle, so it holds + attacks. When still OUT of range it must always
+    // advance to a firing spot (the margin must NEVER freeze the approach, or armies never close).
+    if (isRanged && canHitFrom(f.at!) && best && best.score <= scoreHex(f.at!) + 6) return null;
     return best;
   };
   // Finish the in-progress figure's walk before switching to another.

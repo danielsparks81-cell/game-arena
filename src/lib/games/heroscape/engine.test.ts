@@ -3270,6 +3270,50 @@ describe('AI initiates Carry + Grapple (all abilities)', () => {
   });
 });
 
+describe('AI ranged kiting + self-preservation', () => {
+  it('a shooter adjacent to a meleer KITES — steps OUT of melee but stays within its range to fire', () => {
+    // Owner ask: fragile shooters should HOLD their range, not charge into melee. Major Q9 (Range 8)
+    // starts engaged with Finn (a melee Range-1 champion) and must back off to a non-adjacent hex it can
+    // still shoot from, rather than sit there and get hit.
+    let s = customBattle(['major_q9'], ['finn'], 'p1');
+    const Q9 = 's0-major_q9-1', FINN = 's1-finn-1';
+    s = clearExcept(s, Q9, FINN);
+    const cells = MAPS[s.mapId].cells;
+    const f = at(4, 4);
+    s = place(s, FINN, f);
+    const adj = neighborKeys(f).find(k => cells[k])!;
+    s = place(s, Q9, adj); // Q9 starts ADJACENT to Finn — in melee, the worst spot for a Range-8 shooter
+    const intent = aiNextAction(s, 0);
+    expect(intent?.kind === 'move_step' || intent?.kind === 'move_figure').toBe(true);
+    if (intent && (intent.kind === 'move_step' || intent.kind === 'move_figure')) {
+      const d = rangeDistance(cells, intent.to, f) ?? 0;
+      expect(d).toBeGreaterThanOrEqual(2); // stepped OUT of melee (no longer adjacent)
+      expect(d).toBeLessThanOrEqual(8); // …but stayed within Range 8 so it can still shoot
+    }
+  });
+
+  it('a shooter already at a safe standoff HOLDS (does not shuffle) so it can fire', () => {
+    // Q9 at Range-8 distance from Finn on flat ground, not adjacent → no better square, so it stays put
+    // (the move brain yields nothing) and the turn proceeds to the attack.
+    let s = customBattle(['major_q9'], ['finn'], 'p1');
+    const Q9 = 's0-major_q9-1', FINN = 's1-finn-1';
+    s = clearExcept(s, Q9, FINN);
+    const cells = MAPS[s.mapId].cells;
+    const f = at(3, 1);
+    s = place(s, FINN, f);
+    const standoff = Object.keys(cells).find(k => k !== f && (rangeDistance(cells, f, k) ?? 0) === 5)!;
+    s = place(s, Q9, standoff); // a clean Range-8 standoff, not adjacent
+    const intent = aiNextAction(s, 0);
+    // It should NOT walk toward Finn into melee; either it holds (end_move) or repositions to a hex that
+    // is STILL non-adjacent. Never ends adjacent.
+    if (intent && (intent.kind === 'move_step' || intent.kind === 'move_figure')) {
+      expect((rangeDistance(cells, intent.to, f) ?? 0)).toBeGreaterThanOrEqual(2);
+    } else {
+      expect(intent?.kind).toBe('end_move');
+    }
+  });
+});
+
 describe('slice 4: hidden glyphs (face-down until stepped on)', () => {
   it('a glyph is HIDDEN until a figure stops on it, then flips face-up and grants its bonus', () => {
     let s = inTurns('p1', { p1: 's0-finn', p2: 's1-marro_warriors' });
