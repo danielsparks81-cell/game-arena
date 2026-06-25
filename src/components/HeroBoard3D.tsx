@@ -72,9 +72,12 @@ function mottle(hex: string, j: number): string {
   );
   return '#' + c.getHexString();
 }
-const SEAT_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
-// Team colours (allies share one); index = team id − 1 (lobby assigns ids 1/2/3).
-const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80'];
+// PRIMARY + SECONDARY palette, must MATCH HeroScapeBoard.tsx — red, blue, yellow, purple, orange, green,
+// ordered so small games get the most-distinct hues first (2p = red vs blue). Green is last (nearest the
+// grass). Owner 2026-06-25: "stick to primary and secondary colours."
+const SEAT_COLORS = ['#e23b3b', '#2f7ae5', '#f4c020', '#9b46d6', '#f0871d', '#36b14a'];
+// Team colours (allies share one) reuse the SAME distinct palette; index = team id − 1.
+const TEAM_COLORS = SEAT_COLORS;
 
 const parseQR = (key: string): [number, number] => { const [q, r] = key.split(',').map(Number); return [q, r]; };
 const worldXZ = (q: number, r: number): [number, number] => [SIZE * Math.sqrt(3) * (q + r / 2), SIZE * 1.5 * r];
@@ -823,7 +826,9 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     // Team games: allies share their team colour; free-for-all keeps seat colours.
     const team = state.players[idx]?.team;
     if (team !== undefined) return TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
-    return state.players[idx]?.accent_color || SEAT_COLORS[idx] || '#a3a3a3';
+    // Fixed primary/secondary palette BY SEAT — profile accent_color is NOT used here (owner 2026-06-25),
+    // so a rival's chosen colour can never sit on top of yours on the board.
+    return SEAT_COLORS[idx] ?? '#a3a3a3';
   };
   // Highlight priority for a tile: Drop picks/targets, then the Grapple climb set,
   // then the BRIGHT one-tap step set, then the FAINT remaining-Move range backdrop,

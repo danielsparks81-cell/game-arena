@@ -108,18 +108,20 @@ const PAD = 26;
 // explicit accent_color — without a full palette here, seats 3+ all collapsed to
 // the same grey, making figures indistinguishable at 3-6 players. Chosen for
 // mutual contrast AND contrast against the board's grass/sand/water terrain.
+// PRIMARY + SECONDARY colours only (owner 2026-06-25: "stick to primary and secondary colours" — the old
+// pink/teal/lime sat too close to red/blue). Ordered so the FIRST seats get the most mutually-distinct
+// hues: a 2-player game is red vs blue, 3p adds yellow (the three primaries), then purple/orange, with
+// GREEN last (it's nearest the grass, so it only appears at 6 players). All vivid for board contrast.
 const SEAT_COLORS = [
-  '#ef4444', // 1 red
-  '#3b82f6', // 2 blue
-  '#eab308', // 3 yellow
-  '#a855f7', // 4 purple
-  '#ec4899', // 5 pink
-  '#14b8a6', // 6 teal
-  '#f97316', // 7 orange
-  '#84cc16', // 8 lime
+  '#e23b3b', // 1 red
+  '#2f7ae5', // 2 blue
+  '#f4c020', // 3 yellow
+  '#9b46d6', // 4 purple
+  '#f0871d', // 5 orange
+  '#36b14a', // 6 green
 ];
-// Team colours (allies share one) — index = team id − 1 (lobby assigns ids 1/2/3).
-const TEAM_COLORS = ['#f87171', '#60a5fa', '#4ade80', '#fbbf24', '#c084fc', '#22d3ee']; // Team A–F (one per seat, so any pairing is possible)
+// Teams (allies share one) reuse the SAME distinct palette — index = team id − 1 (lobby assigns 1/2/3…).
+const TEAM_COLORS = SEAT_COLORS;
 const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
 /** Beat between an AI's actions (ms). Combat is paced slow enough to read the dice;
  *  the repetitive no-dice phases (walking a path one hex at a time, deploying, drafting,
@@ -1878,7 +1880,9 @@ export default function HeroScapeBoard({
     // free-for-all keeps each seat's own colour.
     const team = state.players[idx]?.team;
     if (team !== undefined) return teamColorById(team);
-    return state.players[idx]?.accent_color || SEAT_COLORS[idx] || '#a3a3a3';
+    // HeroScape sticks to the fixed primary/secondary palette BY SEAT (owner 2026-06-25) — a player's
+    // arbitrary profile accent_color could land near a rival's, so it does NOT colour the board here.
+    return SEAT_COLORS[idx] ?? '#a3a3a3';
   };
 
   const selected = state.figures.find(f => f.id === selectedId) ?? null;
