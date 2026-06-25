@@ -2133,8 +2133,10 @@ export default function HeroScapeBoard({
   // Drop the optional reorient prompt the moment the move phase ends (End move / first attack) so it
   // never lingers into the attack phase — the move is already committed, nothing to lose here.
   useEffect(() => { if (state.movementEnded) setOrientLead(null); }, [state.movementEnded]);
+  // Carry is intentionally NOT here — Theracus's Carry is driven from the card TAP + an inline,
+  // step-by-step hint UNDER the card (owner 2026-06-25), so it no longer needs the Special-Power panel.
   const anyBigHeroPower =
-    iceList.length || qList.length || wildList.length || acidList.length || throwList.length || carryList.length;
+    iceList.length || qList.length || wildList.length || acidList.length || throwList.length;
   // Wild Swing's blast (armed target + its neighbours) — the SAME orange "blast zone" ring as the
   // grenade, merged into one splashIds set for the board (only one is ever active at a time).
   const wildSplashIds = useMemo(
@@ -2294,6 +2296,7 @@ export default function HeroScapeBoard({
                 : activeCard?.cardId === 'airborne_elite' ? canThrowGrenade
                   : activeCard?.cardId === 'deathwalker_9000' ? canExplode
                     : activeCard?.cardId === 'eldgrim' ? canOver
+                      : activeCard?.cardId === 'theracus' ? carryList.length > 0
                     : !!anyBigHeroPower;
   /** Readable label for a figure id (card short name + squad index + hex). */
   const figName = (id: string): string => {
@@ -3741,11 +3744,32 @@ export default function HeroScapeBoard({
               </span>
             </div>
             <HybridCard cardId={activeCard.cardId} fit powerAvailable={activePowerAvailable} onPowerTap={canAct && activeCardHasTapPower ? onCardPower : undefined} />
-            {canAct && activeCardHasTapPower && (
+            {/* CARRY is a tap-the-power → guided flow: tapping it EXPANDS a step-by-step hint RIGHT
+                HERE under the card (owner 2026-06-25: keep the messaging in the now-acting panel, walk
+                the player through it) — pick a figure → fly Theracus → set the passenger down. */}
+            {canAct && carryAim ? (
+              <div className="mt-1.5 rounded-lg border border-violet-500/70 bg-violet-950/50 px-3 py-2 text-center text-[11px] text-violet-100">
+                <div className="text-xs font-bold text-violet-200">🪽 Carry — step {carryAim.dest ? 3 : carryAim.pass ? 2 : 1} of 3</div>
+                <div className="mt-0.5 leading-snug">
+                  {!carryAim.pass
+                    ? <>Tap a <b className="text-violet-50">highlighted friendly figure</b> to pick up.</>
+                    : !carryAim.dest
+                      ? <>Carrying <b className="text-violet-50">{figName(carryAim.pass)}</b> — tap where {activeCardDef?.shortName ?? 'this figure'} flies <span className="text-violet-300/80">(move {activeCardDef?.move ?? ''})</span>.</>
+                      : <>Tap a <b className="text-violet-50">glowing hex</b> beside {activeCardDef?.shortName ?? 'it'} to set <b className="text-violet-50">{figName(carryAim.pass)}</b> down.</>}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCarryAim(null)}
+                  className="mt-1.5 rounded border border-violet-400/60 px-2 py-0.5 text-[10px] font-semibold text-violet-100 transition hover:bg-violet-900/50"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : canAct && activeCardHasTapPower ? (
               <div className="mt-1 text-center text-[10px] text-violet-300/80">
                 tap the highlighted power on the card to use it
               </div>
-            )}
+            ) : null}
             {/* the active unit's action controls — its powers live here, on the card */}
             <div className="mt-2 flex flex-col gap-2">
         {/* Powers are activated by TAPPING them on the card above. Below: an inline target
@@ -3757,18 +3781,13 @@ export default function HeroScapeBoard({
             {powerHint}
           </div>
         )}
-        {(fireLineMode || grappleMode || throwAim || explosionMode || carryAim || orientLead) && (
+        {(fireLineMode || grappleMode || throwAim || explosionMode || orientLead) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
               {fireLineMode && '🔥 Fire Line — click ANY hex on a glowing line to fire that whole row; figures in it are hit'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
-              {carryAim && (!carryAim.pass
-                ? '🪽 Carry — STEP 1: click a highlighted friendly figure to pick up'
-                : !carryAim.dest
-                  ? `🪽 Carry ${figName(carryAim.pass)} — STEP 2: click where Theracus flies`
-                  : `🪽 Carry — STEP 3: click an empty hex next to Theracus (a glyph counts) to set ${figName(carryAim.pass)} down`)}
               {orientLead && '↻ Reorient (optional) — tap a highlighted hex to pivot the tail in place, or just End move / attack to keep it as is'}
             </span>
             <button
@@ -3903,22 +3922,7 @@ export default function HeroScapeBoard({
                   </div>
                 );
               })()}
-              {/* Theracus — Carry (pick passenger, then his destination, then a landing) */}
-              {/* CARRY — a board-click sequence, not dropdowns: arm it here, then click a passenger,
-                  Theracus's destination, and the empty landing space (each step highlighted). */}
-              {carryList.length > 0 && bhHeroId && !carryAim && (
-                <button
-                  onClick={() => setCarryAim({})}
-                  className="rounded border border-emerald-600 px-2 py-0.5 text-left font-semibold text-emerald-300 hover:bg-emerald-900/40"
-                >
-                  🪽 Carry a friendly figure — pick it, fly, then set it down
-                </button>
-              )}
-              {carryAim && (
-                <div className="text-[11px] text-emerald-300/90">
-                  🪽 Carrying… {!carryAim.pass ? 'click a highlighted friendly figure' : !carryAim.dest ? 'click where Theracus flies' : 'click an empty space to set it down'} (or Cancel above)
-                </div>
-              )}
+              {/* Theracus — Carry has MOVED to the card tap + the inline under-card hint (above). */}
             </div>
           </div>
         )}
