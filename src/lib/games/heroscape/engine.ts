@@ -6809,12 +6809,14 @@ function aiTurn(state: HSState, seat: number): HSAction {
     for (const g of openGlyphs) { const d = rangeDistance(cells, from, g.at); if (d != null && d < best) best = d; }
     return best;
   };
-  // A figure WANTS to move when it can improve its square. A MELEE figure only closes in (it already
-  // attacks once a foe is in reach, so it holds). A RANGED figure always re-evaluates so it can KITE —
-  // hold the FAR edge of its range, climb to higher ground, or back off when a meleer closes — and
-  // bestStepFor returns null (no move) when staying put is already its best square, so it then just shoots.
+  // A figure WANTS to move when it can improve its square. A BRAWLER — melee (Range 1) OR a short-"reach"
+  // fighter (Range 2-3) — only closes in (it already attacks once a foe is in reach, so it holds). A
+  // LONG-RANGE shooter (Range 4+) always re-evaluates so it can KITE — hold the FAR edge of its range,
+  // climb to higher ground, or back off when a meleer closes — and bestStepFor returns null (no move)
+  // when staying put is already its best square, so it then just shoots. (Owner 2026-06-25: Range 2-3
+  // "reach" figures are brawlers, not kiters.)
   const wantsMove = (f: Figure) =>
-    effectiveRange(state, f).dice >= 2 ? true : enemyTargets(f).length === 0;
+    effectiveRange(state, f).dice >= 4 ? true : enemyTargets(f).length === 0;
   const bestStepFor = (f: Figure, candidatesOverride?: Iterable<HexKey>): { to: HexKey; score: number } | null => {
     // A figure that already FINISHED its move this turn can't move again — a flyer's one-shot
     // move_figure especially (a walker's legalStepHexes is already empty once finalized, but a
@@ -6838,7 +6840,7 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // to reach a firing/melee spot — instead of just tucking in behind it. (Range only;
     // an LOS-blocked hex simply yields no real target so the figure keeps closing.)
     const range = effectiveRange(state, f).dice;
-    const isRanged = range >= 2; // a SHOOTER kites (holds its range, dodges melee); a MELEE figure charges
+    const isRanged = range >= 4; // a LONG-RANGE shooter (4+) KITES; Range 1-3 (melee + short "reach") BRAWLS (charges)
     const canHitFrom = (hex: HexKey): boolean =>
       !!cells && enemies.some(e => { const d = rangeDistance(cells!, hex, e.at!); return d != null && d >= 1 && d <= range; });
     const nearestEnemyDist = (hex: HexKey): number =>
@@ -6860,9 +6862,9 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // a glyph" the bot used to do — step off toward a foe, get yanked back by the glyph bonus, repeat —
     // which re-claims the glyph and wastes the whole turn. A figure that leaves a glyph now COMMITS.
     const moveStart = state.stepMove?.figureId === f.id ? state.stepMove.startHex : f.at;
-    // One scorer for the candidates AND the current square (so a ranged figure only repositions when it
-    // truly improves). MELEE = AGGRESSION: a strike hex dominates, then close the gap + high ground; a
-    // glyph is a small bonus on the way. RANGED = KITING: being IN RANGE to shoot dominates; among
+    // One scorer for the candidates AND the current square (so a long-range figure only repositions when
+    // it truly improves). BRAWLER (Range 1-3) = AGGRESSION: a strike hex dominates, then close the gap +
+    // high ground; a glyph is a small bonus on the way. LONG-RANGE (4+) = KITING: being IN RANGE dominates; among
     // in-range hexes prefer the FAR edge of the range (max standoff) and HIGH ground, and HEAVILY avoid
     // sitting next to a foe (it'd be charged/meleed); when still out of range, close in (but the
     // adjacency penalty still steers it away from ending the step in melee).
