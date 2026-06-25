@@ -219,6 +219,36 @@ describe('Major Q9 — Queglix Gun', () => {
 // ===========================================================================
 // Jotun — WILD SWING: Range 1, Attack 4, splash to figures adjacent to target
 // ===========================================================================
+describe("Warrior's Spirit fires from EVERY kill site (audit O1 — owner report 2026-06-24)", () => {
+  // "When Eldgrim died I wasn't prompted to add the Warrior's Spirit to another army card." Before
+  // this, only a NORMAL attack (and falls/swipes) queued the Spirit; special attacks, Chomp and the
+  // Massive Curse silently dropped it. Now a Viking Champion (Finn/Thorgrim/Eldgrim) destroyed by ANY
+  // kill site offers its Spirit to ITS owner.
+  it('a SPECIAL attack (Ice Shard) destroying Thorgrim opens his Warrior Armor Spirit', () => {
+    let { s, hero } = stage('nilfheim');
+    const interior = Object.keys(MAPS[s.mapId].cells).find(k => neighborKeys(k).filter(n => MAPS[s.mapId].cells[n]).length >= 4)!;
+    s = put(s, hero, interior);
+    const ring = neighborKeys(at(s, hero)!).filter(k => MAPS[s.mapId].cells[k]);
+    s = put(s, 's1-thorgrim-1', ring[0]); // adjacent → within Ice Shard Range 5
+    // 4 skulls vs Thorgrim's 4 blank defense = 4 wounds ≥ Life 4 → destroyed by the special attack.
+    s = unwrap(applyAction(s, 'p1', { kind: 'ice_shard', attackerId: hero, targetId: 's1-thorgrim-1', attackRoll: F('kkkk'), defenseRoll: def(s, 's1-thorgrim-1', hero) }));
+    expect(at(s, 's1-thorgrim-1')).toBeNull(); // destroyed
+    expect(s.pendingChoice?.kind).toBe('spirit_placement'); // …Spirit offered (was the bug: nothing happened)
+    expect(s.pendingChoice?.seat).toBe(1); // to THORGRIM'S owner, not the attacker
+    if (s.pendingChoice?.kind === 'spirit_placement') expect(s.pendingChoice.spirit).toBe('defense'); // Warrior's Armor
+  });
+
+  it('CHOMP devouring a Champion still leaves its Spirit', () => {
+    let { s, hero } = stage('grimnak');
+    const adj = neighborKeys(at(s, hero)!).find(k => MAPS[s.mapId].cells[k])!;
+    s = put(s, 's1-thorgrim-1', adj); // adjacent → a legal Chomp target (Hero needs d20 ≥ 16)
+    s = unwrap(applyAction(s, 'p1', { kind: 'chomp', targetId: 's1-thorgrim-1', d20: 20 }));
+    expect(at(s, 's1-thorgrim-1')).toBeNull(); // devoured
+    expect(s.pendingChoice?.kind).toBe('spirit_placement'); // …Spirit still offered
+    expect(s.pendingChoice?.seat).toBe(1);
+  });
+});
+
 describe('Jotun — Wild Swing', () => {
   it('hits the target AND figures adjacent to it, but never Jotun himself', () => {
     let { s, hero } = stage('jotun');

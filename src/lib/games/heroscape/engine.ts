@@ -447,7 +447,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       if (state.pendingChoice.seat !== me.seat) {
         return { error: 'This grenade belongs to another player' };
       }
-      return doGrenadeThrow(state, me.seat, action);
+      return drainSpirits(doGrenadeThrow(state, me.seat, action));
     }
     if (action.kind !== 'resolve_choice') {
       return state.pendingChoice.seat === me.seat
@@ -457,7 +457,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     if (state.pendingChoice.seat !== me.seat) {
       return { error: 'This choice belongs to another player' };
     }
-    return doResolveChoice(state, me.seat, action.choice);
+    return drainSpirits(doResolveChoice(state, me.seat, action.choice));
   }
   if (action.kind === 'resolve_choice') {
     return { error: 'There is no pending choice to resolve' };
@@ -2069,6 +2069,7 @@ function applyCeremonyRoll(s: HSState, pc: Extract<HSPendingChoice, { kind: 'rol
   if (pc.mode === 'curse') {
     if (eff === 1 && fig && fig.at != null) {
       fig.at = null; fig.at2 = null; outcome = 'died';
+      maybeQueueSpiritOnDestroy(s, fig); // a cursed Finn/Thorgrim/Eldgrim still leaves its Spirit
       pushLog(s, 'glyph', `Massive Curse — ${playerName(s, fig.ownerSeat)} rolls 1 for ${label} — it is DESTROYED!`);
     } else {
       pushLog(s, 'glyph', `Massive Curse — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20}${lodinNote} for ${label} — it resists.`);
@@ -3910,7 +3911,7 @@ function doFireLine(
     totalWounds += w;
     const tDef = cardDefFor(s, t);
     const destroyed = t.wounds >= tDef.life;
-    if (destroyed) { t.at = null; t.at2 = null; }
+    if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
     const label = figureLabel(s, t);
     defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
     results.push(
@@ -4069,7 +4070,7 @@ function doExplosion(
     totalWounds += w;
     const tDef = cardDefFor(s, t);
     const destroyed = t.wounds >= tDef.life;
-    if (destroyed) { t.at = null; t.at2 = null; }
+    if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
     const label = figureLabel(s, t);
     defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
     results.push(
@@ -4252,7 +4253,7 @@ function doGrenadeThrow(
     totalWounds += w;
     totalShields += shields;
     const destroyed = t.wounds >= cardDefFor(s, t).life;
-    if (destroyed) { t.at = null; t.at2 = null; }
+    if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
     const label = figureLabel(s, t);
     defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
     // Spell out the math so a partial block reads correctly: N shields cancel N skulls, the rest
@@ -4470,26 +4471,52 @@ function buildAttackBreakdown(req: {
  */
 function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
   if (s.phase !== 'playing') return; // finish takes precedence
-  if (s.pendingChoice) return; // one decision at a time
   const cardId = cardDefFor(s, destroyed).id;
   const spirit: 'attack' | 'defense' | 'move' | null =
     cardId === FINN_CARD_ID ? 'attack' : cardId === THORGRIM_CARD_ID ? 'defense' : cardId === ELDGRIM_CARD_ID ? 'move' : null;
   if (!spirit) return;
-  // Warrior's Attack/Armor Spirit is a CARD POWER — a Glyph-of-Nilrend-negated card has no
-  // powers (base stats only), so a negated Finn/Thorgrim leaves no Spirit when it dies.
+  // Warrior's Attack/Armor/Swiftness Spirit is a CARD POWER — a Glyph-of-Nilrend-negated card has
+  // no powers (base stats only), so a negated Finn/Thorgrim/Eldgrim leaves no Spirit when it dies.
   if (isCardNegated(s, destroyed.cardUid)) return;
-  const ownerSeat = destroyed.ownerSeat;
-  // "place this figure on any unique Army Card" (verified card text) — every card in
-  // play is unique, so offer ALL that still have at least one living figure (a card
-  // with no figures left is out of play), regardless of owner. Not friendly-restricted.
-  const options = s.cards.filter(c => cardHasLivingFigures(s, c.uid)).map(c => c.uid);
-  if (options.length === 0) return; // nothing to place it on
-  s.pendingChoice = { kind: 'spirit_placement', seat: ownerSeat, spirit, options };
-  pushLog(
-    s,
-    'power',
-    `${cardDef(cardId).shortName} is destroyed — ${playerName(s, ownerSeat)} may place the Warrior's ${spirit === 'attack' ? 'Attack' : spirit === 'defense' ? 'Armor' : 'Swiftness'} Spirit on any unique Army Card.`,
-  );
+  // QUEUE it, never silently drop it. EVERY kill site funnels here — normal AND special attacks,
+  // Chomp, falls, leaving-engagement swipes, the Massive Curse — and a champion can die WHILE another
+  // choice is open (a grenade-throw queue, the roll ceremony, a prior Spirit) or several can die at
+  // once (one Fire Line through two champions). `openNextSpiritIfIdle` drains the queue one at a time
+  // whenever no other choice is open; the resolve chokepoints re-drain it as each choice clears.
+  (s.pendingSpirits ??= []).push({ seat: destroyed.ownerSeat, spirit, cardId });
+  openNextSpiritIfIdle(s);
+}
+
+/** Open a `spirit_placement` choice for the next queued Warrior's Spirit when no other choice is
+ *  open. Skips a queued Spirit with no living unique Army Card to land on. Called when a Spirit is
+ *  queued AND after any choice resolves (so two deaths resolve their Spirits back-to-back, and a
+ *  death during a grenade/curse opens its Spirit once that sequence finishes). */
+function openNextSpiritIfIdle(s: HSState): void {
+  if (s.phase !== 'playing') { s.pendingSpirits = []; return; } // a finished battle places no Spirits
+  if (s.pendingChoice) return; // one decision at a time — re-drained when it clears
+  while (s.pendingSpirits && s.pendingSpirits.length > 0) {
+    const next = s.pendingSpirits.shift()!;
+    // "place this figure on any unique Army Card" (verified card text) — every card in play is
+    // unique, so offer ALL that still have a living figure, regardless of owner. Not friendly-restricted.
+    const options = s.cards.filter(c => cardHasLivingFigures(s, c.uid)).map(c => c.uid);
+    if (options.length === 0) continue; // nothing to place it on — drop this one
+    s.pendingChoice = { kind: 'spirit_placement', seat: next.seat, spirit: next.spirit, options };
+    pushLog(
+      s,
+      'power',
+      `${cardDef(next.cardId).shortName} is destroyed — ${playerName(s, next.seat)} may place the Warrior's ${next.spirit === 'attack' ? 'Attack' : next.spirit === 'defense' ? 'Armor' : 'Swiftness'} Spirit on any unique Army Card.`,
+    );
+    return;
+  }
+}
+
+/** After a choice resolves, open the next queued Warrior's Spirit if one is owed and no choice is
+ *  now open — so a champion killed during a grenade volley / roll ceremony, or the SECOND of two
+ *  champions felled together, gets its Spirit prompt the moment the prior sequence clears. A no-op
+ *  on an error result or when nothing is queued. */
+function drainSpirits(res: HSResult): HSResult {
+  if (!('error' in res)) openNextSpiritIfIdle(res);
+  return res;
 }
 
 /**
@@ -4815,6 +4842,7 @@ function doChomp(state: HSState, seat: number, targetId: string, d20: number): H
     const t = s.figures.find(f => f.id === targetId)!;
     t.at = null;
     t.at2 = null;
+    maybeQueueSpiritOnDestroy(s, t); // Chomp can devour Finn/Thorgrim/Eldgrim → their Spirit still fires
     pushLog(
       s,
       'power',
@@ -5108,7 +5136,7 @@ function doIceShard(
   t.wounds += wounds;
   const tDef = cardDefFor(s, t);
   const destroyed = t.wounds >= tDef.life;
-  if (destroyed) { t.at = null; t.at2 = null; }
+  if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
   const shotNo = iceShardCount(state, nilf.id) + 1;
   s.lastAttack = {
     attackerId: nilf.id,
@@ -5195,7 +5223,7 @@ function doQueglix(
   t.wounds += wounds;
   const tDef = cardDefFor(s, t);
   const destroyed = t.wounds >= tDef.life;
-  if (destroyed) { t.at = null; t.at2 = null; }
+  if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
   s.lastAttack = {
     attackerId: q9.id,
     targetId: target.id,
@@ -5292,7 +5320,7 @@ function doWildSwing(
     t.wounds += w;
     totalWounds += w;
     const destroyed = t.wounds >= cardDefFor(s, t).life;
-    if (destroyed) { t.at = null; t.at2 = null; }
+    if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
     const label = figureLabel(s, t);
     defenseGroups.push({ label, roll, shields, wounds: w, destroyed });
     // Spell out the math so a partial block reads correctly: N shields cancel N skulls, the rest
@@ -5382,7 +5410,7 @@ function doAcidBreath(state: HSState, seat: number, rolls: { targetId: string; d
     const tdef = cardDefFor(s, t);
     const threshold = tdef.type === 'squad' ? ACID_SQUAD_THRESHOLD : ACID_HERO_THRESHOLD;
     const destroyed = roll.d20 + lodin >= threshold;
-    if (destroyed) { t.at = null; t.at2 = null; }
+    if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
     results.push(`${figureLabel(s, t)} — rolled ${roll.d20}${lodin ? ` +${lodin} Lodin` : ''} (needs ${threshold}+) ${destroyed ? '→ destroyed!' : '→ survives'}`);
     d20Rolls.push({ label: figureLabel(s, t), d20: roll.d20 + lodin, need: threshold, destroyed });
   }
@@ -5533,7 +5561,7 @@ function doThrow(
   } else if (action.damageD20 + lodin >= THROW_DAMAGE_THRESHOLD) {
     t.wounds += THROW_WOUNDS;
     const destroyed = t.wounds >= tdef.life;
-    if (destroyed) { t.at = null; t.at2 = null; }
+    if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
     woundLine = ` and takes ${THROW_WOUNDS} wounds (rolled ${action.damageD20 + lodin}${lodin ? `=${action.damageD20}+${lodin} Lodin` : ''} ≥ ${THROW_DAMAGE_THRESHOLD})${destroyed ? ' — destroyed!' : ''}`;
   } else {
     woundLine = ` and is unharmed (rolled ${action.damageD20 + lodin} < ${THROW_DAMAGE_THRESHOLD})`;

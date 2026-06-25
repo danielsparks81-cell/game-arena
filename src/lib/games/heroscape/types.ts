@@ -730,6 +730,12 @@ export type HSState = {
   /** An open player decision (slice 4). While set, ONLY the owning seat may act
    *  and ONLY via resolve_choice. Public — projection adds no hidden info. */
   pendingChoice?: HSPendingChoice;
+  /** FIFO queue of Warrior's Spirits owed but not yet placed — a Finn/Thorgrim/Eldgrim
+   *  was destroyed (by ANY kill site: normal/special attack, Chomp, fall, swipe, curse)
+   *  while another choice was open, or several died at once. Drained one at a time into a
+   *  `spirit_placement` pendingChoice whenever no other choice is open, so no Spirit is ever
+   *  silently lost. Public (deaths are logged); carries no hidden info. */
+  pendingSpirits?: { seat: number; spirit: 'attack' | 'defense' | 'move'; cardId: string }[];
   /** Whether the active card has already used its once-per-turn "instead of
    *  attacking" Water Clone this turn (slice 4) — set when Marro Water Clones,
    *  so the engine knows the card's attack is consumed. Cleared each turn. */
