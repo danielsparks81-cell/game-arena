@@ -4324,49 +4324,90 @@ export default function HeroScapeBoard({
             player sees this panel and watches; only the current roller picks a figure + rolls. */}
         {ceremony && (() => {
           const isCurse = ceremony.mode === 'curse';
-          const up = ceremony.queue[0]?.figureIds ?? [];
           const rollerName = state.players.find(p => p.seat === ceremony.seat)?.username ?? 'Player';
-          const rollerColor = seatColor(ceremony.seat);
           const done = ceremony.results.length;
           const total = done + ceremony.queue.reduce((n, q) => n + q.figureIds.length, 0);
-          const last = ceremony.results[ceremony.results.length - 1];
           const labelOf = (fid: string) => { const f = state.figures.find(x => x.id === fid); return f ? figureLabel(state, f) : fid; };
+          // Group EVERY participating figure by seat — already-rolled (with its d20 + outcome) AND
+          // still-to-roll — so the whole field stays on screen for all to watch until the ceremony
+          // ends. Ceremony order: past rollers (all in results), the current roller (some done, some
+          // pending), then future rollers (all still in the queue).
+          type Cell = { figureId: string; d20?: number; outcome?: 'died' | 'rose' | 'safe' };
+          const order: number[] = [];
+          const bySeat = new Map<number, Cell[]>();
+          const add = (seat: number, cell: Cell) => {
+            if (!bySeat.has(seat)) { bySeat.set(seat, []); order.push(seat); }
+            bySeat.get(seat)!.push(cell);
+          };
+          for (const r of ceremony.results) add(r.seat, { figureId: r.figureId, d20: r.d20, outcome: r.outcome });
+          for (const q of ceremony.queue) for (const fid of q.figureIds) add(q.seat, { figureId: fid });
           return (
             <div className="pointer-events-none absolute inset-x-0 top-2 z-40 flex justify-center px-2">
-              <div className={'pointer-events-auto w-full max-w-xs rounded-xl border-2 bg-neutral-950/95 p-3 shadow-2xl backdrop-blur ' + (isCurse ? 'border-rose-500/80' : 'border-emerald-500/80')}>
-                <div className={'flex items-center gap-1.5 text-sm font-bold ' + (isCurse ? 'text-rose-300' : 'text-emerald-300')}>
-                  <span className="text-base leading-none">{isCurse ? '☠️' : '✟'}</span>
-                  {isCurse ? 'Glyph of Mitonsoul — Massive Curse' : 'Glyph of Sturla — Resurrection'}
+              <div className={'pointer-events-auto w-full max-w-2xl rounded-xl border-2 bg-neutral-950/95 p-3 shadow-2xl backdrop-blur ' + (isCurse ? 'border-rose-500/80' : 'border-emerald-500/80')}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className={'flex items-center gap-1.5 text-sm font-bold ' + (isCurse ? 'text-rose-300' : 'text-emerald-300')}>
+                    <span className="text-base leading-none">{isCurse ? '☠️' : '✟'}</span>
+                    {isCurse ? 'Glyph of Mitonsoul — Massive Curse' : 'Glyph of Sturla — Resurrection'}
+                  </div>
+                  <span className="shrink-0 rounded-md bg-neutral-800/80 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-neutral-300">{done}/{total} rolled</span>
                 </div>
                 <div className="mt-0.5 text-[10px] text-neutral-400">
-                  {isCurse ? 'Every figure rolls a d20 — a 1 destroys it.' : 'Every fallen rolls a d20 — a 20 raises it.'} <span className="text-neutral-500">({done}/{total})</span>
+                  {isCurse ? 'Every figure rolls a d20 — a 1 destroys it.' : 'Every fallen figure rolls a d20 — a 20 raises it.'}{' '}
+                  Now: <span className="font-semibold" style={{ color: seatColor(ceremony.seat) }}>{rollerName}</span>
+                  {ceremonyIsMine ? ' (you) — pick a figure below, then roll.' : ' is rolling…'}
                 </div>
-                {/* Who's up */}
-                <div className="mt-2 text-[11px] text-neutral-300">
-                  <span className="font-semibold" style={{ color: rollerColor }}>{rollerName}</span>
-                  {ceremonyIsMine ? ' — pick one of your figures, then roll:' : ' is rolling…'}
-                </div>
-                {/* Figure list — tap to select (shared highlight), then Roll */}
-                <div className="mt-1 flex max-h-28 flex-wrap gap-1 overflow-y-auto">
-                  {up.map(fid => {
-                    const sel = ceremony.selectedFigureId === fid;
+                {/* Every player's figures + rolls — kept up for all to see until the ceremony ends. */}
+                <div className="mt-2 max-h-[46vh] space-y-1.5 overflow-y-auto pr-1">
+                  {order.map(seat => {
+                    const cells = bySeat.get(seat)!;
+                    const name = state.players.find(p => p.seat === seat)?.username ?? `Seat ${seat + 1}`;
+                    const isRoller = seat === ceremony.seat;
+                    const left = cells.filter(c => c.outcome == null).length;
                     return (
-                      <button
-                        key={fid}
-                        type="button"
-                        disabled={!ceremonyIsMine || disabled}
-                        onClick={() => onResolveChoice({ kind: 'roll_ceremony_select', figureId: fid })}
-                        className={'rounded-md border px-2 py-1 text-[11px] font-medium transition disabled:cursor-default ' +
-                          (sel
-                            ? (isCurse ? 'border-rose-400 bg-rose-900/50 text-rose-100 ring-2 ring-rose-400' : 'border-emerald-400 bg-emerald-900/50 text-emerald-100 ring-2 ring-emerald-400')
-                            : 'border-neutral-700 bg-neutral-900/70 text-neutral-200 enabled:hover:border-neutral-500')}
-                      >
-                        {labelOf(fid)}
-                      </button>
+                      <div key={seat} className={'rounded-lg border p-1.5 ' + (isRoller ? 'border-amber-500/60 bg-amber-950/15' : 'border-neutral-800 bg-neutral-900/40')}>
+                        <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold">
+                          <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: seatColor(seat) }} />
+                          <span style={{ color: seatColor(seat) }}>{name}</span>
+                          {isRoller && <span className="rounded bg-amber-500/20 px-1 text-[9px] font-bold uppercase tracking-wide text-amber-300">rolling</span>}
+                          <span className="ml-auto text-[10px] font-normal text-neutral-500">{left > 0 ? `${left} to roll` : 'done'}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1">
+                          {cells.map((c, i) => {
+                            const rolled = c.outcome != null;
+                            const sel = ceremony.selectedFigureId === c.figureId && !rolled;
+                            const selectable = isRoller && ceremonyIsMine && !rolled && !disabled;
+                            const base = 'flex items-center gap-1 rounded-md border px-1.5 py-1 text-[11px] font-medium transition ';
+                            const style = rolled
+                              ? (c.outcome === 'died'
+                                  ? 'border-rose-500/60 bg-rose-950/40 text-rose-200'
+                                  : c.outcome === 'rose'
+                                    ? 'border-emerald-500/60 bg-emerald-950/40 text-emerald-200'
+                                    : 'border-neutral-700 bg-neutral-800/50 text-neutral-400')
+                              : sel
+                                ? (isCurse ? 'border-rose-400 bg-rose-900/50 text-rose-100 ring-2 ring-rose-400' : 'border-emerald-400 bg-emerald-900/50 text-emerald-100 ring-2 ring-emerald-400')
+                                : 'border-neutral-700 bg-neutral-900/70 text-neutral-300';
+                            const inner = (
+                              <>
+                                <span className={rolled && c.outcome === 'died' ? 'line-through' : undefined}>{labelOf(c.figureId)}</span>
+                                {rolled ? (
+                                  <span className={'inline-flex h-4 min-w-[1rem] items-center justify-center rounded px-0.5 text-[10px] font-bold tabular-nums ' + (c.d20 === 1 ? 'bg-rose-500 text-white' : c.d20 === 20 ? 'bg-emerald-500 text-white' : 'bg-neutral-700 text-neutral-200')}>{c.d20}</span>
+                                ) : selectable ? null : (
+                                  <span className="text-neutral-600">…</span>
+                                )}
+                              </>
+                            );
+                            return selectable ? (
+                              <button key={c.figureId + i} type="button" onClick={() => onResolveChoice({ kind: 'roll_ceremony_select', figureId: c.figureId })} className={base + style + ' enabled:hover:border-neutral-400'}>{inner}</button>
+                            ) : (
+                              <span key={c.figureId + i} className={base + style}>{inner}</span>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
-                {/* Roll button (the current roller only) */}
+                {/* Roll button (current roller) / spectator status */}
                 {ceremonyIsMine ? (
                   <button
                     type="button"
@@ -4374,19 +4415,11 @@ export default function HeroScapeBoard({
                     onClick={() => onResolveChoice({ kind: 'roll_ceremony_roll' })}
                     className={'mt-2 w-full rounded-lg border-2 px-3 py-2 text-sm font-bold transition disabled:opacity-40 ' + (isCurse ? 'border-rose-500 bg-rose-950/70 text-rose-200 enabled:hover:bg-rose-900/60' : 'border-emerald-500 bg-emerald-950/70 text-emerald-200 enabled:hover:bg-emerald-900/60')}
                   >
-                    🎲 {ceremony.selectedFigureId ? `Roll for ${labelOf(ceremony.selectedFigureId)}` : 'Select a figure first'}
+                    🎲 {ceremony.selectedFigureId ? `Roll for ${labelOf(ceremony.selectedFigureId)}` : 'Select one of your figures to roll'}
                   </button>
                 ) : (
                   <div className="mt-2 rounded-lg border border-neutral-700 bg-neutral-900/60 px-3 py-2 text-center text-[11px] text-neutral-400">
-                    {ceremony.selectedFigureId ? <>Selected <span className="font-semibold text-neutral-200">{labelOf(ceremony.selectedFigureId)}</span> — waiting for the roll…</> : 'Waiting for a pick…'}
-                  </div>
-                )}
-                {/* The latest result */}
-                {last && (
-                  <div className={'mt-2 flex items-center justify-center gap-2 rounded-lg px-2 py-1.5 text-xs font-semibold ' +
-                    (last.outcome === 'died' ? 'bg-rose-900/40 text-rose-200' : last.outcome === 'rose' ? 'bg-emerald-900/40 text-emerald-200' : 'bg-neutral-800/60 text-neutral-300')}>
-                    <span className={'inline-flex h-6 w-6 items-center justify-center rounded-md border text-sm tabular-nums ' + (last.d20 === 1 ? 'border-rose-400 text-rose-200' : last.d20 === 20 ? 'border-emerald-400 text-emerald-200' : 'border-neutral-500 text-neutral-200')}>{last.d20}</span>
-                    <span>{labelOf(last.figureId)} — {last.outcome === 'died' ? 'DESTROYED!' : last.outcome === 'rose' ? 'RISES!' : 'safe'}</span>
+                    {ceremony.selectedFigureId ? <>{rollerName} selected <span className="font-semibold text-neutral-200">{labelOf(ceremony.selectedFigureId)}</span> — rolling…</> : <>Waiting for {rollerName} to roll…</>}
                   </div>
                 )}
               </div>
