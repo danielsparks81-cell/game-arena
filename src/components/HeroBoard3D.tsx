@@ -173,20 +173,9 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
       />
       {/* thin seam line around every hex so the grid reads clearly */}
       <Edges color="#13161a" />
-      {/* HEIGHT NUMBER — only on the HILLS/MOUNTAINS bands (≥3). Ground (1–2) is the baseline and
-          already reads as "low" from its green colour, so numbering it just litters the field — and
-          some maps (e.g. the Star Field) raise their whole mid-section to height 2, which turned the
-          old ≥2 rule into ~40 chips. The number earns its place only on the raised tan/grey tiles
-          where exact elevation decides height advantage. Skipped on water + glyph hexes. */}
-      {height >= 3 && !isWater && !glyph && (
-        <Html center position={[0, h / 2 + 0.05, 0]} occlude="blending" style={{ pointerEvents: 'none' }}>
-          <div style={{
-            fontSize: 10, fontWeight: 800, lineHeight: '14px', padding: '0 5px',
-            color: '#f5f5f4', background: 'rgba(15,18,22,0.55)', border: '1px solid rgba(255,255,255,0.18)',
-            borderRadius: 6, textShadow: '0 1px 2px rgba(0,0,0,0.85)', userSelect: 'none', whiteSpace: 'nowrap',
-          }}>{height}</div>
-        </Html>
-      )}
+      {/* No per-hex height NUMBERS — the height BAND colour (green ground / tan hills / grey
+          mountains / blue water) plus the tile's actual 3-D extrusion height already read
+          elevation at a glance, so the floating number chips were pure clutter on a raised map. */}
     </mesh>
   );
 }
@@ -577,15 +566,27 @@ function GlyphMarker({ x, z, topY, active, faceUp, letter }: {
         <circleGeometry args={[SIZE * 0.5, 28]} />
         <meshStandardMaterial color="#3b0a0a" emissive={GLYPH_MAROON} emissiveIntensity={lit ? 0.6 : 0.22} side={THREE.DoubleSide} transparent opacity={0.85} />
       </mesh>
-      {/* Hidden → a persistent "?"; revealed → the glyph's LETTER (matches the panel badge), which
-          FLIPS in when it mounts (i.e. the moment the glyph is revealed). `occlude="blending"` makes
-          the DOM label respect the depth buffer so it HIDES behind wall pillars + figures in front of
-          it (a plain <Html> always draws over the canvas, which is why the "?" showed through walls). */}
-      <Html center occlude="blending" position={[0, faceUp ? 0.07 : 0.06, 0]} style={{ pointerEvents: 'none' }}>
+      {/* Hidden → a dim "?" that respects the depth buffer (`occlude` so it hides behind wall
+          pillars instead of floating over them). Revealed → a bold GOLD letter chip that FLIPS in
+          the instant the glyph is revealed and stays clearly legible — it is NOT occluded, so it
+          reads even when the very figure that revealed it is standing on the glyph (otherwise the
+          letter you just uncovered would vanish behind that figure). Raised a touch so it floats
+          just clear of the disc. Keyed on faceUp so the flip animation re-fires on reveal. */}
+      <Html
+        key={faceUp ? 'up' : 'down'}
+        center
+        occlude={faceUp ? false : 'blending'}
+        position={[0, faceUp ? 0.2 : 0.06, 0]}
+        style={{ pointerEvents: 'none' }}
+      >
         {faceUp ? (
           <div
-            key="up"
-            style={{ fontSize: 17, fontWeight: 800, color: '#fde68a', textShadow: '0 1px 3px rgba(0,0,0,0.85)', animation: 'sd-glyph-flip 0.5s ease-out' }}
+            style={{
+              fontSize: 16, fontWeight: 900, lineHeight: '20px', minWidth: 20, textAlign: 'center',
+              padding: '0 6px', color: '#2a0a0a', background: '#fcd34d',
+              border: '2px solid #fff7e6', borderRadius: 999, boxShadow: '0 2px 7px rgba(0,0,0,0.6)',
+              userSelect: 'none', whiteSpace: 'nowrap', animation: 'sd-glyph-flip 0.5s ease-out',
+            }}
           >
             {letter}
           </div>
