@@ -606,17 +606,18 @@ function GlyphMarker({ x, z, topY, active, faceUp, letter }: {
         <circleGeometry args={[SIZE * 0.5, 28]} />
         <meshStandardMaterial color="#3b0a0a" emissive={GLYPH_MAROON} emissiveIntensity={lit ? 0.6 : 0.22} side={THREE.DoubleSide} transparent opacity={0.85} />
       </mesh>
-      {/* Hidden → a dim "?" that respects the depth buffer (`occlude` so it hides behind wall
-          pillars instead of floating over them). Revealed → a bold GOLD letter chip that FLIPS in
-          the instant the glyph is revealed and stays clearly legible — it is NOT occluded, so it
-          reads even when the very figure that revealed it is standing on the glyph (otherwise the
-          letter you just uncovered would vanish behind that figure). Raised a touch so it floats
-          just clear of the disc. Keyed on faceUp so the flip animation re-fires on reveal. */}
+      {/* A floating CHIP, raised clear of the disc and — crucially — NOT occluded. Hidden → a maroon
+          "?" mystery chip; revealed → a bold GOLD letter chip that FLIPS in on reveal. Both must read
+          even with a figure standing on the glyph, so neither is depth-occluded. (Earlier the hidden
+          "?" used occlude="blending" at a near-flush raise: its depth sample hit its OWN disc, faded
+          it to nothing, and the bare raised disc was left looking like a height bump — the "? gone,
+          height graphic back" report. Keep both chips un-occluded + raised. Keyed on faceUp so the
+          flip animation re-fires on reveal.) */}
       <Html
         key={faceUp ? 'up' : 'down'}
         center
-        occlude={faceUp ? false : 'blending'}
-        position={[0, faceUp ? 0.2 : 0.06, 0]}
+        occlude={false}
+        position={[0, 0.2, 0]}
         style={{ pointerEvents: 'none' }}
       >
         {faceUp ? (
@@ -631,7 +632,16 @@ function GlyphMarker({ x, z, topY, active, faceUp, letter }: {
             {letter}
           </div>
         ) : (
-          <div style={{ fontSize: 18, fontWeight: 800, color: '#fca5a5', textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}>?</div>
+          <div
+            style={{
+              fontSize: 16, fontWeight: 900, lineHeight: '20px', minWidth: 20, textAlign: 'center',
+              padding: '0 6px', color: '#fff7e6', background: '#7f1d1d',
+              border: '2px solid #fca5a5', borderRadius: 999, boxShadow: '0 2px 7px rgba(0,0,0,0.6)',
+              userSelect: 'none', whiteSpace: 'nowrap',
+            }}
+          >
+            ?
+          </div>
         )}
       </Html>
     </group>

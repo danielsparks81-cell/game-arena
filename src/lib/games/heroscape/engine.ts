@@ -6791,17 +6791,22 @@ function aiTurn(state: HSState, seat: number): HSAction {
   // MOVE PHASE: advance each out-of-range figure toward the nearest enemy — or
   // toward a nearby UNCLAIMED glyph, an edge a human always grabs — ONE step at a
   // time to completion, then end the move. A figure already in range stays put to
-  // attack. We only step onto EMPTY hexes (skip Ghost Walk's pass-through onto
-  // occupied spaces) so a figure always rests on a free hex — switching figures or
-  // ending the move finalizes the prior one, which the engine requires to be empty.
+  // attack. A figure RESTS only on empty hexes — but a 1-hex walker may pass straight THROUGH a
+  // friendly's hex (HeroScape lets you move over allies; you just can't STOP on one) so the bot goes
+  // through its own line instead of detouring around it. Switching figures or ending the move
+  // finalizes the prior one, which the engine requires to be on an empty space.
   const occupied = new Set<HexKey>();
   for (const f of state.figures) { if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
+  // Hexes held by an ALLY (mine or a team-mate's) — a walker may transit these; enemy hexes block.
+  const allyHexes = new Set<HexKey>();
+  for (const f of state.figures) if (!enemyIds.has(f.id)) for (const h of figureHexes(f)) allyHexes.add(h);
   // Grabbable glyphs = those no figure stands on (an enemy-held glyph is contested
   // by attacking, handled in the attack phase). A figure only DETOURS for one that's
   // genuinely close, so the bot never marches its army off the battle to chase a
   // distant glyph. Stepping ONTO a glyph force-stops the figure there (it holds it).
   const cells = MAPS[state.mapId]?.cells;
   const openGlyphs = (state.glyphs ?? []).filter(g => !occupied.has(g.at));
+  const glyphStops = new Set((state.glyphs ?? []).map(g => g.at)); // every glyph hex forces a stop
   const GLYPH_CHASE_RANGE = 5;
   const nearestGlyphDist = (from: HexKey): number => {
     if (!cells || openGlyphs.length === 0) return Infinity;
@@ -6853,6 +6858,21 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // peanut is a deferred feature; on flat ground this filter is a no-op.)
     const is2hex = f.at2 != null;
     const curH = heightOfKey(state, f.at!);
+    // PASS-THROUGH guard: a 1-hex walker may step onto an ally's hex (cross it) only when it can also
+    // step straight off onto an empty SAME-level hex this move — so it never finalizes sharing a hex
+    // (the engine rejects that → a frozen turn). Flat entry + flat exit keep both steps a guaranteed
+    // affordable cost-1, which is exactly the open-field case where the detour showed up.
+    const remaining = effectiveMove(state, f).dice - (state.stepMove?.figureId === f.id ? state.stepMove.usedCost : 0);
+    const passThroughOk = (hex: HexKey): boolean => {
+      if (remaining < 2 || heightOfKey(state, hex) !== curH) return false;
+      // A glyph/water hex FORCES A STOP — crossing onto an ally standing on one would strand the
+      // figure sharing it (it could never step off). Never pass through those.
+      if (glyphStops.has(hex) || cells?.[hex]?.terrain === 'water') return false;
+      for (const n of neighborKeys(hex)) {
+        if (cells?.[n] && !occupied.has(n) && heightOfKey(state, n) === curH) return true;
+      }
+      return false;
+    };
     // FLYERS pick a whole DESTINATION (the move plays as ONE smooth flight to the landing, animated
     // as an arc — not a hex-by-hex walk); WALKERS step one hex at a time.
     // A GRAPPLE GUN passes its own landing set as the override (an alternative one-space move
@@ -6885,7 +6905,11 @@ function aiTurn(state: HSState, seat: number): HSAction {
     };
     let best: { to: HexKey; score: number } | null = null;
     for (const to of candidates) {
-      if (occupied.has(to)) continue;
+      if (occupied.has(to)) {
+        // Cross an ally (don't detour) — 1-hex ground walker only, and only with a guaranteed empty
+        // SAME-level hex to step off onto next. Enemy hexes always block.
+        if (is2hex || isFlyer || !allyHexes.has(to) || !passThroughOk(to)) continue;
+      }
       if (to === moveStart) continue;
       if (is2hex && !isFlyer && heightOfKey(state, to) !== curH) continue; // level-keep is a WALKING-peanut limit only
       const toDist = pathDist(to);
@@ -6905,10 +6929,31 @@ function aiTurn(state: HSState, seat: number): HSAction {
     return best;
   };
   // Finish the in-progress figure's walk before switching to another.
+  // If it's mid-walk SHARING an ally's hex (it passed through one), it MUST step off to an empty hex
+  // before anything else — finalizing on a shared hex is illegal (a frozen turn). passThroughOk only
+  // ever let it onto a hex from which such an empty step is guaranteed, so this always finds one.
+  const exitStepOffShared = (f: Figure): HexKey | null => {
+    const distField = aiMoveDistField(state, enemies, cardDefFor(state, f).height, false);
+    let pick: { to: HexKey; d: number } | null = null;
+    for (const to of legalStepHexes(state, f.id)) {
+      if (occupied.has(to)) continue; // must land on an empty hex
+      const d = distField.get(to) ?? Infinity;
+      if (!pick || d < pick.d) pick = { to, d };
+    }
+    return pick?.to ?? null;
+  };
   const movingFig = state.stepMove ? myFigs.find(f => f.id === state.stepMove!.figureId) : null;
-  if (movingFig && wantsMove(movingFig)) {
-    const step = bestStepFor(movingFig);
-    if (step) return { kind: 'move_step', figureId: movingFig.id, to: step.to };
+  if (movingFig) {
+    const sharing = movingFig.at != null
+      && state.figures.some(x => x.id !== movingFig.id && !enemyIds.has(x.id) && figureHexes(x).includes(movingFig.at!));
+    if (sharing) {
+      const exit = exitStepOffShared(movingFig);
+      if (exit) return { kind: 'move_step', figureId: movingFig.id, to: exit };
+    }
+    if (wantsMove(movingFig)) {
+      const step = bestStepFor(movingFig);
+      if (step) return { kind: 'move_step', figureId: movingFig.id, to: step.to };
+    }
   }
   // --- Theracus CARRY — his flight ferries an unengaged adjacent ally toward the front.
   // Whenever Theracus is advancing anyway (no enemy in his own range), bring the ally that

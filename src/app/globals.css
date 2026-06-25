@@ -129,6 +129,18 @@ html { scrollbar-gutter: stable; }
   100% { transform: rotateY(0deg) scale(1); opacity: 1; }
 }
 
+/* "It's your decision" — a gold glow that breathes around a pending-choice panel
+   (HeroScape: stepping on Glyph of Nilrend, The Drop, Berserker Charge, etc.) so the
+   player can't miss that the game is waiting on them. Applied via `.hs-decide`. */
+@keyframes hs-decide-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(253, 224, 71, 0.35), 0 0 9px 1px rgba(253, 224, 71, 0.22); }
+  50%      { box-shadow: 0 0 0 2px rgba(253, 224, 71, 0.95), 0 0 22px 6px rgba(253, 224, 71, 0.55); }
+}
+.hs-decide { animation: hs-decide-pulse 1.25s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .hs-decide { animation: none; box-shadow: 0 0 0 2px rgba(253, 224, 71, 0.9); }
+}
+
 /* Hide scrollbars while preserving scrollability — used by the pile-hover
    popups (KO / Discard / Escape / VP) so the list scrolls via wheel without
    showing a visible bar. */

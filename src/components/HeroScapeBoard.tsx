@@ -130,7 +130,7 @@ const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.len
 // back-to-back actions like an Airborne squad throwing several grenades). NORMAL = the gap between
 // "weighty" actions (attacks/specials), FAST = repetitive no-dice work (walking a path, deploying).
 const AI_STEP_MS = 1150;
-const AI_STEP_FAST_MS = 360;
+const AI_STEP_FAST_MS = 210; // per walking step — snappy so a multi-hex march doesn't crawl
 // Player-panel SCREEN anchors (lg+ overlay). You are always slot 0 = bottom-left; the rest fan
 // out by SEAT order (stable round-to-round, so seat adjacency = turn-order adjacency). The 4
 // corners for ≤4 players; 6 spots (corners + top/bottom centre) for 5-6.
@@ -3683,7 +3683,7 @@ export default function HeroScapeBoard({
             Roll a d20 (server) — on 13+ deploy all reserve Airborne onto chosen
             empty spaces (not adjacent to each other or any figure, not on glyphs). */}
         {(canDoDrop || dropPlacing) && !disabled && (
-          <div className="rounded-lg border-2 border-orange-600 bg-neutral-900/70 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-orange-600 bg-neutral-900/70 px-3 py-2">
             <div className="text-sm font-bold text-orange-300">💂 The Drop — {dropReserveCount} Airborne Elite in reserve</div>
             {!dropPlacing ? (
               <button
@@ -3928,7 +3928,7 @@ export default function HeroScapeBoard({
         )}
         {/* slice 8: Grenade throw sequence — pick a Range-5 figure per Elite. */}
         {grenadeChoice && (
-          <div className="rounded-lg border-2 border-orange-500 bg-neutral-900/70 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-orange-500 bg-neutral-900/70 px-3 py-2">
             <div className="text-sm font-bold text-orange-300">💣 Grenade — {grenadeChoice.throwers.length} Elite{grenadeChoice.throwers.length === 1 ? '' : 's'} left to throw</div>
             {grenadeAim ? (
               <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -3960,7 +3960,7 @@ export default function HeroScapeBoard({
 
         {/* slice 4: Berserker Charge re-move choice (the optional "may") */}
         {myChoice?.kind === 'berserker_charge' && (
-          <div className="rounded-lg border-2 border-orange-600 bg-neutral-900/70 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-orange-600 bg-neutral-900/70 px-3 py-2">
             <div className="text-sm font-bold text-orange-300">⚡ Berserker Charge!</div>
             <div className="mt-0.5 text-[11px] text-neutral-400">
               You rolled 15+. Move all Tarn Viking Warriors again, or decline.
@@ -3986,7 +3986,7 @@ export default function HeroScapeBoard({
 
         {/* slice 4: Water Clone placement — click a highlighted hex on the board */}
         {myChoice?.kind === 'water_clone_place' && (
-          <div className="rounded-lg border-2 border-cyan-600 bg-neutral-900/70 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-cyan-600 bg-neutral-900/70 px-3 py-2">
             <div className="text-sm font-bold text-cyan-300">🌊 Water Clone — place a Warrior</div>
             <div className="mt-0.5 text-[11px] text-neutral-400">
               Returning {myChoice.chosen.length + 1} of {myChoice.placements.length}. Click a
@@ -3997,7 +3997,7 @@ export default function HeroScapeBoard({
 
         {/* slice 4: Spirit placement — pick any living unique card */}
         {myChoice?.kind === 'spirit_placement' && (
-          <div className="rounded-lg border-2 border-amber-500 bg-neutral-900/80 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-amber-500 bg-neutral-900/80 px-3 py-2">
             <div className="text-sm font-bold text-amber-300">
               {myChoice.spirit === 'attack' ? "Warrior's Attack Spirit" : "Warrior's Armor Spirit"}
             </div>
@@ -4027,7 +4027,7 @@ export default function HeroScapeBoard({
 
         {/* Glyph of Erland — Summoning (board-tap: figure → empty adjacent space) */}
         {erlandChoice && (
-          <div className="rounded-lg border-2 border-fuchsia-500 bg-neutral-900/80 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-fuchsia-500 bg-neutral-900/80 px-3 py-2">
             <div className="text-sm font-bold text-fuchsia-300">✨ Glyph of Erland — Summoning</div>
             <div className="mt-0.5 text-[11px] text-neutral-300">
               {erlandPick
@@ -4044,7 +4044,7 @@ export default function HeroScapeBoard({
 
         {/* Glyph of Nilrend — Negation (tap a highlighted figure, or a card button) */}
         {nilrendChoice && (
-          <div className="rounded-lg border-2 border-violet-500 bg-neutral-900/80 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-violet-500 bg-neutral-900/80 px-3 py-2">
             <div className="text-sm font-bold text-violet-300">🚫 Glyph of Nilrend — rolled {nilrendChoice.d20}</div>
             <div className="mt-0.5 text-[11px] text-neutral-300">
               Negate {nilrendChoice.d20 === 1 ? 'one of YOUR' : "an opponent's"} unique cards for the rest of the game — it drops to base stats.
@@ -4072,7 +4072,7 @@ export default function HeroScapeBoard({
 
         {/* Glyph of Wannok — controller names an opponent (2+) */}
         {wannokChoice && me && (
-          <div className="rounded-lg border-2 border-rose-500 bg-neutral-900/80 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-rose-500 bg-neutral-900/80 px-3 py-2">
             <div className="text-sm font-bold text-rose-300">☠️ Glyph of Wannok — rolled {wannokChoice.d20}</div>
             <div className="mt-0.5 text-[11px] text-neutral-300">Choose an opponent — they must wound one of their own figures.</div>
             <div className="mt-2 flex flex-wrap gap-1">
@@ -4095,7 +4095,7 @@ export default function HeroScapeBoard({
         {/* Glyph of Oreld — you rolled 2+, now NAME a player to lose an unrevealed order marker
             (tap their glowing figure, or a button here). The roll is shown so it's a public win. */}
         {oreldChoice && me && (
-          <div className="rounded-lg border-2 border-amber-500 bg-neutral-900/80 px-3 py-2">
+          <div className="hs-decide rounded-lg border-2 border-amber-500 bg-neutral-900/80 px-3 py-2">
             <div className="text-sm font-bold text-amber-300">🔮 Glyph of Oreld — you rolled {oreldChoice.d20}!</div>
             <div className="mt-0.5 text-[11px] text-neutral-300">Choose a player to lose one unrevealed order marker.</div>
             <div className="mt-2 flex flex-wrap gap-1">
