@@ -35,12 +35,12 @@ SPEC for the engine. Implement against this wording, not memory.
   position (player picks which adjacent empty space).
 
 ## Major Q9 — Queglix Gun (Special Attack)
-> Range 6. Attack 1, 2 or 3. Major Q9 starts each turn with 9 attack dice. Choose
+> Range 8. Attack 1, 2 or 3. Major Q9 starts each turn with 9 attack dice. Choose
 > any figure within range and attack by rolling 1, 2 or 3 attack dice. Major Q9 may
 > keep making special attacks with 1, 2 or 3 attack dice until he has rolled all 9
 > attack dice. Major Q9 may target the same or different figures with each attack.
 
-- A 9-die pool for the turn. Each shot: pick a figure within Range 6 + LOS, spend
+- A 9-die pool for the turn. Each shot: pick a figure within Range 8 + LOS, spend
   1/2/3 dice as that attack's value. Repeat until all 9 spent (or stop early).
 - Same or different targets allowed. Each shot is a normal attack (defender rolls).
 

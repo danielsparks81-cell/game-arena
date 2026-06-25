@@ -4946,7 +4946,7 @@ const JOTUN_CARD_ID = 'jotun';
 const ICE_SHARD_RANGE = 5;
 const ICE_SHARD_ATTACK = 4;
 const ICE_SHARD_MAX_ATTACKS = 3;
-const QUEGLIX_RANGE = 6;
+const QUEGLIX_RANGE = 8; // = Major Q9's printed RANGE — the Queglix Gun shoots as far as his normal attack (was wrongly 6, so foes his normal attack could hit were "out of range")
 const QUEGLIX_DICE_POOL = 9;
 const WILD_SWING_ATTACK = 4;
 const ACID_RANGE = 4;

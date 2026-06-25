@@ -482,7 +482,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'Q',
     species: 'Soulborg',
     unitClass: 'Major',
-    power: 'live', // Queglix Gun Special Attack (Range 6; a pool of 9 dice spent 1-3 per shot)
+    power: 'live', // Queglix Gun Special Attack (Range 8; a pool of 9 dice spent 1-3 per shot)
     baseSize: 2,
   },
   jotun: {
@@ -833,7 +833,7 @@ export const ABILITIES: Record<string, Ability> = {
   'Ice Shard Breath Special Attack': { kind: 'active', text: "Range 5. Attack 4. When attacking with the Ice Shard Breath Special Attack, this figure may attack 2 additional times. It cannot attack the same figure more than once." },
   'Poisonous Acid Breath': { kind: 'active', text: "Instead of attacking, you may choose up to 3 different small or medium figures within 4 clear sight spaces of this figure. One at a time, roll the 20-sided die for each chosen figure. If the chosen figure is a Squad figure and you roll an 8 or higher, destroy it. If the chosen figure is a Hero figure and you roll a 17 or higher, destroy the chosen Hero." },
   'Carry': { kind: 'active', text: "Before moving, choose an unengaged friendly small or medium figure adjacent to this figure. After moving, place the chosen figure adjacent to this figure." },
-  'Queglix Gun Special Attack': { kind: 'active', text: "Range 6. Attack 1, 2 or 3. This figure starts each turn with 9 attack dice. Choose any figure within range and attack by rolling 1, 2 or 3 attack dice. This figure may keep making special attacks with 1, 2 or 3 attack dice until it has rolled all 9 attack dice. It may target the same or different figures with each attack." },
+  'Queglix Gun Special Attack': { kind: 'active', text: "Range 8. Attack 1, 2 or 3. This figure starts each turn with 9 attack dice. Choose any figure within range and attack by rolling 1, 2 or 3 attack dice. This figure may keep making special attacks with 1, 2 or 3 attack dice until it has rolled all 9 attack dice. It may target the same or different figures with each attack." },
   'Wild Swing Special Attack': { kind: 'active', text: "Range 1. Attack 4. Choose a target; every figure adjacent to it is also hit. Roll the attack once for all affected figures, then each rolls defense separately. Immune to its own Wild Swing." },
   'Throw 14': { kind: 'active', text: "After moving and before attacking, choose an adjacent small or medium non-flying figure and roll the 20-sided die. On 14 or higher, you may throw it to any empty space within 4 spaces and in clear sight. Roll again for damage: on 11 or higher the thrown figure takes 2 wounds — but skip the damage roll if it lands on water or higher than this figure's height. The thrown figure takes no leaving-engagement attacks." },
 };

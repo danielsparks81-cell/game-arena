@@ -19,6 +19,7 @@ import {
   aiNextAction,
   iceShardTargets,
   queglixDiceLeft,
+  queglixTargets,
   throwLandingHexes,
   canTheDrop,
   theDropHexes,
@@ -165,12 +166,12 @@ describe('Nilfheim — Ice Shard Breath', () => {
 });
 
 // ===========================================================================
-// Major Q9 — QUEGLIX GUN: Range 6, 9-die pool spent 1-3 per shot
+// Major Q9 — QUEGLIX GUN: Range 8 (= his normal RANGE), 9-die pool spent 1-3 per shot
 // ===========================================================================
 describe('Major Q9 — Queglix Gun', () => {
   it('spends a 9-die pool 1-3 at a time; a shot exceeding the pool is rejected', () => {
     let { s, hero } = stage('major_q9');
-    s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 6)); // edge of Range 6
+    s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 6)); // well within Range 8
     expect(queglixDiceLeft(s)).toBe(9);
     for (let i = 0; i < 3; i++) {
       s = unwrap(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-thorgrim-1', dice: 3, attackRoll: F('bbb'), defenseRoll: def(s, 's1-thorgrim-1', hero) }));
@@ -179,12 +180,24 @@ describe('Major Q9 — Queglix Gun', () => {
     expect(errOf(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-thorgrim-1', dice: 1, attackRoll: F('b'), defenseRoll: def(s, 's1-thorgrim-1', hero) }))).toMatch(/dice left|already/i);
   });
 
-  it('rejects 0 or 4 dice per shot and a target beyond Range 6', () => {
+  it('Queglix reaches Q9\'s full RANGE 8 — as far as his normal attack (regression: was capped at 6)', () => {
+    const { s, hero } = stage('major_q9');
+    const h = at(s, hero)!;
+    // Wherever Q9's NORMAL attack can reach (its Range is 8), the Queglix gun must reach too —
+    // a foe at range 7-8 used to be "out of range/sight" for the gun while a normal shot hit it.
+    for (const dist of [1, 6, 7, 8]) {
+      const s2 = put(s, 's1-thorgrim-1', cellAtDist(s, h, dist));
+      expect(legalTargets(s2, hero)).toContain('s1-thorgrim-1'); // normal attack reaches it…
+      expect(queglixTargets(s2, hero)).toContain('s1-thorgrim-1'); // …and so does Queglix now
+    }
+  });
+
+  it('rejects 0 or 4 dice per shot and a target beyond Range 8', () => {
     let { s, hero } = stage('major_q9');
     const h = at(s, hero)!;
     s = put(s, 's1-thorgrim-1', cellAtDist(s, h, 6));
     expect(errOf(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-thorgrim-1', dice: 4 as 1, attackRoll: F('bbbb'), defenseRoll: F('bbbb') }))).toMatch(/1, 2, or 3/i);
-    s = put(s, 's1-thorgrim-1', cellAtDist(s, h, 7));
+    s = put(s, 's1-thorgrim-1', cellAtDist(s, h, 9)); // beyond Range 8
     expect(errOf(applyAction(s, 'p1', { kind: 'queglix', attackerId: hero, targetId: 's1-thorgrim-1', dice: 1, attackRoll: F('b'), defenseRoll: F('bbbb') }))).toMatch(/range|sight/i);
   });
 
