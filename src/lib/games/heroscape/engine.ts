@@ -4596,7 +4596,11 @@ function stalemateResolve(s: HSState): void {
   const teams = [...new Set(seatsAlive.map(seat => teamOfSeat(s, seat)))];
   if (teams.length <= 1) return; // checkEliminationWin owns the single-team case
   const score = (team: number) => {
-    const figs = s.figures.filter(f => figureAlive(f) && teamOfSeat(s, f.ownerSeat) === team);
+    // ON-BOARD figures only — an army that never left RESERVE (Airborne Elite whose Drop never
+    // landed) has NOT "survived on the battlefield", so it can't win a stalemate on a figure-count
+    // technicality. Owner ruling 2026-06-24: failing The Drop is the Airborne gambit's risk — that
+    // team loses; reserve figures must not tip the tiebreak its way.
+    const figs = s.figures.filter(f => f.at != null && teamOfSeat(s, f.ownerSeat) === team);
     const life = figs.reduce((sum, f) => sum + Math.max(0, cardDefFor(s, f).life - f.wounds), 0);
     return figs.length * 1000 + life; // figures dominate; remaining life breaks ties
   };
