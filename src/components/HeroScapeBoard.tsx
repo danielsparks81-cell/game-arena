@@ -3800,22 +3800,44 @@ export default function HeroScapeBoard({
                   </button>
                 </div>
               )}
-              {/* Major Q9 — Queglix Gun (9-die pool) — pick how many dice, then tap a highlighted enemy */}
+              {/* Major Q9 — Queglix Gun: a 9-cube DICE POOL (spent cubes crossed off; the next N to fire
+                  glow), then choose 1/2/3 dice and tap a target's base to fire — the chosen cubes deplete. */}
               {qList.length > 0 && bhHeroId && (() => {
                 const maxDice = Math.min(3, qLeft) as 1 | 2 | 3;
                 const dice = (bhAim?.kind === 'queglix' ? bhAim.dice : (bh.qDice && bh.qDice <= maxDice ? bh.qDice : maxDice)) as 1 | 2 | 3;
+                const aiming = bhAim?.kind === 'queglix';
                 return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-amber-300">🔫 Queglix ({qLeft} dice left):</span>
-                    <select value={dice} onChange={e => { const d = Number(e.target.value) as 1 | 2 | 3; patchBh({ qDice: d }); if (bhAim?.kind === 'queglix') setBhAim({ kind: 'queglix', dice: d }); }} className="rounded border border-neutral-700 bg-neutral-800 px-1 py-0.5">
-                      {[1, 2, 3].filter(n => n <= maxDice).map(n => <option key={n} value={n}>{n} {n === 1 ? 'die' : 'dice'}</option>)}
-                    </select>
-                    <button
-                      onClick={() => setBhAim(bhAim?.kind === 'queglix' ? null : { kind: 'queglix', dice })}
-                      className={'rounded border px-2 py-0.5 font-semibold ' + (bhAim?.kind === 'queglix' ? 'border-amber-300 bg-amber-900/60 text-amber-100' : 'border-amber-600 text-amber-300 hover:bg-amber-900/40')}
-                    >
-                      {bhAim?.kind === 'queglix' ? 'tap a target…' : 'aim →'}
-                    </button>
+                  <div className="flex flex-col gap-1.5">
+                    {/* Row 1: the 9-die pool — available (gold), the next `dice` armed (bright), spent (✕). */}
+                    <div className="flex items-center gap-1">
+                      <span className="mr-0.5 font-semibold text-amber-300">🔫 Queglix</span>
+                      {Array.from({ length: 9 }).map((_, i) => { // Q9's gun is a fixed 9-die pool
+                        const spent = i >= qLeft;
+                        const armed = !spent && i >= qLeft - dice;
+                        return (
+                          <span
+                            key={i}
+                            className={'relative inline-flex h-4 w-4 items-center justify-center rounded-[3px] border ' +
+                              (spent ? 'border-neutral-700 bg-neutral-800' : armed ? 'border-amber-200 bg-amber-400 shadow-[0_0_5px_rgba(251,191,36,0.8)]' : 'border-amber-700 bg-amber-700/70')}
+                          >
+                            {spent && <span className="text-[10px] leading-none text-neutral-500">✕</span>}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {/* Row 2: choose 1 / 2 / 3 dice (arms aiming), then tap a target's base to fire. */}
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-neutral-400">fire</span>
+                      {([1, 2, 3] as const).filter(n => n <= maxDice).map(n => (
+                        <button
+                          key={n}
+                          onClick={() => { patchBh({ qDice: n }); setBhAim({ kind: 'queglix', dice: n }); }}
+                          className={'h-6 w-6 rounded border font-bold ' + (aiming && dice === n ? 'border-amber-200 bg-amber-900/70 text-amber-100' : 'border-amber-600 text-amber-300 hover:bg-amber-900/40')}
+                        >{n}</button>
+                      ))}
+                      <span className="text-[11px] text-neutral-400">{aiming ? 'dice — tap a target ▸' : 'dice'}</span>
+                      {aiming && <button onClick={() => setBhAim(null)} className="ml-auto rounded border border-neutral-600 px-2 py-0.5 text-[11px] text-neutral-300 hover:bg-neutral-800">Cancel</button>}
+                    </div>
                   </div>
                 );
               })()}
