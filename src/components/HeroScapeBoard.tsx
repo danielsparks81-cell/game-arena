@@ -1763,6 +1763,22 @@ export default function HeroScapeBoard({
   const activeCardUid = getActiveCardUid(state);
   const activeCard = state.cards.find(c => c.uid === activeCardUid);
   const activeCardDef = HS_CARDS[activeCard?.cardId ?? ''];
+  // ATTACK PHASE — auto-select the ACTIVE card's figure. The figure you attack/special with is the
+  // one holding the revealed marker, so the moment you End Move (before any attack) its targets
+  // should glow and its powers (Mimring's Fire Line, Grapple, Explosion, …) should light up WITHOUT
+  // a re-tap. End Move used to clear the selection, which greyed every special attack ("can't use
+  // Fire Line"). We fill in only when the current selection isn't already a living figure of the
+  // active card — so picking a different squad member to attack with is still respected.
+  useEffect(() => {
+    if (!myTurn) return;
+    if (state.subPhase !== 'turns' || !state.movementEnded || state.turnAttacks.length > 0 || state.pendingChoice) return;
+    if (!activeCardUid) return;
+    const sel = state.figures.find(f => f.id === selectedId);
+    if (sel && sel.cardUid === activeCardUid && sel.at != null) return; // already on an active-card figure
+    const fig = state.figures.find(f => f.cardUid === activeCardUid && f.at != null);
+    if (fig && fig.id !== selectedId) setSelectedId(fig.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myTurn, state.subPhase, state.movementEnded, state.turnAttacks.length, state.pendingChoice, activeCardUid, selectedId, state.figures]);
   // Figures of the now-acting card that STILL HAVE TO MOVE this turn — their base disc lights
   // up to guide "move each one once". An id drops out the instant that figure moves
   // (movedFigureIds), and the whole set clears once an attack is made (movement is over).
@@ -4077,7 +4093,7 @@ export default function HeroScapeBoard({
               </button>
             )}
             <button
-              onClick={() => { onEndMove(); setSelectedId(null); }}
+              onClick={() => onEndMove()} // keep the active figure SELECTED so its attack targets glow + its special powers light up
               disabled={disabled}
               className="flex-1 rounded-lg border-2 border-emerald-600 bg-neutral-950/85 px-3 py-2 text-sm font-semibold text-emerald-300 backdrop-blur-sm transition hover:bg-emerald-900/50 disabled:opacity-40"
               title="Finish moving and switch to attacking — no figure can move again this turn"
