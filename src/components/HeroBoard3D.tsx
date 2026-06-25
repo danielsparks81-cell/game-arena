@@ -33,15 +33,44 @@ const GLYPH_RAISE = 0.16; // a glyph's whole hex sits slightly higher than its n
 const GLYPH_MAROON = '#7f1d1d'; // glyph hex tint + rune colour (maroon)
 // BASE_CROP / BASE_CROP_BY_CARD now live in figureBase.ts (shared with the 2D gallery).
 
-// Hexes are coloured by their HEIGHT BAND (not terrain material) so elevation reads at a glance —
-// the player's cue for height advantage: water = the low band (blue, kept sunken + translucent),
-// ground 1–2 = green, hills 3–4 = tan, mountains 5+ = grey. Glyph hexes override to maroon (caller).
-const HEIGHT_BAND_COLOR = { water: '#2f6f9f', ground: '#4f7a3a', hills: '#b3934f', mountains: '#83858c' } as const;
+// Hexes are coloured by their HEIGHT BAND (not terrain material) so elevation reads at a glance — the
+// player's cue for height advantage — but the palette is NATURAL (a jungle floor): grassy-green ground,
+// scrub-DIRT hills, rocky-grey mountains, deep TEAL water (kept sunken + translucent + glossy). Each
+// tile is then MOTTLED a touch by a deterministic per-hex hash, so the field reads like real ground
+// instead of flat colour blocks. Glyph hexes override to maroon (caller).
+const HEIGHT_BAND_COLOR = { water: '#1f7290', ground: '#3f7a31', hills: '#7b6336', mountains: '#8a8c92' } as const;
 function bandColor(height: number, terrain: string): string {
   if (terrain === 'water') return HEIGHT_BAND_COLOR.water;
-  if (height >= 5) return HEIGHT_BAND_COLOR.mountains; // mountains
-  if (height >= 3) return HEIGHT_BAND_COLOR.hills;     // hills
-  return HEIGHT_BAND_COLOR.ground;                     // ground (1–2)
+  if (height >= 5) return HEIGHT_BAND_COLOR.mountains; // mountains (rock)
+  if (height >= 3) return HEIGHT_BAND_COLOR.hills;     // hills (dirt)
+  return HEIGHT_BAND_COLOR.ground;                     // ground 1–2 (grass)
+}
+// The SIDE/flank colour of each prism — darker EARTH below the surface: dirt under grass, packed earth
+// under the hills, dark rock under mountains, murky depths under water. The top cap keeps the band
+// colour, so each tile reads like a chunk of ground (grassy top, dirt sides) not a solid colour block.
+const SIDE_BAND_COLOR = { water: '#0e3a48', ground: '#5b4a2b', hills: '#5d4527', mountains: '#54565c' } as const;
+function sideBandColor(height: number, terrain: string): string {
+  if (terrain === 'water') return SIDE_BAND_COLOR.water;
+  if (height >= 5) return SIDE_BAND_COLOR.mountains;
+  if (height >= 3) return SIDE_BAND_COLOR.hills;
+  return SIDE_BAND_COLOR.ground;
+}
+/** Deterministic −0.5..0.5 hash from a tile's world position — repeatable per-hex variation. */
+function hexHash(x: number, z: number): number {
+  const n = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+  return n - Math.floor(n) - 0.5;
+}
+/** Nudge a band colour by the per-hex hash (small hue/sat/lightness wobble) so grass & dirt mottle. */
+function mottle(hex: string, j: number): string {
+  const c = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  c.setHSL(
+    (hsl.h + j * 0.02 + 1) % 1,
+    THREE.MathUtils.clamp(hsl.s + j * 0.1, 0, 1),
+    THREE.MathUtils.clamp(hsl.l + j * 0.13, 0, 1),
+  );
+  return '#' + c.getHexString();
 }
 const SEAT_COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 // Team colours (allies share one); index = team id − 1 (lobby assigns ids 1/2/3).
@@ -142,38 +171,37 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
   const isWater = terrain === 'water';
   // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
   const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1) + (glyph ? GLYPH_RAISE : 0);
-  // Out of a moving ranged figure's reach → darken the base so the in-range island pops.
-  const baseColor = glyph ? GLYPH_MAROON : bandColor(height, terrain);
-  // `blocked` = in range but no line of sight (a wall is between): flat, desaturated
-  // grey so it's clearly NOT a shootable hex, distinct from both the bright clear-shot
-  // tiles and the darkened out-of-range ones. (dimmed/blocked are mutually exclusive —
-  // a blocked hex is in-range, so it is never also dimmed.)
+  // `blocked` = in range but no line of sight (a wall is between): flat, desaturated grey so it's
+  // clearly NOT a shootable hex; `dimmed` = out of a moving ranged figure's reach (darken). Both apply
+  // to the grassy TOP and the dirt SIDES alike so the whole tile reads one gameplay state.
   const greyOf = (hex: string) => {
     const c = new THREE.Color(hex);
     const l = (0.3 * c.r + 0.59 * c.g + 0.11 * c.b) * 0.78; // luminance, muted
     return '#' + new THREE.Color(l, l, l).getHexString();
   };
-  const color = dimmed
-    ? '#' + new THREE.Color(baseColor).multiplyScalar(0.34).getHexString()
-    : blocked
-      ? greyOf(baseColor)
-      : baseColor;
+  const applyState = (hex: string): string =>
+    dimmed ? '#' + new THREE.Color(hex).multiplyScalar(0.34).getHexString() : blocked ? greyOf(hex) : hex;
+  const j = hexHash(x, z);
+  const topColor = applyState(glyph ? GLYPH_MAROON : mottle(bandColor(height, terrain), j));
+  const sideColor = applyState(glyph ? '#4a0e0e' : mottle(sideBandColor(height, terrain), j * 0.6));
+  const common = {
+    emissive: highlight?.color ?? '#000000',
+    emissiveIntensity: highlight ? (highlight.dim ? 0.2 : 0.55) : 0,
+    transparent: isWater,
+    opacity: isWater ? 0.8 : 1,
+    flatShading: true,
+  } as const;
   return (
     <mesh
       position={[x, h / 2, z]} castShadow receiveShadow
       onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}
     >
       <cylinderGeometry args={[SIZE * 1.02, SIZE * 1.02, h, 6]} />
-      <meshStandardMaterial
-        color={color}
-        emissive={highlight?.color ?? '#000000'}
-        emissiveIntensity={highlight ? (highlight.dim ? 0.2 : 0.55) : 0}
-        roughness={isWater ? 0.2 : 0.9}
-        metalness={isWater ? 0.1 : 0}
-        transparent={isWater}
-        opacity={isWater ? 0.85 : 1}
-        flatShading
-      />
+      {/* cylinder material groups: 0 = sides (dirt/rock flanks), 1 = top cap (grass/surface — glossy &
+          translucent for water), 2 = bottom. Two-tone so a prism looks like a chunk of earth. */}
+      <meshStandardMaterial attach="material-0" color={sideColor} roughness={isWater ? 0.35 : 0.96} metalness={isWater ? 0.1 : 0.02} {...common} />
+      <meshStandardMaterial attach="material-1" color={topColor} roughness={isWater ? 0.13 : 0.9} metalness={isWater ? 0.15 : 0.02} {...common} />
+      <meshStandardMaterial attach="material-2" color={sideColor} roughness={0.98} metalness={0.02} {...common} />
       {/* thin seam line around every hex so the grid reads clearly */}
       <Edges color="#13161a" />
       {/* No per-hex height NUMBERS — the height BAND colour (green ground / tan hills / grey
@@ -1053,12 +1081,12 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     // punch ABOVE the game's UI panels (the GLYPHS roster, the army/order-marker hands at z-20) and
     // read as "the board is in front of the panels" — also stealing their hovers/clicks. Isolating
     // confines all of that to the board's own layer, so the panels reliably sit on top.
-    <div className={`relative isolate h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 lg:min-h-0 ${bg ?? 'bg-gradient-to-b from-neutral-900 to-neutral-950'}`}>
+    <div className={`relative isolate h-full min-h-[60vh] w-full overflow-hidden rounded-xl border border-neutral-800 lg:min-h-0 ${bg ?? 'bg-gradient-to-b from-[#13251b] via-[#0c140f] to-[#080b09]'}`}>
       <Canvas shadows camera={{ position: camPos, fov: 45 }} dpr={[1, 2]}>
-        <hemisphereLight args={['#cfe3ff', '#3a3320', 0.7]} />
-        <ambientLight intensity={0.25} />
+        <hemisphereLight args={['#dceaff', '#2f3a22', 0.9]} />
+        <ambientLight intensity={0.3} />
         <directionalLight
-          position={[8, 16, 6]} intensity={1.5} castShadow
+          position={[8, 16, 6]} intensity={1.6} color="#fff2d6" castShadow
           shadow-mapSize={[2048, 2048]}
           shadow-camera-left={-fit.shadow} shadow-camera-right={fit.shadow} shadow-camera-top={fit.shadow} shadow-camera-bottom={-fit.shadow}
           shadow-bias={-0.0004}
