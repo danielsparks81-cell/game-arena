@@ -1953,25 +1953,33 @@ export default function HeroScapeBoard({
   // slice 8: Mimring FIRE LINE — offered when his special attack is available
   // (his card active + he hasn't attacked). Each on-board line hex maps to its
   // direction, so a click in Fire-Line mode resolves the chosen straight line.
-  const canFire = !!(canAct && selected && canFireLine(state, selected.id));
+  // Fire Line acts with the ACTIVE Mimring figure (a unique hero — exactly one figure), NOT whatever
+  // is selected on the board. So the power is reliably available the moment it's Mimring's turn to
+  // act, even if the selection was cleared (ending a move) or sits on another figure — that gap was
+  // the "why can't I Fire Line now?" bug.
+  const mimHeroId =
+    canAct && activeCard?.cardId === 'mimring'
+      ? (state.figures.find(f => f.cardUid === activeCardUid && f.at != null)?.id ?? null)
+      : null;
+  const canFire = !!(mimHeroId && canFireLine(state, mimHeroId));
   const fireLineDirs = useMemo(() => {
     const m = new Map<HexKey, number>();
-    if (canFire && selected) {
+    if (canFire && mimHeroId) {
       for (let d = 0; d < 6; d++) {
-        for (const k of fireLineSpaces(state, selected.id, d)) if (!m.has(k)) m.set(k, d);
+        for (const k of fireLineSpaces(state, mimHeroId, d)) if (!m.has(k)) m.set(k, d);
       }
     }
     return m;
-  }, [state, selected, canFire]);
+  }, [state, mimHeroId, canFire]);
   // Figures the Fire Line could hit (union across all 6 directions) — highlighted while AIMING
   // so the player SEES who is in the fire (friend OR foe) before committing to a direction.
   const fireLineVictims = useMemo(() => {
     const ids = new Set<string>();
-    if (fireLineMode && selected) {
-      for (let d = 0; d < 6; d++) for (const f of fireLineTargets(state, selected.id, d)) ids.add(f.id);
+    if (fireLineMode && mimHeroId) {
+      for (let d = 0; d < 6; d++) for (const f of fireLineTargets(state, mimHeroId, d)) ids.add(f.id);
     }
     return ids;
-  }, [state, selected, fireLineMode]);
+  }, [state, mimHeroId, fireLineMode]);
   // Every hex of every possible fire LINE (all 6 directions) — lit up while aiming so the player
   // sees the candidate rows at a glance and can click ANY hex on a row to fire that whole line.
   const fireLineHexSet = useMemo(() => new Set<HexKey>(fireLineDirs.keys()), [fireLineDirs]);
@@ -2643,11 +2651,11 @@ export default function HeroScapeBoard({
       }
       return; // while carrying, a click never falls through to move/attack
     }
-    // slice 8: Fire-Line mode — clicking a highlighted line space fires that
-    // straight line (Mimring's special attack), replacing his normal attack.
-    if (fireLineMode && selected) {
+    // slice 8: Fire-Line mode — clicking a highlighted line space fires that straight line
+    // (Mimring's special attack), replacing his normal attack. Acts with the ACTIVE Mimring figure.
+    if (fireLineMode && mimHeroId) {
       const dir = fireLineDirs.get(key);
-      if (dir != null) { onFireLine(selected.id, dir); setFireLineMode(false); }
+      if (dir != null) { onFireLine(mimHeroId, dir); setFireLineMode(false); }
       return;
     }
     const occ = occupantAt(key);
@@ -2722,15 +2730,11 @@ export default function HeroScapeBoard({
     if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); return; }
       if (selIs2Hex) {
-        // Commit the move NOW (never leave it in an uncommitted "pick the tail" preview that End
-        // Move could throw away — that was the turn-loss bug). Let the ENGINE place the trailing
-        // lobe: its default TRAILS behind the lead and stays within paid reach, so the peanut never
-        // juts a hex past the destination (the "white dragon moves 7" bug). If the landing has more
-        // than one legal facing, offer an optional in-place reorient afterward (onOrient — a FREE
-        // pivot that never re-moves or resets).
-        const opts = moveTailOptions(state, selected.id, key);
+        // Commit the move NOW. The ENGINE places the trailing lobe so the peanut TRAILS BEHIND the
+        // lead — the figure lands facing the way it was moving, exactly where you'd expect, with NO
+        // spin and NO reorient prompt. (The auto-pivot was repeatedly unwanted/confusing — it made
+        // the dragon turn on every landing — so the move just lands it forward and you're done.)
         onMoveFigure(selected.id, key);
-        setOrientLead(opts.size >= 2 ? key : null);
         return;
       }
       onMoveFigure(selected.id, key);
