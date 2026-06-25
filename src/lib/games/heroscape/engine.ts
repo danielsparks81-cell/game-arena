@@ -127,9 +127,22 @@ function figureAlive(f: Figure): boolean {
   return f.at != null || !!f.reserve;
 }
 
-/** Does this seat still have any living figure (on board or in reserve)? */
+/** Is this seat still in the game (drives turns / markers / The Drop / win)? A figure ON THE BOARD
+ *  keeps it alive. With NO on-board figure, the owner ruling 2026-06-25 applies in the PLAYING phase:
+ *  a team is eliminated the instant its LAST on-board figure is destroyed — reserve Airborne do NOT
+ *  grant a last-chance Drop. Reserve keeps the seat alive ONLY while it has never lost a figure (never
+ *  committed to the board — e.g. an all-Airborne army whose Drop hasn't landed yet), so such a team
+ *  still gets its rounds to roll in. (A player who fears the on-board wipe should keep a figure back so
+ *  the Drop can still come down.) Outside 'playing' (draft/placement) the old reserve-counts rule holds.
+ *  NB: `figureAlive`/`cardHasLivingFigures` are unchanged — you can still assign order markers to a
+ *  reserve Airborne card. */
 function seatIsAlive(state: HSState, seat: number): boolean {
-  return state.figures.some(f => f.ownerSeat === seat && figureAlive(f));
+  const figs = state.figures.filter(f => f.ownerSeat === seat);
+  if (figs.some(f => f.at != null)) return true; // a figure stands on the battlefield
+  if (state.phase !== 'playing') return figs.some(figureAlive); // setup never eliminates (old rule)
+  const hasReserve = figs.some(f => f.reserve);
+  const hasCasualty = figs.some(f => f.at == null && !f.reserve); // a figure was destroyed (in play, unplaced = none)
+  return hasReserve && !hasCasualty; // un-deployed reserve survives; a wiped-on-board team does not
 }
 
 /** Seats with at least one living figure, in seat order. The round flow keys on
@@ -4546,8 +4559,8 @@ function checkEliminationWin(s: HSState): void {
   // belongs to a single team — that team wins even if several of its players
   // are still alive. A solo seat is its own team, so this is "last seat
   // standing" for 1-v-1 / FFA, unchanged.
-  const livingSeats = [...new Set(s.figures.filter(figureAlive).map(f => f.ownerSeat))];
-  const teamsAlive = new Set(livingSeats.map(seat => teamOfSeat(s, seat)));
+  const aliveSeats = livingSeats(s); // owner ruling: a team wiped on the board is OUT even with reserve Airborne
+  const teamsAlive = new Set(aliveSeats.map(seat => teamOfSeat(s, seat)));
   if (teamsAlive.size > 1) return;
   // 0 or 1 teams remain.
   const winningTeam = [...teamsAlive][0];
@@ -4564,7 +4577,7 @@ function checkEliminationWin(s: HSState): void {
     return;
   }
   // A representative living seat of the winning team (the survivor in 1-v-1).
-  const winnerSeat = livingSeats.find(seat => teamOfSeat(s, seat) === winningTeam)!;
+  const winnerSeat = aliveSeats.find(seat => teamOfSeat(s, seat) === winningTeam)!;
   const teamSeats = s.players.filter(p => teamOfSeat(s, p.seat) === winningTeam);
   s.phase = 'finished';
   s.winnerSeat = winnerSeat;
@@ -4592,7 +4605,7 @@ const HARD_ROUND_CAP = 80;
  *  in real play; it is purely a no-progress safety net. */
 function stalemateResolve(s: HSState): void {
   if (s.phase !== 'playing') return;
-  const seatsAlive = [...new Set(s.figures.filter(figureAlive).map(f => f.ownerSeat))];
+  const seatsAlive = livingSeats(s); // wiped-on-board teams are already eliminated (seatIsAlive)
   const teams = [...new Set(seatsAlive.map(seat => teamOfSeat(s, seat)))];
   if (teams.length <= 1) return; // checkEliminationWin owns the single-team case
   const score = (team: number) => {

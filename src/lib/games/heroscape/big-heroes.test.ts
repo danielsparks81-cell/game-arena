@@ -22,6 +22,7 @@ import {
   queglixTargets,
   throwLandingHexes,
   canTheDrop,
+  livingSeats,
   theDropHexes,
   legalTargets,
   legalDestinations,
@@ -750,20 +751,35 @@ describe('Airborne Elite — The Drop', () => {
     expect(errOf(rollDrop(turns, 'p1', 20))).toMatch(/start of a round/i);
   });
 
-  it('reserve figures count as ALIVE — wiping a seat’s on-board figures does NOT end the game while it has reserve Airborne', () => {
-    let { s, hero } = stage('finn'); // seat 0 active, board wiped, Finn + park placed
+  it('a team is ELIMINATED when its last ON-BOARD figure dies — reserve Airborne grant NO last-chance Drop (owner 2026-06-25)', () => {
+    let { s, hero } = stage('finn'); // seat 0 active, board wiped, Finn placed
     const h = at(s, hero)!;
     const tgtHex = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!;
     s = put(s, 's1-marro_warriors-1', tgtHex); // seat-1's only ON-BOARD figure
     s = put(s, 's1-marro_warriors-4', null); // remove the parked survivor
-    // give seat 1 a reserve Airborne (off-board, alive)
+    // seat 1 ALSO holds a reserve Airborne — but it has COMMITTED a figure to the board (the marro).
     s = JSON.parse(JSON.stringify(s)) as HSState;
     s.cards.push({ uid: 's1-airborne_elite', cardId: 'airborne_elite', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
     s.figures.push({ id: 's1-airborne_elite-1', cardUid: 's1-airborne_elite', ownerSeat: 1, at: null, index: 1, wounds: 0, reserve: true });
-    // Finn kills the marro — seat 1's last ON-BOARD figure — but its reserve Airborne keeps it alive.
+    // Finn kills the marro — seat 1's last ON-BOARD figure. The reserve Airborne do NOT save it.
     s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: hero, targetId: 's1-marro_warriors-1', attackRoll: F('kkk'), defenseRoll: def(s, 's1-marro_warriors-1', hero) }));
     expect(at(s, 's1-marro_warriors-1')).toBeNull(); // dead
-    expect(s.phase).toBe('playing'); // NOT finished — reserve Airborne is alive
+    // Seat 1 is OUT despite the reserve Airborne → only seat 0 remains, so the game ENDS (it would have
+    // stayed 'playing' under the old reserve-counts rule). A finished game with winner 0 = seat 1 eliminated.
+    expect(s.phase).toBe('finished');
+    expect(s.winnerSeat).toBe(0);
+  });
+
+  it('a NEVER-DEPLOYED reserve army (no casualties yet) stays alive so its Drop can still land', () => {
+    // The flip side: a seat that has NOT yet committed a figure to the board — e.g. an all-Airborne army
+    // whose Drop hasn't hit — keeps its rounds to roll, since it never lost an on-board figure.
+    let { s } = stage('finn');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.figures = s.figures.filter(f => f.ownerSeat !== 1); // remove seat-1's figures so there are NO casualties
+    s.cards = s.cards.filter(c => c.ownerSeat !== 1);
+    s.cards.push({ uid: 's1-airborne_elite', cardId: 'airborne_elite', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-airborne_elite-1', cardUid: 's1-airborne_elite', ownerSeat: 1, at: null, index: 1, wounds: 0, reserve: true });
+    expect(livingSeats(s)).toContain(1); // un-deployed reserve army is still in the game
   });
 });
 
