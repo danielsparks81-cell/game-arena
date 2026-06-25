@@ -6770,9 +6770,14 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // FLYERS pick a whole DESTINATION (the move plays as ONE smooth flight to the landing, animated
     // as an arc — not a hex-by-hex walk); WALKERS step one hex at a time.
     const candidates = isFlyer ? movementDestinations(state, f) : legalStepHexes(state, f.id);
+    // Never step BACK to where THIS move began. That net-zero round-trip is exactly the "dance on/off
+    // a glyph" the bot used to do — step off toward a foe, get yanked back by the glyph bonus, repeat —
+    // which re-claims the glyph and wastes the whole turn. A figure that leaves a glyph now COMMITS.
+    const moveStart = state.stepMove?.figureId === f.id ? state.stepMove.startHex : f.at;
     let best: { to: HexKey; score: number } | null = null;
     for (const to of candidates) {
       if (occupied.has(to)) continue;
+      if (to === moveStart) continue;
       if (is2hex && !isFlyer && heightOfKey(state, to) !== curH) continue; // level-keep is a WALKING-peanut limit only
       const toDist = pathDist(to);
       const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
@@ -6783,9 +6788,10 @@ function aiTurn(state: HSState, seat: number): HSAction {
       // glyph (incl. stepping onto it). A pure sideways/backward step with no payoff is
       // skipped so we never stall — but a lateral step that REACHES a strike hex counts.
       if (enemyGain <= 0 && glyphGain <= 0 && !onGlyph && !canHit) continue;
-      // Reaching a strike hex dominates; then higher ground (+1 attack & +1 defence
-      // die), grabbing a glyph, and closing the gap.
-      const score = (canHit ? 50 : 0) + enemyGain * 4 + (chaseGlyph ? glyphGain * 5 : 0) + (onGlyph ? 30 : 0) + heightOfKey(state, to);
+      // AGGRESSION FIRST: reaching a strike hex dominates, then closing the gap and high ground. A
+      // glyph is a bonus ON THE WAY, not an obsession — its pull is small (was ×5 / +30) so the bot
+      // never abandons the chase to fixate on a glyph (user: "be aggressive to win; dancing doesn't").
+      const score = (canHit ? 50 : 0) + enemyGain * 4 + (chaseGlyph ? glyphGain * 2 : 0) + (onGlyph ? 14 : 0) + heightOfKey(state, to);
       if (!best || score > best.score) best = { to, score };
     }
     return best;
