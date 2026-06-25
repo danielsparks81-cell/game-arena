@@ -2192,6 +2192,14 @@ function movementDestinations2(
   const isFree = (k: HexKey) => !!map.cells[k] && occ(k) == null; // mover's own hexes read null → free
   const origin = figureHexes(fig); // the figure's pre-move footprint (for the trailing default)
   const distToOrigin = (k: HexKey) => Math.min(...origin.map(o => hexDistance(o, k)));
+  // Enemies this figure is engaged with at the START of the move. When non-empty, the trailing
+  // default below is OVERRIDDEN to prefer an orientation that KEEPS the figure engaged with as many
+  // of them as possible — so a 2-hex figure can reach a space (e.g. a glyph) and STAY ENGAGED when
+  // geometry allows, instead of being forced to disengage (owner report 2026-06-24). Empty (the common
+  // case) → no engagement work, identical trailing behaviour to before.
+  const startEngaged = def.disengage ? [] : enemiesEngagedWith(state, fig);
+  const keptEngaged = (lead: HexKey, tail: HexKey): number =>
+    startEngaged.length === 0 ? 0 : startEngaged.filter(e => engagedPair(state, { ...fig, at: lead, at2: tail }, e)).length;
   for (const lead of reach) {
     if (!isFree(lead)) continue;
     const lh = map.cells[lead].height;
@@ -2211,9 +2219,15 @@ function movementDestinations2(
         !((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)),
     );
     if (cands.length === 0) continue; // no legal in-reach tail → not a legal lead at all
-    // Default the trailing lobe to TRAIL: the candidate nearest where the figure
-    // came from, so the peanut follows BEHIND the lead instead of reaching forward.
-    const tail = cands.reduce((a, b) => (distToOrigin(b) < distToOrigin(a) ? b : a));
+    // Choose the trailing lobe: PREFER the orientation that preserves the most start-engagement (so a
+    // figure engaged with a foe STAYS engaged after it lands — e.g. reaching a glyph beside an enemy);
+    // tie-break by TRAIL — the candidate nearest where the figure came from, so an un-engaged peanut
+    // still follows BEHIND the lead (no spin), exactly as before.
+    const tail = cands.reduce((a, b) => {
+      const ka = keptEngaged(lead, a), kb = keptEngaged(lead, b);
+      if (kb !== ka) return kb > ka ? b : a;
+      return distToOrigin(b) < distToOrigin(a) ? b : a;
+    });
     out.leads.add(lead);
     out.tailOf.set(lead, tail);
   }

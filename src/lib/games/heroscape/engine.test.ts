@@ -2078,6 +2078,43 @@ describe('step-by-step movement (move_step)', () => {
     expect(c2.forcedStop).toBe(true);
   });
 
+  it('a 2-hex figure keeps an ENGAGED orientation when the landing allows it (owner: reach the space + stay engaged)', () => {
+    // Repro 2026-06-24: Mimring (2-hex) reaching a glyph beside Finn was FORCED to disengage because the
+    // trailing default tail pointed away. Now a 2-hex figure prefers the orientation that keeps a lobe
+    // adjacent to a foe it started engaged with. Grimnak stands in (flat Training Field → engagement = adjacency).
+    let s = customBattle(['grimnak'], ['finn'], 'p1');
+    const G = 's0-grimnak-1', FINN = 's1-finn-1';
+    s = clearExcept(s, G, FINN);
+    const cells = MAPS[s.mapId].cells;
+    const f = at(4, 4);
+    s = place(s, FINN, f);
+    const fN = neighborKeys(f).filter(k => cells[k]);
+    const adjF = (k: string) => fN.includes(k);
+    // a = an engaged-tail target adjacent to Finn; L = a lead adjacent to `a`, NOT adjacent to Finn, with
+    // ANOTHER (disengaging) tail option too — so the engine genuinely has to CHOOSE to stay engaged.
+    let a = '', L = '';
+    for (const cand of fN) {
+      const lead = neighborKeys(cand).find(k =>
+        cells[k] && k !== f && !adjF(k) &&
+        neighborKeys(k).some(t => cells[t] && t !== cand && t !== f && !adjF(t)));
+      if (lead) { a = cand; L = lead; break; }
+    }
+    expect(a && L).toBeTruthy();
+    expect(adjF(L)).toBe(false); // the lead itself is NOT adjacent to Finn — engagement must come from the tail
+    // Grimnak starts engaged with Finn (a different lobe adjacent to f), clear of L and `a`.
+    const gLead = fN.find(k => k !== a && k !== L)!;
+    const gTail = neighborKeys(gLead).find(k => cells[k] && k !== f && k !== a && k !== L && cells[k].height === cells[gLead].height)!;
+    expect(gLead && gTail).toBeTruthy();
+    s = place2(s, G, gLead, gTail);
+    // Move so the lead lands on L (NO to2 → the engine derives the tail). With NO leaveRolls supplied this
+    // only succeeds if the engine kept the figure engaged — a disengage would require a swipe roll here.
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: L }));
+    const g = moved.figures.find(x => x.id === G)!;
+    const foot = [g.at, g.at2].filter(Boolean) as string[];
+    expect(foot).toContain(L); // landed on the chosen lead
+    expect(foot.some(h => fN.includes(h))).toBe(true); // a lobe is STILL adjacent to Finn → it stayed engaged
+  });
+
   it('the "max distance" range reflects REMAINING Move — full at the start, gone once it is spent', () => {
     let s = walker();
     const budget = effectiveMove(s, fig(s, TV(1))).dice;
