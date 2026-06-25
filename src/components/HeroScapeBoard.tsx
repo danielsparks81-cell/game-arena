@@ -931,20 +931,28 @@ export function splitBreakdown(breakdown: string[] | undefined): { atkBase: numb
 function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: number; base: number; bonus: string[] }) {
   const split = bonus.length > 0 && base > 0 && base < roll.length;
   const b = split ? base : roll.length;
+  // Each die GROUP carries its own caption directly beneath it — "N base" centred under the base
+  // dice, "+bonus" centred under the bonus dice — so the labels line up with the dice they describe
+  // (instead of one combined caption centred under the whole row).
   return (
-    <>
-      <div className="mt-2 flex min-h-[64px] flex-wrap items-center justify-center gap-2">
-        {roll.slice(0, Math.min(shown, b)).map((f, i) => <BigDie key={'b' + i} face={f} landed />)}
-        {split && <div className="mx-1 h-12 self-center border-l-2 border-amber-500/50" />}
-        {split && roll.slice(b, shown).map((f, i) => <BigDie key={'x' + i} face={f} landed />)}
-        {roll.length === 0 && <span className="text-sm text-neutral-500">no defense dice</span>}
+    <div className="mt-2 flex min-h-[64px] flex-wrap items-start justify-center gap-2">
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex min-h-[60px] flex-wrap items-center justify-center gap-2">
+          {roll.slice(0, Math.min(shown, b)).map((f, i) => <BigDie key={'b' + i} face={f} landed />)}
+          {roll.length === 0 && <span className="text-sm text-neutral-500">no defense dice</span>}
+        </div>
+        {roll.length > 0 && <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">{b} base</div>}
       </div>
-      {roll.length > 0 && (
-        <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-neutral-500">
-          {b} base{bonus.length > 0 && <span className="text-amber-400"> · {bonus.join(' · ')}</span>}
+      {split && <div className="mt-1 h-[60px] self-start border-l-2 border-amber-500/50" />}
+      {split && (
+        <div className="flex flex-col items-center gap-1">
+          <div className="flex min-h-[60px] flex-wrap items-center justify-center gap-2">
+            {roll.slice(b, shown).map((f, i) => <BigDie key={'x' + i} face={f} landed />)}
+          </div>
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-400">{bonus.join(' · ')}</div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
