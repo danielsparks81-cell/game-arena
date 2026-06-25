@@ -237,6 +237,12 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
   const walls = new Set(orbit(5, 0)); // 6 height-15 pillars ringing the centre
   const peaks = new Set(orbit(8, -4)); // each arm's hill peak (height 3)
   const slopes = new Set([...orbit(7, -3), ...orbit(9, -5)]); // ridge either side of each peak (height 2)
+  // 6-fold SYMMETRIC WATER — small ponds down each arm (owner request 2026-06-25): one just inside
+  // the wall ring, one in the mid-arm, one at the foot of each hill. Each is a single seed orbited to
+  // all six arms, all in the neutral interior (well inside the deploy tips) and clear of the walls /
+  // glyph anchors, so fairness is untouched — water just adds forced-stop terrain to path around. A
+  // water surface is height 1 (flat), so the terrain stays height-symmetric.
+  const water = new Set([...orbit(3, 1), ...orbit(6, -2), ...orbit(10, -5)]);
   const starHeight = (q: number, r: number): number => {
     const d = centerDist(q, r);
     if (d > tipCut) return 1; // deploy tips stay flat
@@ -252,8 +258,10 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
   for (let q = -2 * R; q <= 2 * R; q++) {
     for (let r = -2 * R; r <= 2 * R; r++) {
       if (!inStar(q, r)) continue;
-      const height = starHeight(q, r);
-      cells[hexKey(q, r)] = { q, r, height, terrain: height === 15 ? 'rock' : 'grass' };
+      const k = hexKey(q, r);
+      const isWater = water.has(k) && centerDist(q, r) <= tipCut; // deploy tips stay dry grass
+      const height = isWater ? 1 : starHeight(q, r);
+      cells[k] = { q, r, height, terrain: isWater ? 'water' : height === 15 ? 'rock' : 'grass' };
       all.push({ q, r });
     }
   }
