@@ -439,7 +439,13 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
         g.position.x = cx; g.position.z = cz;
       } else if (leadKey && lastLeadKeyRef.current && leadKey !== lastLeadKeyRef.current) {
         const line = hexLine(lastLeadKeyRef.current, leadKey);
-        for (let i = 1; i < line.length; i++) {
+        // For a 2-hex figure the trailing lobe follows one hex behind, so its CENTRE at each step is
+        // the midpoint of consecutive line hexes. Stop ONE hex short of the lead's final hex: the
+        // true final centre [cx,cz] (which accounts for the real tail) is enqueued last, so the body
+        // glides straight to its resting spot instead of overshooting forward to a lead-path midpoint
+        // and then settling back (the 2-hex "step-forward-then-back" jiggle).
+        const lastI = trail ? line.length - 1 : line.length;
+        for (let i = 1; i < lastI; i++) {
           const [hx, hz] = worldXZ(...parseQR(line[i]));
           if (trail) {
             const [px, pz] = worldXZ(...parseQR(line[i - 1]));

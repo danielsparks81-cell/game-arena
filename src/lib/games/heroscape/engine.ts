@@ -6722,10 +6722,15 @@ function aiTurn(state: HSState, seat: number): HSAction {
   };
   const wantsMove = (f: Figure) => enemyTargets(f).length === 0;
   const bestStepFor = (f: Figure): { to: HexKey; score: number } | null => {
+    // A figure that already FINISHED its move this turn can't move again — a flyer's one-shot
+    // move_figure especially (a walker's legalStepHexes is already empty once finalized, but a
+    // flyer's movementDestinations isn't, so without this the bot re-picks a dragon that just flew).
+    if ((state.movedFigureIds ?? []).includes(f.id)) return null;
     // Movement-aware distance (routes AROUND height-15 walls) so the mover never gets
     // stuck against a wall it can't see past — the old rangeDistance counted through walls.
     const fDef = cardDefFor(state, f);
-    const distField = aiMoveDistField(state, enemies, fDef.height, effectiveFlying(state, fDef));
+    const isFlyer = effectiveFlying(state, fDef);
+    const distField = aiMoveDistField(state, enemies, fDef.height, isFlyer);
     const pathDist = (k: HexKey): number => distField.get(k) ?? Infinity;
     const curEnemy = pathDist(f.at!);
     // Don't pull a figure that already holds a glyph off it to chase another — it
@@ -6749,10 +6754,13 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // peanut is a deferred feature; on flat ground this filter is a no-op.)
     const is2hex = f.at2 != null;
     const curH = heightOfKey(state, f.at!);
+    // FLYERS pick a whole DESTINATION (the move plays as ONE smooth flight to the landing, animated
+    // as an arc — not a hex-by-hex walk); WALKERS step one hex at a time.
+    const candidates = isFlyer ? movementDestinations(state, f) : legalStepHexes(state, f.id);
     let best: { to: HexKey; score: number } | null = null;
-    for (const to of legalStepHexes(state, f.id)) {
+    for (const to of candidates) {
       if (occupied.has(to)) continue;
-      if (is2hex && heightOfKey(state, to) !== curH) continue;
+      if (is2hex && !isFlyer && heightOfKey(state, to) !== curH) continue; // level-keep is a WALKING-peanut limit only
       const toDist = pathDist(to);
       const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
       const onGlyph = openGlyphs.some(g => g.at === to);
@@ -6775,13 +6783,20 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const step = bestStepFor(movingFig);
     if (step) return { kind: 'move_step', figureId: movingFig.id, to: step.to };
   }
-  let bestMove: { figureId: string; to: HexKey; score: number } | null = null;
+  let bestMove: { figureId: string; to: HexKey; score: number; fly: boolean } | null = null;
   for (const f of myFigs) {
     if (!wantsMove(f)) continue;
     const step = bestStepFor(f);
-    if (step && (!bestMove || step.score > bestMove.score)) bestMove = { figureId: f.id, to: step.to, score: step.score };
+    if (step && (!bestMove || step.score > bestMove.score)) {
+      bestMove = { figureId: f.id, to: step.to, score: step.score, fly: effectiveFlying(state, cardDefFor(state, f)) };
+    }
   }
-  if (bestMove) return { kind: 'move_step', figureId: bestMove.figureId, to: bestMove.to };
+  // A FLYER takes its whole flight in ONE move (a smooth arc to the landing); a walker steps a hex.
+  if (bestMove) {
+    return bestMove.fly
+      ? { kind: 'move_figure', figureId: bestMove.figureId, to: bestMove.to }
+      : { kind: 'move_step', figureId: bestMove.figureId, to: bestMove.to };
+  }
   return { kind: 'end_move' };
 }
 
@@ -6822,6 +6837,23 @@ export function aiEngineAction(
       ...(c.tier === 'extreme' ? { extremeFallD20: rollers.d20() } : c.fallDice > 0 ? { fallRoll: rollers.rollDice(c.fallDice) } : {}),
       ...(c.leavingEnemyIds.length > 0
         ? { leaveRolls: c.leavingEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollers.rollDie() })) }
+        : {}),
+    };
+  }
+  // DESTINATION move (the AI uses this for FLYERS — one smooth flight instead of a hex-by-hex walk).
+  // Mirrors the server's move_figure dice seam: a flyer usually needs nothing (it ignores terrain +
+  // engagement), but if it STARTED engaged it still takes leaving-engagement swipes, and a fall is
+  // rolled if the landing drops it. The engine re-derives the need and validates the roll shapes.
+  if (intent.kind === 'move_figure') {
+    const mover = state.figures.find(f => f.id === intent.figureId);
+    const cons = mover
+      ? moveConsequences(state, mover, intent.to, intent.to2)
+      : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+    return {
+      ...intent,
+      ...(cons.tier === 'extreme' ? { extremeFallD20: rollers.d20() } : cons.fallDice > 0 ? { fallRoll: rollers.rollDice(cons.fallDice) } : {}),
+      ...(cons.abandonedEnemyIds.length > 0
+        ? { leaveRolls: cons.abandonedEnemyIds.map(enemyFigureId => ({ enemyFigureId, roll: rollers.rollDie() })) }
         : {}),
     };
   }
