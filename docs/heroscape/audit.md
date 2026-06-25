@@ -30,10 +30,10 @@ latent edges. No 🔴 shipping bug remains open.
 | # | Sev | Where | Issue | Fix shape | Why deferred |
 |---|-----|-------|-------|-----------|--------------|
 | O1 | ⚪ ACCEPTED | engine.ts special-attack handlers (Fire Line/Explosion/Grenade/Ice Shard/Queglix/Wild Swing/Acid Breath/Throw) + `applyCeremonyRoll` curse | A Finn/Thorgrim destroyed by a **special attack** or the **Massive Curse** leaves NO Warrior's Spirit — those kill sites never call the Spirit hook. | **Owner-reviewed 2026-06-24: ACCEPTED as-is — the Spirit mechanics are fine, NOT a priority.** Do NOT do the `pendingSpirits` refactor. The concern that prompted the look was **Nilrend negation** ("Finn was negated but his powers still worked"), which is VERIFIED RESOLVED: a negated Finn grants no aura to other armies AND leaves no Spirit on death — engine-gated at the source (`hasFiguresAdjacentLivingCard` + `maybeQueueSpiritOnDestroy` both check `isCardNegated`), tested incl. a new end-to-end regression. | Owner-accepted; no change. |
-| O2 | 🟡 | engine.ts Oreld/Nilrend/Wannok d20 resolutions (+ actions.ts Oreld roll) | **Glyph of Lodin (+1 to any d20 you roll) is NOT applied** to the five wave-3 glyph d20s (Mitonsoul, Sturla, Oreld, Nilrend, Wannok). Every legacy d20 power folds in `lodinD20Bonus`; these five compare the raw d20. Each effect is self-protective for the Lodin holder (curse-immune, resurrect on 19, never self-remove/negate/wound). | Mitonsoul/Sturla: `eff = d20 + lodinD20Bonus(s, fig.ownerSeat)` in `applyCeremonyRoll` (curse `eff===1`, resurrect `eff>=20`). Oreld/Nilrend/Wannok: store the *effective* d20 in `pc.d20` at the roll step + apply Lodin in the actions.ts Oreld branch. | **Needs an owner ruling** (does Lodin make your figures curse-immune?). The Mitonsoul/Sturla half is a clean engine change; Oreld/Nilrend/Wannok touch the multi-reader `pc.d20` + the action layer. Held pending the ruling so all five land consistently. |
-| O3 | 🟡 | engine.ts `effectiveAttackDice`/`effectiveDefenseDice` (cardMod adds) | A Nilrend-**negated** card still applies a Warrior's Spirit `attackMod`/`defenseMod` it had *previously received*. Ambiguous: is a received Spirit token "that card's own power" (negated) or an external buff (kept)? | If "base stats" is literal: gate both `cardModFor` adds behind `!isCardNegated`. | **Needs a ruling.** Corner case (Spirit lands, then that card is negated). |
+| O2 | ✅ | engine.ts Oreld/Nilrend/Wannok d20 resolutions + `applyCeremonyRoll` | **RESOLVED — owner ruling 2026-06-24: "Lodin should apply to ALL d20 rolls."** All five wave-3 glyph d20s now fold in `lodinD20Bonus`: Mitonsoul/Sturla use `eff = d20 + lodin` (curse `eff===1`, resurrect `eff>=20`); Oreld/Nilrend/Wannok compute `d = raw + lodin`, branch on the EFFECTIVE value, and store it in `pc.d20` (so the two-step pick reads the boosted side). The die FACE still shows the raw roll; logs/detail annotate `raw+1 Lodin = eff`. A Lodin holder is now curse/self-harm-immune (a natural 1 → 2). | Done. Regression tests: Lodin lifts Wannok 1→2 (figure on the glyph spared) and Nilrend 1→2 (negates an opponent, not own). |
+| O3 | ✅ | engine.ts `cardModFor` | **RESOLVED — owner ruling 2026-06-24: "special bonus from Warrior's Spirit and the like will also be negated."** `cardModFor` now returns `{0,0,0}` for a `isCardNegated` card, so a negated card drops its persistent attack/defense/move Spirit bonuses too — base stats only, consistent with its powers/aura already being off. | Done. Regression test: a negated card loses its placed Attack-Spirit +1. |
 | O4 | 🟡 | engine.ts `moveConsequences` vs `stepConsequences` | Whole-move (the primary click) and step-by-step movement have drifted: the whole-move path **under-counts passing swipes** for a transiently-engaged enemy (B1), **can't bridge a water hex with a 2-hex figure** (B2), and **computes a 2-hex fall the step path defers** (B3). | Route the primary click through the step engine, or document the destination-model limits. B2/B3 are latent (no figure can trigger them on current maps until a unit descends a height-15 wall). | Pre-existing; B1 is the only live one and is a model limitation, not a crash. |
-| O5 | 🟡 | maps.ts (Triskelion/Pentad) | The **central glyph** sits on a height-3 hex ringed entirely by height-2, so a **2-hex (Big Hero) figure can never stop level on it** → can't reveal/control that one glyph. 1-hex figures reach all glyphs. | Make the central hex height-2 (or raise its ring to 3) so a peanut can rest level. | Cosmetic asymmetry between figure sizes for 1 of 6–9 glyphs; symmetric across players. |
+| O5 | ✅ | maps.ts (`makeSymHexMap` + `makeStarMap`) | **RESOLVED — owner ruling 2026-06-24: "make those glyphs on flat ground so 2 hex can stand on them."** The isolated height-3 central peak at `[0,0]` (a glyph anchor) is flattened into the surrounding height-2 plateau on Triskelion, Crossroads, and Star Field, so a 2-hex figure rests level spanning the centre glyph. Keeps the central height advantage (plateau still > the height-1 field). | Done. Regression test: every symmetric glyph anchor has a same-height neighbour; the centre is no longer an isolated peak. |
 | O6 | ✅ | types.ts `glyph_oreld.foeCandidates` on `pendingChoice` | `foeCandidates` enumerated the *positions* (cardUid+markerIndex) of an opponent's **unrevealed** order markers in the projected `pendingChoice`. | **RESOLVED** — Oreld reworked into a PUBLIC roll + a real *choose-a-player* pick (mirrors Wannok). The choice now carries only the rolled `d20` + the eligible victim *seats* (a coarse, non-secret fact); the exact marker positions are gone, and the marker removed is engine-picked server-side. | Fixed alongside the Oreld choice-vs-auto fidelity fix. |
 
 ---
@@ -61,13 +61,13 @@ Pentad** — every non-wall hex is reachable by a Height-2 walker; height-15 wal
 `wounds = max(0, skulls − shields)` (tie → defender), `destroyed = wounds >= life`, height
 advantage, and all 11 special attacks verify line-by-line against printed card text. Special-attack
 **defenders keep height** (§117) — code correct, comments now fixed. The **negation→Spirit
-suppression** (a negated Finn/Thorgrim leaves no Spirit on death) is correct + tested. Open: O3
-(negated card keeps a *received* Spirit mod — ruling).
+suppression** (a negated Finn/Thorgrim leaves no Spirit on death) is correct + tested. O3 RESOLVED
+(2026-06-24): a negated card also drops any *received* Warrior's Spirit stat mod (`cardModFor` gated behind `isCardNegated`) — base stats only.
 
 ### 4. Cross-system interactions + the new maps
 Glyph buffs × combat, aura × combat (negated source removed), height × normal-vs-special,
 LOS × ranged-vs-aura, flying × engagement/water/glyph, pending-choice × turn-flow — all faithful.
-**Lodin × the five wave-3 glyph d20s is the one gap (O2).** The new maps are geometrically sound
+**Lodin × the five wave-3 glyph d20s is now wired (O2 RESOLVED 2026-06-24 — "Lodin applies to ALL d20 rolls").** The new maps are geometrically sound
 (fair, connected, no soft-locks; The Drop always has landings; both 1-hex AND 2-hex figures can be
 placed on every seat). Glyph generation on them is safe: `generateGlyphs` branches on
 `map.glyphAnchors` (symmetric fixed positions, random id per game, never on a wall/zone, ≤
@@ -77,6 +77,10 @@ GLYPH_POOL ids). Note: the anchor branch bypasses `glyphCountForMap`, so Crossro
 ### 5. AI + projection + RNG
 The AI drives every pending + power, **including the new ceremony** (select → roll, d20 injected
 by the action layer; the old Mitonsoul/Sturla bot-stall is closed; multi-owner hand-off correct).
+**ALL abilities are now bot-initiated** (owner ask 2026-06-24): the move brain adds Theracus CARRY
+(ferry an adjacent ally forward) and Sgt. Drake's GRAPPLE GUN (scale an unclimbable ledge to a
+strike hex) — both gated off a figure mid-step (they replace the whole move), with `aiEngineAction`
+dice seams. The Drop + Grenade were already wired.
 Engine is RNG-free; all dice/seeds injected by the action layer; `generateGlyphs` deterministic
 from the seed (incl. the anchor branch). Projection: the ceremony's public fields
 (`selectedFigureId`/`queue`/`results`) expose only figure ids + d20s (correct — all watch); the
@@ -125,7 +129,8 @@ double-mirror (4p) terrain invariance.
 - **O1:** Explosion/Fire Line/Grenade/etc. destroying Finn or Thorgrim (with the owner's other card
   alive) → a `spirit_placement` opens; Mitonsoul rolling a 1 on Finn → the Spirit after the
   ceremony; a single special destroying **both** Finn and Thorgrim → **both** Spirits placeable.
-- **O2:** a Lodin holder's figure rolling a natural 1 under Mitonsoul survives (once the ruling lands).
+- **O2 (DONE):** a Lodin holder's figure rolling a natural 1 survives every glyph d20 — Wannok 1→2
+  spares the figure on the glyph; Nilrend 1→2 negates an opponent not its own. Tests added.
 - **Coverage gap (independent of a fix):** the fuzzer/playthroughs never run on the new maps with a
   `glyphSeed`, so the anchor-branch generation + AUTO/CHOICE glyphs on mounds aren't fuzzed — add a
   seeded playthrough on Triskelion/Crossroads/Pentad that drives a ceremony to completion.
