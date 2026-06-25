@@ -2095,12 +2095,12 @@ function applyCeremonyRoll(s: HSState, pc: Extract<HSPendingChoice, { kind: 'rol
       pushLog(s, 'glyph', `Resurrection — ${fig ? playerName(s, fig.ownerSeat) : '?'} rolls ${d20}${lodinNote} for ${label} (needs 20) — it stays fallen.`);
     }
   }
-  pc.results.push({ figureId, seat: fig?.ownerSeat ?? pc.seat, d20, outcome });
+  pc.results.push({ figureId, seat: fig?.ownerSeat ?? pc.seat, d20, lodin, outcome });
   setLastRoll(s, {
     title: pc.mode === 'curse' ? 'Glyph of Mitonsoul — Massive Curse' : 'Glyph of Sturla — Resurrection',
     dice: [d20],
     success: outcome !== 'safe',
-    detail: outcome === 'died' ? `${label} is destroyed!` : outcome === 'rose' ? `${label} rises!` : `${label} — ${d20}`,
+    detail: outcome === 'died' ? `${label} is destroyed!` : outcome === 'rose' ? `${label} rises!` : `${label} — ${d20}${lodinNote}`,
   });
   // Drop the rolled figure from the current owner's list; advance past any drained owner.
   pc.queue[0].figureIds = pc.queue[0].figureIds.filter(id => id !== figureId);

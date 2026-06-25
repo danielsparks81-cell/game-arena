@@ -5803,6 +5803,29 @@ describe('Glyph of Mitonsoul — Massive Curse on reveal', () => {
     expect(fig(rolled, FINN).at).toBeNull(); // destroyed; the ceremony then moves to seat 1's figures
     expect(rolled.pendingChoice?.kind === 'roll_ceremony' && rolled.pendingChoice.seat).toBe(1);
   });
+
+  it('Glyph of Lodin saves a figure from the curse (raw 1 + Lodin = 2) and the result carries the +1 for the panel', () => {
+    // Seat 0 = Tarn Vikings (a squad), so one of its figures can HOLD Lodin while another is cursed.
+    let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings', p2: 's1-marro_warriors' }));
+    s = clearExcept(s, TARN(1), TARN(2), MARRO(1));
+    const glyphHex = at(3, 1);   // adjacent to TARN(1) at (3,0)
+    const lodinHex = at(0, 0);
+    s = setGlyphs(s, [{ id: 'mitonsoul', at: glyphHex, faceUp: false }, { id: 'lodin', at: lodinHex, faceUp: true }]);
+    s = place(s, TARN(1), at(3, 0));
+    s = place(s, TARN(2), lodinHex); // a seat-0 figure holds Lodin → seat 0's d20s get +1
+    s = place(s, MARRO(1), at(5, 5));
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: TARN(1), to: glyphHex }));
+    expect(moved.pendingChoice?.kind).toBe('roll_ceremony');
+    // TARN(1) (seat 0) rolls a raw 1 — but Lodin lifts it to 2, so the curse SPARES him.
+    const sel = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_select', figureId: TARN(1) } }));
+    const rolled = unwrap(applyAction(sel, 'p1', { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll', d20: 1 } }));
+    expect(fig(rolled, TARN(1)).at).not.toBeNull(); // raw 1 + Lodin = 2 → SURVIVES (not destroyed)
+    // The result records the raw die AND the Lodin bonus so the panel can render "1+1" → green (safe).
+    const res = rolled.pendingChoice?.kind === 'roll_ceremony'
+      ? rolled.pendingChoice.results.find(r => r.figureId === TARN(1))
+      : undefined;
+    expect(res).toMatchObject({ d20: 1, lodin: 1, outcome: 'safe' });
+  });
 });
 
 describe('audit fixes: soft-lock / waste guards (M1–M3)', () => {

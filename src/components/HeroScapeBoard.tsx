@@ -4340,14 +4340,14 @@ export default function HeroScapeBoard({
           // still-to-roll — so the whole field stays on screen for all to watch until the ceremony
           // ends. Ceremony order: past rollers (all in results), the current roller (some done, some
           // pending), then future rollers (all still in the queue).
-          type Cell = { figureId: string; d20?: number; outcome?: 'died' | 'rose' | 'safe' };
+          type Cell = { figureId: string; d20?: number; lodin?: number; outcome?: 'died' | 'rose' | 'safe' };
           const order: number[] = [];
           const bySeat = new Map<number, Cell[]>();
           const add = (seat: number, cell: Cell) => {
             if (!bySeat.has(seat)) { bySeat.set(seat, []); order.push(seat); }
             bySeat.get(seat)!.push(cell);
           };
-          for (const r of ceremony.results) add(r.seat, { figureId: r.figureId, d20: r.d20, outcome: r.outcome });
+          for (const r of ceremony.results) add(r.seat, { figureId: r.figureId, d20: r.d20, lodin: r.lodin, outcome: r.outcome });
           for (const q of ceremony.queue) for (const fid of q.figureIds) add(q.seat, { figureId: fid });
           return (
             <div className="pointer-events-none absolute inset-x-0 top-2 z-40 flex justify-center px-2">
@@ -4388,9 +4388,9 @@ export default function HeroScapeBoard({
                             const style = rolled
                               ? (c.outcome === 'died'
                                   ? 'border-rose-500/60 bg-rose-950/40 text-rose-200'
-                                  : c.outcome === 'rose'
-                                    ? 'border-emerald-500/60 bg-emerald-950/40 text-emerald-200'
-                                    : 'border-neutral-700 bg-neutral-800/50 text-neutral-400')
+                                  : c.outcome === 'rose' || isCurse
+                                    ? 'border-emerald-500/60 bg-emerald-950/40 text-emerald-200' // rose — or survived the curse → SAFE = green
+                                    : 'border-neutral-700 bg-neutral-800/50 text-neutral-400')   // resurrection: stayed fallen
                               : sel
                                 ? (isCurse ? 'border-rose-400 bg-rose-900/50 text-rose-100 ring-2 ring-rose-400' : 'border-emerald-400 bg-emerald-900/50 text-emerald-100 ring-2 ring-emerald-400')
                                 : 'border-neutral-700 bg-neutral-900/70 text-neutral-300';
@@ -4398,7 +4398,13 @@ export default function HeroScapeBoard({
                               <>
                                 <span className={rolled && c.outcome === 'died' ? 'line-through' : undefined}>{labelOf(c.figureId)}</span>
                                 {rolled ? (
-                                  <span className={'inline-flex h-4 min-w-[1rem] items-center justify-center rounded px-0.5 text-[10px] font-bold tabular-nums ' + (c.d20 === 1 ? 'bg-rose-500 text-white' : c.d20 === 20 ? 'bg-emerald-500 text-white' : 'bg-neutral-700 text-neutral-200')}>{c.d20}</span>
+                                  // The roll's COLOUR follows the OUTCOME (decided on raw + Lodin), so a 1 saved by
+                                  // Lodin reads GREEN, not red. The text shows the raw die + the Lodin bonus ("1+1").
+                                  <span className={'inline-flex h-4 min-w-[1rem] items-center justify-center rounded px-1 text-[10px] font-bold tabular-nums ' + (
+                                    c.outcome === 'died' ? 'bg-rose-500 text-white'
+                                      : c.outcome === 'rose' || isCurse ? 'bg-emerald-500 text-white'
+                                      : 'bg-neutral-700 text-neutral-200'
+                                  )}>{c.d20}{c.lodin ? <span className="font-semibold opacity-90">+{c.lodin}</span> : null}</span>
                                 ) : selectable ? null : (
                                   <span className="text-neutral-600">…</span>
                                 )}

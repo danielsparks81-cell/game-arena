@@ -440,7 +440,7 @@ export type HSPendingChoice =
       at: HexKey;
       queue: { seat: number; figureIds: string[] }[];
       selectedFigureId: string | null;
-      results: { figureId: string; seat: number; d20: number; outcome: 'died' | 'rose' | 'safe' }[];
+      results: { figureId: string; seat: number; d20: number; lodin: number; outcome: 'died' | 'rose' | 'safe' }[];
       risers: string[];
     }
   | {
