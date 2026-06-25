@@ -1620,9 +1620,27 @@ export default function HeroScapeBoard({
     if (lr.seq > lastSeenRollSeqRef.current) {
       lastSeenRollSeqRef.current = lr.seq;
       if (lr.dice.length > 0) { setRollD20(lr); sounds.hsDice(); }
+      // Per-power stings for the d20-overlay powers that have no board VFX (and so no lastEffect
+      // sound). Chomp / Acid already sting off lastEffect, and the glyph rolls off the glyph banner,
+      // so they're deliberately absent here — no double-fire.
       if (lr.title === 'Mind Shackle') sounds.mindFreak(); // Ne-Gok-Sa's seize attempt → "Mind Freak!"
+      else if (lr.title === 'Berserker Charge') sounds.hsBerserk();
+      else if (lr.title === 'Throw') sounds.hsThrow();
+      else if (lr.title === 'The Drop') sounds.hsDrop();
+      else if (lr.title === 'Water Clone') sounds.hsWaterClone();
     }
   }, [state.lastRoll]);
+
+  // Order-marker turn TICK — a soft flip the instant the active turn advances (every player hears it,
+  // since turnSeat/turnNumber live in shared state). First entry into the turn phase is silent (the
+  // ref starts null); leaving the phase keeps the ref so the next round's first turn still ticks.
+  const prevTurnRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (state.phase !== 'playing' || state.subPhase !== 'turns') return;
+    const key = `${state.turnSeat}-${state.turnNumber}`;
+    if (prevTurnRef.current !== null && prevTurnRef.current !== key) sounds.hsTurn();
+    prevTurnRef.current = key;
+  }, [state.phase, state.subPhase, state.turnSeat, state.turnNumber]);
 
   // GLYPH-EVENT FLASH. A TEMPORARY glyph (Mitonsoul / Sturla / Oreld / Kelda) reveals, fires, and is
   // removed in ONE server update — so without this it just blinks out of existence, the only trace a

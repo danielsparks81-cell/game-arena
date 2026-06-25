@@ -197,6 +197,36 @@ export const sounds = {
     { freq: 120, duration: 0.10, type: 'triangle', delay: 0.05 },
     { freq: 55, duration: 0.18, type: 'sine', delay: 0.11 },
   ], 0.09),
+  /** Order marker flips up at turn start — a soft paper/cardboard tick. Kept quiet (heard every turn). */
+  hsTurn: () => play([
+    { freq: 520, duration: 0.035, type: 'triangle' },
+    { freq: 700, duration: 0.05, type: 'sine', delay: 0.03 },
+  ], 0.03),
+  /** Berserker Charge — a low rising battle growl as the Tarn re-arm. */
+  hsBerserk: () => play([
+    { freq: 110, duration: 0.12, type: 'sawtooth' },
+    { freq: 165, duration: 0.14, type: 'sawtooth', delay: 0.07 },
+    { freq: 90, duration: 0.12, type: 'square', delay: 0.14 },
+  ], 0.06),
+  /** Throw — an arcing whoosh as Jotun hurls a figure across the board. */
+  hsThrow: () => play([
+    { freq: 300, duration: 0.06, type: 'sine' },
+    { freq: 640, duration: 0.08, type: 'sine', delay: 0.05 },
+    { freq: 380, duration: 0.10, type: 'triangle', delay: 0.13 },
+  ], 0.05),
+  /** The Drop — a descending parachute whistle into a soft landing thud. */
+  hsDrop: () => play([
+    { freq: 950, duration: 0.10, type: 'sine' },
+    { freq: 520, duration: 0.12, type: 'sine', delay: 0.08 },
+    { freq: 200, duration: 0.10, type: 'triangle', delay: 0.18 },
+    { freq: 85, duration: 0.14, type: 'sine', delay: 0.26 },
+  ], 0.06),
+  /** Water Clone — a watery shimmer as a Warrior re-forms from the river. */
+  hsWaterClone: () => play([
+    { freq: 620, duration: 0.06, type: 'sine' },
+    { freq: 920, duration: 0.07, type: 'sine', delay: 0.05 },
+    { freq: 760, duration: 0.11, type: 'triangle', delay: 0.11 },
+  ], 0.045),
 
   // -------- Spellduel feedback cues --------
   // Each is mapped 1:1 to an SDEvent kind by SpellduelBoard's event-diff effect.
