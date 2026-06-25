@@ -736,6 +736,10 @@ export type HSState = {
    *  `spirit_placement` pendingChoice whenever no other choice is open, so no Spirit is ever
    *  silently lost. Public (deaths are logged); carries no hidden info. */
   pendingSpirits?: { seat: number; spirit: 'attack' | 'defense' | 'move'; cardId: string }[];
+  /** Glyph of Wannok queue — hexes of occupied face-up Wannok glyphs still owed a round-boundary
+   *  curse (the pool now holds 2 of each glyph, so a map can carry TWO Wannoks). Drained one at a
+   *  time like `pendingSpirits`, since only one `pendingChoice` is open at once. */
+  pendingWannoks?: HexKey[];
   /** Whether the active card has already used its once-per-turn "instead of
    *  attacking" Water Clone this turn (slice 4) — set when Marro Water Clones,
    *  so the engine knows the card's attack is consumed. Cleared each turn. */

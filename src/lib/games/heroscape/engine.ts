@@ -1640,11 +1640,27 @@ function endRound(s: HSState): void {
   startNextRound(s);
   if (s.phase !== 'playing') return; // stalemate/last-army may have finished the game
   if (!HS_GLYPHS.wannok?.active) return;
-  const w = (s.glyphs ?? []).find(g => g.id === 'wannok' && g.faceUp);
-  const occupant = w ? s.figures.find(f => f.at != null && figureHexes(f).includes(w.at)) : undefined;
-  if (w && occupant) {
-    s.pendingChoice = { kind: 'glyph_wannok', seat: occupant.ownerSeat, at: w.at, d20: null };
+  // EVERY occupied face-up Wannok curses, one after another (the pool now holds 2 of each glyph, so a
+  // map can carry two Wannoks). Queue their hexes and open them one at a time — only one pendingChoice
+  // is ever open — draining through the same chokepoint as the Spirit queue.
+  s.pendingWannoks = (s.glyphs ?? [])
+    .filter(g => g.id === 'wannok' && g.faceUp && s.figures.some(f => f.at != null && figureHexes(f).includes(g.at)))
+    .map(g => g.at);
+  openNextWannokIfIdle(s);
+}
+/** Open the next queued Wannok curse if one is owed and no choice / Spirit is open. Re-checks the
+ *  glyph is still occupied (a prior curse this boundary could have vacated it). Drained from
+ *  `drainSpirits` after every resolve_choice, so two Wannoks resolve back-to-back. */
+function openNextWannokIfIdle(s: HSState): void {
+  if (s.phase !== 'playing' || s.pendingChoice || (s.pendingSpirits?.length ?? 0) > 0) return;
+  while (s.pendingWannoks && s.pendingWannoks.length > 0) {
+    const at = s.pendingWannoks.shift()!;
+    const g = (s.glyphs ?? []).find(x => x.at === at && x.id === 'wannok' && x.faceUp);
+    const occupant = g ? s.figures.find(f => f.at != null && figureHexes(f).includes(at)) : undefined;
+    if (!g || !occupant) continue; // glyph gone or vacated by an earlier curse — skip
+    s.pendingChoice = { kind: 'glyph_wannok', seat: occupant.ownerSeat, at, d20: null };
     pushLog(s, 'glyph', `Glyph of Wannok — ${playerName(s, occupant.ownerSeat)} rolls its curse before order markers.`);
+    return;
   }
 }
 
@@ -1905,7 +1921,7 @@ function raelinAuraReaches(state: HSState, defender: Figure): boolean {
     if (raelin.id === defender.id) return false; // does not affect Raelin herself
     if (cardDefFor(state, raelin).id !== RAELIN_CARD_ID) return false;
     if (isCardNegated(state, raelin.cardUid)) return false; // Nilrend: a negated Raelin projects no aura
-    // Within 6 range-spaces (around gaps, elevation-free). Both `at`s are guarded
+    // Within RAELIN_AURA_RANGE (4) clear-sight spaces (RotV printing). Both `at`s are guarded
     // non-null above (the `!` is just for the closure, which widens the param).
     const dist = rangeDistance(map.cells, raelin.at!, defender.at!);
     if (dist == null || dist > RAELIN_AURA_RANGE) return false;
@@ -4545,7 +4561,7 @@ function openNextSpiritIfIdle(s: HSState): void {
  *  champions felled together, gets its Spirit prompt the moment the prior sequence clears. A no-op
  *  on an error result or when nothing is queued. */
 function drainSpirits(res: HSResult): HSResult {
-  if (!('error' in res)) openNextSpiritIfIdle(res);
+  if (!('error' in res)) { openNextSpiritIfIdle(res); openNextWannokIfIdle(res); } // Spirits first, then the next queued Wannok curse
   return res;
 }
 
@@ -6064,7 +6080,9 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
       }
       // 2+ — the controller must name an opponent (next step). If there are no opponents to
       // curse (shouldn't happen in a live game), the curse simply fizzles.
-      const hasOpponent = livingSeats(s).some(st => teamOfSeat(s, st) !== teamOfSeat(s, pc.seat));
+      // An opponent must have an ON-BOARD figure to wound — a seat alive only on reserve Airborne
+      // can't be cursed, and opening its victim choice would be unresolvable (a bot victim → frozen room).
+      const hasOpponent = livingSeats(s).some(st => teamOfSeat(s, st) !== teamOfSeat(s, pc.seat) && s.figures.some(f => f.ownerSeat === st && f.at != null));
       if (!hasOpponent) {
         delete s.pendingChoice;
         pushLog(s, 'glyph', `Wannok — ${playerName(s, pc.seat)} rolls ${rollNote}, but there is no opponent to curse.`);
@@ -6077,7 +6095,7 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     // STEP 2 — the controller names an opponent → open that opponent's victim choice.
     if (choice.opponentSeat == null) return { error: 'Choose an opponent' };
     if (teamOfSeat(state, choice.opponentSeat) === teamOfSeat(state, seat)) return { error: 'Choose an OPPONENT, not an ally' };
-    if (!livingSeats(state).includes(choice.opponentSeat)) return { error: 'That opponent has no figures left' };
+    if (!state.figures.some(f => f.ownerSeat === choice.opponentSeat && f.at != null)) return { error: 'That opponent has no figure on the board to wound' };
     const s = clone(state);
     s.pendingChoice = { kind: 'glyph_wannok_victim', seat: choice.opponentSeat, at: pc.at, controllerSeat: seat };
     pushLog(s, 'glyph', `Wannok — ${playerName(s, choice.opponentSeat)} must wound one of their own figures.`);
@@ -6504,7 +6522,9 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     return { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: true } };
   }
   if (pc.kind === 'water_clone_place') {
-    const hex = pc.placements[0]?.options[0];
+    // Resolve the CURRENT placement (the engine indexes by `chosen.length`), and pick an option not
+    // already taken — reading placements[0] dropped every clone after the first.
+    const hex = pc.placements[pc.chosen.length]?.options.find(h => !pc.chosen.includes(h));
     if (hex) return { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex } };
   }
   // Glyph of Erland — drag the most valuable ENEMY single-hex figure next to the summoner
@@ -6552,7 +6572,7 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
   // engine auto-resolves without a choice).
   if (pc.kind === 'glyph_wannok') {
     if (pc.d20 == null || pc.d20 === 1) return null;
-    const opp = livingSeats(state).find(st => teamOfSeat(state, st) !== teamOfSeat(state, seat));
+    const opp = livingSeats(state).find(st => teamOfSeat(state, st) !== teamOfSeat(state, seat) && state.figures.some(f => f.ownerSeat === st && f.at != null));
     if (opp == null) return null;
     return { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', opponentSeat: opp } };
   }

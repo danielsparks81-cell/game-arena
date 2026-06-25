@@ -816,7 +816,7 @@ export const ABILITIES: Record<string, Ability> = {
   'Thorian Speed': { kind: 'passive', text: "Opponents' figures must be adjacent to this figure to attack it with a normal attack." },
   'Grapple Gun 25': { kind: 'active', text: "Instead of its normal move, this figure may move only one space. This space may be up to 25 levels higher. All engagement rules still apply." },
   'Whirlwind Assault': { kind: 'active', text: "This figure may attack any or all figures adjacent to it. Roll each attack separately." },
-  'Extended Defensive Aura': { kind: 'passive', text: "All figures you control within 6 clear sight spaces of this figure add 1 to their defense dice. Does not affect this figure." },
+  'Extended Defensive Aura': { kind: 'passive', text: "All figures you control within 4 clear sight spaces of this figure add 2 to their defense dice. Does not affect this figure." },
   'Zettian Targeting': { kind: 'passive', text: "When attacking, if your second figure from this card attacks the same figure as the first, add one attack die to the second's attack." },
   'Mind Shackle 20': { kind: 'active', text: "After moving and before attacking, you may choose any unique figure adjacent to this figure. Roll the 20-sided die. On a 20, take control of that figure and its Army Card (and all figures on it); remove any Order Markers on that card. Control is retained even if this figure is destroyed." },
   'Water Clone': { kind: 'active', text: "Instead of attacking, roll the 20-sided die for each of this card's figures in play. On a 15 or higher, place a previously destroyed figure from this card on a same-level space adjacent to that figure. A figure on a water space needs a 10 or higher. You may only Water Clone after you move." },

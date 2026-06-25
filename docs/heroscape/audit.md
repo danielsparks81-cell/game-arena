@@ -1,3 +1,31 @@
+# HeroScape engine audit — 2026-06-25 (latest pass)
+
+Five-bucket re-audit (one read-only subagent each, then self-verification of the critical claims) run
+after this session's batch: **AI walks through friendlies**, **Star Field water**, **The Drop
+human-wait fix**, **2-of-every-glyph pool**, **player colours from profile presets**, and the **roll-
+ceremony green/Lodin display**. Fuzzer + full playthroughs green; 546 tests pass.
+
+**Headline:** the engine remains faithful and crash-free. The doubled glyph pool surfaced **one real
+bug** (now fixed) and a freeze edge (fixed); the AI-through-friendlies and Star Field water both trace
+clean (no deadlock, no sealed paths); projection has **no leaks** (glyphSeed still stripped, accent_color
+is not secret); RNG stays engine-free.
+
+## Fixed in THIS pass (shipped)
+1. **🔴 Duplicate Wannok dropped a curse — FIXED.** `endRound` used `.find(g => g.id==='wannok' && faceUp)` — with two Wannoks on the board (now possible) only one fired, and a *vacated* first Wannok suppressed an *occupied* second entirely (nothing fired). Two subagents confirmed independently. Fix: a Wannok QUEUE (`HSState.pendingWannoks`) collected in `endRound` and drained one-at-a-time through `openNextWannokIfIdle`, called from `drainSpirits` after every `resolve_choice` (Spirits first, then the next curse). Both Wannoks now curse back-to-back. Regression test added (engine.test.ts "TWO occupied Wannok glyphs BOTH curse").
+2. **🟠 Wannok could open an unresolvable victim choice → frozen room — FIXED.** The controller could name an opponent alive only on reserve Airborne (no on-board figure); a bot victim then had nothing to wound → `aiResolveChoice` null → host no-op freeze (Wannok fires at the round boundary, outside the place_markers self-heal). Fix: step-1 `hasOpponent`, step-2 validation, and the AI controller pick all now require the opponent to have an **on-board** figure (else the curse fizzles). Regression test added ("Wannok 2+ FIZZLES when the only opponent is reserve-only").
+3. **🟠 AI Water Clone dropped every clone after the first — FIXED.** `aiResolveChoice` read `placements[0].options[0]`; the engine indexes by `chosen.length`, so the 2nd+ clone was rejected and the bot's turn ended early. Fix: `placements[pc.chosen.length]?.options.find(h => !pc.chosen.includes(h))`.
+4. **🟡 Raelin power text wrong printing — FIXED.** The hover text advertised the SotM Raelin (6 spaces / +1) while the engine enforces RotV (4 spaces / +2). Display text + a stale comment corrected to match the enforced 4/+2.
+
+## Ranked OPEN issues (deferred — documented)
+| # | Sev | Where | Issue | Why deferred |
+|---|-----|-------|-------|--------------|
+| N1 | 🟠 | actions.ts initiative + draft re-roll (~1745/1772) | **Tie re-roll re-rolls ALL living seats, not just the tied ones** (rulebook: only tying players re-roll). A previously-low seat can roll high on the re-roll and steal initiative/first-pick. **3+ players only** (1-v-1 is equivalent). Still uniformly random — fairness drift, not a crash. | Touches both the actions re-roll loop and the engine's all-seats-per-attempt validation; pre-existing; no live game-breaker. |
+| N2 | 🟡 | engine.ts `aiMoveDistField` (~6293) | The AI distance field treats a tall **descent** (`abs(Δh) ≥ Height`) as an impassable wall, so the bot avoids cliffs it could legally jump down. Suboptimal pathing only — `legalStepHexes` still enforces real legality; can't freeze or emit an illegal move. | Heuristic, not a rules bug. Fix = only block **upward** steps. |
+| N3 | 🟡 | engine.ts `applyGlyphOnStop` (~3044) | A 2-hex figure stopping on TWO choice-glyphs at once (now possible with duplicates, e.g. two Mitonsoul under one peanut) opens the first; the second is revealed but its effect never re-fires. Needs anchor-map geometry + a 2-hex spanner — narrow. | Same queue machinery the Wannok fix uses could extend here; low reach. |
+| N4 | 🟡 | engine.ts Valda `effectiveMove` (~3678) / Stealth Dodge vs specials / `isSmallOrMedium` default | Valda checks only the lead hex (2-hex tail-on-glyph edge); Stealth Dodge isn't applied vs non-adjacent SPECIAL attacks (defensible ruling); unsized base cards default "small/medium" (latent — only a future large/huge base card without `size`). | Edge/ruling/latent; none reachable in normal play today. |
+
+---
+
 # HeroScape engine audit — 2026-06-24
 
 Full end-to-end audit (five system buckets, one read-only subagent each, then synthesis +

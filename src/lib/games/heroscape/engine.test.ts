@@ -3227,6 +3227,42 @@ describe('O2 — Glyph of Lodin lifts EVERY d20 (incl. the wave-3 choice glyphs)
     const done = unwrap(applyAction(rolled, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_nilrend', cardUid: marroCard.uid } }));
     expect(done.negatedCardUids).toContain(marroCard.uid);
   });
+
+  it('TWO occupied Wannok glyphs BOTH curse — the second opens after the first resolves (audit 2026-06-25: the 2-of-each pool can roll two Wannoks)', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, TARN(1), MARRO(1));
+    const w1 = at(2, 2), w2 = at(5, 5);
+    s = place(s, FINN, w1);      // seat 0 controls Wannok #1
+    s = place(s, TARN(1), at(1, 0));
+    s = place(s, MARRO(1), w2);  // seat 1 controls Wannok #2
+    s = setGlyphs(s, [{ id: 'wannok', at: w1, faceUp: true }, { id: 'wannok', at: w2, faceUp: true }]);
+    // Mirror what endRound builds at the round boundary: BOTH occupied Wannoks queued, the first open.
+    s = { ...s, pendingWannoks: [w2], pendingChoice: { kind: 'glyph_wannok', seat: 0, at: w1, d20: null } };
+    // Wannok #1 rolls a 1 → Finn (on it) is wounded; the SECOND Wannok must then OPEN (not silently dropped).
+    const after = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: 1 } }));
+    expect(fig(after, FINN).wounds).toBe(1); // first curse landed
+    expect(after.pendingChoice?.kind).toBe('glyph_wannok'); // the second Wannok opened
+    if (after.pendingChoice?.kind === 'glyph_wannok') {
+      expect(after.pendingChoice.seat).toBe(1); // seat 1 controls Wannok #2
+      expect(after.pendingChoice.at).toBe(w2);
+    }
+    expect(after.pendingWannoks ?? []).toEqual([]); // queue drained
+  });
+
+  it('Wannok 2+ FIZZLES when the only opponent is alive on reserve Airborne ONLY — no unresolvable victim choice (audit 2026-06-25)', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, MARRO(1));
+    const wannokHex = at(2, 2);
+    s = place(s, FINN, wannokHex); // seat 0 controls Wannok
+    // seat 1 is "alive" only on reserve (no on-board figure) — it can't be cursed; opening its victim
+    // choice would be unresolvable (a bot victim → frozen room).
+    s = place(s, MARRO(1), null);
+    s = { ...s, figures: s.figures.map(f => (f.id === MARRO(1) ? { ...f, reserve: true } : f)) };
+    s = setGlyphs(s, [{ id: 'wannok', at: wannokHex, faceUp: true }]);
+    s = { ...s, pendingChoice: { kind: 'glyph_wannok', seat: 0, at: wannokHex, d20: null } };
+    const after = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: 12 } }));
+    expect(after.pendingChoice).toBeUndefined(); // fizzled — no victim choice opened
+  });
 });
 
 describe("O3 — Glyph of Nilrend strips a card's Warrior's-Spirit stat bonus", () => {
