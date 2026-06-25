@@ -4552,14 +4552,10 @@ export default function HeroScapeBoard({
         {/* (The placement in-hand tray now lives in the RIGHT RAIL's Deploy panel so the
             board owns the whole centre — see the deploy section above.) */}
 
-        {/* (Removed the bottom status line — "Order marker N revealed…" / the per-figure move hint.
-            It was an in-flow shrink-0 element that stole height from the board only on your turn,
-            making the board jump in size. The card panel + the amber action strip already guide.) */}
-        {placing && me && !iAmReady && (
-          <div className="shrink-0 text-center text-[11px] text-neutral-500">
-            Pick a chip on your army strip, then click a card to schedule that turn.
-          </div>
-        )}
+        {/* NO status/instruction lines below the board — every one of them was an in-flow
+            element that stole height from the map (and got clipped off-screen anyway), making the
+            board jump size between phases. The order-marker chips, the card panel, and the right-rail
+            controls already carry every prompt. Do not re-add a bottom hint here. */}
 
         {/* (Your army hand is rendered above, in the unified player-panel loop — pinned to your
             slot-0 corner (bottom-left) ON the board, symmetric with the opponent panels. It is no
