@@ -2314,14 +2314,24 @@ describe('slice 3: height advantage', () => {
 // --- elevation-aware LOS through the engine --------------------------------
 
 describe('slice 3: elevation LOS (The Knoll)', () => {
-  it('the central rock hill blocks a ground-level shot across it', () => {
-    // A Marro on the west shoulder (1,3) G2 and Finn on the east shoulder
-    // (7,3) G2 — both height 2, with the R3/R4 summit sitting on the line
-    // between them. The tall column out-tops the height-3 eye line and blocks.
+  it('height-aware sight: a figure SEES over a hill it towers over, but a TALL wall still blocks', () => {
+    // A Marro on the west shoulder (1,3) G2 and Finn on the east shoulder (7,3) G2 — both on height-2
+    // land, with the R3/R4 summit (max height 4) on the line between them. A Marro is HEIGHT 4, so
+    // its EYE sits at 2+4 = 6 — two ABOVE the summit — and it sees clean across. (The old ground-eye
+    // model wrongly pinned its eye at height-3 and reported "blocked" — the very "I tower over that
+    // hill but can't see past it" bug this rule fixes.)
     let s = inTurnsOn('the_knoll', 'p2', { p2: 's1-marro_warriors' });
-    s = place(s, MARRO(1), at(1, 3)); // G2 (height 2)
-    s = place(s, FINN, at(7, 3)); // G2 (height 2)
-    expect(legalTargets(s, MARRO(1))).not.toContain(FINN);
+    s = place(s, MARRO(1), at(1, 3));
+    s = place(s, FINN, at(7, 3));
+    expect(legalTargets(s, MARRO(1))).toContain(FINN);
+    // But raise a mid hex into a TALL WALL (height 15 — over any figure's eye) and sight is blocked.
+    const cells = MAPS[s.mapId].cells;
+    const mid = at(4, 3);
+    const origH = cells[mid].height;
+    cells[mid].height = 15;
+    const blocked = !legalTargets(s, MARRO(1)).includes(FINN);
+    cells[mid].height = origH; // restore (MAPS is shared across tests)
+    expect(blocked).toBe(true);
   });
 
   it('a figure on the summit sees a figure on the open skirt below', () => {

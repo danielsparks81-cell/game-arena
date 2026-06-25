@@ -1727,6 +1727,19 @@ function eyeHeightOfKey(state: HSState, key: HexKey): number {
   return heightOfKey(state, key) + 1;
 }
 
+/** The single HEIGHT-AWARE line-of-sight eye rule. A figure SEES from its OWN height: the sightline
+ *  leaves its hex at `terrain + the figure's Height stat`, while every other hex (the target, the
+ *  terrain in between) uses the default ground eye (`terrain + 1`). So a figure TALLER than the land
+ *  or wall between it and a foe sees right over it, while a height-15 wall (taller than any figure)
+ *  still blocks everyone. Pass the returned `eyeOf` into hasLineOfSight3D for any attack/range check
+ *  so normal attacks, ranged specials (Queglix/Ice Shard), Fire Line, Explosion, throws, auras and
+ *  the range-highlight all share ONE rule (no more "I tower over that hill but can't see past it"). */
+function attackerEyeFn(state: HSState, attacker: Figure): (k: HexKey) => number {
+  const atkH = cardDefFor(state, attacker).height;
+  const aHexes = figureHexes(attacker);
+  return (k: HexKey) => (aHexes.includes(k) ? heightOfKey(state, k) + atkH : eyeHeightOfKey(state, k));
+}
+
 // ============================================================================
 // DOUBLE-SPACE (2-hex) figure helpers — Mimring & Grimnak occupy 2 hexes.
 // `figureHexes` is the single source of a figure's FOOTPRINT: a 1-hex figure
@@ -3279,7 +3292,7 @@ function targetBlockReason(
   // spaces, to EITHER of the target's — the owner gets the better end (04-combat).
   // Figures do NOT block line of sight — only terrain does (on-map obstacles may
   // come later) — so the tracer is given no figure blockers.
-  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  const eye = attackerEyeFn(state, attacker); // height-aware: a taller figure sees over low land/walls
   let inRange = false;
   for (const ak of figureHexes(attacker)) {
     for (const tk of figureHexes(target)) {
@@ -3706,7 +3719,7 @@ export function shootBlockedHexes(state: HSState, figureId: string): Set<HexKey>
   if (range <= 1) return out;
   const foot = figureHexes(fig);
   const footSet = new Set(foot);
-  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  const eye = attackerEyeFn(state, fig); // height-aware: a taller figure sees over low land/walls
   for (const k of rangeFlood(map.cells, foot, range)) {
     if (footSet.has(k)) continue; // the figure's own hexes are always "clear"
     if (!foot.some(jk => hasLineOfSight3D(map.cells, jk, k, [], eye))) out.add(k);
@@ -5014,7 +5027,7 @@ function withinRangeLos(state: HSState, attacker: Figure, target: Figure, range:
   }
   // Figures do NOT block line of sight — only terrain does (on-map obstacles may
   // come later) — so the tracer is given no figure blockers.
-  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  const eye = attackerEyeFn(state, attacker); // height-aware: a taller figure sees over low land/walls
   for (const ak of figureHexes(attacker)) {
     for (const tk of figureHexes(target)) {
       const dist = rangeDistance(map.cells, ak, tk);
@@ -5449,7 +5462,7 @@ export function throwLandingHexes(state: HSState, attackerId: string, targetId: 
     occupied.push(...figureHexes(f));
   }
   const occSet = new Set(occupied);
-  const eye = (k: HexKey) => eyeHeightOfKey(state, k);
+  const eye = attackerEyeFn(state, jotun); // height-aware: a taller figure sees over low land/walls
   const out: HexKey[] = [];
   for (const key of Object.keys(map.cells)) {
     if (occSet.has(key)) continue; // must be empty
