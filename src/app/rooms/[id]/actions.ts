@@ -98,6 +98,7 @@ import {
   stepConsequences as hsStepConsequences,
   getActiveCardUid as hsGetActiveCardUid,
   HS_GLYPHS,
+  canTheDrop as hsCanTheDrop,
   COMBAT_DIE_FACES as HS_COMBAT_DIE_FACES,
   type HSAction,
   type HSState,
@@ -1652,11 +1653,15 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       const stuck = (pcSeat != null && state.players.find(p => p.seat === pcSeat)?.bot)
         ? state.players.find(p => p.seat === pcSeat)
         : state.players.find(p => p.bot && !ms.includes(p.seat));
-      if (pcIsHuman) {
-        // A HUMAN owns an open choice here — a Glyph of Wannok curse resolves at the round boundary,
-        // BEFORE order markers, so its "pick a player" prompt lands in this place-markers phase. The
-        // bots correctly WAIT for that human; NEVER clobber their pending to push markers (that wiped
-        // the curse pick before the player could act). This ai_step is a no-op; the human resolves it.
+      // A HUMAN can still roll The Drop this round — the place-markers gate blocks EVERYONE until they
+      // roll, and the bots must WAIT, never force markers by clobbering airborneDropRound (that consumed
+      // the human's Drop before they could click — the flash-then-gone bug, owner 2026-06-25).
+      const humanCanStillDrop = state.players.some(p => !p.bot && hsCanTheDrop(state, p.seat));
+      if (pcIsHuman || humanCanStillDrop) {
+        // A HUMAN owns an open choice here (a Glyph of Wannok curse resolves at the round boundary,
+        // BEFORE order markers, so its "pick a player" prompt lands in this place-markers phase) OR
+        // still owes The Drop. The bots WAIT; NEVER clobber their pending / the Drop to push markers.
+        // This ai_step is a no-op; the human resolves it.
         next = state;
       } else if (stuck?.bot) {
         const cleaned: HSState = JSON.parse(JSON.stringify(state));

@@ -703,9 +703,12 @@ function shuffleSeeded<T>(arr: readonly T[], rnd: () => number): T[] {
   }
   return a;
 }
-const GLYPH_POOL: HSGlyphId[] = (Object.keys(HS_GLYPHS) as HSGlyphId[]).filter(
-  id => HS_GLYPHS[id].active && id !== 'brandar',
-);
+// TWO copies of every active glyph in the draw pool (owner 2026-06-25: "2 of every glyph in the pool
+// … so we can see some crazy things like 2 curse 2 range attack") — a map can now roll DUPLICATES.
+const GLYPH_POOL: HSGlyphId[] = (() => {
+  const ids = (Object.keys(HS_GLYPHS) as HSGlyphId[]).filter(id => HS_GLYPHS[id].active && id !== 'brandar');
+  return [...ids, ...ids];
+})();
 /** Glyph count for a map: ~1 per 60 hexes, clamped to [2, 7]. */
 export function glyphCountForMap(cellCount: number): number {
   return Math.min(7, Math.max(2, Math.round(cellCount / 60)));
@@ -7205,6 +7208,11 @@ export function aiPendingSeat(state: HSState): number | null {
   }
   if (state.phase !== 'playing') return null;
   if (state.subPhase === 'place_markers') {
+    // While a HUMAN still owes The Drop (the place-markers gate blocks EVERYONE until the Airborne seat
+    // rolls), the bots can't act — return null so the host's driver WAITS for the human instead of
+    // firing a blocked marker-place whose recovery used to consume the human's Drop (owner 2026-06-25:
+    // "Roll for drop showed for a brief moment then went away with no chance to bring them in").
+    if (state.players.some(p => !p.bot && canTheDrop(state, p.seat))) return null;
     const ready = state.markersReady ?? [];
     const living = livingSeats(state);
     return state.players.find(p => p.bot && living.includes(p.seat) && !ready.includes(p.seat))?.seat ?? null;

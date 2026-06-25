@@ -17,6 +17,7 @@ import {
   effectiveDefenseDice,
   carryPassengers,
   aiNextAction,
+  aiPendingSeat,
   iceShardTargets,
   queglixDiceLeft,
   queglixTargets,
@@ -664,6 +665,19 @@ describe('Airborne Elite — The Drop', () => {
     expect(legal).not.toContain(enemyHex); // occupied
     for (const nb of neighborKeys(enemyHex)) expect(legal).not.toContain(nb); // adjacent to a figure
     expect(legal.length).toBeGreaterThan(0);
+  });
+
+  it('a HUMAN who still owes The Drop makes the AI driver WAIT — bots never force markers and consume it (owner 2026-06-25)', () => {
+    const { s } = dropStage();
+    s.players.find(p => p.seat === 1)!.bot = true; // seat 1 is a BOT; seat 0 (human) owns the reserve Airborne
+    expect(canTheDrop(s, 0)).toBe(true); // the human can still roll The Drop this round
+    // The place-markers gate blocks the bot too, so its ai_step would error — the driver must therefore
+    // report NOTHING pending (wait for the human) rather than let the recovery clobber airborneDropRound.
+    expect(aiPendingSeat(s)).toBeNull();
+    // Once the human has rolled (a miss still sets airborneDropRound), the gate lifts and the bot is free.
+    const rolled = unwrap(applyAction(s, 'p1', { kind: 'the_drop', d20: 3 }));
+    expect(canTheDrop(rolled, 0)).toBe(false);
+    expect(aiPendingSeat(rolled)).toBe(1); // now the bot is the pending actor (place its order markers)
   });
 
   it('a roll below 13 keeps them in reserve, opens NO choice, and spends the round’s roll', () => {

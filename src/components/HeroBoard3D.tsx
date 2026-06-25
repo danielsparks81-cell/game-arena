@@ -831,14 +831,32 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   }, [it.viewerStartHexes, cx, cz]);
 
   const cardOf = (uid: string) => state.cards.find(c => c.uid === uid)?.cardId ?? '';
+  // Each HUMAN keeps their website colour (accent_color); bots / no-preset seats take the palette colour
+  // FARTHEST from those already used (no collisions, and a player never loses their colour to the AI —
+  // owner 2026-06-25). Teams share one team colour. Mirrors HeroScapeBoard.seatColorMap.
+  const seatColorMap = useMemo(() => {
+    const isHex = (c?: string): c is string => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
+    const dist = (a: string, b: string) => {
+      const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
+      return Math.abs((x >> 16 & 255) - (y >> 16 & 255)) + Math.abs((x >> 8 & 255) - (y >> 8 & 255)) + Math.abs((x & 255) - (y & 255));
+    };
+    const map = new Map<number, string>();
+    const taken: string[] = [];
+    for (const p of state.players) {
+      if (p.team === undefined && p.accent_color && !p.bot) { map.set(p.seat, p.accent_color); if (isHex(p.accent_color)) taken.push(p.accent_color); }
+    }
+    for (const p of [...state.players].sort((a, b) => a.seat - b.seat)) {
+      if (map.has(p.seat) || p.team !== undefined) continue;
+      let best = SEAT_COLORS[0], bd = -1;
+      for (const c of SEAT_COLORS) { const d = taken.length ? Math.min(...taken.map(t => dist(t, c))) : Infinity; if (d > bd) { bd = d; best = c; } }
+      map.set(p.seat, best); taken.push(best);
+    }
+    return map;
+  }, [state.players]);
   const seatColor = (seat: number) => {
-    const idx = state.players.findIndex(p => p.seat === seat);
-    // Team games: allies share their team colour; free-for-all keeps seat colours.
-    const team = state.players[idx]?.team;
-    if (team !== undefined) return TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
-    // Fixed primary/secondary palette BY SEAT — profile accent_color is NOT used here (owner 2026-06-25),
-    // so a rival's chosen colour can never sit on top of yours on the board.
-    return SEAT_COLORS[idx] ?? '#a3a3a3';
+    const p = state.players.find(x => x.seat === seat);
+    if (p?.team !== undefined) return TEAM_COLORS[(p.team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
+    return seatColorMap.get(seat) ?? SEAT_COLORS[state.players.findIndex(x => x.seat === seat)] ?? '#a3a3a3';
   };
   // Highlight priority for a tile: Drop picks/targets, then the Grapple climb set,
   // then the BRIGHT one-tap step set, then the FAINT remaining-Move range backdrop,

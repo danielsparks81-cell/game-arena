@@ -1377,11 +1377,6 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
           );
         })}
       </div>
-      {rolled && (
-        <div className="mt-0.5 text-[10px] text-neutral-500">
-          👑 highest roll acts first — then play passes <span className="text-neutral-400">left around the table</span> (by seat, not by roll)
-        </div>
-      )}
     </div>
   );
 }
@@ -1892,15 +1887,34 @@ export default function HeroScapeBoard({
     state.turnAttacks.length === 1 &&
     !pending;
 
+  // Each HUMAN keeps the colour they picked on the website (accent_color); every OTHER seat — bots, or
+  // humans with no preset — takes the palette colour FARTHEST from those already used, so colours never
+  // collide and a player never loses their preset to the AI (owner 2026-06-25: "go with their colour
+  // first — makes no sense to change Makros from blue to red to give blue to the AI"). Teams still share
+  // one team colour so sides read at a glance.
+  const seatColorMap = useMemo(() => {
+    const isHex = (c?: string): c is string => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
+    const dist = (a: string, b: string) => {
+      const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
+      return Math.abs((x >> 16 & 255) - (y >> 16 & 255)) + Math.abs((x >> 8 & 255) - (y >> 8 & 255)) + Math.abs((x & 255) - (y & 255));
+    };
+    const map = new Map<number, string>();
+    const taken: string[] = [];
+    for (const p of state.players) {
+      if (p.team === undefined && p.accent_color && !p.bot) { map.set(p.seat, p.accent_color); if (isHex(p.accent_color)) taken.push(p.accent_color); }
+    }
+    for (const p of [...state.players].sort((a, b) => a.seat - b.seat)) {
+      if (map.has(p.seat) || p.team !== undefined) continue;
+      let best = SEAT_COLORS[0], bd = -1;
+      for (const c of SEAT_COLORS) { const d = taken.length ? Math.min(...taken.map(t => dist(t, c))) : Infinity; if (d > bd) { bd = d; best = c; } }
+      map.set(p.seat, best); taken.push(best);
+    }
+    return map;
+  }, [state.players]);
   const seatColor = (seat: number) => {
-    const idx = state.players.findIndex(p => p.seat === seat);
-    // In a team game, ALLIES share their team colour so sides read at a glance;
-    // free-for-all keeps each seat's own colour.
-    const team = state.players[idx]?.team;
-    if (team !== undefined) return teamColorById(team);
-    // HeroScape sticks to the fixed primary/secondary palette BY SEAT (owner 2026-06-25) — a player's
-    // arbitrary profile accent_color could land near a rival's, so it does NOT colour the board here.
-    return SEAT_COLORS[idx] ?? '#a3a3a3';
+    const p = state.players.find(x => x.seat === seat);
+    if (p?.team !== undefined) return teamColorById(p.team);
+    return seatColorMap.get(seat) ?? SEAT_COLORS[state.players.findIndex(x => x.seat === seat)] ?? '#a3a3a3';
   };
 
   const selected = state.figures.find(f => f.id === selectedId) ?? null;
