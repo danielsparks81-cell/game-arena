@@ -377,6 +377,28 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     power: 'live', // slice 7: Stealth Dodge
     stealthDodge: true, // slice 7: one shield blocks all vs a non-adjacent attacker
   },
+  otonashi: {
+    id: 'otonashi',
+    name: 'Otonashi',
+    shortName: 'Otonashi',
+    type: 'hero',
+    figures: 1,
+    life: 1,
+    move: 6,
+    range: 1,
+    attack: 2,
+    defense: 3,
+    height: 4, // Medium 4
+    points: 10,
+    letter: 'O',
+    species: 'Human',
+    unitClass: 'Ninja',
+    power: 'live',
+    ghostWalk: true,        // PHANTOM WALK — moves through all figures…
+    disengage: true,        // …and is never attacked when leaving an engagement
+    attackTheWild: 2,       // ATTACK THE WILD 2 — +2 dice vs a Wild-personality figure
+    trickySpeed: 4,         // TRICKY SPEED 4 — +4 move if starting adjacent to a friendly Tricky figure
+  },
   // ---- Einar ----
   izumi_samurai: {
     id: 'izumi_samurai',
@@ -515,7 +537,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
 export const HS_DRAFT_POOL: readonly string[] = [
   'tarn_vikings', 'finn', 'thorgrim', 'eldgrim', 'airborne_elite', 'drake', 'raelin',
   'zettian_guards', 'ne_gok_sa', 'marro_warriors', 'deathwalker_9000', 'mimring',
-  'grimnak', 'syvarris', 'agent_carr', 'krav_maga', 'izumi_samurai',
+  'grimnak', 'syvarris', 'agent_carr', 'krav_maga', 'otonashi', 'izumi_samurai',
   'theracus', 'jotun', 'braxas', 'nilfheim', 'major_q9',
 ];
 
@@ -540,6 +562,7 @@ export const CARD_IDENTITY: Record<string, { general: string; personality: strin
   syvarris: { general: 'Ullar', personality: 'Precise', world: 'Feylund' },
   agent_carr: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
   krav_maga: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
+  otonashi: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
   izumi_samurai: { general: 'Einar', personality: 'Disciplined', world: 'Earth' },
   nilfheim: { general: 'Jandar', personality: 'Ferocious', world: 'Icaria' },
   braxas: { general: 'Vydar', personality: 'Wild', world: 'Icaria' },
@@ -836,6 +859,9 @@ export const ABILITIES: Record<string, Ability> = {
   'Queglix Gun Special Attack': { kind: 'active', text: "Range 8. Attack 1, 2 or 3. This figure starts each turn with 9 attack dice. Choose any figure within range and attack by rolling 1, 2 or 3 attack dice. This figure may keep making special attacks with 1, 2 or 3 attack dice until it has rolled all 9 attack dice. It may target the same or different figures with each attack." },
   'Wild Swing Special Attack': { kind: 'active', text: "Range 1. Attack 4. Choose a target; every figure adjacent to it is also hit. Roll the attack once for all affected figures, then each rolls defense separately. Immune to its own Wild Swing." },
   'Throw 14': { kind: 'active', text: "After moving and before attacking, choose an adjacent small or medium non-flying figure and roll the 20-sided die. On 14 or higher, you may throw it to any empty space within 4 spaces and in clear sight. Roll again for damage: on 11 or higher the thrown figure takes 2 wounds — but skip the damage roll if it lands on water or higher than this figure's height. The thrown figure takes no leaving-engagement attacks." },
+  'Phantom Walk': { kind: 'passive', text: "Otonashi can move through all figures and is never attacked when leaving an engagement." },
+  'Attack the Wild 2': { kind: 'passive', text: "When attacking a figure who has a Wild personality, Otonashi rolls 2 additional attack dice." },
+  'Tricky Speed 4': { kind: 'passive', text: "If Otonashi starts her turn adjacent to any figure you control with a Tricky personality, she may move 4 additional spaces." },
 };
 
 // Which abilities each card has, in printed order. References the glossary keys.
@@ -860,6 +886,7 @@ export const CARD_ABILITIES: Record<string, string[]> = {
   // Vydar
   agent_carr: ['Ghost Walk', 'Sword of Reckoning 4', 'Disengage'],
   krav_maga: ['Stealth Dodge'],
+  otonashi: ['Phantom Walk', 'Attack the Wild 2', 'Tricky Speed 4'],
   // Einar
   izumi_samurai: ['Counter Strike'],
   // Big Heroes

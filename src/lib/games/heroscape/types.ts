@@ -127,6 +127,12 @@ export type HSCardDef = {
    *  ADJACENT attacker (not another Samurai with this same power), excess shields
    *  (shields − skulls) become unblockable hits on the ATTACKER. Reflective. */
   counterStrike?: boolean;
+  /** ATTACK THE WILD N (Otonashi): +N attack dice on a NORMAL attack against a figure whose
+   *  printed personality is "Wild" (CARD_IDENTITY). Folded into effectiveAttackDice. */
+  attackTheWild?: number;
+  /** TRICKY SPEED N (Otonashi): +N move when, at the start of her move, she is adjacent to a
+   *  living friendly figure (other than herself) with a "Tricky" personality. effectiveMove. */
+  trickySpeed?: number;
   /** GRAPPLE GUN N (Sgt. Drake, N=25): as his move, Drake may step exactly ONE
    *  space whose height is up to N levels higher (climb limit waived ≤ N); it
    *  REPLACES his normal move. Engagement rules still apply. The number is the

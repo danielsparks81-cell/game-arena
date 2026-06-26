@@ -61,6 +61,7 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'marro_warriors-3': { x: 0.48, y: 0.76 },
   'marro_warriors-4': { x: 0.42, y: 0.74 },
   ne_gok_sa: { x: 0.55, y: 0.80 },
+  otonashi: { x: 0.50, y: 0.78 }, // ninja, wide stance on a round disc — cut above the feet (picker-refinable)
   raelin: { x: 0.67, y: 0.88 },
   drake: { x: 0.59, y: 0.80 },
   syvarris: { x: 0.53, y: 0.82 },

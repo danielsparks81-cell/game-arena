@@ -51,7 +51,7 @@ import type {
   OrderMarkerValue,
 } from './types';
 import { MAPS, type HSMap } from './maps';
-import { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, HS_GLYPHS, effectiveCardDef } from './content';
+import { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, HS_GLYPHS, CARD_IDENTITY, effectiveCardDef } from './content';
 import {
   areEngaged,
   axialToOffset,
@@ -3492,6 +3492,18 @@ export function effectiveAttackDice(
     dice += h.attacker;
     breakdown.push(`+${h.attacker} height`);
   }
+  // Otonashi's ATTACK THE WILD N (card): "+N attack dice vs a figure with a Wild personality."
+  // NORMAL attacks only (specials are unmodifiable, §117); off while Nilrend-negated. Personality is a
+  // printed identity trait (CARD_IDENTITY), so a negated target is still read by its true personality.
+  if (
+    isNormalAttack &&
+    def.attackTheWild &&
+    !isCardNegated(state, attacker.cardUid) &&
+    CARD_IDENTITY[cardDefFor(state, target).id]?.personality === 'Wild'
+  ) {
+    dice += def.attackTheWild;
+    breakdown.push(`+${def.attackTheWild} Attack the Wild`);
+  }
   // Finn's Attack Aura: NORMAL attacks only, attacker printed Range 1, adjacent
   // to a living friendly Finn (recomputed from positions — no token).
   if (
@@ -3744,6 +3756,18 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
     else if ((state.glyphs ?? []).some(g => g.id === 'valda' && figureHexes(fig).includes(g.at))) {
       breakdown.push('(no Valda bonus moving off the glyph)');
     }
+  }
+  // Otonashi's TRICKY SPEED N (card): "+N move if she starts her turn adjacent to any friendly figure
+  // with a Tricky personality." Read from positions at move time — she hasn't moved yet, so this IS her
+  // turn-start spot; needs a DIFFERENT living friendly figure with a Tricky personality adjacent (she
+  // can't satisfy it with herself). Off while Nilrend-negated.
+  if (def.trickySpeed && !isCardNegated(state, fig.cardUid)) {
+    const trickyAdj = state.figures.some(o =>
+      o.id !== fig.id && o.ownerSeat === fig.ownerSeat && o.at != null &&
+      CARD_IDENTITY[cardDefFor(state, o).id]?.personality === 'Tricky' &&
+      figuresAdjacent(state, fig, o),
+    );
+    if (trickyAdj) { move += def.trickySpeed; breakdown.push(`+${def.trickySpeed} Tricky Speed`); }
   }
   return { dice: move, breakdown };
 }

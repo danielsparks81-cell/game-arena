@@ -15,6 +15,8 @@ import {
   addPlayer,
   applyAction,
   effectiveDefenseDice,
+  effectiveAttackDice,
+  effectiveMove,
   carryPassengers,
   aiNextAction,
   aiPendingSeat,
@@ -31,6 +33,7 @@ import {
   carryDestFootprint,
 } from './engine';
 import { rangeDistance, neighborKeys } from './board';
+import { HS_CARDS } from './content';
 import { MAPS } from './maps';
 import type { CombatFace, HSResult, HSState, InitiativeAttempt, OrderMarkerValue } from './types';
 
@@ -987,5 +990,49 @@ describe('Glyphs — wave 2 occupancy auras', () => {
     const noGlyph = JSON.parse(JSON.stringify(s)) as HSState;
     noGlyph.glyphs = [];
     expect(legalTargets(noGlyph, hero)).toContain(def.id);
+  });
+});
+
+describe('Otonashi — Ninja (Phantom Walk / Attack the Wild / Tricky Speed)', () => {
+  it('card stats + Phantom Walk flags (Ghost Walk + Disengage) as printed', () => {
+    expect(HS_CARDS.otonashi).toMatchObject({
+      type: 'hero', figures: 1, life: 1, move: 6, range: 1, attack: 2, defense: 3, height: 4, points: 10,
+      ghostWalk: true, disengage: true, attackTheWild: 2, trickySpeed: 4,
+    });
+  });
+
+  it('Attack the Wild 2 — +2 attack dice vs a Wild personality, none vs a non-Wild, NORMAL attacks only', () => {
+    let { s, hero } = stage('otonashi'); // flat Training Field → no height noise
+    s = JSON.parse(JSON.stringify(s)) as HSState; s.glyphs = []; // drop Astrid so the count is clean
+    const cells = Object.keys(MAPS[s.mapId].cells);
+    s = put(s, 's1-marro_warriors-1', cells[5]); // Marro Warriors = Wild
+    s = put(s, 's1-thorgrim-1', cells[8]);        // Thorgrim = Valiant
+    const oto = s.figures.find(f => f.id === hero)!;
+    const marro = s.figures.find(f => f.id === 's1-marro_warriors-1')!;
+    const thor = s.figures.find(f => f.id === 's1-thorgrim-1')!;
+    expect(effectiveAttackDice(s, oto, marro).dice).toBe(4); // 2 printed + 2 Attack the Wild
+    expect(effectiveAttackDice(s, oto, thor).dice).toBe(2);  // Valiant → no bonus
+    expect(effectiveAttackDice(s, oto, marro, false).dice).toBe(2); // a special attack is unmodifiable
+  });
+
+  it('Tricky Speed 4 — +4 move adjacent to a FRIENDLY Tricky figure only', () => {
+    let { s, hero } = stage('otonashi');
+    s = JSON.parse(JSON.stringify(s)) as HSState; s.glyphs = []; // drop Valda/Astrid noise
+    const h = at(s, hero)!;
+    const nbr = neighborKeys(h).find(k => MAPS[s.mapId].cells[k])!;
+    // Inject a friendly (seat 0) Tricky ally — Ne-Gok-Sa is "Tricky" — adjacent to Otonashi.
+    s.cards.push({ uid: 's0-tricky', cardId: 'ne_gok_sa', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's0-tricky-1', cardUid: 's0-tricky', ownerSeat: 0, at: nbr, index: 1, wounds: 0 });
+    const oto = () => s.figures.find(f => f.id === hero)!;
+    expect(effectiveMove(s, oto()).dice).toBe(10); // 6 printed + 4 Tricky Speed
+    // Ally no longer adjacent → printed 6.
+    const far = Object.keys(MAPS[s.mapId].cells).find(k => k !== h && !neighborKeys(h).includes(k))!;
+    s.figures.find(f => f.id === 's0-tricky-1')!.at = far;
+    expect(effectiveMove(s, oto()).dice).toBe(6);
+    // An ENEMY Tricky figure adjacent does NOT grant it (must be a figure YOU control).
+    s.figures.find(f => f.id === 's0-tricky-1')!.ownerSeat = 1;
+    s.cards.find(c => c.uid === 's0-tricky')!.ownerSeat = 1;
+    s.figures.find(f => f.id === 's0-tricky-1')!.at = nbr;
+    expect(effectiveMove(s, oto()).dice).toBe(6);
   });
 });

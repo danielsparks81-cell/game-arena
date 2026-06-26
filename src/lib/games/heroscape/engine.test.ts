@@ -3701,7 +3701,7 @@ describe('slice 5: start_game routing (draft vs quick)', () => {
     expect(s.mode).toBe('draft');
     expect(s.pointBudget).toBe(400);
     expect(s.draft).toBeDefined();
-    expect(s.draft!.pool).toHaveLength(22);
+    expect(s.draft!.pool).toHaveLength(23);
     expect(s.draft!.turnSeat).toBeNull(); // awaiting the server roll-off
     expect(getActivePlayerId(s)).toBeNull();
     // Server rolls the order; p1 wins → drafts first.
@@ -3898,13 +3898,13 @@ describe('slice 5: budget enforcement and passing', () => {
   });
 
   it('forces a pass when nothing affordable remains, and the pass completes the army', () => {
-    // Budget 185. p1 drafts Grimnak (160) leaving 25 — the cheapest pool card is now
-    // 30 (Eldgrim) so nothing is affordable: p1 must pass on its next turn.
-    let s = inDraft('p1', 185);
-    s = draftCard(s, 'grimnak'); // p1: 160/185 → p2 double
+    // Budget 169. p1 drafts Grimnak (160) leaving 9 — the cheapest pool card is now
+    // 10 (Otonashi) so nothing is affordable: p1 must pass on its next turn.
+    let s = inDraft('p1', 169);
+    s = draftCard(s, 'grimnak'); // p1: 160/169 → p2 double
     s = draftCard(s, 'finn'); // p2: 80
     s = draftCard(s, 'thorgrim'); // p2: 160 → back to p1
-    // p1 has 25 left; cheapest remaining is 30 (Eldgrim). The forced pass is legal.
+    // p1 has 9 left; cheapest remaining is 10 (Otonashi). The forced pass is legal.
     expect(s.draft!.turnSeat).toBe(0);
     s = draftPass(s);
     expect(s.draft!.passed).toContain(0);
@@ -4145,10 +4145,10 @@ describe('slice 5: placement', () => {
 
 // ---- full roster stats + power flags --------------------------------------
 
-describe('slice 5: full roster (17 base + 5 Big Heroes)', () => {
-  it('HS_CARDS has all 22 cards with the printed stats', () => {
-    expect(Object.keys(HS_CARDS)).toHaveLength(22);
-    expect(HS_DRAFT_POOL).toHaveLength(22);
+describe('slice 5: full roster (18 base + 5 Big Heroes)', () => {
+  it('HS_CARDS has all 23 cards with the printed stats', () => {
+    expect(Object.keys(HS_CARDS)).toHaveLength(23);
+    expect(HS_DRAFT_POOL).toHaveLength(23);
     // Every pool id resolves to a card.
     for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
     expect(HS_CARDS.eldgrim).toMatchObject({ life: 3, move: 5, range: 1, attack: 2, defense: 2, height: 4, points: 30 });
@@ -4174,7 +4174,7 @@ describe('slice 5: full roster (17 base + 5 Big Heroes)', () => {
     expect(HS_CARDS.jotun).toMatchObject({ life: 7, attack: 8, defense: 4, height: 10, points: 225, baseSize: 2 });
   });
 
-  it('power flags: ALL 22 cards are now live (Airborne Elite The Drop completes the set)', () => {
+  it('power flags: ALL 23 cards are now live (Airborne Elite The Drop completes the set)', () => {
     // Every card's printed power is implemented: slice 4/6/7 base cards, slice 8
     // Mimring Fire Line + Ne-Gok-Sa Mind Shackle + Airborne Grenade & The Drop,
     // and slice 8b's 5 Big Heroes. No card remains 'wip'.
@@ -4182,7 +4182,7 @@ describe('slice 5: full roster (17 base + 5 Big Heroes)', () => {
     expect(live).toEqual([
       'agent_carr', 'airborne_elite', 'braxas', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak',
       'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
-      'nilfheim', 'raelin', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
+      'nilfheim', 'otonashi', 'raelin', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);
     expect(Object.values(HS_CARDS).filter(c => c.power === 'wip')).toEqual([]);
   });
@@ -4204,7 +4204,7 @@ describe('slice 5: full roster (17 base + 5 Big Heroes)', () => {
     const flagged = Object.values(HS_CARDS).filter(
       c => c.flying || c.ghostWalk || c.disengage || c.thorianSpeed || c.stealthDodge || c.counterStrike || c.grappleGun,
     ).map(c => c.id).sort();
-    expect(flagged).toEqual(['agent_carr', 'braxas', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'raelin', 'theracus']);
+    expect(flagged).toEqual(['agent_carr', 'braxas', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'otonashi', 'raelin', 'theracus']);
   });
 
   it('a wip card fights with its printed stats (no power handler)', () => {
