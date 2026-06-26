@@ -1511,6 +1511,9 @@ export default function HeroScapeBoard({
   // shared state.lastAttack ⇒ both players see the same overlay.
   const [rollAttack, setRollAttack] = useState<LastAttack | null>(null);
   const lastSeenSeqRef = useRef<number>(state.lastAttack?.seq ?? 0);
+  // The seq of the attack overlay that most recently FINISHED animating (dismissed). The end-game
+  // victory chime waits until the killing blow's overlay has reached this seq — see the chime effect.
+  const lastDismissedAttackSeqRef = useRef<number>(state.lastAttack?.seq ?? 0);
   // Same freshness mechanism for non-combat d20 rolls (initiative + d20 powers).
   const [rollD20, setRollD20] = useState<LastRoll | null>(null);
   const lastSeenRollSeqRef = useRef<number>(state.lastRoll?.seq ?? 0);
@@ -1609,6 +1612,16 @@ export default function HeroScapeBoard({
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('hs:dice-overlay', { detail: { active: rollAttack != null } }));
   }, [rollAttack]);
+  // Record which attack-overlay seq just FINISHED animating: rollAttack goes non-null when an overlay
+  // opens and back to null on dismiss — capture the seq it carried at that down-edge. The victory chime
+  // reads this so it knows the killing blow's dice have fully played out before it stings.
+  const prevRollAttackSeqRef = useRef<number | null>(rollAttack?.seq ?? null);
+  useEffect(() => {
+    if (prevRollAttackSeqRef.current != null && rollAttack == null) {
+      lastDismissedAttackSeqRef.current = prevRollAttackSeqRef.current;
+    }
+    prevRollAttackSeqRef.current = rollAttack?.seq ?? null;
+  }, [rollAttack]);
   useEffect(() => {
     const lr = state.lastRoll;
     if (!lr) return;
@@ -1684,10 +1697,21 @@ export default function HeroScapeBoard({
   useEffect(() => {
     if (state.phase !== 'finished') { endChimedRef.current = false; return; } // reset for a rematch
     if (rollAttack || endChimedRef.current) return;
+    // The finishing state arrives WITH the killing blow's lastAttack, but its overlay only mounts on the
+    // NEXT render — so `rollAttack` can still read null here and the guard above misses it, firing the
+    // victory sting OVER the defender's dice (owner 2026-06-26). Gate on the attack SEQ instead: hold while
+    // a fresh attack roll (dice present) has not yet been shown AND dismissed. seq is in the state, so it's
+    // correct on the very render the game ends — no one-frame lag like the `rollAttack` state has.
+    const la = state.lastAttack;
+    const overlayPending =
+      !!la &&
+      (la.attackRoll.length > 0 || la.defenseRoll.length > 0 || (la.defenseGroups?.length ?? 0) > 0) &&
+      la.seq > lastDismissedAttackSeqRef.current;
+    if (overlayPending) return;
     endChimedRef.current = true;
     if (state.winnerSeat == null && state.winnerTeam == null) sounds.draw();
     else sounds.win();
-  }, [state.phase, state.winnerSeat, state.winnerTeam, rollAttack]);
+  }, [state.phase, state.winnerSeat, state.winnerTeam, rollAttack, state.lastAttack]);
 
   // Footstep — one soft scuff whenever a figure changes hex (a move). Attacks don't move figures and
   // deaths/placements go to/from null, so this fires only on genuine moves (incl. each AI step).
