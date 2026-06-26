@@ -1049,6 +1049,38 @@ function finishDraft(s: HSState): void {
   pushLog(s, 'info', `Draft complete — place your figures in your start zone. ${tally}.`);
 }
 
+/** Shared d20 ROLL-OFF resolution for initiative + draft (02-rounds §Step 2). Only the seats TIED FOR
+ *  HIGHEST in the FIRST attempt re-roll, until one is highest; everyone else keeps their first roll (a
+ *  seat that lost outright can never steal first place on a re-roll). Validates that every re-roll
+ *  changed ONLY the contenders, and that each non-final attempt was a real tie among them. Returns the
+ *  final order — first roll (a clean loser keeps its place), then the re-roll (breaks the top tie),
+ *  then seat. `order[0]` is the winner / first drafter. */
+function resolveRollOff(attempts: InitiativeAttempt[], seats: number[]): { order: number[] } | { error: string } {
+  const first = attempts[0];
+  const rollIn = (att: InitiativeAttempt, seat: number) => att.find(a => a.seat === seat)?.roll ?? -Infinity;
+  const firstMax = Math.max(...first.map(a => a.roll));
+  const contenders = first.filter(a => a.roll === firstMax).map(a => a.seat);
+  // Non-contenders must carry their FIRST roll unchanged through every re-roll.
+  for (let i = 1; i < attempts.length; i++) {
+    for (const seat of seats) {
+      if (!contenders.includes(seat) && rollIn(attempts[i], seat) !== rollIn(first, seat)) {
+        return { error: 'A non-tied seat was re-rolled' };
+      }
+    }
+  }
+  const contenderTie = (att: InitiativeAttempt): number => {
+    const m = Math.max(...contenders.map(s => rollIn(att, s)));
+    return contenders.filter(s => rollIn(att, s) === m).length;
+  };
+  for (let i = 0; i < attempts.length - 1; i++) {
+    if (contenderTie(attempts[i]) <= 1) return { error: 'Re-rolled an attempt that was not tied for highest' };
+  }
+  if (contenderTie(attempts[attempts.length - 1]) > 1) return { error: 'Roll-off ended in a tie — roll again' };
+  const last = attempts[attempts.length - 1];
+  const order = [...seats].sort((a, b) => rollIn(first, b) - rollIn(first, a) || rollIn(last, b) - rollIn(last, a) || a - b);
+  return { order };
+}
+
 function doDraftRoll(state: HSState, attempts: InitiativeAttempt[]): HSResult {
   const d = state.draft;
   if (!d) return { error: 'No draft is in progress' };
@@ -1069,16 +1101,11 @@ function doDraftRoll(state: HSState, attempts: InitiativeAttempt[]): HSResult {
       if (!Number.isInteger(a.roll) || a.roll < 1 || a.roll > 20) return { error: 'Malformed draft rolls' };
     }
   }
-  for (let i = 0; i < attempts.length - 1; i++) {
-    if (!tiedForHighest(attempts[i])) return { error: 'Draft re-rolled an attempt that was not tied' };
-  }
-  const last = attempts[attempts.length - 1];
-  if (tiedForHighest(last)) return { error: 'Draft order ended in a tie — roll again' };
-  // Draft order = ALL seats by roll, highest first (ties broken by seat). The
-  // top roll is unique (the final attempt is tie-free for highest); lower ties
-  // only affect mid-order and are settled deterministically by seat number.
-  const rollOf = (seat: number) => last.find(a => a.seat === seat)!.roll;
-  const order = [...seats].sort((a, b) => rollOf(b) - rollOf(a) || a - b);
+  // Tie-break: only the seats tied for highest re-roll until one wins; everyone else keeps their first
+  // roll (so a clean loser stays in its place). Order = first roll, then the re-roll, then seat.
+  const resolved = resolveRollOff(attempts, seats);
+  if ('error' in resolved) return { error: resolved.error };
+  const order = resolved.order;
   const highSeat = order[0];
 
   const s = clone(state);
@@ -1508,17 +1535,13 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
       }
     }
   }
-  // Ties for highest re-roll until broken (02-rounds §Step 2): every attempt
-  // before the last must BE such a tie (that is why it was re-rolled) and the
-  // final attempt must be decisive.
-  for (let i = 0; i < attempts.length - 1; i++) {
-    if (!tiedForHighest(attempts[i])) {
-      return { error: 'Initiative re-rolled an attempt that was not tied' };
-    }
-  }
+  // Tie-break: only the seats tied for highest re-roll until one wins; everyone else keeps their first
+  // roll (02-rounds §Step 2 — a seat that lost outright can't steal first on the re-roll). Turn order
+  // is winner-first then the seat ring, so only the WINNER is read from the roll-off.
+  const resolved = resolveRollOff(attempts, seats);
+  if ('error' in resolved) return { error: resolved.error };
+  const winnerSeat = resolved.order[0];
   const last = attempts[attempts.length - 1];
-  if (tiedForHighest(last)) return { error: 'Initiative ended in a tie — roll again' };
-  const winnerSeat = last.reduce((best, a) => (a.roll > best.roll ? a : best)).seat;
 
   const s = clone(state);
   s.initiativeRolls = attempts;
@@ -1557,11 +1580,6 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
 
   beginTurnOrSkip(s);
   return s;
-}
-
-function tiedForHighest(attempt: InitiativeAttempt): boolean {
-  const max = Math.max(...attempt.map(a => a.roll));
-  return attempt.filter(a => a.roll === max).length > 1;
 }
 
 // ============================================================================

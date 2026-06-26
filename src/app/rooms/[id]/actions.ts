@@ -1739,23 +1739,24 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     const dagmarBonus = (seat: number): number =>
       (controlsGlyph(seat, 'dagmar', HS_GLYPHS.dagmar.active) ? 8 : 0) +
       (controlsGlyph(seat, 'lodin', HS_GLYPHS.lodin.active) ? 1 : 0);
-    // Re-roll everyone on any tie for highest (Dagmar's +8 carries into re-rolls).
-    const attempts: HSInitiativeAttempt[] = [];
-    for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
-      const attempt = livingForRound.map(seat => {
-        const raw = d20();
-        const bonus = dagmarBonus(seat);
-        return bonus > 0
-          ? { seat, roll: raw + bonus, raw, bonus }
-          : { seat, roll: raw };
-      });
+    // Only the seats TIED FOR HIGHEST re-roll until one wins; everyone else keeps their first roll
+    // (02-rounds §Step 2 — only the tying players re-roll). Dagmar/Lodin bonuses carry into the re-rolls.
+    const rollSeat = (seat: number): HSInitiativeAttempt[number] => {
+      const raw = d20();
+      const bonus = dagmarBonus(seat);
+      return bonus > 0 ? { seat, roll: raw + bonus, raw, bonus } : { seat, roll: raw };
+    };
+    const maxOf = (att: HSInitiativeAttempt, seatsIn: number[]) => Math.max(...seatsIn.map(s => att.find(a => a.seat === s)!.roll));
+    const attempts: HSInitiativeAttempt[] = [livingForRound.map(rollSeat)];
+    let contenders = attempts[0].filter(a => a.roll === maxOf(attempts[0], livingForRound)).map(a => a.seat);
+    for (let i = 0; contenders.length > 1 && i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
+      const prev = attempts[attempts.length - 1];
+      const attempt = prev.map(a => (contenders.includes(a.seat) ? rollSeat(a.seat) : a));
       attempts.push(attempt);
-      const max = Math.max(...attempt.map(a => a.roll));
-      if (attempt.filter(a => a.roll === max).length === 1) break;
+      const m = maxOf(attempt, contenders);
+      contenders = contenders.filter(s => attempt.find(a => a.seat === s)!.roll === m);
     }
-    const last = attempts[attempts.length - 1];
-    const lastMax = Math.max(...last.map(a => a.roll));
-    if (last.filter(a => a.roll === lastMax).length !== 1) {
+    if (contenders.length !== 1) {
       throw new Error('Initiative would not resolve after 20 attempts — try again');
     }
     const rolled = applyActionHS(next, user.id, { kind: 'roll_initiative', attempts });
@@ -1767,16 +1768,19 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   // both seats roll a plain d20, re-roll everyone on any tie for highest (capped
   // at 20). The engine re-validates the tie discipline and sets the pick order.
   if (action.kind === 'start_game' && next.phase === 'draft' && (next.draft?.order.length ?? 0) === 0) {
-    const attempts: HSInitiativeAttempt[] = [];
-    for (let i = 0; i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
-      const attempt = next.players.map(p => ({ seat: p.seat, roll: d20() }));
+    // Only the seats tied for highest re-roll until one wins; everyone else keeps their first roll.
+    const draftSeats = next.players.map(p => p.seat);
+    const maxOf = (att: HSInitiativeAttempt, seatsIn: number[]) => Math.max(...seatsIn.map(s => att.find(a => a.seat === s)!.roll));
+    const attempts: HSInitiativeAttempt[] = [draftSeats.map(seat => ({ seat, roll: d20() }))];
+    let contenders = attempts[0].filter(a => a.roll === maxOf(attempts[0], draftSeats)).map(a => a.seat);
+    for (let i = 0; contenders.length > 1 && i < HS_INITIATIVE_MAX_ATTEMPTS; i++) {
+      const prev = attempts[attempts.length - 1];
+      const attempt = prev.map(a => (contenders.includes(a.seat) ? { seat: a.seat, roll: d20() } : a));
       attempts.push(attempt);
-      const max = Math.max(...attempt.map(a => a.roll));
-      if (attempt.filter(a => a.roll === max).length === 1) break;
+      const m = maxOf(attempt, contenders);
+      contenders = contenders.filter(s => attempt.find(a => a.seat === s)!.roll === m);
     }
-    const last = attempts[attempts.length - 1];
-    const lastMax = Math.max(...last.map(a => a.roll));
-    if (last.filter(a => a.roll === lastMax).length !== 1) {
+    if (contenders.length !== 1) {
       throw new Error('Draft order would not resolve after 20 attempts — try again');
     }
     const rolled = applyActionHS(next, user.id, { kind: 'draft_roll', attempts });

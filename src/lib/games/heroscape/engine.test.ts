@@ -486,11 +486,13 @@ describe('roll_initiative', () => {
   });
 
   it('rejects a re-rolled attempt that was not a tie', () => {
+    // [9,3] has a unique high (9) — re-rolling at all is illegitimate, and only the tied seats may
+    // re-roll, so changing seat 1 (a clean loser) is rejected.
     expect(
       errOf(
         applyAction(bothPlaced(), 'p1', { kind: 'roll_initiative', attempts: [ATT(9, 3), ATT(8, 2)] }),
       ),
-    ).toMatch(/not tied/);
+    ).toMatch(/tied/i);
   });
 
   it('rejects rolling before every player has locked in', () => {
@@ -3712,9 +3714,36 @@ describe('slice 5: draft order roll-off', () => {
   it('rejects a tied final attempt, a non-tie re-roll, and a double roll-off', () => {
     let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft' }));
     expect(errOf(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(7, 7)] }))).toMatch(/tie/i);
-    expect(errOf(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(9, 3), ATT(8, 2)] }))).toMatch(/not tied/);
+    expect(errOf(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(9, 3), ATT(8, 2)] }))).toMatch(/tied/i);
     s = unwrap(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(15, 4)] }));
     expect(errOf(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(15, 4)] }))).toMatch(/already set/);
+  });
+
+  it('tie re-roll: only the tied seats re-roll — a clean loser never steals first (audit N1, 2026-06-25)', () => {
+    const setup = () => {
+      let s = addPlayer(initialState(), 'p1', 'Alice', 0, '#10b981');
+      s = addPlayer(s, 'p2', 'Bob', 1, '#ef4444');
+      s = addPlayer(s, 'p3', 'Carol', 2, '#3b82f6');
+      return unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 500, mapId: 'star_field' }));
+    };
+    // seats 0 & 1 tie for highest (20); seat 2 rolls a low 5 and KEEPS it. The tied pair re-roll to
+    // [3,4]; even though seat 2's carried 5 beats both, it stays LAST — a clean loser can't win.
+    const s = unwrap(applyAction(setup(), 'p1', {
+      kind: 'draft_roll',
+      attempts: [
+        [{ seat: 0, roll: 20 }, { seat: 1, roll: 20 }, { seat: 2, roll: 5 }],
+        [{ seat: 0, roll: 3 }, { seat: 1, roll: 4 }, { seat: 2, roll: 5 }],
+      ],
+    }));
+    expect(s.draft!.order).toEqual([1, 0, 2]); // tie broken by the re-roll (seat 1 > seat 0); seat 2 last
+    // …and re-rolling the NON-tied seat 2 (5 → 9) is rejected.
+    expect(errOf(applyAction(setup(), 'p1', {
+      kind: 'draft_roll',
+      attempts: [
+        [{ seat: 0, roll: 20 }, { seat: 1, roll: 20 }, { seat: 2, roll: 5 }],
+        [{ seat: 0, roll: 3 }, { seat: 1, roll: 4 }, { seat: 2, roll: 9 }],
+      ],
+    }))).toMatch(/tied/i);
   });
 });
 
