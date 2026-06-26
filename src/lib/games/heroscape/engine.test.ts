@@ -2961,7 +2961,41 @@ describe('slice 4: Water Clone', () => {
     // Land the first clone on the shared hex.
     s = unwrap(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: shared } }));
     // The second clone may NOT reuse it.
-    expect(errOf(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: shared } }))).toMatch(/same-level empty space/);
+    expect(errOf(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: shared } }))).toMatch(/adjacent to that Marro Warrior/);
+  });
+
+  it('a Marro standing IN water may clone UP onto the higher adjacent shore (owner 2026-06-26)', () => {
+    // The printed rule says "a same-level space adjacent"; on a SUNKEN water tile (water below its
+    // bank) a Marro would have no same-level shore and the card's lowered water threshold would be
+    // wasted. The water relaxation lets a Marro standing IN water clone up onto the adjacent bank.
+    const map = MAPS['ford_crossing'];
+    let s = noGlyphs(inTurnsOn('ford_crossing', 'p2', { p2: 's1-marro_warriors' }));
+    s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), FINN);
+    s = place(s, MARRO(3), null); // destroyed → available to return
+    s = place(s, MARRO(2), at(0, 0));
+    s = place(s, FINN, at(9, 6));
+    s = unwrap(applyAction(s, 'p2', { kind: 'move_figure', figureId: MARRO(2), to: at(0, 1) })); // after-move window
+    // Find a water hex (W1) with a strictly-HIGHER empty land neighbour (a G2 bank). Old rule barred
+    // that shore (height 2 ≠ water's 1); the relaxation now offers it.
+    const taken = new Set(s.figures.filter(f => f.at != null).map(f => f.at!));
+    let waterHex = '', shoreUp = '';
+    for (const k of Object.keys(map.cells)) {
+      if (map.cells[k].terrain !== 'water' || taken.has(k)) continue;
+      const up = neighborKeys(k).find(n => map.cells[n] && map.cells[n].height > map.cells[k].height && !taken.has(n));
+      if (up) { waterHex = k; shoreUp = up; break; }
+    }
+    expect(waterHex).not.toBe(''); // Ford Crossing really has water sitting below a higher bank
+    s = place(s, MARRO(1), waterHex); // the roller stands IN the water
+    s = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [
+      { marroFigureId: MARRO(1), d20: 12 }, // 10+ on water → success
+      { marroFigureId: MARRO(2), d20: 3 },  // on grass → fail
+    ] }));
+    const pc = s.pendingChoice as { placements: { rollerFigureId: string; options: string[] }[] } | undefined;
+    expect(pc).toBeDefined();
+    expect(pc!.placements[0].rollerFigureId).toBe(MARRO(1));
+    expect(pc!.placements[0].options).toContain(shoreUp); // the +1 shore is a legal landing now
+    s = unwrap(applyAction(s, 'p2', { kind: 'resolve_choice', choice: { kind: 'water_clone_place', hex: shoreUp } }));
+    expect(fig(s, MARRO(3)).at).toBe(shoreUp); // the destroyed Marro returns up on the bank
   });
 
   it('rejects cloning before moving, from the wrong card, and with a bad roll set', () => {

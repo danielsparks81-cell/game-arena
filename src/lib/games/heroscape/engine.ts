@@ -4970,9 +4970,11 @@ function doChomp(state: HSState, seat: number, targetId: string, d20: number): H
  * The SERVER rolls one d20 per LIVING Marro Warrior of the active card; the
  * engine validates the set + per-Warrior threshold (15+, or 10+ on water), then
  * collects a `water_clone_place` PendingChoice with one entry per VIABLE success
- * (a success that has ≥1 same-level empty adjacent hex AND a destroyed Marro
- * still available to return). Successes with no legal landing / no clone left
- * auto-skip and are logged. Consumes the card's attack for the turn.
+ * (a success that has ≥1 empty adjacent landing AND a destroyed Marro still
+ * available to return). Landings are same-level per the printed card, EXCEPT a
+ * roller standing ON water may also clone up onto the adjacent shore (water-level
+ * or above) — see the water relaxation below. Successes with no legal landing /
+ * no clone left auto-skip and are logged. Consumes the card's attack for the turn.
  */
 function doWaterClone(
   state: HSState,
@@ -5045,11 +5047,18 @@ function doWaterClone(
       skippedNoSpace += 1;
       continue;
     }
-    // Same-level, empty, in-bounds hexes adjacent to the roller.
-    const myLevel = map?.cells[roller.at!]?.height;
+    // Empty, in-bounds hexes adjacent to the roller. PRINTED RULE: "a same-level space adjacent to
+    // that Marro Warrior." WATER RELAXATION (owner ruling 2026-06-26): real HeroScape water tiles sit
+    // CO-PLANAR with the shore, so "same-level" always has a landing; our maps model water as a SUNKEN
+    // tile, which strands a Marro standing IN water (its only same-level neighbours are more water, or
+    // none) and makes the card's own lowered water threshold pointless. So when the roller is ON water,
+    // also allow the adjacent shore at the water level OR ABOVE — a Marro in a height-0 pool clones up
+    // onto the height-1 bank. Non-water rollers keep the strict printed same-level rule.
+    const myLevel = map?.cells[roller.at!]?.height ?? 0;
     const options = neighborKeys(roller.at!).filter(k => {
       const cell = map?.cells[k];
-      return cell != null && cell.height === myLevel && !occupied.has(k);
+      if (cell == null || occupied.has(k)) return false;
+      return onWater ? cell.height >= myLevel : cell.height === myLevel;
     });
     if (options.length === 0) {
       skippedNoSpace += 1;
@@ -6206,10 +6215,11 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     const idx = pc.chosen.length; // the placement being resolved now
     const placement = pc.placements[idx];
     if (!placement) return { error: 'No Water Clone placement is pending' };
-    // The chosen hex must be one of this placement's same-level adjacent options
+    // The chosen hex must be one of this placement's precomputed adjacent options
+    // (same level, or — for a roller on water — the shore at water level or above)
     // AND not already taken by an earlier clone this resolution.
     if (!placement.options.includes(choice.hex) || pc.chosen.includes(choice.hex)) {
-      return { error: 'Choose a same-level empty space adjacent to that Marro Warrior' };
+      return { error: 'Choose an empty space adjacent to that Marro Warrior (same level, or the shore above if it stands in water)' };
     }
     // It must also still be empty (a live figure could not have moved here while
     // the choice was open, but guard anyway).
