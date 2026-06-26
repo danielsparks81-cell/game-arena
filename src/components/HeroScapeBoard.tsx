@@ -131,11 +131,11 @@ const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.len
 // "weighty" actions (attacks/specials), FAST = repetitive no-dice work (walking a path, deploying).
 const AI_STEP_MS = 1150;
 const AI_STEP_FAST_MS = 210; // per walking step — snappy so a multi-hex march doesn't crawl
-// Player-panel SCREEN anchors (lg+ overlay). You are always slot 0 = bottom-left; the rest fan
-// out by SEAT order (stable round-to-round, so seat adjacency = turn-order adjacency). The 4
-// corners for ≤4 players; 6 spots (corners + top/bottom centre) for 5-6.
-// Seat-slot CORNERS for the player panels (slot 0 = you, bottom-left; then clockwise). The `-1`
-// insets keep every panel hugging the board corner with just a hair of padding (tightened from -2).
+// Player-panel SCREEN anchors (lg+ overlay). You are always slot 0 = bottom-left; the rest are placed
+// at the corner matching WHERE their army rings the map (clockwise from you), so each panel sits on the
+// same side as its figures — see `panelAnchorBySeat`. The 4 corners for ≤4 players; 6 spots (corners +
+// top/bottom centre) for 5-6, filled in that clockwise order. The `-1` insets keep every panel hugging
+// the board corner with just a hair of padding (tightened from -2).
 const PANEL_ANCHORS_4 = ['bottom-1 left-1', 'top-1 left-1', 'top-1 right-1', 'bottom-1 right-1'];
 const PANEL_ANCHORS_6 = [
   'bottom-1 left-1', 'top-1 left-1', 'top-1 left-1/2 -translate-x-1/2',
@@ -1774,6 +1774,52 @@ export default function HeroScapeBoard({
   const startZones: Record<number, HexKey[]> =
     (map?.zonesByCount?.[state.players.length] ?? map?.startZones) ?? {};
   const me = state.players.find(p => p.playerId === currentUserId);
+  // Pin EACH roster panel to the screen corner that matches WHERE that army sits around the board
+  // (owner 2026-06-26: "the order around the table should be placement around the map"). The 3D board
+  // spins so YOUR start zone meets the camera at the near/bottom edge; we replicate that exact recenter
+  // + face-rotation (HeroBoard3D's `frame`) and then rank every seat by the CLOCKWISE angle of its
+  // start-zone centroid. You stay bottom-left (slot 0, due-south = angle 0); everyone else drops into the
+  // corner ring in the SAME order they ring the map — so a panel sits on the side its figures do, not in
+  // abstract seat order. Zones don't move, so the layout is stable all game (no shuffling round to round).
+  const panelAnchorBySeat = useMemo(() => {
+    const players = state.players;
+    const anchors = players.length <= 4 ? PANEL_ANCHORS_4 : PANEL_ANCHORS_6;
+    const out = new Map<number, string>();
+    const cells = map ? Object.values(map.cells) : [];
+    // Pointy-top axial → plane, proportional to HeroBoard3D's worldXZ (the SIZE scale cancels for angles).
+    const W = (q: number, r: number): [number, number] => [Math.sqrt(3) * (q + r / 2), 1.5 * r];
+    let cx = 0, cz = 0;
+    for (const c of cells) { const [x, z] = W(c.q, c.r); cx += x; cz += z; }
+    if (cells.length) { cx /= cells.length; cz /= cells.length; }
+    const zoneVec = (seat: number): [number, number] | null => {
+      const hexes = startZones[seat] ?? [];
+      if (!hexes.length) return null; // no zone for this seat → ranked last (by seat)
+      let zx = 0, zz = 0;
+      for (const k of hexes) { const [q, r] = k.split(',').map(Number); const [x, z] = W(q, r); zx += x; zz += z; }
+      return [zx / hexes.length - cx, zz / hexes.length - cz];
+    };
+    // Face-rotation: spin so MY zone lands at +Z (camera/near edge = screen bottom), exactly as the board.
+    const mineSeat = me?.seat ?? players[0]?.seat ?? 0;
+    const mv = zoneVec(mineSeat);
+    const fa = mv && (Math.abs(mv[0]) > 1e-4 || Math.abs(mv[1]) > 1e-4) ? Math.atan2(-mv[0], mv[1]) : 0;
+    const cs = Math.cos(fa), sn = Math.sin(fa);
+    const cwAngle = (seat: number): number => {
+      const v = zoneVec(seat);
+      if (!v) return Number.POSITIVE_INFINITY;
+      const X = v[0] * cs + v[1] * sn;   // east after the spin (screen → right)
+      const Z = -v[0] * sn + v[1] * cs;  // south after the spin (+ = toward viewer / screen bottom)
+      let a = Math.atan2(-X, Z);          // 0 at due-south (you); increases CLOCKWISE around the ring
+      if (a < 0) a += Math.PI * 2;
+      return a;
+    };
+    const ordered = players.map(p => p.seat).sort((a, b) => {
+      if (a === mineSeat) return -1;       // you are always slot 0 (bottom-left)
+      if (b === mineSeat) return 1;
+      return cwAngle(a) - cwAngle(b) || a - b;
+    });
+    ordered.forEach((seat, i) => out.set(seat, anchors[i] ?? anchors[anchors.length - 1]));
+    return out;
+  }, [state.players, startZones, map, me?.seat]);
   const turnPlayer = state.players.find(p => p.seat === state.turnSeat);
   // The winning SIDE (for the end banner): everyone sharing the winner's effective
   // team (an unassigned winner = a side of one). Names the team in a team game.
@@ -2857,15 +2903,10 @@ export default function HeroScapeBoard({
   // Hovering a card pops the full-card popover (CardHoverPanel). Rendered for
   // the opponent (above the board) and for me (below it) in the three-zone
   // layout, so each player's cards sit on the same side as their figures.
-  // A seat's panel anchor: you are bottom-left; everyone else fans out by SEAT order from you
-  // (so it never shuffles with initiative). 4 corners for ≤4 players, 6 spots for 5-6.
+  // A seat's panel anchor: you are bottom-left; everyone else is placed at the corner matching where
+  // their army RINGS the map (clockwise), computed once in `panelAnchorBySeat`. Stable all game.
   function panelSlotAnchor(seat: number): string {
-    const anchors = state.players.length <= 4 ? PANEL_ANCHORS_4 : PANEL_ANCHORS_6;
-    const order = state.players.map(p => p.seat).sort((a, b) => a - b);
-    const meIdx = me ? order.indexOf(me.seat) : 0;
-    const ring = [...order.slice(meIdx), ...order.slice(0, meIdx)]; // you first (bottom-left), then by seat
-    const slot = ring.indexOf(seat);
-    return anchors[slot] ?? anchors[anchors.length - 1];
+    return panelAnchorBySeat.get(seat) ?? PANEL_ANCHORS_4[0];
   }
   function renderArmyRow(seat: number) {
     const entry = roster.find(r => r.pl.seat === seat);
@@ -4322,8 +4363,8 @@ export default function HeroScapeBoard({
             click-through except over the panels themselves. On mobile they stack
             above the board as before. */}
         {state.players.length > 0 && (
-          // EVERY player's panel — YOURS included — is pinned to its seat-slot corner around the
-          // board via panelSlotAnchor (you = slot 0 = bottom-LEFT; opponents fan out by seat).
+          // EVERY player's panel — YOURS included — is pinned to a corner around the board via
+          // panelSlotAnchor (you = slot 0 = bottom-LEFT; opponents sit on the side their army does).
           // Rendering them all through ONE path is what keeps your hand symmetric with the
           // opponents: on the board's lower-left, exactly as an opponent sits on the upper-left.
           // (renderArmyRow makes YOUR row the interactive hand.) On mobile they stack in normal
