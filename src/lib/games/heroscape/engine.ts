@@ -1842,6 +1842,20 @@ function enemiesEngagedWith(state: HSState, fig: Figure): Figure[] {
   });
 }
 
+/** Master-game engagement restriction for a SPECIAL attack (04-combat p.13): a figure ENGAGED with ≥1
+ *  enemy may attack ONLY figures it is engaged with — it cannot "shoot past" its engagement. `targetBlockReason`
+ *  already enforces this for NORMAL attacks; special attacks compute their own targets, so they call this.
+ *  Given the figures a special would AFFECT, returns an error string if the attacker is engaged and any
+ *  affected ENEMY is one it is NOT engaged with (allies caught by friendly-fire splash don't count — you're
+ *  not "attacking" an ally), else null (unengaged ⇒ no restriction). */
+function engagedSpecialBlock(state: HSState, attacker: Figure, affected: Figure[]): string | null {
+  const engaged = enemiesEngagedWith(state, attacker);
+  if (engaged.length === 0) return null;
+  const ok = new Set(engaged.map(f => f.id));
+  const stray = affected.find(f => f.ownerSeat !== attacker.ownerSeat && !ok.has(f.id));
+  return stray ? 'Engaged — you may only attack a figure you are engaged with (you can’t shoot past your engagement)' : null;
+}
+
 /** Is `fig` engaged with `enemy`? True when ANY hex of one is engagement-
  *  adjacent to ANY hex of the other, so a double-space figure engages (and is
  *  engaged) from either of its two spaces (03-movement §8). */
@@ -3998,6 +4012,11 @@ function doFireLine(
   if (action.origin != null && !figureHexes(attacker).includes(action.origin)) {
     return { error: 'Fire Line must start from one of the figure\'s own hexes' };
   }
+  // Engagement (04-combat p.13): an engaged Mimring can't fire PAST his engagement — every ENEMY on the
+  // line must be one he is engaged with, else the whole attack is illegal (engaged with Finn but the line
+  // hits Theracus — owner 2026-06-26). targetBlockReason already covers normal attacks; specials check here.
+  const engBlock = engagedSpecialBlock(state, attacker, fireLineTargets(state, action.attackerId, action.dir, action.origin));
+  if (engBlock) return { error: engBlock };
   if (!validFaces(action.attackRoll, FIRE_LINE_ATTACK)) {
     return { error: 'Malformed Fire Line attack roll' };
   }
@@ -6783,6 +6802,9 @@ function aiTurn(state: HSState, seat: number): HSAction {
     if (aid === 'mimring' && canFireLine(state, hero.id)) {
       let bestDir = -1, bestNet = 0;
       for (let d = 0; d < 6; d++) {
+        // Engagement (04-combat p.13): skip a line that would shoot PAST our engagement — the engine
+        // rejects it, so don't pick it (else the bot wastes its action). Falls back to a normal swing.
+        if (engagedSpecialBlock(state, hero, fireLineTargets(state, hero.id, d))) continue;
         const aff = fireLineDefenders(state, hero.id, d);
         const foes = aff.filter(x => isEnemy(x.figureId)).length;
         const net = foes - (aff.length - foes);

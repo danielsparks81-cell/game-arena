@@ -61,7 +61,7 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'marro_warriors-3': { x: 0.48, y: 0.76 },
   'marro_warriors-4': { x: 0.42, y: 0.74 },
   ne_gok_sa: { x: 0.55, y: 0.80 },
-  otonashi: { x: 0.50, y: 0.78 }, // ninja, wide stance on a round disc — cut above the feet (picker-refinable)
+  otonashi: { x: 0.60, y: 0.76 }, // ninja, wide stance — user-picked in the gallery 2026-06-26
   raelin: { x: 0.67, y: 0.88 },
   drake: { x: 0.59, y: 0.80 },
   syvarris: { x: 0.53, y: 0.82 },
@@ -104,8 +104,8 @@ export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; 
   jotun: { fx: 0.20, fy: 0.93, bx: 0.80, by: 0.93 },
   major_q9: { fx: 0.22, fy: 0.89, bx: 0.80, by: 0.88 },
   mimring: { fx: 0.20, fy: 0.95, bx: 0.56, by: 0.95 },
-  // Re-measured for the REAL Nilfheim cut (2026-06-26, white bone dragon photo) — base lobes ~0.22/0.58.
-  nilfheim: { fx: 0.22, fy: 0.95, bx: 0.58, by: 0.95 },
+  // User-picked in the gallery for the REAL Nilfheim cut (2026-06-26, white bone dragon).
+  nilfheim: { fx: 0.16, fy: 0.94, bx: 0.66, by: 0.94 },
   theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
 };
 

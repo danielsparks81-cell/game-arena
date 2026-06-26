@@ -5418,6 +5418,20 @@ describe('Fire Line Special Attack (Mimring)', () => {
     }
   });
 
+  it('an ENGAGED Mimring may NOT Fire Line past his engagement (04-combat p.13, owner 2026-06-26)', () => {
+    const MIM = 's0-mimring-1';
+    let s = customBattle(['mimring'], ['finn', 'thorgrim'], 'p1'); // Mimring is the ACTIVE card
+    s = place(s, MIM, at(3, 3));
+    s = place(s, 's1-finn-1', at(3, 4));     // adjacent to Mimring → ENGAGED, OFF his dir-0 line
+    s = place(s, 's1-thorgrim-1', at(5, 3)); // a NON-engaged enemy ON the dir-0 line
+    // Firing the line would hit Thorgrim, whom Mimring is NOT engaged with → "shoots past" → rejected.
+    const err = errOf(applyAction(s, 'p1', { kind: 'fire_line', attackerId: MIM, dir: 0, attackRoll: F('bbbb'), defenseRolls: [] }));
+    expect(err).toMatch(/engaged/i);
+    // Control: with Finn moved away (no engagement), the same line is no longer engagement-blocked.
+    const free = place(s, 's1-finn-1', at(0, 7));
+    expect(errOf(applyAction(free, 'p1', { kind: 'fire_line', attackerId: MIM, dir: 0, attackRoll: F('bbbb'), defenseRolls: [] }))).not.toMatch(/engaged/i);
+  });
+
   it('fireLineDefenders returns one defense entry per affected figure', () => {
     let s = withMimring();
     s = inject(s, 0, 'tarn_vikings', 'ally', at(4, 3));
