@@ -2597,6 +2597,17 @@ describe('slice 4: Warrior Spirits on destroy', () => {
     expect(eff.breakdown).toContain('+1 Attack Spirit');
   });
 
+  it('the Spirit placement is OPTIONAL — declining (cardUid "") buffs no card (owner 2026-06-26)', () => {
+    let s = unwrap(applyAction(finnAtDeath(), 'p2', { kind: 'attack', attackerId: MARRO(1), targetId: FINN, attackRoll: F('kb'), defenseRoll: F('bbbb') }));
+    expect(s.pendingChoice?.kind).toBe('spirit_placement');
+    const snapshot = s.cards.map(c => `${c.uid}:${c.attackMod}/${c.defenseMod}`).join('|');
+    // p1 DECLINES — nobody is forced to receive the Spirit; it is simply lost.
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: '' } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.cards.map(c => `${c.uid}:${c.attackMod}/${c.defenseMod}`).join('|')).toBe(snapshot); // no mods changed
+    expect(s.log.some(e => /declines to place/i.test(e.text))).toBe(true);
+  });
+
   it('destroying Thorgrim opens an armor spirit → +1 defense on the chosen card', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
     s = clearExcept(s, FINN, THORGRIM, MARRO(1));

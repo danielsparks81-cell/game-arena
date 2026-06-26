@@ -6201,8 +6201,19 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
 
   // --- Spirit placement (Finn/Thorgrim on destroy) ---
   if (pc.kind === 'spirit_placement' && choice.kind === 'spirit_placement') {
+    const spiritName = pc.spirit === 'attack' ? 'Attack' : pc.spirit === 'defense' ? 'Armor' : 'Swiftness';
+    // OPTIONAL placement (owner ruling 2026-06-26: "a player shouldn't be forced to give it to anyone").
+    // `cardUid: ''` = DECLINE — the Spirit lands on no card, so you're never forced to buff a card you'd
+    // rather not (incl. an enemy's, which can be the only living unique card left under the "any card"
+    // text). The printed card says "place"; declining is a house ruling. drainSpirits opens the next owed.
+    if (choice.cardUid === '') {
+      const s = clone(state);
+      delete s.pendingChoice;
+      pushLog(s, 'power', `${playerName(s, seat)} declines to place the Warrior's ${spiritName} Spirit — it is lost.`);
+      return s;
+    }
     if (!pc.options.includes(choice.cardUid)) {
-      return { error: 'The Spirit must be placed on a living unique Army Card' };
+      return { error: 'The Spirit must be placed on a living unique Army Card (or declined)' };
     }
     const s = clone(state);
     const card = s.cards.find(c => c.uid === choice.cardUid)!;
@@ -6210,7 +6221,6 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     else if (pc.spirit === 'defense') card.defenseMod += 1;
     else card.moveMod = (card.moveMod ?? 0) + 1;
     delete s.pendingChoice;
-    const spiritName = pc.spirit === 'attack' ? 'Attack' : pc.spirit === 'defense' ? 'Armor' : 'Swiftness';
     pushLog(
       s,
       'power',
@@ -6596,8 +6606,10 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     const ptsOfUid = (uid: string) =>
       effectiveCardDef(state.cards.find(c => c.uid === uid)?.cardId ?? '', state.edition)?.points ?? 0;
     const mine = pc.options.filter(uid => state.cards.find(c => c.uid === uid)?.ownerSeat === seat);
-    const pool = mine.length ? mine : pc.options;
-    const best = pool.reduce((b, uid) => (ptsOfUid(uid) > ptsOfUid(b) ? uid : b), pool[0]);
+    // Placement is optional now: with no card of OUR OWN to buff, DECLINE rather than hand the Spirit to
+    // an enemy (the "any unique card" option set can be enemy-only once our board is thin).
+    if (mine.length === 0) return { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: '' } };
+    const best = mine.reduce((b, uid) => (ptsOfUid(uid) > ptsOfUid(b) ? uid : b), mine[0]);
     return { kind: 'resolve_choice', choice: { kind: 'spirit_placement', cardUid: best } };
   }
   if (pc.kind === 'berserker_charge') {

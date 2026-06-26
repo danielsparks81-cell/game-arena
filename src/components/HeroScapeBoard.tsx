@@ -4099,7 +4099,7 @@ export default function HeroScapeBoard({
               {myChoice.spirit === 'attack' ? "Warrior's Attack Spirit" : "Warrior's Armor Spirit"}
             </div>
             <div className="mt-0.5 text-[11px] text-neutral-400">
-              Place the Spirit on any unique Army Card — +1 {myChoice.spirit} forever.
+              Place the Spirit on any unique Army Card — +1 {myChoice.spirit} forever — or decline.
             </div>
             <div className="mt-2 flex flex-col gap-1">
               {myChoice.options.map(uid => {
@@ -4118,6 +4118,14 @@ export default function HeroScapeBoard({
                   </button>
                 );
               })}
+              {/* Optional (owner ruling): never forced to place it — decline and the Spirit is lost. */}
+              <button
+                onClick={() => onResolveChoice({ kind: 'spirit_placement', cardUid: '' })}
+                disabled={disabled}
+                className="mt-0.5 rounded-md border border-neutral-600 px-2 py-1 text-center text-xs font-semibold text-neutral-300 transition hover:border-neutral-400 hover:bg-neutral-800 disabled:opacity-40"
+              >
+                Don’t place it
+              </button>
             </div>
           </div>
         )}

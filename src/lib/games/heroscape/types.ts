@@ -522,7 +522,7 @@ export type HSPendingChoice =
 export type HSChoiceResolution =
   | { kind: 'berserker_charge'; remove: boolean } // true = re-move (re-grant), false = decline
   | { kind: 'water_clone_place'; hex: HexKey } // landing for the NEXT pending placement
-  | { kind: 'spirit_placement'; cardUid: string } // unique card to receive the Spirit
+  | { kind: 'spirit_placement'; cardUid: string } // unique card to receive the Spirit; '' = DECLINE (optional)
   | { kind: 'airborne_drop'; placements: HexKey[] } // landings for all reserve Airborne Elite
   | { kind: 'roll_ceremony_select'; figureId: string } // the current roller highlights a figure (shared)
   | { kind: 'roll_ceremony_roll'; d20?: number } // roll the selected figure — d20 injected by the action layer
