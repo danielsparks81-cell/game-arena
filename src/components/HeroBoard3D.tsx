@@ -1104,6 +1104,22 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     for (const k of hexes) { const [x, , z] = hexToWorld(k); ax += x; az += z; }
     return [Math.round((ax / hexes.length) * 2) / 2, 0, Math.round((az / hexes.length) * 2) / 2];
   }, [it.selectedId, it.actionableIds, state, hexToWorld, armyTarget]);
+  // FOCUS BUTTON cycle (owner 2026-06-26: "if I click again, cycle through my figures"). The FIRST press
+  // frames the CURRENT ACTION (focusTarget); each further press steps to the NEXT of YOUR own on-board
+  // figures, looping back to the current action after the last. `focusStep`: 0 = action, 1..N = your
+  // figures (a ref — no re-render; setDesired drives the camera ease).
+  const focusStep = useRef(0);
+  const onFocusClick = useCallback(() => {
+    const mine = state.figures.filter(f => f.ownerSeat === it.viewerSeat && f.at != null);
+    const step = mine.length ? focusStep.current % (mine.length + 1) : 0;
+    if (step === 0) {
+      setDesired(focusTarget());
+    } else {
+      const [x, , z] = hexToWorld(mine[step - 1].at!);
+      setDesired([Math.round(x * 2) / 2, 0, Math.round(z * 2) / 2]);
+    }
+    focusStep.current = mine.length ? (step + 1) % (mine.length + 1) : 0;
+  }, [state, it.viewerSeat, focusTarget, hexToWorld]);
   // Frame the BOARD CENTRE (origin — the board is recentred there), not the army. The board is
   // rotated per-viewer so your side still sits at the bottom, but centring on the board keeps the
   // whole field in view and stops it floating high with a big black margin (where the panels land).
@@ -1134,9 +1150,9 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
           (board corners) and the glyph HUD (right-centre). */}
       <button
         type="button"
-        onClick={() => setDesired(focusTarget())}
-        title="Focus on the current action (the acting army)"
-        aria-label="Focus on the current action"
+        onClick={onFocusClick}
+        title="Focus the current action — click again to cycle through your figures"
+        aria-label="Focus the current action; click again to cycle through your figures"
         className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
       >
         ⌖

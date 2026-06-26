@@ -563,7 +563,11 @@ function DraftCard({
       className="group relative w-full"
       onMouseEnter={() => {
         const r = wrapRef.current?.getBoundingClientRect();
-        if (r) setPreviewSide(r.left + r.width / 2 < window.innerWidth / 2 ? 'right' : 'left');
+        // Bias toward the RIGHT (the common case, "like everyone else"): only a card clearly in the right
+        // THIRD pins the preview LEFT (else it would overflow the right edge). So a top-/bottom-CENTRE
+        // panel — whose centre sits near screen-centre — keeps the preview on the right instead of
+        // flipping left and covering a corner panel's name (owner 2026-06-26).
+        if (r) setPreviewSide(r.left + r.width / 2 < window.innerWidth * 0.66 ? 'right' : 'left');
       }}
     >
       <button
@@ -1054,8 +1058,8 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
           return (
             <div
               key={g.at}
-              className={'flex items-center gap-2 whitespace-nowrap' + (def ? ' cursor-help' : '')}
-              title={def ? `${def.name} — ${def.effect}` : 'Unknown glyph — stop a figure on it to reveal it.'}
+              className={'group relative flex items-center gap-2 whitespace-nowrap' + (def ? ' cursor-help' : '')}
+              title={def ? undefined : 'Unknown glyph — stop a figure on it to reveal it.'}
             >
               <span
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[11px] font-black text-rose-50"
@@ -1064,13 +1068,21 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
                 {def ? def.letter : '?'}
               </span>
               {def ? (
-                /* One line: NAME (drop "Glyph of") + short POWER; the full effect is on hover (title). */
+                /* One line: NAME (drop "Glyph of") + short POWER; the FULL effect pops on hover. */
                 <span className="text-[11px] leading-none">
                   <span className="font-bold text-rose-100">{def.name.replace(/^Glyph of /, '')}</span>{' '}
                   <span className="font-semibold text-rose-300/80">{def.power}</span>
                 </span>
               ) : (
                 <span className="text-[11px] font-semibold text-neutral-500">Unknown</span>
+              )}
+              {/* Hover detail — the full effect text (esp. curses). To the LEFT, since the panel hugs the
+                  screen's right edge; vertically clamped so a long curse never spills off-screen. */}
+              {def && (
+                <div className="pointer-events-none absolute right-full top-1/2 z-50 mr-2 hidden max-h-[60vh] w-60 max-w-[70vw] -translate-y-1/2 overflow-y-auto rounded-lg border-2 border-rose-700 bg-neutral-950/97 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block">
+                  <div className="text-xs font-bold text-rose-200">{def.name}</div>
+                  <div className="mt-1 text-[11px] leading-snug text-neutral-200">{def.effect}</div>
+                </div>
               )}
             </div>
           );
