@@ -2882,6 +2882,21 @@ describe('slice 4: Water Clone', () => {
     expect(noHive.pendingChoice).toBeUndefined();
   });
 
+  it('HIVE SUPREMACY STACKS with Lodin — two Lodin glyphs + Su-Bak-Na = +3 to a Marro d20 (owner 2026-06-26)', () => {
+    let s = JSON.parse(JSON.stringify(stagedMarro())) as HSState;
+    // Su-Bak-Na (seat 1) alive → +1 Hive to a friendly Marro d20.
+    s.cards.push({ uid: 's1-su_bak_na', cardId: 'su_bak_na', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-su_bak_na-1', cardUid: 's1-su_bak_na', ownerSeat: 1, at: at(5, 5), at2: at(5, 6), index: 1, wounds: 0 });
+    // TWO Lodin glyphs, both held under Su-Bak-Na's two lobes → seatGlyphCount = 2 (+2). With Hive that's +3.
+    s = setGlyphs(s, [{ id: 'lodin', at: at(5, 5), faceUp: true }, { id: 'lodin', at: at(5, 6), faceUp: true }]);
+    // 12 + 2 Lodin + 1 Hive = 15 → clears the Water Clone bar (placement choice opens).
+    const yes = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [{ marroFigureId: MARRO(1), d20: 12 }, { marroFigureId: MARRO(2), d20: 3 }] }));
+    expect(yes.pendingChoice?.kind).toBe('water_clone_place');
+    // 11 + 3 = 14 → still short of 15 (pins the bonus at EXACTLY +3, not +4 or +2).
+    const no = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [{ marroFigureId: MARRO(1), d20: 11 }, { marroFigureId: MARRO(2), d20: 3 }] }));
+    expect(no.pendingChoice).toBeUndefined();
+  });
+
   it('a Marro on a WATER space succeeds on 10+ (not 15)', () => {
     let s = noGlyphs(inTurnsOn('ford_crossing', 'p2', { p2: 's1-marro_warriors' }));
     s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), FINN);

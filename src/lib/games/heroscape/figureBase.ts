@@ -104,8 +104,8 @@ export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; 
   jotun: { fx: 0.20, fy: 0.93, bx: 0.80, by: 0.93 },
   major_q9: { fx: 0.22, fy: 0.89, bx: 0.80, by: 0.88 },
   mimring: { fx: 0.20, fy: 0.95, bx: 0.56, by: 0.95 },
-  // User-picked in the gallery for the REAL Nilfheim cut (2026-06-26, white bone dragon).
-  nilfheim: { fx: 0.16, fy: 0.94, bx: 0.66, by: 0.94 },
+  // User-picked in the gallery for the REAL Nilfheim cut — re-picked on the hand-erased cut (2026-06-26).
+  nilfheim: { fx: 0.26, fy: 0.93, bx: 0.68, by: 0.93 },
   // Su-Bak-Na (the old Nilfheim image = a skeletal Marro dragon) — user-picked in the gallery 2026-06-26.
   su_bak_na: { fx: 0.20, fy: 0.94, bx: 0.54, by: 0.94 },
   theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
