@@ -3157,6 +3157,31 @@ describe('wave-3 CHOICE glyphs — Erland / Nilrend / Wannok', () => {
     expect(after.glyphs.find(g => g.id === 'erland')).toBeUndefined(); // temporary — consumed
   });
 
+  it('Erland can summon a HUGE 2-hex figure (Su-Bak-Na) — both lobes land beside the summoner (owner 2026-06-26)', () => {
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, MARRO(1));
+    s = place(s, FINN, at(3, 2));
+    s = place(s, MARRO(1), at(6, 6)); // keep p2 alive elsewhere
+    // An opponent (seat 1) Su-Bak-Na sitting far from the glyph, occupying TWO hexes.
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.cards.push({ uid: 's1-su_bak_na', cardId: 'su_bak_na', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-su_bak_na-1', cardUid: 's1-su_bak_na', ownerSeat: 1, at: at(0, 0), at2: at(1, 0), index: 1, wounds: 0 });
+    s = setGlyphs(s, [{ id: 'erland', at: at(3, 3), faceUp: true }]);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 3) }));
+    expect(moved.pendingChoice?.kind).toBe('glyph_erland');
+    // The 2-hex figure is now offered (the old engine excluded every figure with at2 set).
+    expect(erlandSummonableIds(moved)).toContain('s1-su_bak_na-1');
+    const lead = at(3, 4); // a central empty neighbour of Finn — room for the trailing lobe
+    expect(erlandDestinations(moved)).toContain(lead);
+    const after = unwrap(applyAction(moved, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_erland', figureId: 's1-su_bak_na-1', to: lead } }));
+    const sb = after.figures.find(f => f.id === 's1-su_bak_na-1')!;
+    expect(sb.at).toBe(lead);          // lead lobe on the chosen space
+    expect(sb.at2).toBeTruthy();       // trailing lobe placed too (no more null at2)
+    expect(sb.at2).not.toBe(sb.at);    // two distinct hexes
+    expect(after.pendingChoice).toBeUndefined();
+    expect(after.glyphs.find(g => g.id === 'erland')).toBeUndefined(); // consumed
+  });
+
   // ---------------- NILREND: Negation ----------------
   it('Nilrend: stop → server d20 (2+) → controller negates an opponent unique card (game-long)', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));

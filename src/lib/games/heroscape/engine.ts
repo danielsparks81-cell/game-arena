@@ -3187,12 +3187,13 @@ function applyOneGlyph(s: HSState, fig: Figure, g: HSGlyph): void {
     return;
   }
   if (g.id === 'erland') {
-    // Summoning (temporary) — pure teleport. The controller (stopper) picks ANY single-hex
-    // figure on the board and an EMPTY space adjacent to the figure on the glyph; it moves
-    // there with no swipes/fall. Fizzle (remove, no effect) when there is no one to summon
-    // or no empty adjacent space. Resolved by the human/AI via a glyph_erland choice.
+    // Summoning (temporary) — pure teleport. The controller (stopper) picks ANY figure on the
+    // board — 1-hex OR a HUGE 2-hex figure (Su-Bak-Na) when both its hexes fit — and an EMPTY
+    // space adjacent to the figure on the glyph; it moves there with no swipes/fall. Fizzle
+    // (remove, no effect) when no figure can be summoned. Resolved by the human/AI via a
+    // glyph_erland choice.
     const dests = emptyNeighborsOf(s, fig);
-    const summonable = s.figures.filter(o => o.at != null && o.at2 == null && o.id !== fig.id);
+    const summonable = s.figures.filter(o => erlandLandingFor(s, fig, o.id) != null);
     if (dests.length === 0 || summonable.length === 0) {
       s.glyphs = s.glyphs.filter(x => x.at !== g.at);
       pushLog(s, 'glyph', `${figureLabel(s, fig)} reveals the Glyph of Erland — but there is no one to summon. It fades.`);
@@ -3248,6 +3249,32 @@ function emptyNeighborsOf(s: HSState, fig: Figure): HexKey[] {
   return [...out];
 }
 
+/** The same-level empty TAIL for a 2-hex Erland summon landing its lead lobe on `lead` (the
+ *  figure's old footprint counts as free — it's teleporting away; other figures and glyph hexes
+ *  don't). null for a 1-hex figure, or when `lead` has no room for the second hex. */
+function erlandTailAt(s: HSState, target: Figure, lead: HexKey): HexKey | null {
+  if (baseSizeOf(cardDefFor(s, target)) !== 2) return null;
+  const cells = MAPS[s.mapId]?.cells;
+  if (!cells) return null;
+  const occ = new Set(s.figures.filter(x => x.id !== target.id).flatMap(x => figureHexes(x)));
+  const onGlyph = new Set((s.glyphs ?? []).map(g => g.at));
+  const free = new Set(Object.keys(cells).filter(h => !occ.has(h) && !onGlyph.has(h)));
+  return tailFor(cells, free, lead);
+}
+
+/** A valid Erland landing for summoning `summonId` beside `summoner`: a lead hex (an empty
+ *  neighbour of the summoner) plus — for a HUGE 2-hex figure (Su-Bak-Na) — a same-level empty
+ *  tail beside it. null when the figure can't fit, so a 2-hex figure is only offered/summoned
+ *  when both its hexes actually have room. */
+function erlandLandingFor(s: HSState, summoner: Figure, summonId: string): { to: HexKey; tail: HexKey | null } | null {
+  const target = s.figures.find(f => f.id === summonId);
+  if (!target || target.at == null || target.id === summoner.id) return null;
+  const leads = emptyNeighborsOf(s, summoner);
+  if (baseSizeOf(cardDefFor(s, target)) !== 2) return leads.length ? { to: leads[0], tail: null } : null;
+  for (const lead of leads) { const tail = erlandTailAt(s, target, lead); if (tail != null) return { to: lead, tail }; }
+  return null;
+}
+
 /** Board helper — the EMPTY adjacent spaces a Glyph of Erland summon may land on (only
  *  meaningful while a glyph_erland choice is open). Empty otherwise. */
 export function erlandDestinations(state: HSState): HexKey[] {
@@ -3257,12 +3284,15 @@ export function erlandDestinations(state: HSState): HexKey[] {
   return summoner ? emptyNeighborsOf(state, summoner) : [];
 }
 
-/** Board helper — the figure ids a Glyph of Erland may summon (any single-hex figure on
- *  the board other than the figure standing on the glyph). Empty unless a choice is open. */
+/** Board helper — the figure ids a Glyph of Erland may summon (any figure on the board other
+ *  than the one on the glyph; a 1-hex figure, OR a 2-hex figure that has room for both hexes
+ *  beside the summoner). Empty unless a choice is open. */
 export function erlandSummonableIds(state: HSState): string[] {
   const pc = state.pendingChoice;
   if (!pc || pc.kind !== 'glyph_erland') return [];
-  return state.figures.filter(o => o.at != null && o.at2 == null && o.id !== pc.summonerFigureId).map(o => o.id);
+  const summoner = state.figures.find(f => f.id === pc.summonerFigureId);
+  if (!summoner) return [];
+  return state.figures.filter(o => erlandLandingFor(state, summoner, o.id) != null).map(o => o.id);
 }
 
 /** Apply a resolved fall to the mover (03-movement §4). Fall/Major: 1 wound per
@@ -6105,8 +6135,8 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     return s;
   }
 
-  // --- Glyph of Erland: Summoning (teleport any single-hex figure to an empty space
-  //     adjacent to the figure on the glyph; no swipes/fall) ---
+  // --- Glyph of Erland: Summoning (teleport any figure — 1-hex or a 2-hex huge that fits —
+  //     to an empty space adjacent to the figure on the glyph; no swipes/fall) ---
   if (pc.kind === 'glyph_erland' && choice.kind === 'glyph_erland') {
     const summoner = state.figures.find(f => f.id === pc.summonerFigureId);
     if (!summoner || summoner.at == null) {
@@ -6116,16 +6146,21 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
       return s; // summoner gone — fizzle
     }
     const target = state.figures.find(f => f.id === choice.figureId);
-    if (!target || target.at == null || target.at2 != null || target.id === pc.summonerFigureId) {
-      return { error: 'Choose a single-hex figure to summon' };
+    if (!target || target.at == null || target.id === pc.summonerFigureId) {
+      return { error: 'Choose a figure to summon' };
     }
     if (!emptyNeighborsOf(state, summoner).includes(choice.to)) {
       return { error: 'Choose an empty space adjacent to the figure on the glyph' };
     }
+    // A HUGE 2-hex figure (Su-Bak-Na) needs a same-level empty tail beside the lead hex it lands on.
+    const tail = erlandTailAt(state, target, choice.to);
+    if (baseSizeOf(cardDefFor(state, target)) === 2 && tail == null) {
+      return { error: "No room for the huge figure's second hex beside that space — pick another." };
+    }
     const s = clone(state);
     const f = s.figures.find(x => x.id === choice.figureId)!;
     f.at = choice.to;
-    f.at2 = null;
+    f.at2 = tail;
     s.glyphs = s.glyphs.filter(g => g.at !== pc.at); // temporary — fired once
     delete s.pendingChoice;
     pushLog(s, 'glyph', `Erland — ${figureLabel(s, f)} is summoned beside ${figureLabel(s, summoner)} (no swipes).`);
@@ -6662,15 +6697,17 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
   // (so the controller's army can focus it); fall back to any summonable figure. Destination
   // = any empty adjacent space. The pending only opens when both lists are non-empty.
   if (pc.kind === 'glyph_erland') {
-    const dests = erlandDestinations(state);
-    const summonable = erlandSummonableIds(state);
-    if (dests.length === 0 || summonable.length === 0) return null;
+    const summoner = state.figures.find(f => f.id === pc.summonerFigureId);
+    const summonable = erlandSummonableIds(state); // already filtered to figures that can land (incl. 2-hex)
+    if (!summoner || summonable.length === 0) return null;
     const foeIds = new Set(aiEnemies(state, seat).map(e => e.id));
     const pts = (id: string) => { const f = state.figures.find(x => x.id === id); return f ? cardDefFor(state, f).points : 0; };
     const foes = summonable.filter(id => foeIds.has(id));
     const pool = foes.length ? foes : summonable;
     const figureId = pool.reduce((b, id) => (pts(id) > pts(b) ? id : b), pool[0]);
-    return { kind: 'resolve_choice', choice: { kind: 'glyph_erland', figureId, to: dests[0] } };
+    const landing = erlandLandingFor(state, summoner, figureId); // a valid lead (+ same-level tail for a 2-hex)
+    if (!landing) return null;
+    return { kind: 'resolve_choice', choice: { kind: 'glyph_erland', figureId, to: landing.to } };
   }
   // Glyph of Nilrend — STEP 2 only (the server rolls the d20 in the action layer). Negate the
   // biggest threat: on a foe roll (2+) the highest-point opponent card; on an own roll (1)
