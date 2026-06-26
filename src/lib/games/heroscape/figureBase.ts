@@ -106,8 +106,8 @@ export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; 
   mimring: { fx: 0.20, fy: 0.95, bx: 0.56, by: 0.95 },
   // User-picked in the gallery for the REAL Nilfheim cut (2026-06-26, white bone dragon).
   nilfheim: { fx: 0.16, fy: 0.94, bx: 0.66, by: 0.94 },
-  // Su-Bak-Na (the old Nilfheim image = a skeletal Marro dragon) — measured base lobes (picker-refinable).
-  su_bak_na: { fx: 0.24, fy: 0.95, bx: 0.49, by: 0.95 },
+  // Su-Bak-Na (the old Nilfheim image = a skeletal Marro dragon) — user-picked in the gallery 2026-06-26.
+  su_bak_na: { fx: 0.20, fy: 0.94, bx: 0.54, by: 0.94 },
   theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
 };
 
