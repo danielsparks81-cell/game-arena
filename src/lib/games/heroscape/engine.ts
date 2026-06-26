@@ -1479,7 +1479,7 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
   // Dagmar (+8) and Lodin (+1) both add to a seat's initiative; a seat may hold either,
   // both, or neither. The server carries raw+bonus; this re-validates the exact total.
   const initiativeBonusFor = (seat: number): number =>
-    (seatControlsGlyph(state, seat, 'dagmar') ? DAGMAR_INITIATIVE_BONUS : 0) + lodinD20Bonus(state, seat);
+    seatGlyphCount(state, seat, 'dagmar') * DAGMAR_INITIATIVE_BONUS + lodinD20Bonus(state, seat);
   for (const attempt of attempts) {
     if (
       !Array.isArray(attempt) ||
@@ -1970,10 +1970,29 @@ function seatControlsGlyph(state: HSState, seat: number, glyphId: HSGlyphId): bo
   );
 }
 
-/** Glyph of Lodin: +1 to ANY d20 the controlling seat rolls (initiative — stacking with
- *  Dagmar — The Drop, Mind Shackle, Berserker Charge, Chomp, extreme-fall saves). 0 or 1. */
+/** How many face-up glyphs of `glyphId` a seat CONTROLS (has a figure standing on). Duplicate BUFF
+ *  glyphs STACK per copy (owner ruling 2026-06-25: "stack for crazy games") — e.g. two Lodin = +2 to
+ *  every d20, two Ivor = +4 range. Boolean conditions (Thorian / Rannveig / Proftaka / Kelda) keep
+ *  using `seatControlsGlyph` — controlling two of an on/off glyph changes nothing. */
+function seatGlyphCount(state: HSState, seat: number, glyphId: HSGlyphId): number {
+  if (!HS_GLYPHS[glyphId]?.active) return 0;
+  return (state.glyphs ?? []).filter(
+    g => g.id === glyphId && g.faceUp && state.figures.some(f => f.ownerSeat === seat && figureHexes(f).includes(g.at)),
+  ).length;
+}
+
+/** Glyph of Lodin: +1 PER controlled Lodin to ANY d20 the seat rolls (initiative — stacking with
+ *  Dagmar — The Drop, Mind Shackle, Berserker Charge, Chomp, extreme-fall saves). */
 function lodinD20Bonus(state: HSState, seat: number): number {
-  return seatControlsGlyph(state, seat, 'lodin') ? 1 : 0;
+  return seatGlyphCount(state, seat, 'lodin');
+}
+
+/** Wounds a defender takes from a SPECIAL attack. STEALTH DODGE (Krav Maga) applies to special attacks
+ *  too (owner ruling 2026-06-25 — a defender keeps its defensive powers vs specials, the same way it
+ *  keeps height): against a NON-adjacent attacker, ≥1 rolled shield blocks ALL the damage. */
+function specialAttackWounds(state: HSState, attacker: Figure | undefined, defender: Figure, skulls: number, shields: number): number {
+  if (attacker && shields >= 1 && cardDefFor(state, defender).stealthDodge && !figuresAdjacent(state, attacker, defender)) return 0;
+  return Math.max(0, skulls - shields);
 }
 
 /** Does `fig`'s FOOTPRINT cover a face-up, active glyph of `glyphId`? (Either lobe of a
@@ -3509,9 +3528,10 @@ export function effectiveAttackDice(
   // Explosion, Acid Breath, …) don't call this helper at all, but gate explicitly
   // on isNormalAttack so the printed "normal attack" restriction is self-documenting
   // and survives any future caller.
-  if (isNormalAttack && seatControlsGlyph(state, attacker.ownerSeat, 'astrid')) {
-    dice += 1;
-    breakdown.push('+1 Astrid');
+  const astridN = isNormalAttack ? seatGlyphCount(state, attacker.ownerSeat, 'astrid') : 0;
+  if (astridN > 0) {
+    dice += astridN;
+    breakdown.push(`+${astridN} Astrid`);
   }
   return { dice, breakdown };
 }
@@ -3599,15 +3619,17 @@ export function effectiveDefenseDice(
     dice += 1;
     breakdown.push('+1 Grimnak aura');
   }
-  if (seatControlsGlyph(state, defender.ownerSeat, 'gerda')) {
-    dice += 1;
-    breakdown.push('+1 Gerda');
+  const gerdaN = seatGlyphCount(state, defender.ownerSeat, 'gerda');
+  if (gerdaN > 0) {
+    dice += gerdaN;
+    breakdown.push(`+${gerdaN} Gerda`);
   }
-  // Glyph of Jalgard — TWO extra defense dice (a stronger Gerda). Stacks with Gerda
-  // if a seat somehow holds both. Army-wide while occupied.
-  if (seatControlsGlyph(state, defender.ownerSeat, 'jalgard')) {
-    dice += 2;
-    breakdown.push('+2 Jalgard');
+  // Glyph of Jalgard — TWO extra defense dice PER copy (a stronger Gerda). Stacks with Gerda and
+  // with itself. Army-wide while occupied.
+  const jalgardN = seatGlyphCount(state, defender.ownerSeat, 'jalgard');
+  if (jalgardN > 0) {
+    dice += jalgardN * 2;
+    breakdown.push(`+${jalgardN * 2} Jalgard`);
   }
   return { dice, breakdown };
 }
@@ -3691,13 +3713,17 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
   // Eldgrim's Warrior's Swiftness Spirit — a permanent +1 move per Spirit placed on this card.
   const swift = cardModFor(state, fig).moveMod;
   if (swift !== 0) { move += swift; breakdown.push(`${swift > 0 ? '+' : ''}${swift} Swiftness Spirit`); }
-  if (seatControlsGlyph(state, fig.ownerSeat, 'valda')) {
-    // The occupant of Valda gets no boost on the move that leaves it.
-    const onValda = (state.glyphs ?? []).some(g => g.id === 'valda' && g.at === fig.at);
-    if (!onValda) {
-      move += 2;
-      breakdown.push('+2 Valda');
-    } else {
+  // Glyph of Valda — +2 move PER controlled copy, EXCEPT the one this figure is moving off (no boost
+  // on the move that leaves a Valda). Stacks if the seat holds more than one. Footprint-aware, so a
+  // 2-hex tail on Valda also counts as "on it".
+  if (HS_GLYPHS.valda?.active) {
+    const valdaN = (state.glyphs ?? []).filter(g =>
+      g.id === 'valda' && g.faceUp &&
+      state.figures.some(f => f.ownerSeat === fig.ownerSeat && figureHexes(f).includes(g.at)) &&
+      !figureHexes(fig).includes(g.at), // not the Valda THIS figure is leaving
+    ).length;
+    if (valdaN > 0) { move += 2 * valdaN; breakdown.push(`+${2 * valdaN} Valda`); }
+    else if ((state.glyphs ?? []).some(g => g.id === 'valda' && figureHexes(fig).includes(g.at))) {
       breakdown.push('(no Valda bonus moving off the glyph)');
     }
   }
@@ -3719,9 +3745,10 @@ export function effectiveRange(state: HSState, fig: Figure): EffectiveStat {
   const def = cardDefFor(state, fig);
   const breakdown: string[] = [`Range ${def.range} printed`];
   let range = def.range;
-  if (def.range >= 4 && seatControlsGlyph(state, fig.ownerSeat, 'ivor')) {
-    range += 2;
-    breakdown.push('+2 Ivor');
+  const ivorN = def.range >= 4 ? seatGlyphCount(state, fig.ownerSeat, 'ivor') : 0;
+  if (ivorN > 0) {
+    range += 2 * ivorN;
+    breakdown.push(`+${2 * ivorN} Ivor`);
   }
   // Deathwalker 9000's RANGE ENHANCEMENT (cards.md): "Any Soulborg Guards
   // adjacent to Deathwalker add 2 spaces to their range." Data-driven on species
@@ -3950,9 +3977,9 @@ function doFireLine(
   for (const d of defenders) {
     const roll = got.get(d.figureId)!;
     const shields = countFaces(roll, 'shield');
-    const w = Math.max(0, skulls - shields);
     const t = s.figures.find(f => f.id === d.figureId);
     if (!t) continue;
+    const w = specialAttackWounds(s, attacker, t, skulls, shields);
     t.wounds += w;
     totalWounds += w;
     const tDef = cardDefFor(s, t);
@@ -4109,9 +4136,9 @@ function doExplosion(
   for (const d of defenders) {
     const roll = got.get(d.figureId)!;
     const shields = countFaces(roll, 'shield');
-    const w = Math.max(0, skulls - shields);
     const t = s.figures.find(f => f.id === d.figureId);
     if (!t) continue;
+    const w = specialAttackWounds(s, attacker, t, skulls, shields);
     t.wounds += w;
     totalWounds += w;
     const tDef = cardDefFor(s, t);
@@ -4292,9 +4319,9 @@ function doGrenadeThrow(
   for (const d of defenders) {
     const roll = got.get(d.figureId)!;
     const shields = countFaces(roll, 'shield');
-    const w = Math.max(0, skulls - shields);
     const t = s.figures.find(f => f.id === d.figureId);
     if (!t) continue;
+    const w = specialAttackWounds(s, thrower, t, skulls, shields);
     t.wounds += w;
     totalWounds += w;
     totalShields += shields;
@@ -5179,7 +5206,7 @@ function doIceShard(
 
   const skulls = countFaces(action.attackRoll, 'skull');
   const shields = countFaces(action.defenseRoll, 'shield');
-  const wounds = Math.max(0, skulls - shields);
+  const wounds = specialAttackWounds(state, nilf, target, skulls, shields);
   const s = clone(state);
   s.turnAttacks.push({ attackerId: nilf.id, targetId: target.id, special: 'ice_shard' });
   const t = s.figures.find(f => f.id === target.id)!;
@@ -5265,7 +5292,7 @@ function doQueglix(
 
   const skulls = countFaces(action.attackRoll, 'skull');
   const shields = countFaces(action.defenseRoll, 'shield');
-  const wounds = Math.max(0, skulls - shields);
+  const wounds = specialAttackWounds(state, q9, target, skulls, shields);
   const s = clone(state);
   s.queglixDiceSpent = spent + action.dice;
   s.turnAttacks.push({ attackerId: q9.id, targetId: target.id, special: 'queglix' });
@@ -5364,9 +5391,9 @@ function doWildSwing(
   for (const d of defenders) {
     const roll = got.get(d.figureId)!;
     const shields = countFaces(roll, 'shield');
-    const w = Math.max(0, skulls - shields);
     const t = s.figures.find(f => f.id === d.figureId);
     if (!t) continue;
+    const w = specialAttackWounds(s, jotun, t, skulls, shields);
     t.wounds += w;
     totalWounds += w;
     const destroyed = t.wounds >= cardDefFor(s, t).life;
