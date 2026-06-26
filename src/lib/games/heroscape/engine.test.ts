@@ -5387,6 +5387,26 @@ describe('Fire Line Special Attack (Mimring)', () => {
     expect(ids).toContain('far'); // the fire passes through 'near' to reach 'far'
   });
 
+  it('a height-15 WALL on the line BLOCKS the fire beyond it — no see-around from the back lobe (owner 2026-06-26)', () => {
+    // Firing lobe (3,3) with the tail OFF the line at (3,4): the offset back lobe is exactly the case
+    // where the old "either lobe" sight let it see AROUND a wall on the line, so the fire passed THROUGH
+    // a pillar. Fire dir 0 → (4,3),(5,3),(6,3); a wall pillar at (5,3) must stop everything beyond it.
+    let s = clearExcept(inTurns('p1'), FINN, THORGRIM);
+    s = inject(s, 0, 'mimring', 'mim', at(3, 3), at(3, 4));
+    s = inject(s, 1, 'marro_warriors', 'before', at(4, 3)); // in front of the wall
+    s = inject(s, 1, 'marro_warriors', 'behind', at(6, 3)); // beyond the wall
+    const cell = MAPS['training_field'].cells[at(5, 3)];
+    const orig = cell.height;
+    try {
+      cell.height = 15; // a tall wall pillar between Mimring and 'behind'
+      const ids = fireLineTargets(s, 'mim', 0, at(3, 3)).map(f => f.id);
+      expect(ids).toContain('before');     // before the wall — still hit
+      expect(ids).not.toContain('behind'); // beyond the wall — BLOCKED (the fix)
+    } finally {
+      cell.height = orig; // restore the shared map
+    }
+  });
+
   it('fireLineDefenders returns one defense entry per affected figure', () => {
     let s = withMimring();
     s = inject(s, 0, 'tarn_vikings', 'ally', at(4, 3));

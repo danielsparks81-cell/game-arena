@@ -3931,10 +3931,15 @@ export function fireLineTargets(state: HSState, attackerId: string, dir: number,
   const spaces = new Set(fireLineSpaces(state, attackerId, dir, origin));
   if (spaces.size === 0) return [];
   const aHexes = figureHexes(attacker);
+  // The line is cast from ONE lobe (the firing origin) in a straight direction — sight it from THAT
+  // lobe only. Using EITHER lobe let the offset back lobe see AROUND a wall sitting on the line, so the
+  // fire appeared to pass THROUGH a pillar to hit figures behind it (owner 2026-06-26). A line attack
+  // emanates from its origin; a wall ON the straight line must block everything beyond it.
+  const fireFrom = origin && aHexes.includes(origin) ? origin : attacker.at;
   // Mimring is a HUGE dragon, so his fire line is cast from HIS height (not the default hex+1
   // ground eye) — it clears low hills/land the way a towering figure would, instead of being
   // wrongly blocked by terrain it plainly sees over. Only the tall wall pillars stop it. (Same
-  // height-aware sight as Raelin's aura.) Source hexes use the dragon's eye; targets stay normal.
+  // height-aware sight as Raelin's aura.) The firing lobe uses the dragon's eye; targets stay normal.
   const atkH = cardDefFor(state, attacker).height;
   const eye = (k: HexKey) => (aHexes.includes(k) ? heightOfKey(state, k) + atkH : eyeHeightOfKey(state, k));
   const out: Figure[] = [];
@@ -3944,10 +3949,10 @@ export function fireLineTargets(state: HSState, attackerId: string, dir: number,
     if (onLine.length === 0) continue;
     // A LINE special attack's fire passes THROUGH figures — only TERRAIN / height
     // blocks the straight line, never an intervening figure. So every figure on
-    // the line that Mimring can see past walls/columns is hit (an enemy standing
-    // in front no longer shields the figures behind it). Hence NO figure
-    // occluders in the LOS check — just elevation-aware terrain.
-    const sighted = onLine.some(th => aHexes.some(ah => hasLineOfSight3D(map.cells, ah, th, [], eye)));
+    // the line that Mimring can see (from the firing lobe) past walls/columns is hit
+    // (an enemy standing in front no longer shields the figures behind it). Hence NO
+    // figure occluders in the LOS check — just elevation-aware terrain, from the origin.
+    const sighted = onLine.some(th => hasLineOfSight3D(map.cells, fireFrom, th, [], eye));
     if (sighted) out.push(f);
   }
   return out;
