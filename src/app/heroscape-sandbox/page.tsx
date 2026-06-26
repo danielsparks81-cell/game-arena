@@ -309,7 +309,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/85 p-4" onClick={onClose}>
-      <div className="flex max-h-[96vh] w-full max-w-md flex-col overflow-y-auto" onClick={e => e.stopPropagation()}>
+      <div className="flex max-h-[98vh] w-full max-w-[98vw] flex-col overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="mb-2 text-center text-sm text-neutral-200">
           {tile.name} — {mode === 'flood' ? 'click each white blob to erase it' : mode === 'brush' ? 'drag to erase' : 'drag over an erased (checkered) area to bring it back'}
           {!loaded && <span className="text-neutral-400"> · loading…</span>}
@@ -319,7 +319,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
             ref={dispRef}
             onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onLeave}
             className="block select-none"
-            style={{ maxWidth: 'min(460px, 90vw)', maxHeight: '58vh', width: 'auto', height: 'auto', cursor: mode === 'flood' ? 'crosshair' : 'none', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+            style={{ maxWidth: '96vw', maxHeight: '82vh', width: 'auto', height: 'auto', cursor: mode === 'flood' ? 'crosshair' : 'none', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
           />
           {cur && mode !== 'flood' && (
             <div className="pointer-events-none absolute rounded-full" style={{ left: cur.x - brushR, top: cur.y - brushR, width: brushR * 2, height: brushR * 2, border: mode === 'restore' ? '2px solid #34d399' : '2px solid #f87171', boxShadow: '0 0 0 1px rgba(0,0,0,0.7)' }} />
