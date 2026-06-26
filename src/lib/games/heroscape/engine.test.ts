@@ -2869,6 +2869,19 @@ describe('slice 4: Water Clone', () => {
     ] }))).toMatch(/already Water Cloned/);
   });
 
+  it('HIVE SUPREMACY (Su-Bak-Na) gives a friendly Marro d20 +1 — a Water Clone 14 then clears the 15 bar (owner 2026-06-26)', () => {
+    expect(HS_CARDS.su_bak_na).toMatchObject({ type: 'hero', life: 5, move: 6, range: 1, attack: 7, defense: 3, height: 12, points: 160, flying: true, hiveSupremacy: true, baseSize: 2 });
+    // A friendly (seat-1) living Su-Bak-Na makes a Marro Water Clone on grass succeed on 14 (+1 Hive = 15).
+    let s = JSON.parse(JSON.stringify(stagedMarro())) as HSState;
+    s.cards.push({ uid: 's1-su_bak_na', cardId: 'su_bak_na', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-su_bak_na-1', cardUid: 's1-su_bak_na', ownerSeat: 1, at: at(5, 5), at2: at(5, 6), index: 1, wounds: 0 });
+    const hive = unwrap(applyAction(s, 'p2', { kind: 'water_clone', rolls: [{ marroFigureId: MARRO(1), d20: 14 }, { marroFigureId: MARRO(2), d20: 3 }] }));
+    expect(hive.pendingChoice?.kind).toBe('water_clone_place'); // 14 + 1 Hive = 15 → cloned
+    // Without Su-Bak-Na the same 14 FAILS (no placement choice opens).
+    const noHive = unwrap(applyAction(stagedMarro(), 'p2', { kind: 'water_clone', rolls: [{ marroFigureId: MARRO(1), d20: 14 }, { marroFigureId: MARRO(2), d20: 3 }] }));
+    expect(noHive.pendingChoice).toBeUndefined();
+  });
+
   it('a Marro on a WATER space succeeds on 10+ (not 15)', () => {
     let s = noGlyphs(inTurnsOn('ford_crossing', 'p2', { p2: 's1-marro_warriors' }));
     s = clearExcept(s, MARRO(1), MARRO(2), MARRO(3), FINN);
@@ -3712,7 +3725,7 @@ describe('slice 5: start_game routing (draft vs quick)', () => {
     expect(s.mode).toBe('draft');
     expect(s.pointBudget).toBe(400);
     expect(s.draft).toBeDefined();
-    expect(s.draft!.pool).toHaveLength(23);
+    expect(s.draft!.pool).toHaveLength(24);
     expect(s.draft!.turnSeat).toBeNull(); // awaiting the server roll-off
     expect(getActivePlayerId(s)).toBeNull();
     // Server rolls the order; p1 wins → drafts first.
@@ -4156,10 +4169,10 @@ describe('slice 5: placement', () => {
 
 // ---- full roster stats + power flags --------------------------------------
 
-describe('slice 5: full roster (18 base + 5 Big Heroes)', () => {
-  it('HS_CARDS has all 23 cards with the printed stats', () => {
-    expect(Object.keys(HS_CARDS)).toHaveLength(23);
-    expect(HS_DRAFT_POOL).toHaveLength(23);
+describe('slice 5: full roster (18 base + 6 Big Heroes)', () => {
+  it('HS_CARDS has all 24 cards with the printed stats', () => {
+    expect(Object.keys(HS_CARDS)).toHaveLength(24);
+    expect(HS_DRAFT_POOL).toHaveLength(24);
     // Every pool id resolves to a card.
     for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
     expect(HS_CARDS.eldgrim).toMatchObject({ life: 3, move: 5, range: 1, attack: 2, defense: 2, height: 4, points: 30 });
@@ -4193,7 +4206,7 @@ describe('slice 5: full roster (18 base + 5 Big Heroes)', () => {
     expect(live).toEqual([
       'agent_carr', 'airborne_elite', 'braxas', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak',
       'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
-      'nilfheim', 'otonashi', 'raelin', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
+      'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);
     expect(Object.values(HS_CARDS).filter(c => c.power === 'wip')).toEqual([]);
   });
@@ -4215,7 +4228,7 @@ describe('slice 5: full roster (18 base + 5 Big Heroes)', () => {
     const flagged = Object.values(HS_CARDS).filter(
       c => c.flying || c.ghostWalk || c.disengage || c.thorianSpeed || c.stealthDodge || c.counterStrike || c.grappleGun,
     ).map(c => c.id).sort();
-    expect(flagged).toEqual(['agent_carr', 'braxas', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'otonashi', 'raelin', 'theracus']);
+    expect(flagged).toEqual(['agent_carr', 'braxas', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'theracus']);
   });
 
   it('a wip card fights with its printed stats (no power handler)', () => {

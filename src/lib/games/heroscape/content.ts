@@ -445,6 +445,28 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     flying: true,
     baseSize: 2,
   },
+  su_bak_na: {
+    id: 'su_bak_na',
+    name: 'Su-Bak-Na',
+    shortName: 'Su-Bak-Na',
+    type: 'hero',
+    figures: 1,
+    life: 5,
+    move: 6,
+    range: 1,
+    attack: 7,
+    defense: 3,
+    height: 12,
+    size: 'huge',
+    points: 160,
+    letter: 'B',
+    species: 'Marro',
+    unitClass: 'Hivelord',
+    power: 'live', // FLYING + HIVE SUPREMACY (+1 d20 for the owner's Marro/Wulsinu cards)
+    flying: true,
+    hiveSupremacy: true,
+    baseSize: 2,
+  },
   braxas: {
     id: 'braxas',
     name: 'Braxas',
@@ -538,7 +560,7 @@ export const HS_DRAFT_POOL: readonly string[] = [
   'tarn_vikings', 'finn', 'thorgrim', 'eldgrim', 'airborne_elite', 'drake', 'raelin',
   'zettian_guards', 'ne_gok_sa', 'marro_warriors', 'deathwalker_9000', 'mimring',
   'grimnak', 'syvarris', 'agent_carr', 'krav_maga', 'otonashi', 'izumi_samurai',
-  'theracus', 'jotun', 'braxas', 'nilfheim', 'major_q9',
+  'theracus', 'jotun', 'braxas', 'nilfheim', 'su_bak_na', 'major_q9',
 ];
 
 /** Title-bar GENERAL plus the printed PERSONALITY and WORLD rows — the identity
@@ -565,6 +587,7 @@ export const CARD_IDENTITY: Record<string, { general: string; personality: strin
   otonashi: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
   izumi_samurai: { general: 'Einar', personality: 'Disciplined', world: 'Earth' },
   nilfheim: { general: 'Jandar', personality: 'Ferocious', world: 'Icaria' },
+  su_bak_na: { general: 'Utgar', personality: 'Tricky', world: 'Marr' },
   braxas: { general: 'Vydar', personality: 'Wild', world: 'Icaria' },
   theracus: { general: 'Ullar', personality: 'Disciplined', world: 'Feylund' },
   major_q9: { general: 'Vydar', personality: 'Precise', world: 'Alpha Prime' },
@@ -862,6 +885,7 @@ export const ABILITIES: Record<string, Ability> = {
   'Phantom Walk': { kind: 'passive', text: "Otonashi can move through all figures and is never attacked when leaving an engagement." },
   'Attack the Wild 2': { kind: 'passive', text: "When attacking a figure who has a Wild personality, Otonashi rolls 2 additional attack dice." },
   'Tricky Speed 4': { kind: 'passive', text: "If Otonashi starts her turn adjacent to any figure you control with a Tricky personality, she may move 4 additional spaces." },
+  'Hive Supremacy': { kind: 'passive', text: "Anytime you roll the 20-sided die for a Marro or Wulsinu Army Card, you may add 1 to your die roll." },
 };
 
 // Which abilities each card has, in printed order. References the glossary keys.
@@ -891,6 +915,7 @@ export const CARD_ABILITIES: Record<string, string[]> = {
   izumi_samurai: ['Counter Strike'],
   // Big Heroes
   nilfheim: ['Ice Shard Breath Special Attack', 'Flying'],
+  su_bak_na: ['Hive Supremacy', 'Flying'],
   braxas: ['Poisonous Acid Breath', 'Flying'],
   theracus: ['Carry', 'Flying'],
   major_q9: ['Queglix Gun Special Attack'],

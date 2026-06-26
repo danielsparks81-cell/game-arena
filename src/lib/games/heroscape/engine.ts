@@ -2019,6 +2019,21 @@ function lodinD20Bonus(state: HSState, seat: number): number {
   return seatGlyphCount(state, seat, 'lodin');
 }
 
+/** HIVE SUPREMACY (Su-Bak-Na): +1 to a d20 the owner rolls FOR one of their MARRO or WULSINU figures,
+ *  while a living, non-negated friendly Su-Bak-Na is on the board. Mirrors lodinD20Bonus but keyed on
+ *  the ROLLING figure's species + the owner fielding Su-Bak-Na (Unique ⇒ at most +1). Applied alongside
+ *  Lodin at the figure-level d20 sites (Water Clone, Mind Shackle, the roll ceremony, extreme-fall saves).
+ *  Returns 0 for non-Marro/Wulsinu figures, so it's safe to fold in everywhere. */
+function hiveD20Bonus(state: HSState, fig: Figure | undefined | null): number {
+  if (!fig) return 0;
+  const sp = cardDefFor(state, fig).species;
+  if (sp !== 'Marro' && sp !== 'Wulsinu') return 0;
+  return state.figures.some(f =>
+    f.ownerSeat === fig.ownerSeat && f.at != null &&
+    cardDefFor(state, f).id === 'su_bak_na' && !isCardNegated(state, f.cardUid),
+  ) ? 1 : 0;
+}
+
 /** Wounds a defender takes from a SPECIAL attack. STEALTH DODGE (Krav Maga) applies to special attacks
  *  too (owner ruling 2026-06-25 — a defender keeps its defensive powers vs specials, the same way it
  *  keeps height): against a NON-adjacent attacker, ≥1 rolled shield blocks ALL the damage. */
@@ -2146,9 +2161,9 @@ function applyCeremonyRoll(s: HSState, pc: Extract<HSPendingChoice, { kind: 'rol
   // Glyph of Lodin: +1 to EVERY d20 the figure's owner rolls (owner ruling 2026-06-24: "Lodin applies
   // to ALL d20 rolls"). So a Lodin-holder's figures are curse-IMMUNE (a 1 becomes a 2) and resurrect on
   // a 19+. `eff` is the value the outcome is decided on; the die still shows the raw roll.
-  const lodin = lodinD20Bonus(s, fig?.ownerSeat ?? pc.seat);
+  const lodin = lodinD20Bonus(s, fig?.ownerSeat ?? pc.seat) + hiveD20Bonus(s, fig); // +Lodin glyph and/or +Su-Bak-Na's Hive Supremacy (Marro figure)
   const eff = d20 + lodin;
-  const lodinNote = lodin > 0 ? ` (+${lodin} Lodin → ${eff})` : '';
+  const lodinNote = lodin > 0 ? ` (+${lodin} bonus → ${eff})` : '';
   if (pc.mode === 'curse') {
     if (eff === 1 && fig && fig.at != null) {
       fig.at = null; fig.at2 = null; outcome = 'died';
@@ -3265,7 +3280,7 @@ function applyFall(
   const drop = Math.max(0, heightOfKey(s, fromKey) - heightOfKey(s, to));
   const label = figureLabel(s, fig);
   if (tier === 'extreme') {
-    const survived = ((extremeFallD20 ?? 0) + lodinD20Bonus(s, fig.ownerSeat)) >= 19;
+    const survived = ((extremeFallD20 ?? 0) + lodinD20Bonus(s, fig.ownerSeat) + hiveD20Bonus(s, fig)) >= 19;
     if (!survived) fig.at = null;
     pushLog(
       s,
@@ -4885,9 +4900,10 @@ function doMindShackle(state: HSState, seat: number, targetId: string, d20: numb
   const s = clone(state);
   s.mindShackleSpent = true;
   const tdef = cardDefFor(state, target);
-  // Glyph of Lodin: +1 to this d20 — a 19 + Lodin reaches Mind Shackle's natural-20 bar.
-  const lodin = lodinD20Bonus(state, seat);
-  const rollNote = lodin ? `${d20} +${lodin} Lodin` : `${d20}`;
+  // Glyph of Lodin and/or Su-Bak-Na's Hive Supremacy (Ne-Gok-Sa is Marro): +1 to this d20 — a 19 + the
+  // bonus reaches Mind Shackle's natural-20 bar.
+  const lodin = lodinD20Bonus(state, seat) + hiveD20Bonus(state, negok);
+  const rollNote = lodin ? `${d20} +${lodin}` : `${d20}`;
   if (d20 + lodin >= 20) {
     const card = s.cards.find(c => c.uid === target.cardUid)!;
     const formerSeat = card.ownerSeat;
@@ -5081,7 +5097,7 @@ function doWaterClone(
   // a clone placed on a glyph does not "move onto" it, so no forced-stop/heal.
   const occupied = new Set(s.figures.filter(f => f.at != null).map(f => f.at!));
 
-  const lodin = lodinD20Bonus(state, seat); // Glyph of Lodin: +1 to each clone d20
+  const lodin = lodinD20Bonus(state, seat) + hiveD20Bonus(state, livingMarro[0]); // +Lodin and/or Su-Bak-Na Hive Supremacy (Marro) to each clone d20
   let successes = 0;
   let skippedNoSpace = 0;
   for (const roller of livingMarro) {

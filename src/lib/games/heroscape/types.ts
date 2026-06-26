@@ -133,6 +133,9 @@ export type HSCardDef = {
   /** TRICKY SPEED N (Otonashi): +N move when, at the start of her move, she is adjacent to a
    *  living friendly figure (other than herself) with a "Tricky" personality. effectiveMove. */
   trickySpeed?: number;
+  /** HIVE SUPREMACY (Su-Bak-Na): while a living friendly Su-Bak-Na is on the board, +1 to any d20 the
+   *  owner rolls for a MARRO or WULSINU Army Card (Water Clone, Mind Shackle, ceremony, fall saves). */
+  hiveSupremacy?: boolean;
   /** GRAPPLE GUN N (Sgt. Drake, N=25): as his move, Drake may step exactly ONE
    *  space whose height is up to N levels higher (climb limit waived ≤ N); it
    *  REPLACES his normal move. Engagement rules still apply. The number is the
