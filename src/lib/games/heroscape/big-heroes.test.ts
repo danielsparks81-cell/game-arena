@@ -680,6 +680,32 @@ describe('Airborne Elite — The Drop', () => {
     expect(aiPendingSeat(rolled)).toBe(1); // now the bot is the pending actor (place its order markers)
   });
 
+  it('a BOT dropper rolls The Drop BEFORE a lower-seat non-dropper bot wedges the gate (owner 2026-06-25)', () => {
+    // Re-home the reserve Airborne onto seat 1 (the HIGHER seat) so the DROPPER sits BEHIND a non-dropper
+    // bot at seat 0. The gate blocks EVERY seat's markers until the Airborne rolls; old code handed back
+    // seat 0 first, whose blocked marker-place hit the host recovery and clobbered airborneDropRound —
+    // consuming the Drop before it ever rolled (a Makros/Wreckage/Vlad game: Vlad's Airborne never dropped).
+    const { s, enemyHex } = dropStage();
+    for (const f of s.figures) if (f.cardUid === 's0-airborne_elite') f.ownerSeat = 1;
+    s.cards.find(c => c.uid === 's0-airborne_elite')!.ownerSeat = 1; // seat 1 owns the reserve Airborne now
+    // Give seat 0 an ordinary ON-BOARD figure so it's a LIVING non-dropper bot ahead of the dropper.
+    const freeHex = Object.keys(MAPS[s.mapId].cells).find(k => k !== enemyHex && !s.figures.some(f => f.at === k))!;
+    const s0fig = s.figures.find(f => f.id.startsWith('s0-') && f.cardUid !== 's0-airborne_elite')!;
+    s0fig.ownerSeat = 0; s0fig.at = freeHex; s0fig.reserve = false;
+    s.players.find(p => p.seat === 0)!.bot = true;
+    s.players.find(p => p.seat === 1)!.bot = true;
+    expect(canTheDrop(s, 1)).toBe(true);  // the higher-seat bot owes The Drop
+    expect(canTheDrop(s, 0)).toBe(false); // seat 0 is just a non-dropper
+    // THE FIX: hand back the DROPPER (seat 1), not the lower-seat non-dropper (seat 0) — so its `the_drop`
+    // rolls first and clears the gate, instead of seat 0 wedging and the recovery skipping the Drop.
+    expect(aiPendingSeat(s)).toBe(1);
+    expect(aiNextAction(s, 1)).toEqual({ kind: 'the_drop', d20: 0 });
+    // After it rolls (a miss still lifts the gate), the lower-seat non-dropper bot is free to lay markers.
+    const rolled = unwrap(applyAction(s, 'p2', { kind: 'the_drop', d20: 4 }));
+    expect(canTheDrop(rolled, 1)).toBe(false);
+    expect(aiPendingSeat(rolled)).toBe(0);
+  });
+
   it('a roll below 13 keeps them in reserve, opens NO choice, and spends the round’s roll', () => {
     let { s, air } = dropStage();
     s = unwrap(rollDrop(s, 'p1', 12));

@@ -7278,6 +7278,13 @@ export function aiPendingSeat(state: HSState): number | null {
     // firing a blocked marker-place whose recovery used to consume the human's Drop (owner 2026-06-25:
     // "Roll for drop showed for a brief moment then went away with no chance to bring them in").
     if (state.players.some(p => !p.bot && canTheDrop(state, p.seat))) return null;
+    // A BOT that still owes The Drop must roll it FIRST. The gate blocks EVERY seat's order markers
+    // until the Airborne seat rolls, so if a NON-dropper bot were returned ahead of the dropper (it sits
+    // at a lower seat), its blocked marker-place would trip the host recovery and clobber airborneDropRound
+    // — consuming the dropper's roll before it ever happens (owner 2026-06-25: a Makros/Wreckage/Vlad game
+    // where Vlad's Airborne never got a Drop roll). Hand back the dropper so its `the_drop` fires first.
+    const botDropper = state.players.find(p => p.bot && canTheDrop(state, p.seat));
+    if (botDropper) return botDropper.seat;
     const ready = state.markersReady ?? [];
     const living = livingSeats(state);
     return state.players.find(p => p.bot && living.includes(p.seat) && !ready.includes(p.seat))?.seat ?? null;

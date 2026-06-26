@@ -1657,11 +1657,17 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       // roll, and the bots must WAIT, never force markers by clobbering airborneDropRound (that consumed
       // the human's Drop before they could click — the flash-then-gone bug, owner 2026-06-25).
       const humanCanStillDrop = state.players.some(p => !p.bot && hsCanTheDrop(state, p.seat));
-      if (pcIsHuman || humanCanStillDrop) {
+      // A BOT can ALSO still owe The Drop (canTheDrop ⇒ airborneDropRound ≠ round, i.e. it has NOT rolled).
+      // aiPendingSeat now hands the dropper back first so its roll lands before any non-dropper bot wedges
+      // here — but never clobber airborneDropRound while that's still pending: doing so silently SKIPS the
+      // bot's Drop, leaving its Airborne stuck in reserve all round (owner 2026-06-25). No-op and let the
+      // host re-tick: aiPendingSeat returns the dropper, whose `the_drop` clears the gate for real.
+      const botCanStillDrop = state.players.some(p => p.bot && hsCanTheDrop(state, p.seat));
+      if (pcIsHuman || humanCanStillDrop || botCanStillDrop) {
         // A HUMAN owns an open choice here (a Glyph of Wannok curse resolves at the round boundary,
         // BEFORE order markers, so its "pick a player" prompt lands in this place-markers phase) OR
-        // still owes The Drop. The bots WAIT; NEVER clobber their pending / the Drop to push markers.
-        // This ai_step is a no-op; the human resolves it.
+        // a human/bot still owes The Drop. WAIT; NEVER clobber the pending / the Drop to push markers.
+        // This ai_step is a no-op; the owner (or the host's next dropper tick) resolves it.
         next = state;
       } else if (stuck?.bot) {
         const cleaned: HSState = JSON.parse(JSON.stringify(state));
