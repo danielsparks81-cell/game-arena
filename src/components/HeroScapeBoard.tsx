@@ -2195,6 +2195,11 @@ export default function HeroScapeBoard({
     canAct && activeCardUid ? state.figures.find(f => f.cardUid === activeCardUid && f.at != null)?.id : undefined;
   const bhId = activeCardDef?.id;
   const iceList = bhHeroId && bhId === 'nilfheim' ? iceShardTargets(state, bhHeroId) : [];
+  // How many Ice Shard shots Nilfheim has fired this turn — drives the 1/2/3 tracker and the
+  // "stay aiming until all shots are spent" logic (no re-arming between shots).
+  const iceUsed = bhHeroId && bhId === 'nilfheim'
+    ? (state.turnAttacks?.filter(a => a.attackerId === bhHeroId && a.special === 'ice_shard').length ?? 0)
+    : 0;
   const qLeft = bhId === 'major_q9' ? queglixDiceLeft(state) : 0;
   const qList = bhHeroId && bhId === 'major_q9' && qLeft > 0 ? queglixTargets(state, bhHeroId) : [];
   const wildList = bhHeroId && bhId === 'jotun' ? wildSwingTargets(state, bhHeroId) : [];
@@ -2822,8 +2827,16 @@ export default function HeroScapeBoard({
     // fire. Ice Shard / Queglix fire on the tap; Wild Swing arms the target (splash previews orange)
     // then a 2nd tap on it (or the Swing button) confirms.
     if (bhAim && bhHeroId) {
+      // Ice Shard with no shots/targets left — release the board (rare; the per-shot logic below
+      // normally drops aim on the final shot).
+      if (bhAim.kind === 'ice' && iceList.length === 0) { setBhAim(null); return; }
       if (occ) {
-        if (bhAim.kind === 'ice' && iceList.includes(occ.id)) { onIceShard(bhHeroId, occ.id); setBhAim(null); }
+        if (bhAim.kind === 'ice' && iceList.includes(occ.id)) {
+          onIceShard(bhHeroId, occ.id);
+          // STAY in aim mode for shots 2 & 3 — only drop it once this was the LAST shot (3-cap, or
+          // no other target remains) so you never re-arm Ice Shard between shots.
+          if (iceUsed + 1 >= 3 || iceList.length <= 1) setBhAim(null);
+        }
         else if (bhAim.kind === 'queglix' && qList.includes(occ.id)) { onQueglix(bhHeroId, occ.id, bhAim.dice); setBhAim(null); }
         else if (bhAim.kind === 'wild' && wildList.includes(occ.id)) {
           if (bhAim.target === occ.id) { onWildSwing(bhHeroId, occ.id); setBhAim(null); }
@@ -3920,16 +3933,43 @@ export default function HeroScapeBoard({
           >
             <div className="mb-1 text-sm font-bold text-violet-300">⚡ {activeCardDef?.name} — Special Power</div>
             <div className="flex flex-col gap-2 text-xs text-neutral-200">
-              {/* Nilfheim — Ice Shard Breath (≤3 shots) — tap "aim", then tap a highlighted enemy */}
-              {iceList.length > 0 && bhHeroId && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold text-sky-300">❄ Ice Shard (R5 A4, ≤3×):</span>
-                  <button
-                    onClick={() => setBhAim(bhAim?.kind === 'ice' ? null : { kind: 'ice' })}
-                    className={'rounded border px-2 py-0.5 font-semibold ' + (bhAim?.kind === 'ice' ? 'border-sky-300 bg-sky-900/60 text-sky-100' : 'border-sky-600 text-sky-300 hover:bg-sky-900/40')}
-                  >
-                    {bhAim?.kind === 'ice' ? 'tap a target…' : 'aim →'}
-                  </button>
+              {/* Nilfheim — Ice Shard Breath (≤3 shots). Aim ONCE, then keep tapping enemies; the
+                  1/2/3 tracker shows shots fired. Stays visible until all shots are spent. */}
+              {bhHeroId && bhId === 'nilfheim' && (iceList.length > 0 || iceUsed > 0) && (
+                <div className="flex flex-col gap-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold text-sky-300">❄ Ice Shard (R5 A4, ≤3×):</span>
+                    {iceList.length > 0 ? (
+                      <button
+                        onClick={() => setBhAim(bhAim?.kind === 'ice' ? null : { kind: 'ice' })}
+                        className={'rounded border px-2 py-0.5 font-semibold ' + (bhAim?.kind === 'ice' ? 'border-sky-300 bg-sky-900/60 text-sky-100' : 'border-sky-600 text-sky-300 hover:bg-sky-900/40')}
+                      >
+                        {bhAim?.kind === 'ice' ? 'tap targets…' : 'aim →'}
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-neutral-400">all shots spent</span>
+                    )}
+                  </div>
+                  {/* Target tracker — ✓ = fired · pulsing = next shot · dim = remaining */}
+                  <div className="flex items-center gap-1 text-[11px] text-neutral-400">
+                    <span className="mr-0.5">shots</span>
+                    {[0, 1, 2].map(i => {
+                      const done = i < iceUsed;
+                      const next = i === iceUsed && bhAim?.kind === 'ice' && iceList.length > 0;
+                      return (
+                        <span
+                          key={i}
+                          className={'inline-flex h-5 w-5 items-center justify-center rounded border text-[11px] font-bold ' +
+                            (done ? 'border-sky-300 bg-sky-500 text-white'
+                              : next ? 'border-sky-300 bg-sky-900/70 text-sky-100 animate-pulse'
+                                : 'border-neutral-600 text-neutral-500')}
+                        >{done ? '✓' : i + 1}</span>
+                      );
+                    })}
+                    <span className="ml-1 text-neutral-500">
+                      {iceUsed}/3{bhAim?.kind === 'ice' && iceList.length > 0 ? ' — keep tapping enemies' : ''}
+                    </span>
+                  </div>
                 </div>
               )}
               {/* Major Q9 — Queglix Gun: a 9-cube DICE POOL (spent cubes crossed off; the next N to fire
