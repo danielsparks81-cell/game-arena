@@ -265,6 +265,8 @@ const SPECIES_SOULBORG = 'Soulborg';
 const CLASS_GUARDS = 'Guards';
 const SPECIES_ORC = 'Orc';
 const CLASS_WARRIORS = 'Warriors';
+const CLASS_ARCHER = 'Archer';
+const SWOG_RIDER_CARD_ID = 'swog_rider';
 
 // ---- slice 7: movement & defense special powers (cards.md exact text) ----
 // Every slice-7 power keys off a DATA-DRIVEN flag on HSCardDef
@@ -3598,6 +3600,17 @@ export function effectiveAttackDice(
     dice += 1;
     breakdown.push('+1 Grimnak aura');
   }
+  // Swog Rider's ORC ARCHER ENHANCEMENT (the user's card): "All friendly Orc Archers adjacent to a
+  // Swog Rider receive an additional attack die …" Same shape as Grimnak's aura but keyed on the
+  // Archer class + a living friendly Swog Rider (Common ⇒ ANY adjacent copy buffs). Targets Arrow Gruts.
+  if (
+    def.species === SPECIES_ORC &&
+    def.unitClass === CLASS_ARCHER &&
+    hasFiguresAdjacentLivingCard(state, attacker, SWOG_RIDER_CARD_ID, attacker.ownerSeat)
+  ) {
+    dice += 1;
+    breakdown.push('+1 Swog Rider aura');
+  }
   // Zettian Guards' ZETTIAN TARGETING (slice 6, cards.md): "When attacking, if
   // your second Zettian Guard attacks the same figure as the first Zettian Guard,
   // add one attack die to the second Zettian Guard's attack." The FIRST Guard's
@@ -3708,6 +3721,15 @@ export function effectiveDefenseDice(
     dice += 1;
     breakdown.push('+1 Grimnak aura');
   }
+  // Swog Rider's ORC ARCHER ENHANCEMENT — the defense half: "… and an additional defense die."
+  if (
+    def.species === SPECIES_ORC &&
+    def.unitClass === CLASS_ARCHER &&
+    hasFiguresAdjacentLivingCard(state, defender, SWOG_RIDER_CARD_ID, defender.ownerSeat)
+  ) {
+    dice += 1;
+    breakdown.push('+1 Swog Rider aura');
+  }
   const gerdaN = seatGlyphCount(state, defender.ownerSeat, 'gerda');
   if (gerdaN > 0) {
     dice += gerdaN;
@@ -3741,7 +3763,10 @@ export function auraBuffedFigureIds(state: HSState): Set<string> {
       raelinAuraReaches(state, f) ||
       (def.species === SPECIES_ORC &&
         def.unitClass === CLASS_WARRIORS &&
-        hasFiguresAdjacentLivingCard(state, f, GRIMNAK_CARD_ID, f.ownerSeat));
+        hasFiguresAdjacentLivingCard(state, f, GRIMNAK_CARD_ID, f.ownerSeat)) ||
+      (def.species === SPECIES_ORC &&
+        def.unitClass === CLASS_ARCHER &&
+        hasFiguresAdjacentLivingCard(state, f, SWOG_RIDER_CARD_ID, f.ownerSeat));
     if (buffed) out.add(f.id);
   }
   return out;
@@ -3761,7 +3786,7 @@ export function auraCoverageHexes(state: HSState): Set<HexKey> {
   for (const src of state.figures) {
     if (src.at == null || isCardNegated(state, src.cardUid)) continue;
     const id = cardDefFor(state, src).id;
-    const isAura = id === RAELIN_CARD_ID || id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID;
+    const isAura = id === RAELIN_CARD_ID || id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID || id === SWOG_RIDER_CARD_ID;
     if (id === RAELIN_CARD_ID) {
       // Cast from Raelin's tall flyer eye (her Height), matching raelinAuraReaches — so the gold
       // coverage line and the actual +2 defence agree, and low terrain doesn't wrongly clip it.
@@ -3772,7 +3797,7 @@ export function auraCoverageHexes(state: HSState): Set<HexKey> {
         if (d == null || d > RAELIN_AURA_RANGE) continue;
         if (hasLineOfSight3D(map.cells, src.at, h, [], (k: HexKey) => k === src.at ? raelinEye : eyeHeightOfKey(state, k))) out.add(h);
       }
-    } else if (id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID) {
+    } else if (id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID || id === SWOG_RIDER_CARD_ID) {
       for (const lobe of figureHexes(src)) {
         for (const n of neighborKeys(lobe)) {
           if (map.cells[n] && n !== src.at && n !== src.at2) out.add(n);

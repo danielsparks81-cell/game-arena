@@ -4250,12 +4250,12 @@ describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
     expect(live).toEqual([
       'agent_carr', 'airborne_elite', 'braxas', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak',
       'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
-      'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
+      'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'swog_rider', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);
-    // The 5 classic Utgar units added 2026-06-26 are 'wip' until their special powers
-    // (Bonding / Scatter / Climb x2 / Orc Archer Enhancement) are wired; Disengage is live.
+    // The Grut squads + Deathreavers stay 'wip' until their powers (Bonding / Scatter / Climb x2)
+    // are wired; Disengage is live. Swog Rider went live with Orc Archer Enhancement (2026-06-26).
     expect(Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort())
-      .toEqual(['arrow_gruts', 'blade_gruts', 'deathreavers', 'heavy_gruts', 'swog_rider']);
+      .toEqual(['arrow_gruts', 'blade_gruts', 'deathreavers', 'heavy_gruts']);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {
@@ -4672,6 +4672,38 @@ describe('slice 6: Grimnak Orc Warrior Enhancement', () => {
     s = place(s, ENEMY, at(3, 4));
     expect(effectiveAttackDice(s, fig(s, MARRO1), fig(s, ENEMY)).dice).toBe(2); // Marro Attack 2
     expect(effectiveDefenseDice(s, fig(s, MARRO1), fig(s, ENEMY)).dice).toBe(3); // Marro Defense 3
+  });
+});
+
+// ---- Swog Rider — ORC ARCHER ENHANCEMENT (real Arrow Gruts) -----------------
+
+describe('Swog Rider Orc Archer Enhancement (2026-06-26)', () => {
+  const SWOG = 's0-swog_rider-1';
+  const AG = (n: number) => `s0-arrow_gruts-${n}`;
+  const ENEMY = 's1-finn-1';
+
+  it('an Orc Archer (Arrow Grut) adjacent to a friendly Swog Rider gets +1 attack AND +1 defense', () => {
+    let s = customBattle(['swog_rider', 'arrow_gruts'], ['finn'], 'p1');
+    s = clearExcept(s, SWOG, AG(1), ENEMY);
+    s = place(s, AG(1), at(3, 3));
+    s = place(s, SWOG, at(3, 2)); // adjacent (place sets the 2-hex peanut)
+    s = place(s, ENEMY, at(3, 4));
+    const atk = effectiveAttackDice(s, fig(s, AG(1)), fig(s, ENEMY));
+    expect(atk.dice).toBe(2); // Arrow Grut Attack 1 + 1 Swog Rider
+    expect(atk.breakdown).toContain('+1 Swog Rider aura');
+    const def = effectiveDefenseDice(s, fig(s, AG(1)), fig(s, ENEMY));
+    expect(def.dice).toBe(2); // Arrow Grut Defense 1 + 1 Swog Rider
+    expect(def.breakdown).toContain('+1 Swog Rider aura');
+  });
+
+  it('does NOT apply when the Arrow Grut is not adjacent to a Swog Rider', () => {
+    let s = customBattle(['swog_rider', 'arrow_gruts'], ['finn'], 'p1');
+    s = clearExcept(s, SWOG, AG(1), ENEMY);
+    s = place(s, AG(1), at(3, 3));
+    s = place(s, SWOG, at(0, 0)); // far away
+    s = place(s, ENEMY, at(3, 4));
+    expect(effectiveAttackDice(s, fig(s, AG(1)), fig(s, ENEMY)).dice).toBe(1); // Arrow Grut Attack 1, no aura
+    expect(effectiveDefenseDice(s, fig(s, AG(1)), fig(s, ENEMY)).dice).toBe(1);
   });
 });
 
