@@ -73,6 +73,22 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   eldgrim: { x: 0.49, y: 0.77 },
   'zettian_guards-1': { x: 0.40, y: 0.80 },
   'zettian_guards-2': { x: 0.40, y: 0.79 },
+  // Classic Utgar Grut squads + Deathreavers (2026-06-27) — user-picked per figure in the gallery.
+  'arrow_gruts-1': { x: 0.49, y: 0.74 },
+  'arrow_gruts-2': { x: 0.42, y: 0.79 },
+  'arrow_gruts-3': { x: 0.43, y: 0.80 },
+  'blade_gruts-1': { x: 0.56, y: 0.82 },
+  'blade_gruts-2': { x: 0.53, y: 0.77 },
+  'blade_gruts-3': { x: 0.69, y: 0.72 },
+  'blade_gruts-4': { x: 0.59, y: 0.75 },
+  'deathreavers-1': { x: 0.59, y: 0.77 },
+  'deathreavers-2': { x: 0.60, y: 0.74 },
+  'deathreavers-3': { x: 0.38, y: 0.73 },
+  'deathreavers-4': { x: 0.51, y: 0.73 },
+  'heavy_gruts-1': { x: 0.49, y: 0.84 },
+  'heavy_gruts-2': { x: 0.48, y: 0.84 },
+  'heavy_gruts-3': { x: 0.36, y: 0.80 },
+  'heavy_gruts-4': { x: 0.49, y: 0.84 },
   // 2-hex big figures — Y (cut) applies; X is ignored for double-space figures (they stay
   // centred on the peanut). The high Y's = these fill the frame with the base at the bottom.
   braxas: { x: 0.43, y: 0.94 },
@@ -106,8 +122,10 @@ export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; 
   mimring: { fx: 0.20, fy: 0.95, bx: 0.56, by: 0.95 },
   // User-picked in the gallery for the REAL Nilfheim cut — re-picked on the hand-erased cut (2026-06-26).
   nilfheim: { fx: 0.26, fy: 0.93, bx: 0.68, by: 0.93 },
-  // Su-Bak-Na (the old Nilfheim image = a skeletal Marro dragon) — user-picked in the gallery 2026-06-26.
-  su_bak_na: { fx: 0.20, fy: 0.94, bx: 0.54, by: 0.94 },
+  // Su-Bak-Na (the white bone dragon) — re-picked on the hand-erased cut 2026-06-27.
+  su_bak_na: { fx: 0.24, fy: 0.92, bx: 0.58, by: 0.92 },
+  // Swog Rider (orc-on-saber-tooth, peanut base) — user-picked in the gallery 2026-06-27.
+  swog_rider: { fx: 0.15, fy: 0.88, bx: 0.84, by: 0.87 },
   theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
 };
 
