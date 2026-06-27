@@ -404,7 +404,7 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
   useFrame(({ clock }) => {
     const m = discMatRef.current;
     if (!m || !actionable || strongRing) return;
-    m.emissiveIntensity = 0.3 + 0.45 * (0.5 + 0.5 * Math.sin(clock.elapsedTime * 3.5));
+    m.emissiveIntensity = 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(clock.elapsedTime * 5.2)); // faster, slightly brighter pulse = clearer "still to act"
   });
   useFrame(({ camera }) => {
     const g = swayRef.current;
