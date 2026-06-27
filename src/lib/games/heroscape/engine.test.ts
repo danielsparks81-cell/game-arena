@@ -6554,6 +6554,34 @@ describe('The Drop — rolled before markers + placement legality', () => {
   });
 });
 
+describe('eliminated seat forfeits its reserve-Airborne turn — no last-chance Drop (fix 2026-06-27)', () => {
+  it('a team wiped ON THE BOARD but holding reserve Airborne does NOT reveal its marker and DROP', () => {
+    // The user's 6-player report: a seat did The Drop AFTER it was eliminated. Repro at the turn-loop
+    // level: seat 1 = Airborne Elite (its first card → all 4 markers land on it) + Eldgrim. customBattle
+    // deploys both; we then hold the Airborne in RESERVE and KILL Eldgrim, so seat 1 is wiped on the
+    // board with only reserve Airborne left — eliminated per the 2026-06-25 ruling (no last-chance
+    // Drop). Seat 0 (Finn) lives. The bug was beginTurnOrSkip gating on cardHasLivingFigures (counts
+    // reserve) instead of seatIsAlive, so seat 1's Airborne marker turn revealed + Dropped it back in.
+    let s = customBattle(['finn'], ['airborne_elite', 'eldgrim'], 'p1', 'training_field');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    for (const f of s.figures) {
+      if (f.cardUid === 's1-airborne_elite') { f.at = null; f.at2 = null; f.reserve = true; }
+      if (f.cardUid === 's1-eldgrim') { f.at = null; f.at2 = null; } // killed → casualty (off-board, not reserve)
+    }
+    expect(s.figures.some(f => f.ownerSeat === 1 && f.at != null)).toBe(false); // seat 1 wiped on-board
+    expect(s.turnSeat).toBe(0);          // it's seat 0's (Finn's) turn
+    // Seat 0 ends its turn → the loop reaches seat 1's Airborne marker. It must FORFEIT, not Drop.
+    const after = unwrap(applyAction(s, 'p1', { kind: 'end_turn' }));
+    expect(after.turnSeat).not.toBe(1);                          // seat 1 never becomes the acting seat
+    expect(after.pendingChoice?.kind).not.toBe('airborne_drop'); // no Drop landing was opened
+    // The Airborne stay in reserve — they did NOT drop back onto the board (no resurrection).
+    expect(after.figures.filter(f => f.cardUid === 's1-airborne_elite' && f.reserve)).toHaveLength(4);
+    expect(after.figures.some(f => f.cardUid === 's1-airborne_elite' && f.at != null)).toBe(false);
+    // The log names the forfeit (the marker IS still revealed per the lost-turn rule, then forfeited).
+    expect(after.log.some(e => /eliminated.*forfeit/i.test(e.text))).toBe(true);
+  });
+});
+
 describe('audit fixes: height × special attacks / melee (H2/H4)', () => {
   it('H2 — a grenade KEEPS the defender height bonus (no longer strips it)', () => {
     let s = customBattle(['airborne_elite'], ['marro_warriors'], 'p1', CLIFF_MAP_ID);

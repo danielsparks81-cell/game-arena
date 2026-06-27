@@ -1637,7 +1637,13 @@ function beginTurnOrSkip(s: HSState): void {
     const holder = s.cards.find(
       c => c.ownerSeat === seat && c.orderMarkers.some(m => m.marker === String(s.turnNumber)),
     );
-    if (holder && cardHasLivingFigures(s, holder.uid)) {
+    // Take the turn only if the marker's card has living figures AND the SEAT is still in the game.
+    // The `seatIsAlive` guard matters for reserve Airborne: a team wiped ON THE BOARD is eliminated
+    // even though its reserve Airborne card still "has figures" (cardHasLivingFigures counts reserve) —
+    // without this it would reveal that marker and DROP back in, resurrecting a dead team (the
+    // 2026-06-25 ruling: a wiped-on-board team gets no last-chance Drop). An all-Airborne team that
+    // never lost a figure is still alive, so it keeps its turns to roll the Drop.
+    if (holder && cardHasLivingFigures(s, holder.uid) && seatIsAlive(s, seat)) {
       holder.orderMarkers.find(m => m.marker === String(s.turnNumber))!.revealed = true;
       s.turnSeat = seat;
       s.movedFigureIds = [];
@@ -1657,14 +1663,18 @@ function beginTurnOrSkip(s: HSState): void {
       return;
     }
     if (holder) {
-      // The marker's card is out of play (all figures destroyed). You STILL
-      // reveal the marker — flip it face-up so the opponent sees which card and
-      // marker it was — then forfeit the turn.
+      // The turn is forfeit — the marker's card is wiped, OR the whole SEAT is eliminated (its
+      // board figures all died and only reserve Airborne remain: no last-chance Drop). Either way
+      // you STILL reveal the marker — flip it face-up so the opponents see which card and marker it
+      // was — then forfeit the turn.
       holder.orderMarkers.find(m => m.marker === String(s.turnNumber))!.revealed = true;
+      const reason = seatIsAlive(s, seat)
+        ? `${HS_CARDS[holder.cardId].name} is out of play`
+        : `${playerName(s, seat)} is eliminated`;
       pushLog(
         s,
         'info',
-        `Round ${s.round}, turn ${s.turnNumber}: ${playerName(s, seat)} reveals order marker ${s.turnNumber} — ${HS_CARDS[holder.cardId].name} is out of play, turn forfeited.`,
+        `Round ${s.round}, turn ${s.turnNumber}: ${playerName(s, seat)} reveals order marker ${s.turnNumber} — ${reason}, turn forfeited.`,
       );
     } else {
       pushLog(s, 'info', `${playerName(s, seat)} has no order marker ${s.turnNumber} — turn skipped.`);
