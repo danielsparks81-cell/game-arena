@@ -615,11 +615,19 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
 function buildArmy(seat: number, cardIds: readonly string[]): { cards: ArmyCardInstance[]; figures: Figure[] } {
   const cards: ArmyCardInstance[] = [];
   const figures: Figure[] = [];
+  // A COMMON card can be drafted MORE THAN ONCE by a seat — each copy must be its OWN card with its
+  // own figures, markers, and placement. The 1st copy keeps the canonical `s{seat}-{cardId}` uid
+  // (back-compat / unique cards unchanged); every extra copy gets a `#k` suffix so uids never collide
+  // (the old code reused one uid, so 3 Swog Riders collapsed to a single placeable figure).
+  const copies = new Map<string, number>();
   for (const cardId of cardIds) {
     const def = HS_CARDS[cardId];
     if (!def) continue;
+    const k = (copies.get(cardId) ?? 0) + 1;
+    copies.set(cardId, k);
+    const uid = k === 1 ? `s${seat}-${cardId}` : `s${seat}-${cardId}#${k}`;
     const card: ArmyCardInstance = {
-      uid: `s${seat}-${cardId}`,
+      uid,
       cardId,
       ownerSeat: seat,
       orderMarkers: [],
@@ -631,7 +639,7 @@ function buildArmy(seat: number, cardIds: readonly string[]): { cards: ArmyCardI
     // begins in RESERVE (alive, off-board) and is deployed later by The Drop.
     const inReserve = def.id === AIRBORNE_CARD_ID;
     for (let n = 1; n <= def.figures; n++) {
-      figures.push({ id: `${card.uid}-${n}`, cardUid: card.uid, ownerSeat: seat, at: null, index: n, wounds: 0, ...(inReserve ? { reserve: true } : {}) });
+      figures.push({ id: `${uid}-${n}`, cardUid: uid, ownerSeat: seat, at: null, index: n, wounds: 0, ...(inReserve ? { reserve: true } : {}) });
     }
   }
   return { cards, figures };

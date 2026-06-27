@@ -24,10 +24,10 @@
 | Syvarris | 100 | Unique | Hero | Ullar | Feylund | Elf | Archer | Precise | Single | Medium | 5 | 4 | 5 | 9 | 3 | 2 | No |
 | Jotun | 225 | Unique | Hero | Ullar | Feylund | Giant | Warrior | Wild | Double | Huge | 10 | 7 | 6 | 1 | 8 | 4 | Yes |
 | Swog Rider | 25 | Common | Hero | Utgar | Grut | Orc | Beast | Wild | Double | Large | 6 | 1 | 8 | 1 | 3 | 3 | No |
-| Arrow Gruts | 40 | Unique | Squad | Utgar | Grut | Orc | Archer | Wild | Single | Medium | 4 | 1 | 6 | 6 | 1 | 1 | No |
-| Blade Gruts | 40 | Unique | Squad | Utgar | Grut | Orc | Warriors | Wild | Single | Medium | 4 | 1 | 6 | 1 | 2 | 2 | No |
+| Arrow Gruts | 40 | Common | Squad | Utgar | Grut | Orc | Archer | Wild | Single | Medium | 4 | 1 | 6 | 6 | 1 | 1 | No |
+| Blade Gruts | 40 | Common | Squad | Utgar | Grut | Orc | Warriors | Wild | Single | Medium | 4 | 1 | 6 | 1 | 2 | 2 | No |
 | Deathreavers | 60 | Unique | Squad | Utgar | Alpha Prime | Soulborg | Deathreaver | Tricky | Single | Small | 3 | 1 | 6 | 1 | 1 | 4 | No |
-| Heavy Gruts | 70 | Unique | Squad | Utgar | Grut | Orc | Warriors | Wild | Single | Medium | 4 | 1 | 5 | 1 | 3 | 3 | No |
+| Heavy Gruts | 70 | Common | Squad | Utgar | Grut | Orc | Warriors | Wild | Single | Medium | 4 | 1 | 5 | 1 | 3 | 3 | No |
 | Zettian Guards | 70 | Unique | Squad | Utgar | Alpha Prime | Soulborg | Guards | Precise | Single | Medium | 5 | 1 | 4 | 7 | 2 | 7 | No |
 | Ne-Gok-Sa | 90 | Unique | Hero | Utgar | Marr | Marro | Warlord | Tricky | Single | Medium | 5 | 5 | 5 | 1 | 3 | 6 | Yes |
 | Marro Warriors | 105 | Unique | Squad | Utgar | Marr | Marro | Warriors | Wild | Single | Medium | 4 | 1 | 6 | 6 | 2 | 3 | Yes |

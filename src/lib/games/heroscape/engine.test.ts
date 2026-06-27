@@ -4244,12 +4244,36 @@ describe('slice 5: common pool (Common cards are repeatable)', () => {
     }
   });
 
-  it('Swog Rider is the only Common card; every other roster card is Unique', () => {
-    expect(HS_CARDS.swog_rider.common).toBe(true);
+  it('the Grut-family cards are Common (Swog Rider + the 3 Gruts); every other roster card is Unique', () => {
+    // Real HeroScape: Swog Rider is a Common Hero and Blade/Arrow/Heavy Gruts are Common squads
+    // (Utgar's common orcs) — all repeatable in the draft. Everything else in the roster is Unique.
+    const COMMON = new Set(['swog_rider', 'blade_gruts', 'arrow_gruts', 'heavy_gruts']);
+    for (const id of COMMON) expect(HS_CARDS[id].common).toBe(true);
     for (const id of HS_DRAFT_POOL) {
-      if (id === 'swog_rider') continue;
+      if (COMMON.has(id)) continue;
       expect(HS_CARDS[id].common).toBeFalsy();
     }
+  });
+
+  it('a COMMON card drafted N times becomes N DISTINCT cards, each with its own figures (placeable)', () => {
+    // The bug: 3 drafted Swog Riders shared one uid s0-swog_rider, so only one was placeable.
+    let s = inDraft('p1', 500); // p1 is the high roller and drafts first
+    const want: Record<number, string[]> = { 0: ['swog_rider', 'swog_rider', 'swog_rider'], 1: ['finn'] };
+    while (s.phase === 'draft') {
+      const seat = s.draft!.turnSeat!;
+      const list = want[seat] ?? [];
+      s = list.length ? draftCard(s, list.shift()!) : draftPass(s);
+    }
+    expect(s.phase).toBe('placement');
+    // Three separate Swog Rider cards with DISTINCT uids (1st canonical, then #2 / #3).
+    const swogCards = s.cards.filter(c => c.cardId === 'swog_rider' && c.ownerSeat === 0);
+    expect(swogCards).toHaveLength(3);
+    expect(new Set(swogCards.map(c => c.uid)).size).toBe(3);
+    // …and three separate figures (Swog Rider has 1 each), every one with a distinct id → all placeable.
+    const swogUids = new Set(swogCards.map(c => c.uid));
+    const swogFigs = s.figures.filter(f => swogUids.has(f.cardUid));
+    expect(swogFigs).toHaveLength(3);
+    expect(new Set(swogFigs.map(f => f.id)).size).toBe(3);
   });
 });
 

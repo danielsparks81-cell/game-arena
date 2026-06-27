@@ -360,6 +360,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'B',
     species: 'Orc',
     unitClass: 'Warriors', // plural (like Tarn/Marro squads) so Grimnak's Orc Warrior Enhancement buffs them
+    common: true, // COMMON squad — draftable multiple times (Utgar's common orcs)
     power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,
     bonding: 'champion',
@@ -381,6 +382,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'H',
     species: 'Orc',
     unitClass: 'Warriors', // plural (like Tarn/Marro squads) so Grimnak's Orc Warrior Enhancement buffs them
+    common: true, // COMMON squad — draftable multiple times (Utgar's common orcs)
     power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,
     bonding: 'champion',
@@ -402,6 +404,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'A',
     species: 'Orc',
     unitClass: 'Archer',
+    common: true, // COMMON squad — draftable multiple times (Utgar's common orcs)
     power: 'live', // Disengage + Beast Bonding (free bonus turn with a Beast)
     disengage: true,
     bonding: 'beast',

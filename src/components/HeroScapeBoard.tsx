@@ -772,7 +772,7 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
   const theme = GENERAL_THEME[ident?.general ?? ''] ?? GENERAL_THEME.Jandar;
   const rows = [
     def.species,
-    def.type === 'hero' ? 'Unique Hero' : 'Unique Squad',
+    `${def.common ? 'Common' : 'Unique'} ${def.type === 'hero' ? 'Hero' : 'Squad'}`,
     def.unitClass,
     ident?.personality,
     ident?.world,
@@ -1140,7 +1140,7 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
   // Revealed first (most informative), then unknowns; stable by hex key.
   const sorted = [...glyphs].sort((a, b) => Number(b.faceUp) - Number(a.faceUp) || a.at.localeCompare(b.at));
   return (
-    <div className="inline-block rounded-lg border-2 border-rose-900/70 bg-neutral-900/85 px-2.5 py-1.5 shadow-lg shadow-black/50 backdrop-blur-sm">
+    <div className="pointer-events-auto inline-block rounded-lg border-2 border-rose-900/70 bg-neutral-900/85 px-2.5 py-1.5 shadow-lg shadow-black/50 backdrop-blur-sm">
       <div className="mb-1 flex items-center justify-between gap-3">
         <div className="text-[11px] font-bold uppercase tracking-wider text-rose-300/90">Glyphs</div>
         <div className="text-[10px] tabular-nums text-neutral-500">{revealed}/{glyphs.length}</div>
@@ -2105,27 +2105,33 @@ export default function HeroScapeBoard({
     state.turnAttacks.length === 1 &&
     !pending;
 
-  // Each HUMAN keeps the colour they picked on the website (accent_color); every OTHER seat — bots, or
-  // humans with no preset — takes the palette colour FARTHEST from those already used, so colours never
-  // collide and a player never loses their preset to the AI (owner 2026-06-25: "go with their colour
-  // first — makes no sense to change Makros from blue to red to give blue to the AI"). Teams still share
-  // one team colour so sides read at a glance.
+  // Seat colours: every seat gets a DISTINCT palette hue, so a 6-player game always shows the six
+  // nameable colours (incl. orange) with no clashes. A HUMAN's website accent SNAPS to its nearest
+  // palette hue (so they keep ~their colour — blue stays blue) and claims it if free; everyone else
+  // (bots, or a human whose nearest hue was already taken) fills in with the next unused palette
+  // colour. (Earlier we kept the EXACT accent, but two players with similar customs both read as
+  // "blue" and one palette colour — often orange — went missing; snapping fixes both.) Teams still
+  // share one team colour so sides read at a glance.
   const seatColorMap = useMemo(() => {
     const isHex = (c?: string): c is string => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
     const dist = (a: string, b: string) => {
       const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
       return Math.abs((x >> 16 & 255) - (y >> 16 & 255)) + Math.abs((x >> 8 & 255) - (y >> 8 & 255)) + Math.abs((x & 255) - (y & 255));
     };
+    const nearest = (c: string) => SEAT_COLORS.reduce((b, p) => (dist(c, p) < dist(c, b) ? p : b), SEAT_COLORS[0]);
     const map = new Map<number, string>();
-    const taken: string[] = [];
+    const used = new Set<string>(); // palette colours already claimed → every seat stays distinct
+    // 1) Humans with a preset accent claim their NEAREST palette hue (if still free).
     for (const p of state.players) {
-      if (p.team === undefined && p.accent_color && !p.bot) { map.set(p.seat, p.accent_color); if (isHex(p.accent_color)) taken.push(p.accent_color); }
+      if (p.team !== undefined || p.bot || !isHex(p.accent_color)) continue;
+      const snap = nearest(p.accent_color);
+      if (!used.has(snap)) { map.set(p.seat, snap); used.add(snap); }
     }
+    // 2) Everyone else takes the next UNUSED palette colour (in seat order) — keeps all ≤6 distinct.
     for (const p of [...state.players].sort((a, b) => a.seat - b.seat)) {
       if (map.has(p.seat) || p.team !== undefined) continue;
-      let best = SEAT_COLORS[0], bd = -1;
-      for (const c of SEAT_COLORS) { const d = taken.length ? Math.min(...taken.map(t => dist(t, c))) : Infinity; if (d > bd) { bd = d; best = c; } }
-      map.set(p.seat, best); taken.push(best);
+      const free = SEAT_COLORS.find(c => !used.has(c)) ?? SEAT_COLORS[0];
+      map.set(p.seat, free); used.add(free);
     }
     return map;
   }, [state.players]);
@@ -3078,7 +3084,8 @@ export default function HeroScapeBoard({
       const def = HS_CARDS[c.cardId];
       const figs = state.figures.filter(f => f.cardUid === c.uid);
       const alive = figs.filter(f => f.at != null).length;
-      return { uid: c.uid, def, alive, heroWounds: figs[0]?.wounds ?? 0, markers: c.orderMarkers };
+      const reserve = figs.filter(f => f.at == null && f.reserve).length; // Airborne awaiting The Drop — alive, off-board
+      return { uid: c.uid, def, alive, reserve, heroWounds: figs[0]?.wounds ?? 0, markers: c.orderMarkers };
     }),
   }));
   function assignPicked(cardUid: string) {
@@ -3190,8 +3197,8 @@ export default function HeroScapeBoard({
             revealed marker (the turn that came up) lights amber. */}
         {level === 1 && (
           <div className="mt-1 flex flex-col gap-0.5">
-            {cards.map(({ uid, def, alive, heroWounds, markers }) => {
-              const dead = alive === 0;
+            {cards.map(({ uid, def, alive, reserve, heroWounds, markers }) => {
+              const dead = alive === 0 && reserve === 0; // reserve Airborne are alive (off-board), not dead
               const active = uid === activeCardUid && state.subPhase === 'turns';
               const shownMarkers = markers ?? [];
               return (
@@ -3205,7 +3212,11 @@ export default function HeroScapeBoard({
                     <span className={'truncate font-semibold ' + (dead ? 'line-through' : '')} style={{ color: colorFor(dead) }}>{def.name}</span>
                   </span>
                   <span className="flex shrink-0 items-center tabular-nums text-neutral-400">
-                    {def.type === 'hero' ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} /> : `${alive}/${def.figures}`}
+                    {def.type === 'hero'
+                      ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} />
+                      : alive === 0 && reserve > 0
+                        ? <span className="text-sky-300/90" title="In reserve — deploys via The Drop, not yet on the board">⤓ {reserve} reserve</span>
+                        : `${alive}/${def.figures}`}
                   </span>
                   <CardHoverPanel cardId={def.id} big />
                 </div>
@@ -3217,13 +3228,13 @@ export default function HeroScapeBoard({
         {/* LEVEL 2 — compact stat tiles (the default); wraps if a wide army doesn't fit. */}
         {level === 2 && (
         <div className="mt-1 flex flex-wrap gap-1.5">
-          {cards.map(({ uid, def, alive, heroWounds, markers }) => {
-            const canAssign = placingMine && alive > 0;
+          {cards.map(({ uid, def, alive, reserve, heroWounds, markers }) => {
+            const canAssign = placingMine && (alive > 0 || reserve > 0); // a reserve Airborne card CAN take a marker (to Drop)
             const markersToShow = placingMine
               ? MARKERS.filter(v => assign[v] === uid).map(v => ({ marker: v, revealed: false }))
               : markers;
             const active = uid === activeCardUid && state.subPhase === 'turns';
-            const dead = alive === 0;
+            const dead = alive === 0 && reserve === 0;
             // COMPACT play-view tile: a SMALL fixed portrait (~80px tall, the
             // 886/1432 aspect ⇒ ~50px wide) so the strip is thin and the MAP is
             // the focus. The scanned art fills it; a tiny name strip is layered
@@ -3302,9 +3313,9 @@ export default function HeroScapeBoard({
         {/* LEVEL 3 — the full cards (with markers above + a live-status badge). */}
         {level === 3 && (
           <div className="mt-1 flex flex-wrap gap-2">
-            {cards.map(({ uid, def, alive, heroWounds, markers }) => {
+            {cards.map(({ uid, def, alive, reserve, heroWounds, markers }) => {
               const active = uid === activeCardUid && state.subPhase === 'turns';
-              const dead = alive === 0;
+              const dead = alive === 0 && reserve === 0;
               return (
                 <div key={uid} className="flex flex-col items-center gap-0.5">
                   <div className="flex h-5 items-center justify-center gap-0.5">
@@ -3644,32 +3655,36 @@ export default function HeroScapeBoard({
       const isTurn = d.turnSeat === seat;
       const remaining = teamRemainingInDraft(state, seat);
       const seatBudget = teamBudgetForSeat(state, seat);
+      const orderIdx = d.order.indexOf(seat); // pick position — the separate order list above was removed
       return (
         <div
           key={seat}
           className={
-            'rounded-lg border-2 px-3 py-2 ' +
+            'rounded-lg border-2 px-2 py-1.5 ' +
             (isTurn ? 'border-amber-400 bg-amber-900/10' : 'border-neutral-800 bg-neutral-900/40')
           }
         >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-bold" style={{ color: seatColor(seat) }}>
+          <div className="flex items-baseline gap-1">
+            <span className="shrink-0 text-[10px] font-bold tabular-nums text-neutral-500">{orderIdx >= 0 ? orderIdx + 1 : '·'}.</span>
+            <span className="min-w-0 flex-1 truncate text-xs font-bold" style={{ color: seatColor(seat) }} title={pl?.username ?? '—'}>
               {pl?.username ?? '—'}{isMe ? ' (you)' : ''}
-              {isTurn && <span className="ml-2 text-[10px] font-semibold text-amber-300">drafting…</span>}
-              {d.passed.includes(seat) && <span className="ml-2 text-[10px] font-semibold text-emerald-400">done ✓</span>}
-            </span>
-            <span className="shrink-0 text-right leading-none">
-              <span className="text-xl font-extrabold tabular-nums text-amber-300">{remaining}</span>
-              <span className="text-[11px] text-neutral-400"> left</span>
-              <span className="block text-[10px] text-neutral-500">of {seatBudget} pts</span>
             </span>
           </div>
-          <div className="mt-1.5 flex flex-wrap gap-1">
+          <div className="mt-0.5 flex items-baseline justify-between gap-1">
+            <span className="leading-none">
+              <span className="text-base font-extrabold tabular-nums text-amber-300">{remaining}</span>
+              <span className="text-[9px] text-neutral-500">/{seatBudget}</span>
+            </span>
+            {isTurn
+              ? <span className="text-[9px] font-semibold text-amber-300">drafting…</span>
+              : d.passed.includes(seat) && <span className="text-[9px] font-semibold text-emerald-400">done ✓</span>}
+          </div>
+          <div className="mt-1 flex flex-wrap gap-0.5">
             {ids.length === 0 ? (
-              <span className="text-[11px] text-neutral-500">No cards yet…</span>
+              <span className="text-[10px] text-neutral-600">No cards yet…</span>
             ) : (
-              ids.map(id => (
-                <span key={id} className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-200">
+              ids.map((id, i) => (
+                <span key={id + '#' + i} className="rounded bg-neutral-800 px-1 py-0.5 text-[9px] text-neutral-200">
                   {HS_CARDS[id].name} <span className="tabular-nums text-amber-300/80">{effectiveCardDef(id, cardEdition)?.points ?? 0}</span>
                 </span>
               ))
@@ -3683,22 +3698,6 @@ export default function HeroScapeBoard({
       // Draft uses the FULL width (no centered max-width box) so the 16 cards can
       // be BIG and readable, spread across the whole screen.
       <div className="flex w-full flex-col gap-3 p-3">
-        {/* Draft order — the players in the order the roll-off seated them (snake forward). */}
-        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px]">
-          <span className="font-semibold uppercase tracking-wider text-neutral-500">Draft order</span>
-          {d.order.map((seat, i) => {
-            const p = state.players.find(pl => pl.seat === seat);
-            const isNow = d.turnSeat === seat;
-            return (
-              <span key={seat} className={'flex items-center gap-1 ' + (isNow ? 'font-bold' : 'opacity-80')} style={{ color: seatColor(seat) }}>
-                <span className="tabular-nums text-neutral-500">{i + 1}.</span>
-                {p?.username ?? `Seat ${seat + 1}`}
-                {p?.bot && <span className="text-[9px] text-neutral-500">🤖</span>}
-              </span>
-            );
-          })}
-        </div>
-
         {/* Whose pick */}
         <div
           className="rounded-lg border-2 px-3 py-2 text-center"
@@ -3712,10 +3711,9 @@ export default function HeroScapeBoard({
           </div>
         </div>
 
-        {/* Drafters across the top, with remaining budget */}
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {me && drafterPanel(me.seat)}
-          {state.players.filter(p => !me || p.seat !== me.seat).map(p => drafterPanel(p.seat))}
+        {/* Drafters in DRAFT ORDER, 6 across — replaces the separate order list (position = pick order). */}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+          {d.order.map(seat => drafterPanel(seat))}
         </div>
 
         {/* Pick / pass controls (only on your turn) */}
