@@ -1380,6 +1380,18 @@ describe('slice 3: movement with elevation (The Knoll)', () => {
     s = place(s, MARRO(1), at(1, 1)); // grass beside the R5 pillar
     expect(legalDestinations(s, MARRO(1)).has(at(0, 1))).toBe(false); // rise 4 == Height
   });
+
+  it('CLIMB X2: a Height-3 Deathreaver scales a 4-level wall its Height alone could not (2026-06-26)', () => {
+    const DR = (n: number) => `s0-deathreavers-${n}`;
+    const ENEMY = 's1-finn-1';
+    // Deathreavers aren't in the QUICK army, so build a custom battle on Test Cliffs.
+    let s = customBattle(['deathreavers'], ['finn'], 'p1', CLIFF_MAP_ID);
+    s = clearExcept(s, DR(1), ENEMY);
+    s = place(s, ENEMY, at(6, 6)); // far opponent, never engaged
+    s = place(s, DR(1), at(1, 1)); // grass beside the R5 pillar (rise 4)
+    // Deathreaver Height 3 → Climb x2 doubles it to 6, so rise 4 < 6 clears the wall (Move 6 ≥ cost 5).
+    expect(legalDestinations(s, DR(1)).has(at(0, 1))).toBe(true);
+  });
 });
 
 // --- falling ---------------------------------------------------------------

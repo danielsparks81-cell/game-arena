@@ -141,6 +141,10 @@ export type HSCardDef = {
    *  REPLACES his normal move. Engagement rules still apply. The number is the
    *  printed "25" level cap. */
   grappleGun?: number;
+  /** CLIMB X2 (Deathreavers): when counting level changes for movement, this card's figures may
+   *  DOUBLE their Height — the climb limit (canStepUp) AND the fall threshold (computeFall) use
+   *  2×Height. Movement only; engagement / height-advantage / LOS keep the printed Height. */
+  climbX2?: boolean;
 };
 
 /** A placeable order-marker face: 1/2/3 grant your 1st/2nd/3rd turn this

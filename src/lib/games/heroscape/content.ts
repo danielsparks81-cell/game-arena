@@ -338,8 +338,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'R',
     species: 'Soulborg',
     unitClass: 'Deathreaver',
-    power: 'wip', // Disengage live; Scatter + Climb x2 pending
+    power: 'wip', // Disengage + Climb x2 live; Scatter pending
     disengage: true,
+    climbX2: true, // CLIMB X2 — double Height for the climb limit + fall threshold
   },
   blade_gruts: {
     id: 'blade_gruts',

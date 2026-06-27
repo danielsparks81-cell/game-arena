@@ -267,6 +267,12 @@ const SPECIES_ORC = 'Orc';
 const CLASS_WARRIORS = 'Warriors';
 const CLASS_ARCHER = 'Archer';
 const SWOG_RIDER_CARD_ID = 'swog_rider';
+/** CLIMB X2 (Deathreavers): when counting level changes for movement, this card's figures may DOUBLE
+ *  their Height — so both the climb limit (canStepUp) and the fall threshold (computeFall) use 2×Height.
+ *  Only affects movement; engagement / height-advantage / LOS still use the printed Height. */
+function climbHeightOf(def: { climbX2?: boolean; height: number }): number {
+  return def.climbX2 ? def.height * 2 : def.height;
+}
 
 // ---- slice 7: movement & defense special powers (cards.md exact text) ----
 // Every slice-7 power keys off a DATA-DRIVEN flag on HSCardDef
@@ -2287,7 +2293,7 @@ function movementDestinations2(
   const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk };
   const reach = out.reach;
   for (const start of figureHexes(fig)) {
-    for (const k of reachableDestinations(map.cells, start, move, occ, def.height, opts)) reach.add(k);
+    for (const k of reachableDestinations(map.cells, start, move, occ, climbHeightOf(def), opts)) reach.add(k);
   }
   const isFree = (k: HexKey) => !!map.cells[k] && occ(k) == null; // mover's own hexes read null → free
   const origin = figureHexes(fig); // the figure's pre-move footprint (for the trailing default)
@@ -2392,7 +2398,7 @@ function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
   // single-source reachability helper so the board highlight and the engine
   // validation read the same legal set. A flyer ignores elevation/water and
   // passes any figure; Ghost Walk only adds pass-through-enemies (cards.md).
-  return reachableDestinations(map.cells, fig.at, move, occupancyLookup(state, fig), def.height, {
+  return reachableDestinations(map.cells, fig.at, move, occupancyLookup(state, fig), climbHeightOf(def), {
     glyphHexes,
     canEndOn,
     flyer: effectiveFlying(state, def),
@@ -2439,7 +2445,7 @@ export function moveConsequences(
   const from = fig.at;
   const map = MAPS[state.mapId];
   const def = cardDefFor(state, fig);
-  const cardHeight = def.height;
+  const cardHeight = climbHeightOf(def); // Climb x2 (Deathreavers) doubles it for the fall threshold
   // A double-space figure derives its trailing destination the same way the
   // mover does, so the server's dice-need and the engine's apply agree.
   const destTail =
@@ -2749,7 +2755,7 @@ export function stepConsequences(
   if (is2 && occ(to) !== null) return { error: 'That space is occupied' };
   const sm = state.stepMove?.figureId === figureId ? state.stepMove : null;
   const startHex = sm?.startHex ?? fp.frontOld;
-  const step = dragStep(map.cells, startHex, fp.frontOld, to, occ, def.height, {
+  const step = dragStep(map.cells, startHex, fp.frontOld, to, occ, climbHeightOf(def), {
     glyphHexes: glyphHexSet(state),
     flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
@@ -2778,7 +2784,7 @@ export function stepConsequences(
   if (!effectiveFlying(state, def) && !is2) {
     const drop = heightOfKey(state, fp.frontOld) - heightOfKey(state, to);
     const intoWater = map.cells[to]?.terrain === 'water';
-    const f = computeFall(Math.max(0, drop), def.height, intoWater);
+    const f = computeFall(Math.max(0, drop), climbHeightOf(def), intoWater);
     tier = f.tier;
     fallDice = f.dice;
   }
