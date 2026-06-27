@@ -1622,10 +1622,15 @@ function beginTurnOrSkip(s: HSState): void {
       s.stepMove = undefined;
       s.movementEnded = false;
       s.moveHistory = [];
+      s.bond = undefined; // BONDING: a fresh slot — no bonus turn in progress…
+      s.bondOffered = false; // …and the bond offer for this slot hasn't been made yet
       resetTurnScratch(s);
       // One clean, colour-coded headline per turn ("Braxas activates" in the
       // owner's hue) instead of the old verbose "Round/turn/marker reveals…" line.
       pushLog(s, 'activate', `${HS_CARDS[holder.cardId].name} activates`, seat);
+      // BONDING (Grut squads): if this card bonds and the owner controls an eligible partner, offer
+      // a FREE bonus turn FIRST — the pendingChoice gate blocks the squad until the owner bonds/skips.
+      openBondOffer(s);
       return;
     }
     if (holder) {
@@ -1735,6 +1740,8 @@ function startNextRound(s: HSState): void {
   s.stepMove = undefined;
   s.movementEnded = false;
   s.moveHistory = [];
+  s.bond = undefined; // BONDING: never carry a bonus turn across a round boundary
+  s.bondOffered = false;
   resetTurnScratch(s);
   for (const card of s.cards) card.orderMarkers = [];
   pushLog(s, 'info', `Round ${s.round} — all players place their order markers.`);
@@ -1747,6 +1754,10 @@ export function getActiveCardUid(state: HSState): string | null {
   if (state.phase !== 'playing' || state.subPhase !== 'turns' || state.turnSeat == null) {
     return null;
   }
+  // BONDING: while a bonded partner is taking its FREE bonus turn (before the squad's marker-turn),
+  // the PARTNER card is the active one — its figures move/attack. Clearing `bond` reverts the active
+  // card to the squad holding the revealed marker (handled in doEndTurn).
+  if (state.bond) return state.bond.partnerUid;
   return (
     state.cards.find(
       c =>
@@ -1754,6 +1765,43 @@ export function getActiveCardUid(state: HSState): string | null {
         c.orderMarkers.some(m => m.revealed && m.marker === String(state.turnNumber)),
     )?.uid ?? null
   );
+}
+
+/** Cards an order-marker turn for `squadUid` could BOND with (Grut squads): the squad owner's OTHER
+ *  cards with ≥1 living figure of the matching class — an Orc Champion (species Orc + class Champion)
+ *  for 'champion', any Beast (class Beast) for 'beast'. Empty unless the squad has a `bonding` power
+ *  and isn't Glyph-of-Nilrend-negated. The partner needs only the right CLASS (negation strips powers,
+ *  not class), so a negated Champion still bonds. */
+function bondPartnerCardUids(state: HSState, squadUid: string): string[] {
+  const squad = state.cards.find(c => c.uid === squadUid);
+  if (!squad) return [];
+  const kind = effectiveCardDef(squad.cardId, state.edition)?.bonding;
+  if (!kind) return [];
+  if (isCardNegated(state, squadUid)) return []; // a negated bonding card has no power
+  return state.cards
+    .filter(c => {
+      if (c.uid === squadUid || c.ownerSeat !== squad.ownerSeat) return false;
+      if (!cardHasLivingFigures(state, c.uid)) return false;
+      const def = effectiveCardDef(c.cardId, state.edition);
+      if (!def) return false;
+      return kind === 'champion' ? def.species === 'Orc' && def.unitClass === 'Champion' : def.unitClass === 'Beast';
+    })
+    .map(c => c.uid);
+}
+
+/** Open the BONDING offer at the start of a bonding card's marker-turn (Grut squads). The owner may
+ *  take a FREE full turn with an eligible partner BEFORE the squad acts. No-op unless the active card
+ *  bonds, the owner controls ≥1 partner, nothing else is pending, and the offer hasn't been made this
+ *  slot. Called from beginTurnOrSkip right after the marker is revealed. */
+function openBondOffer(s: HSState): void {
+  if (s.pendingChoice || s.bondOffered || s.bond) return;
+  const squadUid = getActiveCardUid(s);
+  if (!squadUid) return;
+  const partners = bondPartnerCardUids(s, squadUid);
+  if (partners.length === 0) return;
+  const nameOf = (u: string) => HS_CARDS[s.cards.find(c => c.uid === u)!.cardId].name;
+  s.pendingChoice = { kind: 'bond', seat: s.turnSeat!, squadUid, partnerCardUids: partners };
+  pushLog(s, 'power', `${nameOf(squadUid)} may BOND — take a free turn with ${partners.map(nameOf).join(' or ')} first, or skip.`);
 }
 
 /** Why `fig` may not act this turn (null = it is on the revealed card). */
@@ -6417,6 +6465,31 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     return s;
   }
 
+  // --- BONDING (Grut squads): the owner picks an eligible partner card to take a FREE bonus turn
+  //     before the squad acts, or skips. Picking sets `bond` (active card → the partner) and resets
+  //     the turn scratch for a fresh bonus turn; skipping just proceeds to the squad's turn. Either
+  //     way `bondOffered` is set so the squad turn (after a bonus turn) never re-offers it. ---
+  if (pc.kind === 'bond' && choice.kind === 'bond') {
+    const s = clone(state);
+    s.bondOffered = true;
+    delete s.pendingChoice;
+    const nameOf = (u: string) => HS_CARDS[s.cards.find(c => c.uid === u)?.cardId ?? '']?.name ?? 'the card';
+    if (!choice.partnerUid) {
+      pushLog(s, 'info', `${nameOf(pc.squadUid)} declines to bond — taking its own turn.`);
+      return s;
+    }
+    if (!pc.partnerCardUids.includes(choice.partnerUid)) return { error: 'Not an eligible bond partner' };
+    s.bond = { squadUid: pc.squadUid, partnerUid: choice.partnerUid };
+    s.movedFigureIds = [];
+    s.turnAttacks = [];
+    s.stepMove = undefined;
+    s.movementEnded = false;
+    s.moveHistory = [];
+    resetTurnScratch(s);
+    pushLog(s, 'activate', `${nameOf(choice.partnerUid)} takes a free bonus turn (bonded by ${nameOf(pc.squadUid)})`, pc.seat);
+    return s;
+  }
+
   // --- Spirit placement (Finn/Thorgrim on destroy) ---
   if (pc.kind === 'spirit_placement' && choice.kind === 'spirit_placement') {
     const spiritName = pc.spirit === 'attack' ? 'Attack' : pc.spirit === 'defense' ? 'Armor' : 'Swiftness';
@@ -6557,6 +6630,24 @@ function doOverextend(state: HSState, seat: number, figureId: string): HSResult 
 
 function doEndTurn(state: HSState, seat: number): HSResult {
   const s = clone(state);
+  // BONDING: ending the bonded partner's FREE bonus turn does NOT advance the slot — it hands control
+  // to the squad whose marker is revealed, which now takes its OWN turn under the SAME marker. Clear
+  // `bond` (the active card reverts to the squad), reset the move/attack scratch for a fresh squad
+  // turn, but KEEP `bondOffered` so the squad turn is never re-offered the bond.
+  if (s.bond) {
+    const nameOf = (u: string) => HS_CARDS[s.cards.find(c => c.uid === u)?.cardId ?? '']?.name ?? 'the card';
+    const squadName = nameOf(s.bond.squadUid);
+    const partnerName = nameOf(s.bond.partnerUid);
+    s.bond = undefined;
+    s.movedFigureIds = [];
+    s.turnAttacks = [];
+    s.stepMove = undefined;
+    s.movementEnded = false;
+    s.moveHistory = [];
+    resetTurnScratch(s);
+    pushLog(s, 'activate', `${partnerName}'s bonus turn ends — ${squadName} takes its turn`, seat);
+    return s; // squad turn begins under the same marker; turnSeat / pointer unchanged
+  }
   pushLog(s, 'info', `${playerName(s, seat)} ends the turn.`);
   s.turnSeat = null;
   s.movedFigureIds = [];
@@ -6915,6 +7006,18 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
       return { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: fig.id, to: best } };
     }
     return { kind: 'resolve_choice', choice: { kind: 'scatter', done: true } };
+  }
+  // BONDING (Grut squads) — take the FREE bonus turn: bond with the partner NEAREST an enemy (the one
+  // most able to advance or attack now). It costs nothing, so the bot always bonds when it can; the
+  // partner's bonus turn then plays through the normal move/attack AI before the squad's turn.
+  if (pc.kind === 'bond') {
+    const enemies = aiEnemies(state, pc.seat);
+    const distOf = (uid: string) => {
+      const figs = state.figures.filter(f => f.cardUid === uid && f.at != null);
+      return figs.length && enemies.length ? Math.min(...figs.map(f => aiNearestEnemyDist(state, f.at!, enemies))) : Infinity;
+    };
+    const best = pc.partnerCardUids.reduce((b, u) => (distOf(u) < distOf(b) ? u : b), pc.partnerCardUids[0]);
+    return { kind: 'resolve_choice', choice: { kind: 'bond', partnerUid: best } };
   }
   // ROLL CEREMONY (Mitonsoul / Sturla) — the bot rolls its figures one at a time: SELECT the next
   // un-rolled figure (highlight), then ROLL it (the d20 is injected by aiEngineAction). Two calls

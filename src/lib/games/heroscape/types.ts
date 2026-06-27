@@ -121,6 +121,13 @@ export type HSCardDef = {
    *  spaces each." A REACTIVE power — opens a `scatter` pendingChoice for the
    *  defender on the attacker's turn (engine.ts maybeOpenScatter). */
   scatter?: boolean;
+  /** BONDING (Grut squads): "before taking a turn with this card's figures, you
+   *  may first take a turn with any [Orc Champion | Beast] you control." When this
+   *  card's order marker is revealed, the owner may take a FREE full turn with an
+   *  eligible partner card BEFORE the squad's turn (no marker consumed). 'champion'
+   *  = Orc Champion (Blade/Heavy Gruts → Grimnak); 'beast' = Beast (Arrow Gruts →
+   *  Swog Rider). See engine.ts openBondOffer / HSState.bond. */
+  bonding?: 'champion' | 'beast';
   /** THORIAN SPEED (Sgt. Drake): opponents must be ADJACENT to attack Drake with
    *  a NORMAL attack — a non-adjacent normal (ranged) attack cannot target him.
    *  Special attacks are unrestricted. Defensive; gates targetBlockReason. */
@@ -540,6 +547,15 @@ export type HSPendingChoice =
       seat: number;
       cardUid: string;
       movedFigureIds: string[];
+    }
+  | {
+      // BONDING OFFER (Grut squads) — opened at the START of a bonding card's marker-turn when its
+      // owner controls ≥1 eligible partner. The owner picks a `partnerCardUids` card to take a FREE
+      // full turn first, or skips. Owned by the squad owner (`seat`); `squadUid` = the bonding card.
+      kind: 'bond';
+      seat: number;
+      squadUid: string;
+      partnerCardUids: string[];
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -558,7 +574,10 @@ export type HSChoiceResolution =
   | { kind: 'glyph_wannok_victim'; figureId: string } // the named opponent's own figure to wound
   // SCATTER (Deathreavers): move ONE rat per resolution — `figureId` → `to` (≤4 spaces), with the
   // server-rolled fall dice for that landing; or `done: true` to stop early. Auto-closes after 2.
-  | { kind: 'scatter'; figureId?: string; to?: HexKey; fallRoll?: CombatFace[]; extremeFallD20?: number; done?: boolean };
+  | { kind: 'scatter'; figureId?: string; to?: HexKey; fallRoll?: CombatFace[]; extremeFallD20?: number; done?: boolean }
+  // BONDING (Grut squads): `partnerUid` = the Orc Champion / Beast card to take a free bonus turn
+  // first; omitted/undefined = skip and take the squad's turn directly.
+  | { kind: 'bond'; partnerUid?: string };
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`
@@ -709,6 +728,15 @@ export type HSState = {
    *  phase. While true no figure may move (movableFigure blocks it) and the board only lets the
    *  player attack. Cleared at each turn boundary and when Berserker Charge re-grants movement. */
   movementEnded?: boolean;
+  /** BONDING (Grut squads) — set while the bonded partner is taking its FREE bonus turn BEFORE
+   *  the squad's marker-turn. `squadUid` = the bonding card whose marker is revealed; `partnerUid`
+   *  = the Orc Champion / Beast card acting now. While set, `getActiveCardUid` returns `partnerUid`
+   *  (so the partner's figures move/attack); ending this turn clears `bond` and hands control to the
+   *  squad under the SAME marker (no slot advance). Cleared at every real turn boundary. */
+  bond?: { squadUid: string; partnerUid: string };
+  /** True once the bond OFFER for the current turn slot has been resolved (bonded or skipped), so the
+   *  squad's turn after a bonus turn doesn't re-offer it. Reset at each new turn slot / round. */
+  bondOffered?: boolean;
   /**
    * Per-turn attack log (slice 6) — one entry per attack resolved this turn,
    * in order. This is the SINGLE source of truth for "what has attacked":

@@ -2550,6 +2550,11 @@ export default function HeroScapeBoard({
     () => new Set(scatterChoice && scatterPick ? scatterDestinations(state, scatterPick) : []),
     [scatterChoice, scatterPick, state],
   );
+  // BONDING (Grut squads) — the offer to take a FREE bonus turn with an Orc Champion / Beast before
+  // the squad acts. `bond` (set while the partner's bonus turn is in progress) drives a banner.
+  const bondChoice = myChoice?.kind === 'bond' ? myChoice : null;
+  const cardName = (uid: string | undefined) => HS_CARDS[state.cards.find(c => c.uid === uid)?.cardId ?? '']?.name ?? '';
+  const bondTurn = state.bond && me && state.turnSeat === me.seat ? state.bond : null;
   // ROLL CEREMONY (Mitonsoul curse / Sturla resurrection) — the shared d20 ritual. UNLIKE the
   // other prompts this is visible to EVERY player (they watch); only the current roller (pc.seat)
   // can act. Read straight off the pending (not myChoice) so spectators see it too.
@@ -4255,6 +4260,45 @@ export default function HeroScapeBoard({
               >
                 Done
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* BONDING — Grut squads: take a FREE bonus turn with an Orc Champion / Beast first, or skip */}
+        {bondChoice && (
+          <div className="hs-decide rounded-lg border-2 border-emerald-500 bg-neutral-900/80 px-3 py-2">
+            <div className="text-sm font-bold text-emerald-300">🤝 Bonding — {cardName(bondChoice.squadUid)}</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">
+              Take a <span className="font-semibold text-emerald-200">free full turn</span> (move + attack) with one of these first, then your squad takes its own turn — or skip.
+            </div>
+            <div className="mt-2 flex flex-wrap gap-1">
+              {bondChoice.partnerCardUids.map(uid => (
+                <button
+                  key={uid}
+                  onClick={() => onResolveChoice({ kind: 'bond', partnerUid: uid })}
+                  disabled={disabled}
+                  className="rounded-md border border-emerald-700 px-2 py-1 text-xs font-semibold text-emerald-100 transition hover:border-emerald-400 hover:bg-emerald-900/30 disabled:opacity-40"
+                >
+                  {cardName(uid)}
+                </button>
+              ))}
+              <button
+                onClick={() => onResolveChoice({ kind: 'bond' })}
+                disabled={disabled}
+                className="rounded-md border border-neutral-600 px-2 py-1 text-xs font-semibold text-neutral-300 transition hover:border-neutral-400 hover:bg-neutral-800 disabled:opacity-40"
+              >
+                Skip
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* BONDING — bonus turn in progress: clarify the partner is acting FREE before the squad */}
+        {bondTurn && (
+          <div className="hs-decide rounded-lg border-2 border-emerald-500 bg-emerald-950/40 px-3 py-2">
+            <div className="text-sm font-bold text-emerald-300">⚡ Bonus turn — {cardName(bondTurn.partnerUid)}</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">
+              Free turn, bonded by {cardName(bondTurn.squadUid)}. Move + attack as normal, then press <span className="font-semibold">End turn</span> to hand off to {cardName(bondTurn.squadUid)}.
             </div>
           </div>
         )}

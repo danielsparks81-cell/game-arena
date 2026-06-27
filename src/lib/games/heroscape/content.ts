@@ -360,8 +360,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'B',
     species: 'Orc',
     unitClass: 'Warrior',
-    power: 'wip', // Disengage live; Orc Champion Bonding pending
+    power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,
+    bonding: 'champion',
   },
   heavy_gruts: {
     id: 'heavy_gruts',
@@ -380,8 +381,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'H',
     species: 'Orc',
     unitClass: 'Warrior',
-    power: 'wip', // Disengage live; Orc Champion Bonding pending
+    power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,
+    bonding: 'champion',
   },
   arrow_gruts: {
     id: 'arrow_gruts',
@@ -400,8 +402,9 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'A',
     species: 'Orc',
     unitClass: 'Archer',
-    power: 'wip', // Disengage live; Beast Bonding pending
+    power: 'live', // Disengage + Beast Bonding (free bonus turn with a Beast)
     disengage: true,
+    bonding: 'beast',
   },
   swog_rider: {
     id: 'swog_rider',

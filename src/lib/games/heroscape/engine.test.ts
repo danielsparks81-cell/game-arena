@@ -1491,6 +1491,86 @@ describe('Deathreavers — SCATTER (reactive: scuttle up to 2 rats after defendi
   });
 });
 
+// --- Grut squads: BONDING (free bonus turn before the squad acts) ----------
+
+describe('Grut squads — BONDING (free bonus turn with an Orc Champion / Beast)', () => {
+  const BG = (n: number) => `s0-blade_gruts-${n}`;
+
+  // Seat 0 = a Grut squad (customBattle stacks all markers on the FIRST card) + a bond partner; seat
+  // 1 = a far enemy. p1 goes first → the squad's marker is revealed at turn start → the bond offer
+  // opens immediately. The 2-hex partners (Grimnak/Swog Rider) keep customBattle's single-hex slot;
+  // bonding eligibility only needs a LIVING figure, so the unset tail doesn't matter here.
+  function setup(squad: string, partner: string): HSState {
+    return customBattle([squad, partner], ['marro_warriors'], 'p1', 'training_field');
+  }
+
+  it('opens a bond offer at the squad turn start, listing the eligible Orc Champion', () => {
+    const s = setup('blade_gruts', 'grimnak');
+    expect(s.pendingChoice?.kind).toBe('bond');
+    if (s.pendingChoice?.kind === 'bond') {
+      expect(s.pendingChoice.seat).toBe(0);
+      expect(s.pendingChoice.squadUid).toBe('s0-blade_gruts');
+      expect(s.pendingChoice.partnerCardUids).toEqual(['s0-grimnak']);
+    }
+  });
+
+  it('bonding makes the PARTNER the active card for a free bonus turn; the squad cannot act yet', () => {
+    let s = setup('blade_gruts', 'grimnak');
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'bond', partnerUid: 's0-grimnak' } }));
+    expect(s.bond).toEqual({ squadUid: 's0-blade_gruts', partnerUid: 's0-grimnak' });
+    expect(getActiveCardUid(s)).toBe('s0-grimnak'); // the partner is active during the bonus turn
+    // a Blade Grut may NOT act while the partner's bonus turn is in progress (wrong active card)
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_step', figureId: BG(1), to: at(3, 4) }))).toMatch(/marker|revealed/i);
+  });
+
+  it('ending the bonus turn hands control to the squad WITHOUT advancing the slot', () => {
+    let s = setup('blade_gruts', 'grimnak');
+    const ptr = s.turnPointer;
+    const tn = s.turnNumber;
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'bond', partnerUid: 's0-grimnak' } }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' })); // end the FREE bonus turn
+    expect(s.bond).toBeUndefined();
+    expect(getActiveCardUid(s)).toBe('s0-blade_gruts'); // the squad's own turn now begins
+    expect(s.turnPointer).toBe(ptr); // SAME slot — no advance
+    expect(s.turnNumber).toBe(tn);
+    expect(s.turnSeat).toBe(0);
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_turn' })); // ending the SQUAD turn advances normally
+    expect(s.turnSeat).toBe(1); // off to the opponent
+    expect(s.bond).toBeUndefined();
+  });
+
+  it('SKIP takes the squad turn directly — no bonus turn', () => {
+    let s = setup('blade_gruts', 'grimnak');
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'bond' } })); // no partnerUid = skip
+    expect(s.bond).toBeUndefined();
+    expect(s.bondOffered).toBe(true);
+    expect(s.pendingChoice).toBeUndefined();
+    expect(getActiveCardUid(s)).toBe('s0-blade_gruts');
+  });
+
+  it('Beast Bonding (Arrow Gruts) bonds a Beast (Swog Rider); a Champion is NOT eligible', () => {
+    const beast = setup('arrow_gruts', 'swog_rider');
+    expect(beast.pendingChoice?.kind).toBe('bond');
+    if (beast.pendingChoice?.kind === 'bond') expect(beast.pendingChoice.partnerCardUids).toEqual(['s0-swog_rider']);
+    // Arrow Gruts + Grimnak (a Champion, not a Beast) → no eligible partner → no offer at all
+    expect(setup('arrow_gruts', 'grimnak').pendingChoice).toBeUndefined();
+  });
+
+  it('no bond offer when the squad controls no eligible partner', () => {
+    const s = customBattle(['blade_gruts'], ['marro_warriors'], 'p1', 'training_field');
+    expect(s.pendingChoice).toBeUndefined();
+    expect(getActiveCardUid(s)).toBe('s0-blade_gruts');
+  });
+
+  it('AI takes the free bonus turn (bonds the Champion)', () => {
+    const s = setup('blade_gruts', 'grimnak');
+    const intent = aiNextAction(s, 0); // owns the open bond offer
+    expect(intent).toMatchObject({ kind: 'resolve_choice', choice: { kind: 'bond', partnerUid: 's0-grimnak' } });
+    const after = unwrap(applyAction(s, 'p1', intent!));
+    expect(getActiveCardUid(after)).toBe('s0-grimnak');
+  });
+});
+
 // --- falling ---------------------------------------------------------------
 
 describe('slice 3: falling (server-rolled, engine re-validates)', () => {
@@ -4351,21 +4431,17 @@ describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
     expect(HS_CARDS.jotun).toMatchObject({ life: 7, attack: 8, defense: 4, height: 10, points: 225, baseSize: 2 });
   });
 
-  it('power flags: ALL 23 cards are now live (Airborne Elite The Drop completes the set)', () => {
-    // Every card's printed power is implemented: slice 4/6/7 base cards, slice 8
-    // Mimring Fire Line + Ne-Gok-Sa Mind Shackle + Airborne Grenade & The Drop,
-    // and slice 8b's 5 Big Heroes. No card remains 'wip'.
+  it('power flags: ALL 29 cards are now live (Grut Bonding completes the set)', () => {
+    // Every card's printed power is implemented — slice 4/6/7/8 + the Big Heroes + the five 2026-06
+    // classic Utgar units: Deathreavers (Scatter + Climb x2 + Disengage), Swog Rider (Orc Archer
+    // Enhancement), and the three Grut squads' Orc Champion / Beast Bonding. No card remains 'wip'.
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
-      'agent_carr', 'airborne_elite', 'braxas', 'deathreavers', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak',
+      'agent_carr', 'airborne_elite', 'arrow_gruts', 'blade_gruts', 'braxas', 'deathreavers', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak', 'heavy_gruts',
       'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
       'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'swog_rider', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);
-    // The Grut squads stay 'wip' until Orc Champion / Beast Bonding is wired; Disengage is live.
-    // Deathreavers went live with Scatter + Climb x2 + Disengage; Swog Rider with Orc Archer
-    // Enhancement (2026-06-26).
-    expect(Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort())
-      .toEqual(['arrow_gruts', 'blade_gruts', 'heavy_gruts']);
+    expect(Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id)).toEqual([]);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {
