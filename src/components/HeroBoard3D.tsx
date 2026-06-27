@@ -896,7 +896,17 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
     if (fxSeqRef.current === null) { fxSeqRef.current = seq; return; } // ignore the effect present at mount
     if (!e || seq <= fxSeqRef.current) return;
     fxSeqRef.current = seq;
-    setFx(list => [...list, { id: seq, kind: e.kind, from: fxAt(e.from), to: e.to.map(fxAt) }]);
+    const spawn = { id: seq, kind: e.kind, from: fxAt(e.from), to: e.to.map(fxAt) };
+    // Counter Strike is a REACTION to the defense roll — hold the blade swing until the attack/defense
+    // dice overlay has landed instead of swinging during it. The overlay reveals dice at ~520ms each
+    // then a ~1.5s verdict beat (HeroScapeBoard PER_DIE), so mirror that from the lastAttack dice counts.
+    if (e.kind === 'counter_strike') {
+      const la = state.lastAttack;
+      const dice = (la?.attackRoll?.length ?? 0) + (la?.defenseRoll?.length ?? 0);
+      const t = setTimeout(() => setFx(list => [...list, spawn]), 1500 + dice * 520);
+      return () => clearTimeout(t);
+    }
+    setFx(list => [...list, spawn]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.lastEffect?.seq]);
 

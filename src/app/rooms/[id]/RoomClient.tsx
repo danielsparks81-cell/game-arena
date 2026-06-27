@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { GAMES, GAME_GUIDES, displayName as gameDisplayName } from '@/lib/games/registry';
@@ -113,32 +113,40 @@ export default function RoomClient({
     }
   }, [imSeated, room.status, room.room_players.length, room.max_players, roomId]);
 
+  // Re-sync the room/game state from the server WITHOUT a page reload. Shared by the realtime
+  // subscription AND the manual Refresh button — a hard reload would drop the browser's fullscreen
+  // (the Fullscreen API needs a fresh user gesture to re-enter), so this soft re-fetch is how you
+  // refresh a stuck/out-of-sync board while STAYING fullscreen. Routed through the fetchRoom server
+  // action so the opponent's hidden zones are projected away before the row crosses the wire.
+  const refreshRoom = useCallback(async () => {
+    try {
+      const data = await fetchRoom(roomId);
+      if (data) setRoom(data as Room);
+    } catch {
+      // Most likely the room was swept; the postgres_changes fallback recovers.
+    }
+  }, [roomId]);
+  const refreshMessages = useCallback(async () => {
+    const { data } = await supabase
+      .from('chat_messages')
+      .select('id, body, created_at, sender_id, profiles(username, accent_color)')
+      .eq('room_id', roomId)
+      .order('created_at', { ascending: true })
+      .limit(100);
+    if (data) setMessages(data as unknown as ChatMsg[]);
+  }, [supabase, roomId]);
+
+  // Manual refresh (the in-game button). Soft re-sync only — never reloads the page — so fullscreen
+  // survives. The brief spin makes the action feel responsive even when the fetch is instant.
+  const [refreshing, setRefreshing] = useState(false);
+  const manualRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await Promise.all([refreshRoom(), refreshMessages()]); }
+    finally { setTimeout(() => setRefreshing(false), 450); }
+  }, [refreshRoom, refreshMessages]);
+
   // Realtime subscriptions — broadcast is the primary channel, postgres_changes is a fallback.
   useEffect(() => {
-    const refreshRoom = async () => {
-      // Route through the server action so the private zones (opponent's hand,
-      // decks for games that hide them) get projected away before the row
-      // crosses the wire. A direct supabase.from('rooms')... here would leak
-      // raw state at the network layer.
-      try {
-        const data = await fetchRoom(roomId);
-        if (data) setRoom(data as Room);
-      } catch {
-        // Most likely cause: the room was deleted (e.g. stale-room sweep).
-        // Silently no-op; the postgres_changes fallback will sort us out.
-      }
-    };
-
-    const refreshMessages = async () => {
-      const { data } = await supabase
-        .from('chat_messages')
-        .select('id, body, created_at, sender_id, profiles(username, accent_color)')
-        .eq('room_id', roomId)
-        .order('created_at', { ascending: true })
-        .limit(100);
-      if (data) setMessages(data as unknown as ChatMsg[]);
-    };
-
     const ch = supabase.channel(`room-${roomId}`)
       // Primary: server actions broadcast on this channel after any DB mutation.
       .on('broadcast', { event: 'room-changed' }, () => {
@@ -159,7 +167,7 @@ export default function RoomClient({
       .subscribe();
 
     return () => { supabase.removeChannel(ch); };
-  }, [supabase, roomId]);
+  }, [supabase, roomId, refreshRoom, refreshMessages]);
 
   // Sound effects: detect moves and game end
   const prevWinnerRef = useRef<unknown>(null);
@@ -283,6 +291,17 @@ export default function RoomClient({
         aria-label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
       >
         {sidebarCollapsed ? '◀' : '▶'}
+      </button>
+      {/* Soft REFRESH — re-syncs the game from the server without a page reload, so it works (and stays)
+          in full screen, where a hard reload would kick you out. Always on-screen (incl. fullscreen). */}
+      <button
+        type="button"
+        onClick={manualRefresh}
+        className="fixed top-32 right-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/90 text-neutral-300 shadow-lg backdrop-blur-sm transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white lg:top-32"
+        title="Refresh the game from the server (stays in full screen)"
+        aria-label="Refresh game"
+      >
+        <span className={refreshing ? 'inline-block animate-spin' : 'inline-block'}>⟳</span>
       </button>
       <section className="min-w-0">
         {/* Per-game board via the BOARD_RENDERERS map (adding a game = one entry

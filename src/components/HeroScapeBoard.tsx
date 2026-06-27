@@ -1024,29 +1024,33 @@ export function splitBreakdown(breakdown: string[] | undefined): { atkBase: numb
  *  between them and a "N base · +1 height" caption, so players SEE where the extra dice came from.
  *  Falls back to a plain row when there's no bonus. `shown` drives the one-at-a-time reveal. */
 function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: number; base: number; bonus: string[] }) {
-  const split = bonus.length > 0 && base > 0 && base < roll.length;
-  const b = split ? base : roll.length;
-  // Each die GROUP carries its own caption directly beneath it — "N base" centred under the base
-  // dice, "+bonus" centred under the bonus dice — so the labels line up with the dice they describe
-  // (instead of one combined caption centred under the whole row).
+  // Give EACH bonus its OWN divided group — base | +1 Grimnak aura | +2 Jalgard — by reading each
+  // bonus's die count off its leading "+N". Only when those positive counts exactly account for the
+  // extra dice (no penalties / odd math) — otherwise fall back to one combined bonus group.
+  const baseN = Math.min(Math.max(0, base), roll.length);
+  const bonusTotal = roll.length - baseN;
+  const counts = bonus.map(b => { const m = b.match(/^\+(\d+)/); return m ? +m[1] : 0; });
+  const perBonus = bonus.length > 0 && baseN > 0 && bonusTotal > 0
+    && counts.every(c => c > 0) && counts.reduce((a, c) => a + c, 0) === bonusTotal;
+  // Ordered dice groups, each carrying its own caption directly beneath the dice it describes.
+  const groups: { count: number; label: string; tone: 'base' | 'bonus' }[] = [];
+  if (roll.length > 0) groups.push({ count: baseN, label: `${baseN} base`, tone: 'base' });
+  if (perBonus) bonus.forEach((b, i) => groups.push({ count: counts[i], label: b, tone: 'bonus' }));
+  else if (bonus.length > 0 && bonusTotal > 0) groups.push({ count: bonusTotal, label: bonus.join(' · '), tone: 'bonus' });
+  // Precompute each group's slice start so the one-at-a-time `shown` reveal flows across all groups.
+  let acc = 0;
+  const placed = groups.map(g => { const start = acc; acc += g.count; return { ...g, start }; });
   return (
     <div className="mt-2 flex min-h-[64px] flex-wrap items-start justify-center gap-2">
-      <div className="flex flex-col items-center gap-1">
-        <div className="flex min-h-[60px] flex-wrap items-center justify-center gap-2">
-          {roll.slice(0, Math.min(shown, b)).map((f, i) => <BigDie key={'b' + i} face={f} landed />)}
-          {roll.length === 0 && <span className="text-sm text-neutral-500">no defense dice</span>}
-        </div>
-        {roll.length > 0 && <div className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">{b} base</div>}
-      </div>
-      {split && <div className="mt-1 h-[60px] self-start border-l-2 border-amber-500/50" />}
-      {split && (
-        <div className="flex flex-col items-center gap-1">
+      {roll.length === 0 && <span className="text-sm text-neutral-500">no defense dice</span>}
+      {placed.map((g, gi) => (
+        <div key={gi} className={'flex flex-col items-center gap-1 ' + (gi > 0 ? 'border-l-2 border-amber-500/50 pl-2' : '')}>
           <div className="flex min-h-[60px] flex-wrap items-center justify-center gap-2">
-            {roll.slice(b, shown).map((f, i) => <BigDie key={'x' + i} face={f} landed />)}
+            {roll.slice(g.start, Math.min(shown, g.start + g.count)).map((f, i) => <BigDie key={gi + '-' + i} face={f} landed />)}
           </div>
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-400">{bonus.join(' · ')}</div>
+          <div className={'text-center text-[10px] font-semibold uppercase tracking-wide ' + (g.tone === 'base' ? 'text-neutral-500' : 'text-amber-400')}>{g.label}</div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -1790,14 +1794,24 @@ export default function HeroScapeBoard({
     const e = state.lastEffect;
     if (!e || e.seq <= lastEffectSeqRef.current) return;
     lastEffectSeqRef.current = e.seq;
-    ({
+    const play = ({
       chomp: sounds.hsChomp,
       blast: sounds.hsBlast, // grenade + Deathwalker explosion
       fire_line: sounds.hsFire,
       ice_shard: sounds.hsIce,
       acid_breath: sounds.hsAcid,
       counter_strike: sounds.hsSword,
-    } as Record<string, () => void>)[e.kind]?.();
+    } as Record<string, () => void>)[e.kind];
+    if (!play) return;
+    // Counter Strike's clash rings out AFTER the defense roll — hold it for the dice overlay (mirror its
+    // ~520ms/die schedule from the lastAttack dice counts) so the sword lands as the shields do.
+    if (e.kind === 'counter_strike') {
+      const la = state.lastAttack;
+      const dice = (la?.attackRoll?.length ?? 0) + (la?.defenseRoll?.length ?? 0);
+      const t = setTimeout(play, 1500 + dice * 520);
+      return () => clearTimeout(t);
+    }
+    play();
   }, [state.lastEffect]);
 
   // Victory / draw chime when the game ends — held until any killing-blow dice overlay clears
