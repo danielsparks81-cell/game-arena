@@ -64,6 +64,7 @@ The in-app glossary (`content.ts`) is not the canonical reference; `docs/herosca
 - **`cards.md`** — add a roster-table row (stats, class, uniqueness, points) AND a card-detail entry with the printed power text + a faithful clarification note; bump the card count + squad-count line.
 - **The relevant rules file** for any NEW mechanic: a turn-flow power → `02-rounds-turns-order-markers.md`; a movement/elevation power → `03-movement-elevation-terrain.md`; a special attack / glyph → `04-…` / `05-…`.
 - **`audit.md`** — a one-line "new content since this audit" note so the next five-bucket pass re-verifies it.
+- **`traits-matrix.md` / `.csv`** — regenerate the army traits matrix: `GEN_MATRIX=1 npx vitest run traits-matrix`. (The guard test goes red until you do — it checks every card appears in the doc.)
 
 ---
 
