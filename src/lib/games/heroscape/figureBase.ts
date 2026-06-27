@@ -106,6 +106,19 @@ export function figureAnchor(cardId: string, index: number): { x: number; y: num
   return FIGURE_ANCHOR[`${cardId}-${index}`] ?? FIGURE_ANCHOR[cardId];
 }
 
+/** Per-figure SIZE multiplier for 1-hex standees (1 = the default base-width ruler). The ruler sizes
+ *  a figure so its detected base maps to the disc; for some minis it reads too big/small (the
+ *  Deathreaver rats sit low + wide, so the ruler over-sizes them). This shrinks/grows the rendered
+ *  standee uniformly AFTER the ruler. Keyed `<card>-<index>` or `<card>`; only applies to 1-hex
+ *  figures (2-hex size comes from the FIGURE_SPAN2 lobe picks). */
+export const SIZE_SCALE: Record<string, number> = {
+  deathreavers: 0.85, // the gold rats render 15% smaller — user 2026-06-27
+};
+
+export function sizeScale(cardId: string, index: number): number {
+  return SIZE_SCALE[`${cardId}-${index}`] ?? SIZE_SCALE[cardId] ?? 1;
+}
+
 /** DOUBLE-figure (2-hex) TWO-POINT pick: the two points that should sit ON the two hex marks —
  *  the front-of-BODY and back-of-BODY (NOT the head/tail tips; the head and tail OVERHANG the
  *  marks). Normalized image coords. The board scales the figure so those points sit the

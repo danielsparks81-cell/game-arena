@@ -17,7 +17,7 @@ import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'rea
 import * as THREE from 'three';
 import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
-import { cropOverride, analyzeCut, figureAnchor, figureSpan2 } from '@/lib/games/heroscape/figureBase';
+import { cropOverride, analyzeCut, figureAnchor, figureSpan2, sizeScale } from '@/lib/games/heroscape/figureBase';
 
 const SIZE = 1; // hex circumradius
 const LEVEL = 0.35; // world height per elevation level
@@ -337,7 +337,7 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
   const extent2 = span2 ? Math.max(Math.abs(span2.fx - span2.bx), 0.1) : 1;
   const h = trail
     ? (span2 ? (span / extent2) / aspect : STANDEE_H * figScale(HS_CARDS[cardId]?.height ?? 5))
-    : (BASE_DISC_W / Math.max(baseWidthFrac, 0.15)) / aspect;
+    : (BASE_DISC_W * sizeScale(cardId, figIndex) / Math.max(baseWidthFrac, 0.15)) / aspect;
   const w = h * aspect;
   // CROP the moulded base off at the crop line and butt the figure's cut edge onto the
   // player's colour disc — the disc IS the base.
