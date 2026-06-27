@@ -924,7 +924,7 @@ function CardHoverPanel({ cardId, placement = 'above', big = false, side = 'righ
     return (
       <div
         className={
-          'pointer-events-none fixed top-1/2 z-50 hidden max-h-[96vh] w-auto -translate-y-1/2 group-hover:block ' +
+          'pointer-events-none fixed top-1/2 z-[120] hidden max-h-[96vh] w-auto -translate-y-1/2 group-hover:block ' +
           (side === 'left' ? 'left-4' : 'right-4')
         }
       >
@@ -3133,6 +3133,9 @@ export default function HeroScapeBoard({
     // A wiped-out seat (no living figures during play) KEEPS its colour but the name is struck
     // through (user request) — you can still tell whose army it was, plainly marked as eliminated.
     const eliminated = state.phase === 'playing' && !livingSeats(state).includes(seat);
+    // The big card-hover preview pins to a screen edge — push it to the edge AWAY from this panel so
+    // it never covers the panel being hovered (a RIGHT-side panel shows its preview on the LEFT, etc.).
+    const hoverSide: 'left' | 'right' = panelSlotAnchor(seat).includes('right') ? 'left' : 'right';
     // Detail level applies to every strip; a player PLACING markers needs the
     // tiles to click, so their own strip is forced to level 2 while placing.
     const level: 1 | 2 | 3 = placingMine ? 2 : armyDetail;
@@ -3145,6 +3148,9 @@ export default function HeroScapeBoard({
           {/* NAME on the LEFT (user request). */}
           <span className="flex items-center gap-1.5">
             <span className={'text-xs font-bold' + (eliminated ? ' line-through' : '')} style={{ color: seatColor(pl.seat) }} title={eliminated ? `${pl.username} — eliminated` : undefined}>{pl.username}{isMe ? ' (you)' : ''}</span>
+            {/* A clear, READABLE "defeated" tag — the per-card strike-through still distinguishes which
+                units died, but this says the whole army is out without relying on hard-to-read dimming. */}
+            {eliminated && <span className="rounded bg-rose-950/80 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rose-300 ring-1 ring-rose-700/70">💀 defeated</span>}
             {isActive && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
           </span>
           {/* detail-level control (1/2/3) — global; applies to every player's strip. Pinned to the
@@ -3230,7 +3236,7 @@ export default function HeroScapeBoard({
                         ? <span className="text-sky-300/90" title="In reserve — deploys via The Drop, not yet on the board">⤓ {reserve} reserve</span>
                         : `${alive}/${def.figures}`}
                   </span>
-                  <CardHoverPanel cardId={def.id} big />
+                  <CardHoverPanel cardId={def.id} big side={hoverSide} />
                 </div>
               );
             })}
@@ -3315,7 +3321,7 @@ export default function HeroScapeBoard({
                 )}
                 {/* My cards sit at the BOTTOM (popover above); the opponent's at
                     the TOP (popover below) — so it never runs off-screen. */}
-                <CardHoverPanel cardId={def.id} big />
+                <CardHoverPanel cardId={def.id} big side={hoverSide} />
               </div>
             );
           })}
@@ -4728,18 +4734,33 @@ export default function HeroScapeBoard({
               .sort((a, b) => a.seat - b.seat)
               .map(p => (
                 <div key={p.seat} className={'lg:pointer-events-none lg:absolute lg:z-20 lg:p-0.5 ' + panelSlotAnchor(p.seat)}>
-                  {/* Camera FOCUS button — docked just ABOVE the viewer's own panel (owner 2026-06-27),
-                      where the seat panels can't cover it and it's clear of the left-edge glyph HUD. */}
-                  {p.seat === me?.seat && can3D && (
-                    <button
-                      type="button"
-                      onClick={() => focusRef.current?.()}
-                      title="Focus the current action — click again to cycle through your figures"
-                      aria-label="Focus the current action; click again to cycle through your figures"
-                      className="pointer-events-auto mb-1 flex h-8 w-8 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
-                    >
-                      ⌖
-                    </button>
+                  {/* Camera FOCUS + REFRESH buttons — docked just ABOVE the viewer's own panel (owner
+                      2026-06-27), where the seat panels can't cover them and they're clear of the
+                      left-edge glyph HUD. Refresh dispatches a window event RoomClient soft-handles (no
+                      page reload → stays full screen); it shows even on the 2D fallback (no camera). */}
+                  {p.seat === me?.seat && (
+                    <div className="pointer-events-auto mb-1 flex gap-1">
+                      {can3D && (
+                        <button
+                          type="button"
+                          onClick={() => focusRef.current?.()}
+                          title="Focus the current action — click again to cycle through your figures"
+                          aria-label="Focus the current action; click again to cycle through your figures"
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
+                        >
+                          ⌖
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => window.dispatchEvent(new CustomEvent('hs:refresh'))}
+                        title="Refresh the game from the server (stays in full screen)"
+                        aria-label="Refresh game"
+                        className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
+                      >
+                        ⟳
+                      </button>
+                    </div>
                   )}
                   <div className="lg:pointer-events-auto lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:overscroll-contain">{renderArmyRow(p.seat)}</div>
                 </div>

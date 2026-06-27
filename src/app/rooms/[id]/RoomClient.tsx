@@ -144,6 +144,13 @@ export default function RoomClient({
     try { await Promise.all([refreshRoom(), refreshMessages()]); }
     finally { setTimeout(() => setRefreshing(false), 450); }
   }, [refreshRoom, refreshMessages]);
+  // HeroScape renders its OWN refresh button next to the camera control (its board fills the screen),
+  // and triggers the same soft re-sync through this window event so it stays full screen.
+  useEffect(() => {
+    const onRefresh = () => { manualRefresh(); };
+    window.addEventListener('hs:refresh', onRefresh);
+    return () => window.removeEventListener('hs:refresh', onRefresh);
+  }, [manualRefresh]);
 
   // Realtime subscriptions — broadcast is the primary channel, postgres_changes is a fallback.
   useEffect(() => {
@@ -293,16 +300,19 @@ export default function RoomClient({
         {sidebarCollapsed ? '◀' : '▶'}
       </button>
       {/* Soft REFRESH — re-syncs the game from the server without a page reload, so it works (and stays)
-          in full screen, where a hard reload would kick you out. Always on-screen (incl. fullscreen). */}
-      <button
-        type="button"
-        onClick={manualRefresh}
-        className="fixed top-32 right-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/90 text-neutral-300 shadow-lg backdrop-blur-sm transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white lg:top-32"
-        title="Refresh the game from the server (stays in full screen)"
-        aria-label="Refresh game"
-      >
-        <span className={refreshing ? 'inline-block animate-spin' : 'inline-block'}>⟳</span>
-      </button>
+          in full screen, where a hard reload would kick you out. HeroScape renders its OWN refresh next
+          to the camera button (its board fills the screen), so this top-right one is hidden there. */}
+      {room.game_type !== 'heroscape' && (
+        <button
+          type="button"
+          onClick={manualRefresh}
+          className="fixed top-32 right-3 z-40 flex h-9 w-9 items-center justify-center rounded-full border border-neutral-700 bg-neutral-900/90 text-neutral-300 shadow-lg backdrop-blur-sm transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white lg:top-32"
+          title="Refresh the game from the server (stays in full screen)"
+          aria-label="Refresh game"
+        >
+          <span className={refreshing ? 'inline-block animate-spin' : 'inline-block'}>⟳</span>
+        </button>
+      )}
       <section className="min-w-0">
         {/* Per-game board via the BOARD_RENDERERS map (adding a game = one entry
             there). Both the waiting lobby (seats + setup) and the live board
