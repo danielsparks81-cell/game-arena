@@ -38,6 +38,7 @@
 - **Cost:** moving onto a higher space costs **1 movement per level side climbed, plus 1 for the destination space itself**. A step rising L levels costs **L + 1** movement (up 1 level = 2; up 2 levels = 3; flat = 1).
 - **No partial climbs:** if the figure's remaining Move cannot pay the **full** cost of the step, it cannot make that step at all (p. 10). Worked example (Ex. 5, p. 10): Finn (Move 5) cannot reach a ledge whose total path cost is 7.
 - **Climb limit (Height stat):** a figure may **never rise, in a single step, a number of levels equal to or greater than its Height number**. Maximum legal single-step rise = **Height − 1 levels** (p. 10). Equality is illegal.
+- **CLIMB X2 (Deathreavers, card power):** this card's figures may **double their Height** when counting level changes. So the climb limit uses 2× Height (Height 3 → a single step may rise up to **5** levels) AND the fall threshold uses 2× Height (§4 — they don't fall until the drop ≥ 6). Movement only; engagement, height advantage, and LOS use the printed Height 3.
 - **Glyphs and water tiles add NO height** to the space they sit on (p. 10) — a space's level is its terrain-tile stack only. (Also matters for height advantage — see 04-combat-range-los-attack.md.)
 
 | Worked example | Numbers | Outcome |
@@ -136,7 +137,7 @@ Figures occupying two hexes (Grimnak, Mimring in the Master Set).
   - **DICE:** exactly **1 attack die** per swiping figure.
   - **DEFENSE:** none — the moving figure rolls **no defense dice**. A skull = **1 unblockable wound** (Wound Marker on its Army Card).
 - **Multiple engagements (p. 12–13):** when a figure disengages from several enemies, **each** engaged enemy gets its **own separate 1-die swipe**. Ex. 15 (p. 13): Finn leaves two Tarn Viking Warriors → opponent rolls 2 dice (one per Viking), both skulls → 2 wounds.
-- Bypasses exist outside this file: the Glyph of Erland's summon explicitly skips the leaving-engagement roll (see 05-glyphs-special-powers.md), and card powers can negate swipes entirely (Agent Carr's Disengage, p. 7).
+- Bypasses exist outside this file: the Glyph of Erland's summon explicitly skips the leaving-engagement roll (see 05-glyphs-special-powers.md), and **DISENGAGE** negates swipes entirely (p. 7) — carried by Agent Carr and all five 2026-06 Utgar units (Deathreavers, Blade/Heavy/Arrow Gruts, Swog Rider). The Deathreavers' **SCATTER** reactive move (cards.md) also takes no swipes for the same reason.
 
 **Notes**
 - One swipe per enemy per disengagement event — not per space moved afterward.

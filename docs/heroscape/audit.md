@@ -10,6 +10,17 @@ bug** (now fixed) and a freeze edge (fixed); the AI-through-friendlies and Star 
 clean (no deadlock, no sealed paths); projection has **no leaks** (glyphSeed still stripped, accent_color
 is not secret); RNG stays engine-free.
 
+## New content since this audit (2026-06-26/27 — fold into the next pass)
+Five classic Utgar units shipped AFTER this audit (from the user's printed cards): **Deathreavers**
+(Scatter + Climb X2 + Disengage), **Blade/Heavy Gruts** (Orc Champion Bonding + Disengage),
+**Arrow Gruts** (Beast Bonding + Disengage), **Swog Rider** (Orc Archer Enhancement + Disengage).
+All 29 roster cards are now `power:'live'` (0 wip). Each landed with regression tests + green
+fuzzer/playthroughs, but the NEXT five-bucket pass should still verify them against `cards.md` —
+especially the net-new turn-flow of **Bonding** (a free bonus turn inserted before the squad's
+marker-turn via a `getActiveCardUid` override + `doEndTurn` handoff, no marker consumed) and the
+reactive off-turn **Scatter** PendingChoice. Docs brought current alongside: `cards.md` (roster +
+details + engine notes), `02-rounds…` (Bonding), `03-movement…` (Climb X2 + Disengage).
+
 ## Fixed in THIS pass (shipped)
 1. **🔴 Duplicate Wannok dropped a curse — FIXED.** `endRound` used `.find(g => g.id==='wannok' && faceUp)` — with two Wannoks on the board (now possible) only one fired, and a *vacated* first Wannok suppressed an *occupied* second entirely (nothing fired). Two subagents confirmed independently. Fix: a Wannok QUEUE (`HSState.pendingWannoks`) collected in `endRound` and drained one-at-a-time through `openNextWannokIfIdle`, called from `drainSpirits` after every `resolve_choice` (Spirits first, then the next curse). Both Wannoks now curse back-to-back. Regression test added (engine.test.ts "TWO occupied Wannok glyphs BOTH curse").
 2. **🟠 Wannok could open an unresolvable victim choice → frozen room — FIXED.** The controller could name an opponent alive only on reserve Airborne (no on-board figure); a bot victim then had nothing to wound → `aiResolveChoice` null → host no-op freeze (Wannok fires at the round boundary, outside the place_markers self-heal). Fix: step-1 `hasOpponent`, step-2 validation, and the AI controller pick all now require the opponent to have an **on-board** figure (else the curse fizzles). Regression test added ("Wannok 2+ FIZZLES when the only opponent is reserve-only").

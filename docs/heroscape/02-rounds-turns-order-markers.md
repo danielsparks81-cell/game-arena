@@ -71,6 +71,15 @@ Players take turns one at a time, **strict round-robin passing left** starting f
 - Engine: "move none, attack none" is a legal turn (a pure reveal).
 - Special powers on cards can override any of this — card text beats the general rules (p. 7).
 
+### Bonding — a free bonus turn before the squad (Grut squads; card power, p. 7 override)
+
+The Grut squads' **Orc Champion Bonding** (Blade/Heavy Gruts) and **Beast Bonding** (Arrow Gruts) bend the one-card-per-turn rule: "*Before taking a turn with this card's figures, you may first take a turn with any Orc Champion / Beast you control.*"
+
+- When the bonding squad's Order Marker is **revealed** (Action 1) and you control an eligible partner (an Orc Champion — Grimnak — for Champion Bonding; a Beast — a Swog Rider — for Beast Bonding), you **may first take a complete FREE turn with that partner** (its own move + attack), *then* take the squad's normal turn. One revealed marker therefore = **two activations** (partner first, squad second).
+- **No Order Marker is consumed** by the bonus turn — it is not the partner's own turn. The partner still takes its OWN marker-turns separately, so it can act more times per round than its markers alone allow (the Grut combo). Initiative / turn order is unchanged; the bond just inserts the partner's activation at the front of the squad's slot.
+- Optional ("may") — you can skip and take the squad's turn directly. Eligibility needs a LIVING controlled partner of the right class (Glyph-of-Nilrend negation strips powers, not class, so a negated Champion still bonds).
+- Engine: opened as a `bond` PendingChoice at the squad's turn start; choosing a partner sets `state.bond` so `getActiveCardUid` returns the partner card during the bonus turn; ending that turn clears `bond` and the squad acts under the SAME marker (no slot advance). Mirrors Eldgrim's Overextend extra-turn reset.
+
 ## Destroyed Army Cards & leftover Order Markers (p. 14)
 
 When the last figure on an Army Card is destroyed (wounds = Life — see 04-combat-range-los-attack.md), the card is **out of play**:

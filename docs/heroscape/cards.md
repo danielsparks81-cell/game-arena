@@ -30,7 +30,15 @@
 
 ## Roster summary
 
-16 cards: 10 Unique Heroes, 6 Unique Squads. Sorted by General, then points.
+21 cards: 11 Heroes (10 Unique + the Common Swog Rider) and 10 Unique Squads. Sorted by General, then points.
+
+> **Added 2026-06 from the user's printed cards** — five classic Utgar units: Deathreavers,
+> the three Grut squads (Blade / Heavy / Arrow), and the Swog Rider. Built AS PRINTED; this
+> rebalanced printing deviates from the classic 2004 values (e.g. Deathreavers print at **60
+> points** here, not the classic ~20), and the **Swog Rider is the roster's only Common card**
+> (it may be drafted multiple times). Powers: Scatter + Climb X2 + Disengage (Deathreavers),
+> Orc Champion Bonding + Disengage (Blade/Heavy Gruts), Beast Bonding + Disengage (Arrow Gruts),
+> Orc Archer Enhancement + Disengage (Swog Rider).
 
 | Card | General | Class | Uniqueness | Figures | Life | Move | Range | Attack | Defense | Height | Points |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -40,6 +48,11 @@
 | Airborne Elite | Jandar | Soldiers | Unique Squad | 4 | 1 | 4 | 8 | 3 | 2 | Medium 5 | 110 |
 | Sgt. Drake Alexander | Jandar | Soldier | Unique Hero | 1 | 5 | 5 | 1 | 6 | 3 | Medium 5 | 110 |
 | Raelin the Kyrie Warrior | Jandar | Warrior | Unique Hero | 1 | 5 | 6 | 1 | 3 | 3 | Medium 5 | 125 |
+| Swog Rider | Utgar | Beast | Common Hero | 1 | 1 | 8 | 1 | 3 | 3 | Large 6 | 25 |
+| Blade Gruts | Utgar | Warrior | Unique Squad | 4 | 1 | 6 | 1 | 2 | 2 | Medium 4 | 40 |
+| Arrow Gruts | Utgar | Archer | Unique Squad | 3 | 1 | 6 | 6 | 1 | 1 | Medium 4 | 40 |
+| Deathreavers | Utgar | Deathreaver | Unique Squad | 4 | 1 | 6 | 1 | 1 | 4 | Small 3 | 60 |
+| Heavy Gruts | Utgar | Warrior | Unique Squad | 4 | 1 | 5 | 1 | 3 | 3 | Medium 4 | 70 |
 | Zettian Guards | Utgar | Guards | Unique Squad | 2 | 1 | 4 | 7 | 2 | 7 | Medium 5 | 70 |
 | Ne-Gok-Sa | Utgar | Warlord | Unique Hero | 1 | 5 | 5 | 1 | 3 | 6 | Medium 5 | 90 |
 | Marro Warriors | Utgar | Warriors | Unique Squad | 4 | 1 | 6 | 6 | 2 | 3 | Medium 4 | 105 |
@@ -51,9 +64,9 @@
 | Krav Maga Agents | Vydar | Agents | Unique Squad | 3 | 1 | 6 | 7 | 3 | 3 | Medium 4 | 100 |
 | Izumi Samurai | Einar | Samurai | Unique Squad | 3 | 1 | 6 | 1 | 2 | 5 | Medium 5 | 60 |
 
-Hero cards field 1 figure. Squad counts are rulebook-sourced: Tarn Viking
-Warriors 4, Marro Warriors 4, Zettian Guards 2, Izumi Samurai 3, Airborne
-Elite 4, Krav Maga Agents 3.
+Hero cards field 1 figure (incl. the Common Swog Rider). Squad counts come from the user's
+cards / rulebook: Tarn Viking Warriors 4, Marro Warriors 4, Zettian Guards 2, Izumi Samurai 3,
+Airborne Elite 4, Krav Maga Agents 3, Blade Gruts 4, Heavy Gruts 4, Arrow Gruts 3, Deathreavers 4.
 
 ## Card details
 
@@ -291,6 +304,74 @@ Chomped.*
 **ORC WARRIOR ENHANCEMENT** — All friendly Orc Warriors adjacent to Grimnak
 roll an additional attack die and an additional defense die.
 
+#### Classic Grut units (added 2026-06 from the user's printed cards)
+
+Five Utgar cards — the Swog Rider, the three Grut squads, and the Deathreavers — built AS
+PRINTED. **All five have DISENGAGE** (*never attacked when leaving an engagement*, same as
+Agent Carr's). Listed by points.
+
+##### Swog Rider — 25 points (Common)
+
+Common Hero (1 figure) · Beast · Orc · Wild · Grut · Large 6 · double-space (2-hex)
+Life 1 · Move 8 · Range 1 · Attack 3 · Defense 3
+
+**ORC ARCHER ENHANCEMENT** — All friendly Orc Archers adjacent to this figure receive an
+additional attack die and an additional defense die.
+*Adjacency aura mirroring Grimnak's Orc Warrior Enhancement, but for Orc ARCHERS — in this
+roster that's the Arrow Gruts (Attack 1 → 2, Defense 1 → 2 while adjacent to a Swog Rider).
+Recompute on any move. As a COMMON card the Swog Rider may be drafted more than once.*
+
+##### Blade Gruts — 40 points
+
+Unique Squad (4 figures) · Warrior · Orc · Wild · Grut · Medium 4
+Life 1 · Move 6 · Range 1 · Attack 2 · Defense 2
+
+**ORC CHAMPION BONDING** — Before taking a turn with this card's figures, you may first take a
+turn with any Orc Champion you control.
+*A FREE full bonus turn (move + attack) with a controlled Orc Champion — in this roster,
+Grimnak — taken BEFORE the squad's own turn when the squad's Order Marker is revealed. No Order
+Marker is consumed, so the Champion can act more times per round than its own markers allow (the
+combo). Optional ("may"); turn-flow detailed in
+[02-rounds-turns-order-markers.md](02-rounds-turns-order-markers.md).*
+
+##### Arrow Gruts — 40 points
+
+Unique Squad (3 figures) · Archer · Orc · Wild · Grut · Medium 4
+Life 1 · Move 6 · Range 6 · Attack 1 · Defense 1
+
+**BEAST BONDING** — Before taking a turn with this card's figures, you may first take a turn
+with any Beast you control.
+*The same free-bonus-turn mechanic as Orc Champion Bonding, but the partner is any controlled
+BEAST — in this roster, a Swog Rider. (And while adjacent to a Swog Rider, these Archers get Orc
+Archer Enhancement: +1 attack & +1 defense die.)*
+
+##### Heavy Gruts — 70 points
+
+Unique Squad (4 figures) · Warrior · Orc · Wild · Grut · Medium 4
+Life 1 · Move 5 · Range 1 · Attack 3 · Defense 3
+
+**ORC CHAMPION BONDING** — Before taking a turn with this card's figures, you may first take a
+turn with any Orc Champion you control. *(As Blade Gruts — the free bonus turn with Grimnak.)*
+
+##### Deathreavers — 60 points
+
+Unique Squad (4 figures) · Deathreaver · Soulborg · Tricky · Alpha Prime · Small 3
+Life 1 · Move 6 · Range 1 · Attack 1 · Defense 4
+
+**SCATTER** — After a figure on this card rolls defense dice against a normal attack, you may
+move any 2 of this card's figures up to 4 spaces each.
+*REACTIVE: triggers on the ATTACKER's turn, after a Deathreaver defends a NORMAL attack (not a
+special attack) — whether the hit landed or was blocked, and even if the target rat died (the
+survivors still scatter). The owner may scuttle up to 2 of the card's figures up to 4 spaces
+each; Disengage means no leaving-engagement swipes.*
+
+**CLIMB X2** — When moving up or down levels of terrain, this card's figures may double their
+Height.
+*Doubles the Height used for the CLIMB LIMIT (how high a single step may rise) and the FALL
+THRESHOLD (the drop that triggers falling damage) — Height 3 → 6, movement only. Engagement,
+height advantage, and line of sight still use the printed Height 3. See
+[03-movement-elevation-terrain.md](03-movement-elevation-terrain.md).*
+
 ### Ullar
 
 #### Syvarris — 100 points
@@ -364,16 +445,26 @@ does not work against other Samurai.*
   - *Spirit placements on destroy* (Thorgrim's Warrior's Armor Spirit, Finn's
     Warrior's Attack Spirit) — owner chooses any unique Army Card; this
     interrupts whoever's turn caused the destruction.
+  - *Scatter* (Deathreavers) — REACTIVE, opened on the ATTACKER's turn after a Deathreaver
+    defends a normal attack: the owner scuttles up to 2 of the card's figures up to 4 spaces
+    each (or declines). No leaving-engagement swipes (Disengage).
+  - *Bonding* (Grut squads) — opened at the START of the squad's marker-turn: the owner may
+    first take a FREE full turn with a controlled Orc Champion (Blade/Heavy Gruts → Grimnak)
+    or Beast (Arrow Gruts → Swog Rider), or skip straight to the squad's turn. No marker is
+    consumed; see [02-rounds-turns-order-markers.md](02-rounds-turns-order-markers.md).
   - Other optional "may" decisions to surface: Berserker Charge re-move,
     Syvarris's Double Attack second attack, Whirlwind Assault target set,
     Grapple Gun replacement move, Fire Line line selection.
 - **Passive auras — recompute on adjacency/range change:** Thorgrim's
   Defensive Aura 1 (+1 defense, adjacency), Finn's Attack Aura 1 (+1 normal
-  attack, adjacency + printed Range 1), Raelin's Extended Defensive Aura
-  (+1 defense, 6 clear-sight spaces, figures you control, excludes Raelin —
-  recompute on any movement/LOS change, not just adjacency). Same bucket for
-  adjacency-based stat enhancements: Orc Warrior Enhancement (+1 attack die /
-  +1 defense die for friendly Orc Warriors adjacent to Grimnak) and Range
+  attack, adjacency + printed Range 1), Raelin's Defensive Aura
+  (+2 defense, 4 clear-sight spaces, figures you control, excludes Raelin —
+  recompute on any movement/LOS change, not just adjacency; corrected here to
+  match the RotV card detail above — an earlier "6 spaces / +1" note was wrong).
+  Same bucket for adjacency-based stat enhancements: Orc Warrior Enhancement
+  (+1 attack die / +1 defense die for friendly Orc Warriors adjacent to
+  Grimnak), Orc Archer Enhancement (+1 attack die / +1 defense die for friendly
+  Orc Archers adjacent to a Swog Rider — Arrow Gruts 1/1 → 2/2), and Range
   Enhancement (+2 Range for Soulborg Guards adjacent to Deathwalker 9000;
   Zettian Guards 7 → 9).
 - **Once-per-game:** Grenade Special Attack (grenade marker starts on the

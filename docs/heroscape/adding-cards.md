@@ -59,6 +59,12 @@ npx next build
 ```
 Add a **regression test** that encodes the printed card text for any new power (per the rules-fidelity discipline).
 
+### 8. Documentation — keep the wiki in sync (don't skip this — it's how the docs drift)
+The in-app glossary (`content.ts`) is not the canonical reference; `docs/heroscape/` is. Update it:
+- **`cards.md`** — add a roster-table row (stats, class, uniqueness, points) AND a card-detail entry with the printed power text + a faithful clarification note; bump the card count + squad-count line.
+- **The relevant rules file** for any NEW mechanic: a turn-flow power → `02-rounds-turns-order-markers.md`; a movement/elevation power → `03-movement-elevation-terrain.md`; a special attack / glyph → `04-…` / `05-…`.
+- **`audit.md`** — a one-line "new content since this audit" note so the next five-bucket pass re-verifies it.
+
 ---
 
 ## What you DON'T touch
