@@ -4911,6 +4911,20 @@ function checkEliminationWin(s: HSState): void {
   // are still alive. A solo seat is its own team, so this is "last seat
   // standing" for 1-v-1 / FFA, unchanged.
   const aliveSeats = livingSeats(s); // owner ruling: a team wiped on the board is OUT even with reserve Airborne
+  // Announce each seat's wipe-out in the log the instant its last figure dies — even in a 3+ player
+  // game that keeps going. `eliminatedSeats` is rebuilt to the currently-out set each pass, so each
+  // elimination logs ONCE (and a resurrected-then-re-wiped seat is announced again). Done before the
+  // win line below so the order reads naturally: "<player> is eliminated" … then "<winner> wins".
+  const announced = s.eliminatedSeats ?? [];
+  const stillOut: number[] = [];
+  for (const p of s.players) {
+    if (aliveSeats.includes(p.seat)) continue;
+    stillOut.push(p.seat);
+    if (!announced.includes(p.seat)) {
+      pushLog(s, 'info', `${playerName(s, p.seat)} is eliminated — their army is wiped out.`, p.seat);
+    }
+  }
+  s.eliminatedSeats = stillOut;
   const teamsAlive = new Set(aliveSeats.map(seat => teamOfSeat(s, seat)));
   if (teamsAlive.size > 1) return;
   // 0 or 1 teams remain.

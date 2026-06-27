@@ -1253,6 +1253,8 @@ describe('elimination and history', () => {
     expect(s.phase).toBe('finished');
     expect(s.winnerSeat).toBe(0);
     expect(s.turnSeat).toBeNull();
+    expect(s.log.some(e => /is eliminated/i.test(e.text))).toBe(true); // the wiped seat is announced in the log
+    expect(s.eliminatedSeats).toContain(1); // seat 1 (the loser) recorded as eliminated
     expect(getActivePlayerId(s)).toBeNull();
     expect(computeHistory(s)).toEqual({ winnerId: 'p1', playerIds: ['p1', 'p2'] });
     expect(errOf(applyAction(s, 'p2', { kind: 'end_turn' }))).toMatch(/over/);

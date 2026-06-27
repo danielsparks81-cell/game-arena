@@ -778,6 +778,10 @@ export type HSState = {
    *  explicitly so the end banner can name the whole allied side, not one seat.
    *  Null until finished. */
   winnerTeam?: number | null;
+  /** Seats already ANNOUNCED as eliminated in the log (so each wipe-out is logged exactly once).
+   *  Rebuilt by checkEliminationWin to the currently-eliminated set, so a resurrected-then-re-wiped
+   *  seat is announced again. */
+  eliminatedSeats?: number[];
   /** Glyphs on the battlefield (slice 4). Placed from a per-map layout; a
    *  temporary glyph (Kelda) is spliced out of this array once it fires. A
    *  permanent glyph's effect is active only while a figure stands on its hex —
