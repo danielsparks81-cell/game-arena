@@ -419,6 +419,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     species: 'Orc',
     unitClass: 'Beast',
     common: true, // COMMON HERO — may be drafted multiple times
+    baseSize: 2, // DOUBLE-SPACE — orc-on-saber-tooth sits on a peanut base
     power: 'wip', // Disengage live; Orc Archer Enhancement pending
     disengage: true,
   },
