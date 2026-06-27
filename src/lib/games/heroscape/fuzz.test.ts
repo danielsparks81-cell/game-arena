@@ -33,6 +33,7 @@ import {
   grenadeDefenders,
   attackDiceRequirements,
   moveConsequences,
+  scatterDestinations,
   effectiveDefenseDice,
   iceShardTargets,
   queglixTargets,
@@ -344,6 +345,23 @@ function resolvePending(s: HSState, rng: () => number): HSState | { error: strin
     const mine = s.figures.filter(f => f.at != null && f.ownerSeat === pc.seat).map(f => f.id);
     if (!mine.length) return null;
     return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: pick(rng, mine) } });
+  }
+  // Deathreavers SCATTER (reactive) — scuttle eligible rats to a random FALL-FREE hex (so no dice are
+  // needed), or stop. Without this branch a fuzz game that opened a scatter choice would abort early.
+  if (pc.kind === 'scatter') {
+    for (const f of s.figures) {
+      if (f.cardUid !== pc.cardUid || f.at == null || pc.movedFigureIds.includes(f.id)) continue;
+      const dests = [...scatterDestinations(s, f.id)].filter(h => moveConsequences(s, f, h).tier === 'none');
+      if (!dests.length) continue;
+      if (rng() < 0.25) break; // sometimes stop early
+      return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: f.id, to: pick(rng, dests) } });
+    }
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'scatter', done: true } });
+  }
+  // Grut BONDING — randomly take the free bonus turn (pick a partner) or skip to the squad's turn.
+  if (pc.kind === 'bond') {
+    const partner = pc.partnerCardUids.length && rng() < 0.7 ? pick(rng, pc.partnerCardUids) : undefined;
+    return applyAction(s, pid, { kind: 'resolve_choice', choice: { kind: 'bond', ...(partner ? { partnerUid: partner } : {}) } });
   }
   return null;
 }

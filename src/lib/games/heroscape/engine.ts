@@ -2924,7 +2924,7 @@ export function movementRangeHexes(state: HSState, figureId: string): Set<HexKey
     if (g && g.id === 'kelda' && g.faceUp && fig.wounds < 1) return false;
     return true;
   };
-  return reachableDestinations(map.cells, fig.at, remaining, occupancyLookup(state, fig), def.height, {
+  return reachableDestinations(map.cells, fig.at, remaining, occupancyLookup(state, fig), climbHeightOf(def), {
     glyphHexes: glyphHexSet(state),
     canEndOn,
     flyer: effectiveFlying(state, def),
@@ -7065,9 +7065,12 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
 }
 
 function aiTurn(state: HSState, seat: number): HSAction {
-  // Only the card holding the current turn's order marker may act.
-  const active = state.cards.find(c =>
-    c.ownerSeat === seat && c.orderMarkers.some(m => m.marker === String(state.turnNumber)));
+  // The card acting THIS turn — the bonded PARTNER during a Grut bonus turn (getActiveCardUid honors
+  // state.bond), otherwise the card holding the revealed order marker. Using the marker-holder
+  // directly here would make the bot evaluate the SQUAD during a bonus turn and squander the free
+  // partner turn — so always resolve through getActiveCardUid.
+  const activeUid = getActiveCardUid(state);
+  const active = activeUid ? state.cards.find(c => c.uid === activeUid) : null;
   if (!active) return { kind: 'end_turn' };
   const myFigs = state.figures.filter(f => f.cardUid === active.uid && f.at != null && figureAlive(f));
   const enemies = aiEnemies(state, seat);
@@ -7870,6 +7873,9 @@ function cardDefFor(state: HSState, fig: Figure): HSCardDef {
       counterStrike: false,
       thorianSpeed: false,
       grappleGun: 0,
+      climbX2: false, // Climb X2 is a special power → negated too (read via cardDefFor → climbHeightOf).
+      // (Scatter + Bonding are already suppressed by isCardNegated guards in maybeOpenScatter /
+      //  bondPartnerCardUids, so they don't need stripping here.)
     };
   }
   return def;

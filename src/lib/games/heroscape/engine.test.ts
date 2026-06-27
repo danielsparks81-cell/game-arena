@@ -1569,6 +1569,24 @@ describe('Grut squads — BONDING (free bonus turn with an Orc Champion / Beast)
     const after = unwrap(applyAction(s, 'p1', intent!));
     expect(getActiveCardUid(after)).toBe('s0-grimnak');
   });
+
+  it('AI USES the bonus turn — the bonded partner ACTS, not the squad (audit fix 2026-06-27)', () => {
+    let s = customBattle(['blade_gruts', 'grimnak'], ['marro_warriors'], 'p1', 'training_field');
+    expect(s.pendingChoice?.kind).toBe('bond');
+    // Give Grimnak (2-hex) a valid footprint + park the squad and a FAR enemy so the bonus turn moves him.
+    const c: HSState = JSON.parse(JSON.stringify(s));
+    const g = c.figures.find(f => f.cardUid === 's0-grimnak')!;
+    g.at = at(3, 3); g.at2 = at(4, 3);
+    c.figures.filter(f => f.cardUid === 's0-blade_gruts').forEach((f, i) => { f.at = at(i, 0); f.at2 = null; });
+    c.figures.filter(f => f.cardUid === 's1-marro_warriors').forEach((f, i) => { f.at = at(i, 7); f.at2 = null; });
+    s = c;
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'bond', partnerUid: 's0-grimnak' } }));
+    expect(getActiveCardUid(s)).toBe('s0-grimnak'); // the bonus turn is Grimnak's
+    const a = aiNextAction(s, 0);
+    expect(a?.kind).not.toBe('end_turn'); // the bot does NOT squander the free turn (the pre-fix bug)
+    const actorId = (a as { figureId?: string; attackerId?: string }).figureId ?? (a as { attackerId?: string }).attackerId;
+    expect(actorId).toContain('grimnak'); // it's the PARTNER acting, not a Blade Grut
+  });
 });
 
 // --- AI self-preservation (wounded Heroes retreat) -------------------------
@@ -4883,6 +4901,21 @@ describe('slice 6: Grimnak Orc Warrior Enhancement', () => {
     const def = effectiveDefenseDice(s, fig(s, ORC(1)), fig(s, ENEMY));
     expect(def.dice).toBe(4); // Orc Defense 3 + 1 Grimnak
     expect(def.breakdown).toContain('+1 Grimnak aura');
+  });
+
+  it('buffs a REAL Orc Warrior — an adjacent Blade Grut gets +1 attack & +1 defense (the Grimnak+Grut combo, audit fix 2026-06-27)', () => {
+    // Regression for the singular/plural class bug: Blade/Heavy Gruts are unitClass 'Warriors' so
+    // Grimnak's "Orc Warrior Enhancement" actually fires on them (it keys on 'Warriors').
+    let s = customBattle(['grimnak', 'blade_gruts'], ['finn'], 'p1', 'training_field');
+    s = clearExcept(s, GRIM, 's0-blade_gruts-1', ENEMY);
+    s = place(s, 's0-blade_gruts-1', at(3, 3));
+    s = place(s, GRIM, at(3, 2)); // a Grimnak hex adjacent to the Grut
+    s = place(s, ENEMY, at(3, 4)); // an enemy adjacent to the Grut (for the attack calc)
+    const atk = effectiveAttackDice(s, fig(s, 's0-blade_gruts-1'), fig(s, ENEMY));
+    expect(atk.dice).toBe(3); // Blade Grut Attack 2 + 1 Grimnak
+    expect(atk.breakdown).toContain('+1 Grimnak aura');
+    const def = effectiveDefenseDice(s, fig(s, 's0-blade_gruts-1'), fig(s, ENEMY));
+    expect(def.dice).toBe(3); // Blade Grut Defense 2 + 1 Grimnak
   });
 
   it('does NOT apply when the Orc Warrior is not adjacent to Grimnak', () => {

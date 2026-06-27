@@ -49,10 +49,10 @@
 | Sgt. Drake Alexander | Jandar | Soldier | Unique Hero | 1 | 5 | 5 | 1 | 6 | 3 | Medium 5 | 110 |
 | Raelin the Kyrie Warrior | Jandar | Warrior | Unique Hero | 1 | 5 | 6 | 1 | 3 | 3 | Medium 5 | 125 |
 | Swog Rider | Utgar | Beast | Common Hero | 1 | 1 | 8 | 1 | 3 | 3 | Large 6 | 25 |
-| Blade Gruts | Utgar | Warrior | Unique Squad | 4 | 1 | 6 | 1 | 2 | 2 | Medium 4 | 40 |
+| Blade Gruts | Utgar | Warriors | Unique Squad | 4 | 1 | 6 | 1 | 2 | 2 | Medium 4 | 40 |
 | Arrow Gruts | Utgar | Archer | Unique Squad | 3 | 1 | 6 | 6 | 1 | 1 | Medium 4 | 40 |
 | Deathreavers | Utgar | Deathreaver | Unique Squad | 4 | 1 | 6 | 1 | 1 | 4 | Small 3 | 60 |
-| Heavy Gruts | Utgar | Warrior | Unique Squad | 4 | 1 | 5 | 1 | 3 | 3 | Medium 4 | 70 |
+| Heavy Gruts | Utgar | Warriors | Unique Squad | 4 | 1 | 5 | 1 | 3 | 3 | Medium 4 | 70 |
 | Zettian Guards | Utgar | Guards | Unique Squad | 2 | 1 | 4 | 7 | 2 | 7 | Medium 5 | 70 |
 | Ne-Gok-Sa | Utgar | Warlord | Unique Hero | 1 | 5 | 5 | 1 | 3 | 6 | Medium 5 | 90 |
 | Marro Warriors | Utgar | Warriors | Unique Squad | 4 | 1 | 6 | 6 | 2 | 3 | Medium 4 | 105 |
@@ -323,7 +323,7 @@ Recompute on any move. As a COMMON card the Swog Rider may be drafted more than 
 
 ##### Blade Gruts — 40 points
 
-Unique Squad (4 figures) · Warrior · Orc · Wild · Grut · Medium 4
+Unique Squad (4 figures) · Warriors · Orc · Wild · Grut · Medium 4
 Life 1 · Move 6 · Range 1 · Attack 2 · Defense 2
 
 **ORC CHAMPION BONDING** — Before taking a turn with this card's figures, you may first take a
@@ -347,7 +347,7 @@ Archer Enhancement: +1 attack & +1 defense die.)*
 
 ##### Heavy Gruts — 70 points
 
-Unique Squad (4 figures) · Warrior · Orc · Wild · Grut · Medium 4
+Unique Squad (4 figures) · Warriors · Orc · Wild · Grut · Medium 4
 Life 1 · Move 5 · Range 1 · Attack 3 · Defense 3
 
 **ORC CHAMPION BONDING** — Before taking a turn with this card's figures, you may first take a

@@ -359,7 +359,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     points: 40,
     letter: 'B',
     species: 'Orc',
-    unitClass: 'Warrior',
+    unitClass: 'Warriors', // plural (like Tarn/Marro squads) so Grimnak's Orc Warrior Enhancement buffs them
     power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,
     bonding: 'champion',
@@ -380,7 +380,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     points: 70,
     letter: 'H',
     species: 'Orc',
-    unitClass: 'Warrior',
+    unitClass: 'Warriors', // plural (like Tarn/Marro squads) so Grimnak's Orc Warrior Enhancement buffs them
     power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,
     bonding: 'champion',

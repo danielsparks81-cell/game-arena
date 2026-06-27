@@ -1,4 +1,10 @@
-# HeroScape engine audit — 2026-06-25 (latest pass)
+# HeroScape engine audit
+
+**Latest: 2026-06-27** — focused pass on the 5 new Utgar units + Bonding/Scatter (see the
+"2026-06-27 audit pass" section below). **Prior: 2026-06-25** — full five-bucket engine pass (the
+headline + buckets immediately below).
+
+## 2026-06-25 full pass
 
 Five-bucket re-audit (one read-only subagent each, then self-verification of the critical claims) run
 after this session's batch: **AI walks through friendlies**, **Star Field water**, **The Drop
@@ -10,16 +16,48 @@ bug** (now fixed) and a freeze edge (fixed); the AI-through-friendlies and Star 
 clean (no deadlock, no sealed paths); projection has **no leaks** (glyphSeed still stripped, accent_color
 is not secret); RNG stays engine-free.
 
-## New content since this audit (2026-06-26/27 — fold into the next pass)
-Five classic Utgar units shipped AFTER this audit (from the user's printed cards): **Deathreavers**
-(Scatter + Climb X2 + Disengage), **Blade/Heavy Gruts** (Orc Champion Bonding + Disengage),
-**Arrow Gruts** (Beast Bonding + Disengage), **Swog Rider** (Orc Archer Enhancement + Disengage).
-All 29 roster cards are now `power:'live'` (0 wip). Each landed with regression tests + green
-fuzzer/playthroughs, but the NEXT five-bucket pass should still verify them against `cards.md` —
-especially the net-new turn-flow of **Bonding** (a free bonus turn inserted before the squad's
-marker-turn via a `getActiveCardUid` override + `doEndTurn` handoff, no marker consumed) and the
-reactive off-turn **Scatter** PendingChoice. Docs brought current alongside: `cards.md` (roster +
-details + engine notes), `02-rounds…` (Bonding), `03-movement…` (Climb X2 + Disengage).
+## 2026-06-27 audit pass — the 5 new Utgar units + Bonding / Scatter
+Focused five-bucket audit of the content shipped after the 2026-06-25 pass (Deathreavers: Scatter +
+Climb X2 + Disengage; Blade/Heavy Gruts: Orc Champion Bonding; Arrow Gruts: Beast Bonding; Swog Rider:
+Orc Archer Enhancement; all 29 cards now `power:'live'`). Method: 3 independent read-only subagents
+(Bonding, Scatter, passives/stats), then self-verification of every claim against the code.
+
+**Headline:** the ENGINE/HUMAN path was faithful + crash-free across all vectors. The real defects were
+AI-side + a class typo + two cosmetic/fidelity nits — all FIXED + regression-tested below.
+
+### Fixed in this pass (shipped)
+1. **🟠 Bonding AI squandered the bonus turn — FIXED.** `aiTurn` derived its active card from the
+   order-marker holder (the squad), not `getActiveCardUid`, so during a bond the bot evaluated the
+   SQUAD and the partner (Grimnak/Swog Rider) never moved/attacked — the whole point of Bonding,
+   forfeited for bots. Fix: `aiTurn` resolves the active card via `getActiveCardUid` (the partner during
+   a bond). Test "AI USES the bonus turn".
+2. **🟠 Grimnak didn't buff the Gruts — FIXED.** Blade/Heavy Gruts were `unitClass:'Warrior'` (singular,
+   the hero convention) while squads use `'Warriors'` (Tarn/Marro) and Grimnak's Orc Warrior Enhancement
+   keys on `'Warriors'` — so the iconic Grimnak+Grut +1/+1 combo never fired. Fix: Gruts → `'Warriors'`
+   (+ cards.md). Test "an adjacent Blade Grut gets +1 attack & +1 defense".
+3. **🟠 Fuzzer had no `bond`/`scatter` branch — FIXED.** `resolvePending` returned null on a bond or
+   scatter offer → those games aborted early, so both mechanics were fuzz-UNTESTED (which is why #1
+   slipped through). Fix: added both branches (random partner/skip; random fall-free scuttle/stop).
+4. **🟡 Climb X2 reach backdrop — FIXED.** `movementRangeHexes` used `def.height` not `climbHeightOf`,
+   so the dim remaining-move overlay under-showed a Deathreaver's climb (move legality was already
+   correct). Fix: `climbHeightOf(def)`.
+5. **🟡 Climb X2 not negated by Nilrend — FIXED.** A negated Deathreaver kept Climb X2 (Scatter/Bonding
+   were already suppressed by their own `isCardNegated` guards). Fix: strip `climbX2` in `cardDefFor`'s
+   negation block, consistent with the other movement flags.
+
+### Verified correct (no change)
+Stats (all 5 vs cards.md); Climb X2 applied at movement/fall sites ONLY (engagement/height-adv/LOS use
+printed Height 3); Orc Archer Enhancement (atk+def, negation-aware, board indicators); Disengage on all
+5 (negation-aware); Scatter trigger fires on NORMAL attacks only (special handlers never call
+`maybeOpenScatter`) + card-scope/cap/no-repeat/glyph-exclusion/fall-revalidation/no-swipe; Bonding
+negation/partner-death/combo/multi-bond/intervening-choice/projection/marker-accounting/boundary-resets.
+No projection leaks; RNG stays engine-free.
+
+### Still open (low priority / by-design)
+- A human who IGNORES a reactive Scatter/Bonding (or any) prompt freezes the attacker — inherent to
+  "you may" choices (no auto-resolve, per rules-fidelity); platform abandon/resign is the backstop.
+- Whether Nilrend should also strip Scatter/Bonding's flags (already negated functionally via guards) —
+  cosmetic consistency only.
 
 ## Fixed in THIS pass (shipped)
 1. **🔴 Duplicate Wannok dropped a curse — FIXED.** `endRound` used `.find(g => g.id==='wannok' && faceUp)` — with two Wannoks on the board (now possible) only one fired, and a *vacated* first Wannok suppressed an *occupied* second entirely (nothing fired). Two subagents confirmed independently. Fix: a Wannok QUEUE (`HSState.pendingWannoks`) collected in `endRound` and drained one-at-a-time through `openNextWannokIfIdle`, called from `drainSpirits` after every `resolve_choice` (Spirits first, then the next curse). Both Wannoks now curse back-to-back. Regression test added (engine.test.ts "TWO occupied Wannok glyphs BOTH curse").
