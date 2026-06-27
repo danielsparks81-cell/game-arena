@@ -526,8 +526,17 @@ function FigureStandee({
  *  high-resolution hand-cut figure PNG as the portrait instead of the blurry scan-zoom.
  *  (Eldgrim has no scan at all and already falls through to its cut-out.) */
 const PHOTO_PORTRAIT_CARDS = new Set([
-  'swog_rider', 'arrow_gruts', 'blade_gruts', 'heavy_gruts', 'deathreavers', 'su_bak_na', 'otonashi',
+  'swog_rider', 'arrow_gruts', 'blade_gruts', 'heavy_gruts', 'deathreavers', 'su_bak_na',
 ]);
+
+/** Per-card crop for the zoomed card-scan portrait. The DEFAULT zooms 280% into a full
+ *  card scan (the figure sits in the upper-left of the printed card). A card listed here
+ *  instead supplies a PRE-CROPPED figure image already framed on the figure, so it should
+ *  just fill the panel (`cover`) rather than being zoomed again. */
+const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
+  otonashi: { size: 'cover', position: 'center' }, // user's card art (figure on blue), pre-cropped 2026-06-27
+};
+const DEFAULT_ART_CROP = { size: '280% auto', position: '11% 25%' };
 
 /** Everything PRINTED on a card, lower-cased, for the draft Ctrl-F search — name, every
  *  identity/trait row, the stat line, and all special-power names + text. Built from the
@@ -757,6 +766,7 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
   // For cards whose scan is a low-res digital render, skip the blurry scan-zoom overlay and
   // let the high-resolution hand-cut figure PNG underneath carry the portrait (see the set).
   const photoPortrait = PHOTO_PORTRAIT_CARDS.has(cardId);
+  const artCrop = CARD_ART_CROP[cardId] ?? DEFAULT_ART_CROP;
   const theme = GENERAL_THEME[ident?.general ?? ''] ?? GENERAL_THEME.Jandar;
   const rows = [
     def.species,
@@ -802,8 +812,8 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
               className="absolute inset-0 bg-no-repeat"
               style={{
                 backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=750&q=75')`,
-                backgroundSize: '280% auto',
-                backgroundPosition: '11% 25%',
+                backgroundSize: artCrop.size,
+                backgroundPosition: artCrop.position,
               }}
             />
           )}
