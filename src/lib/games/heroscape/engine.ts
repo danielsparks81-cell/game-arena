@@ -1228,14 +1228,37 @@ export function startZoneFor(state: HSState, seat: number): HexKey[] {
   return map.zonesByCount?.[state.players.length]?.[seat] ?? map.startZones[seat] ?? [];
 }
 
-/** Empty start-zone hexes of `seat` a figure may be placed on right now. The
- *  board calls this to highlight legal placement squares (single source of
- *  truth with the engine's validation). */
+/** Open hexes of `seat` a figure may be placed on right now. The board calls this to highlight legal
+ *  placement squares (single source of truth with the engine's validation).
+ *
+ *  Normally that's the open hexes of the seat's START ZONE. But once the whole zone is FULL, placement
+ *  SPILLS OUTWARD one row at a time (user rule): figures may go into the next row out, and only once
+ *  THAT row is full may the row after it be used, and so on. We walk rings outward from the zone (BFS
+ *  over real hexes) and return the first ring that still has an open hex — so inner rows always fill
+ *  before any outer one is offered. */
 export function placeableHexes(state: HSState, seat: number): Set<HexKey> {
   const zone = startZoneFor(state, seat);
   const occupied = new Set<HexKey>();
   for (const f of state.figures) for (const k of figureHexes(f)) occupied.add(k);
-  return new Set(zone.filter(k => !occupied.has(k)));
+  // Row 0 = the start zone. While it has any open hex, that's the ONLY legal placement.
+  const zoneFree = zone.filter(k => !occupied.has(k));
+  const cells = MAPS[state.mapId]?.cells;
+  if (zoneFree.length > 0 || !cells) return new Set(zoneFree);
+  // Zone full → expand ring by ring; the first ring with an open on-map hex is the (only) legal one.
+  const seen = new Set<HexKey>(zone);
+  let frontier: HexKey[] = zone;
+  for (let r = 0; r < 60 && frontier.length > 0; r++) {
+    const ring: HexKey[] = [];
+    for (const k of frontier) {
+      for (const n of neighborKeys(k)) {
+        if (cells[n] && !seen.has(n)) { seen.add(n); ring.push(n); }
+      }
+    }
+    const ringFree = ring.filter(k => !occupied.has(k));
+    if (ringFree.length > 0) return new Set(ringFree); // this row has room → the active overflow row
+    frontier = ring; // row fully occupied (or off-map) → fold in and expand to the next row out
+  }
+  return new Set();
 }
 
 /** Lead hexes a DOUBLE-SPACE figure may be placed on: an empty start-zone hex
@@ -1261,7 +1284,7 @@ function doPlaceFigure(state: HSState, seat: number, figureId: string, to: HexKe
   if (!(state.hand?.[seat] ?? []).includes(figureId)) return { error: 'That figure is not in your hand' };
   const free = placeableHexes(state, seat);
   if (!free.has(to)) {
-    return { error: 'Place onto an empty hex of your own start zone' };
+    return { error: 'Place onto an open hex in your own start zone — or the next row out once the zone is full' };
   }
   // A DOUBLE-SPACE figure needs a second empty same-level zone hex; the engine
   // picks it deterministically (tailFor) so the board only sends the lead.
@@ -7271,7 +7294,11 @@ function aiTurn(state: HSState, seat: number): HSAction {
   const cells = MAPS[state.mapId]?.cells;
   const openGlyphs = (state.glyphs ?? []).filter(g => !occupied.has(g.at));
   const glyphStops = new Set((state.glyphs ?? []).map(g => g.at)); // every glyph hex forces a stop
-  const GLYPH_CHASE_RANGE = 5;
+  // How far a figure will notice + head for an unclaimed glyph. Tuned UP from 5: on the bigger
+  // 5-6 player maps the glyphs sit centrally and armies start at the tips, so a short leash left
+  // every glyph outside notice and the bots ignored them. 9 lets a figure peel toward a glyph from
+  // across its half of the board (the per-step enemy-advance term still wins when a foe is inbound).
+  const GLYPH_CHASE_RANGE = 9;
   const nearestGlyphDist = (from: HexKey): number => {
     if (!cells || openGlyphs.length === 0) return Infinity;
     let best = Infinity;
@@ -7321,6 +7348,17 @@ function aiTurn(state: HSState, seat: number): HSAction {
     // tipping point: a hurt-fraction above ~0.67 makes a one-step retreat outweigh a one-step close.
     const hurt = fDef.life > 1 && f.wounds > 0 ? f.wounds / fDef.life : 0;
     const SAFETY_W = 6;
+    // OBJECTIVE PRIORITY (the user's rule: glyphs are good and should be TAKEN unless something more
+    // pressing — an enemy inbound — outweighs them). When no foe is within roughly a turn's reach,
+    // an unclaimed glyph becomes the thing to go get and pulls hard; once a foe IS inbound, advancing
+    // to fight outweighs the glyph. `curRawEnemy` is the straight-line gap to the nearest foe.
+    const curRawEnemy = nearestEnemyDist(f.at!);
+    const reach = effectiveMove(state, f).dice + range;
+    const enemyInbound = Number.isFinite(curRawEnemy) && curRawEnemy <= reach + 2;
+    // No foe within reach → the glyph is the objective and DOMINATES the mild enemy-advance pull, so
+    // the figure goes and claims it. A foe inbound → drop the glyph to a minor "grab it on the way"
+    // bonus and let advancing-to-fight win.
+    const glyphWeight = enemyInbound ? 2 : 8;
     // A DOUBLE-SPACE figure slithers and must FINISH on two LEVEL spaces. The engine
     // permits a mid-slither climb, but the bot ends its move as soon as no better step
     // exists — which would strand the peanut on a non-level footprint (engine reject →
@@ -7362,9 +7400,14 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const scoreHex = (hex: HexKey): number => {
       const toDist = pathDist(hex);
       const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
+      // Straight-line closing toward the nearest foe, ON TOP of the wall-aware path gain. This is the
+      // "charge" term: it keeps a HEALTHY melee figure advancing even where the path-field plateaus
+      // (around a wall or an ally), so it never stalls one hex short the way Thorgrim did. Gated to
+      // healthy figures so it never fights a wounded Hero's retreat (the safety term owns that case).
+      const rawGain = hurt === 0 && Number.isFinite(curRawEnemy) ? curRawEnemy - nearestEnemyDist(hex) : 0;
       const onG = openGlyphs.some(g => g.at === hex);
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(hex) : 0;
-      const glyphScore = (chaseGlyph ? glyphGain * 2 : 0) + (onG ? 14 : 0);
+      const glyphScore = (chaseGlyph ? glyphGain * glyphWeight : 0) + (onG ? 14 : 0);
       const canHit = canHitFrom(hex);
       // SELF-PRESERVATION: a wounded multi-life Hero values DISTANCE from foes (0 for healthy / 1-life
       // figures, so the army still advances). Folds into both brawler + kiter scoring.
@@ -7375,7 +7418,7 @@ function aiTurn(state: HSState, seat: number): HSAction {
         const adjacent = ne <= 1 ? 60 : 0;     // a shooter next to a foe gets charged → big penalty
         return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + glyphScore - adjacent + safety;
       }
-      return (canHit ? 50 : 0) + enemyGain * 4 + glyphScore + heightOfKey(state, hex) + safety;
+      return (canHit ? 50 : 0) + enemyGain * 4 + rawGain * 2 + glyphScore + heightOfKey(state, hex) + safety;
     };
     let best: { to: HexKey; score: number } | null = null;
     for (const to of candidates) {
@@ -7396,7 +7439,11 @@ function aiTurn(state: HSState, seat: number): HSAction {
       // foe is itself the payoff (the safety term rewards it). Healthy/expendable figures still skip a
       // payoff-less sideways/backward shuffle, so they never stall.
       const retreatOK = hurt > 0 && nearestEnemyDist(to) > nearestEnemyDist(f.at!);
-      if (enemyGain <= 0 && glyphGain <= 0 && !openGlyphs.some(g => g.at === to) && !canHitFrom(to) && !retreatOK) continue;
+      // A HEALTHY figure may also advance on RAW distance to the nearest foe even when the wall-aware
+      // path-field is flat (a plateau, or routing around an ally/wall) — this is the charge step that
+      // stops a melee hero stalling one hex out. Wounded figures keep retreatOK instead.
+      const closesEnemy = hurt === 0 && Number.isFinite(curRawEnemy) && nearestEnemyDist(to) < curRawEnemy;
+      if (enemyGain <= 0 && glyphGain <= 0 && !openGlyphs.some(g => g.at === to) && !canHitFrom(to) && !retreatOK && !closesEnemy) continue;
       const score = scoreHex(to);
       if (!best || score > best.score) best = { to, score };
     }

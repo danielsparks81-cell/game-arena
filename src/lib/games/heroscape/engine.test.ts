@@ -1636,6 +1636,55 @@ describe('HeroScape AI — self-preservation', () => {
   });
 });
 
+// --- AI objective-seeking: charge to melee + grab glyphs (2026-06-27 fix) ----
+
+describe('HeroScape AI — advance + glyph-seeking', () => {
+  const FINN1 = 's0-finn-1';
+  const MARRO1 = 's1-marro_warriors-1';
+  const tfCells = MAPS.training_field.cells;
+  const distTo = (k: string, t: string) => rangeDistance(tfCells, k, t)!;
+
+  // Walk the active seat's move to completion (apply each move_step until it stops walking). On the
+  // flat field with the foe far off there are no swipes/falls, so the bare intent IS the action.
+  function runMove(s: HSState, pid: string, seat: number): HSState {
+    for (let i = 0; i < 20; i++) {
+      const a = aiNextAction(s, seat);
+      if (!a || a.kind !== 'move_step') break;
+      s = unwrap(applyAction(s, pid, a));
+    }
+    return s;
+  }
+
+  it('a HEALTHY melee Hero CHARGES across the field — many steps, not one and stall', () => {
+    // The Thorgrim "danced around, no advancement" regression: a healthy melee figure far from its foe
+    // must walk its whole move toward it, never take one sideways hex and quit.
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, FINN1, MARRO1);
+    const from = at(1, 1);
+    s = place(s, FINN1, from);
+    s = place(s, MARRO1, at(5, 6)); // far across the board
+    const start = distTo(from, at(5, 6));
+    s = runMove(s, 'p1', 0);
+    const finn = s.figures.find(f => f.id === FINN1)!;
+    expect(distTo(finn.at!, at(5, 6))).toBeLessThan(start - 1); // closed well more than a single hex
+  });
+
+  it('a figure with NO enemy inbound heads for an unclaimed glyph', () => {
+    // The "AI ignores glyphs" regression: with no foe within a turn's reach, a healthy figure peels
+    // toward a nearby open glyph (the user's rule — take glyphs unless something more pressing).
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, FINN1, MARRO1);
+    const from = at(1, 1);
+    s = place(s, FINN1, from);
+    s = place(s, MARRO1, at(6, 7));    // opposite corner — NOT inbound
+    const glyph = at(1, 4);            // a few hexes from Finn, far inside chase range, away from the foe
+    s.glyphs = [{ id: 'astrid', at: glyph, faceUp: false }];
+    const a = aiNextAction(s, 0);
+    expect(a?.kind).toBe('move_step');
+    expect(distTo((a as { to: string }).to, glyph)).toBeLessThan(distTo(from, glyph)); // steps toward the glyph
+  });
+});
+
 // --- falling ---------------------------------------------------------------
 
 describe('slice 3: falling (server-rolled, engine re-validates)', () => {
@@ -4402,6 +4451,24 @@ describe('slice 5: placement', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'unplace_figure', figureId: finnFig }));
     expect(fig(s, finnFig).at).toBeNull();
     expect(s.hand![0]).toEqual([finnFig]);
+  });
+
+  it('placement SPILLS to the next row only once the start zone is FULL (overflow rule)', () => {
+    const s = placementState();
+    const zone0 = MAPS[s.mapId].startZones[0];
+    const cells = MAPS[s.mapId].cells;
+    // While the zone has room, placement is exactly the open zone hexes — no overflow yet.
+    expect(placeableHexes(s, 0)).toEqual(new Set(zone0));
+    // Fill the ENTIRE start zone with dummy figures, then re-check.
+    const c: HSState = JSON.parse(JSON.stringify(s));
+    c.figures = zone0.map((k, i) => ({ ...s.figures[0], id: `filler-${i}`, ownerSeat: 0, at: k, at2: null }));
+    const overflow = placeableHexes(c, 0);
+    expect(overflow.size).toBeGreaterThan(0); // the zone is full → spill outward
+    for (const k of overflow) {
+      expect(zone0.includes(k)).toBe(false);                              // never back inside the full zone
+      expect(cells[k]).toBeDefined();                                     // a real on-map hex
+      expect(zone0.some(z => rangeDistance(cells, z, k) === 1)).toBe(true); // ONLY the first row out (adjacent to the zone)
+    }
   });
 
   it('ready needs ≥1 placed; unplaced figures are dropped (unused) on ready', () => {

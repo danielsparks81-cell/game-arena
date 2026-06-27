@@ -138,9 +138,13 @@ const AI_STEP_FAST_MS = 210; // per walking step — snappy so a multi-hex march
 // top/bottom centre) for 5-6, filled in that clockwise order. The `-1` insets keep every panel hugging
 // the board corner with just a hair of padding (tightened from -2).
 const PANEL_ANCHORS_4 = ['bottom-1 left-1', 'top-1 left-1', 'top-1 right-1', 'bottom-1 right-1'];
+// 5-6 players: YOU bottom-left, then clockwise — top-left, top-centre, top-right, then down the RIGHT
+// edge (centre, then bottom-right). The old layout put the 5th/6th panels at top- AND bottom-CENTRE,
+// and the bottom-centre one overlapped the viewer's own hand; routing the last two down the right edge
+// keeps the bottom clear (own panel left, glyphs move to the left edge) — owner 2026-06-27.
 const PANEL_ANCHORS_6 = [
   'bottom-1 left-1', 'top-1 left-1', 'top-1 left-1/2 -translate-x-1/2',
-  'top-1 right-1', 'bottom-1 right-1', 'bottom-1 left-1/2 -translate-x-1/2',
+  'top-1 right-1', 'top-1/2 right-1 -translate-y-1/2', 'bottom-1 right-1',
 ];
 const MARKERS: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
 
@@ -1489,6 +1493,9 @@ export default function HeroScapeBoard({
   // Draft Ctrl-F: a keyword search over everything printed on the pool cards. Matches stay lit
   // (with matched letters highlighted); non-matches dim. Purely a finding aid — never disables a pick.
   const [draftSearch, setDraftSearch] = useState('');
+  // HeroBoard3D writes its camera-focus action here so we can render the focus button ABOVE the
+  // viewer's own seat panel (clear of the glyph HUD + the seat panels), not floating over the board.
+  const focusRef = useRef<(() => void) | null>(null);
   // Jotun THROW: after choosing whom to throw, the player CLICKS the landing hex on the board
   // ("you may throw it to any empty space within 4 spaces" — a real choice, never auto-picked).
   const [throwAim, setThrowAim] = useState<{ targetId: string } | null>(null);
@@ -4583,9 +4590,11 @@ export default function HeroScapeBoard({
           <button
             onClick={() => { onEndTurn(); setSelectedId(null); }}
             disabled={disabled}
+            title={bondTurn ? 'End only this bonus turn and hand back to the bonding squad' : undefined}
             className="rounded-lg border-2 border-amber-600 bg-neutral-950/85 px-4 py-2 text-sm font-semibold text-amber-300 backdrop-blur-sm transition hover:bg-amber-900/50 disabled:opacity-40"
           >
-            End turn ▶
+            {/* During a Bonding bonus turn, say so — players shouldn't fear this ends their whole turn. */}
+            {bondTurn ? 'End bonus turn ▶' : 'End turn ▶'}
           </button>
         )}
 
@@ -4685,6 +4694,19 @@ export default function HeroScapeBoard({
               .sort((a, b) => a.seat - b.seat)
               .map(p => (
                 <div key={p.seat} className={'lg:pointer-events-none lg:absolute lg:z-20 lg:p-0.5 ' + panelSlotAnchor(p.seat)}>
+                  {/* Camera FOCUS button — docked just ABOVE the viewer's own panel (owner 2026-06-27),
+                      where the seat panels can't cover it and it's clear of the left-edge glyph HUD. */}
+                  {p.seat === me?.seat && can3D && (
+                    <button
+                      type="button"
+                      onClick={() => focusRef.current?.()}
+                      title="Focus the current action — click again to cycle through your figures"
+                      aria-label="Focus the current action; click again to cycle through your figures"
+                      className="pointer-events-auto mb-1 flex h-8 w-8 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
+                    >
+                      ⌖
+                    </button>
+                  )}
                   <div className="lg:pointer-events-auto lg:max-h-[calc(100vh-5.5rem)] lg:overflow-y-auto lg:overscroll-contain">{renderArmyRow(p.seat)}</div>
                 </div>
               ))}
@@ -4709,12 +4731,12 @@ export default function HeroScapeBoard({
             </>
           )}
         </div>
-        {/* Glyphs roster — overlaid on the RIGHT edge of the board, vertically centered,
-            so it reads as a battlefield HUD instead of living in the side rail. Hidden as
-            "?" until revealed. pointer-events-none so it never eats a board tap/drag;
-            renders only when the map actually has glyphs. */}
+        {/* Glyphs roster — overlaid on the LEFT edge of the board, vertically centered, so it reads as
+            a battlefield HUD instead of living in the side rail. Moved from the right edge so the 5th/6th
+            seat panels can use the right side (owner 2026-06-27). Hidden as "?" until revealed.
+            pointer-events-none so it never eats a board tap/drag; renders only when the map has glyphs. */}
         {state.glyphs && state.glyphs.length > 0 && (
-          <div className="pointer-events-none absolute right-2 top-1/2 z-20 -translate-y-1/2">
+          <div className="pointer-events-none absolute left-2 top-1/2 z-20 -translate-y-1/2">
             <GlyphsPanel glyphs={state.glyphs} />
           </div>
         )}
@@ -4869,6 +4891,7 @@ export default function HeroScapeBoard({
             placeHexes={placeHexes}
             dropHexes={scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
+            focusRef={focusRef}
           />
         ) : (
         <svg

@@ -1019,7 +1019,7 @@ function CameraRig({ desired }: { desired: [number, number, number] }) {
   return null;
 }
 
-export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?: string } & Interact) {
+export default function HeroBoard3D({ state, bg, focusRef, ...it }: { state: HSState; bg?: string; focusRef?: { current: (() => void) | null } } & Interact) {
   // Tap-to-step movement: a tap on a figure selects it (its legal single steps light up green),
   // and a tap on a highlighted neighbour walks it there one hex — all routed through `it.onHexClick`,
   // the same handler a tile/standee click uses, so the engine stays the single source of truth.
@@ -1120,6 +1120,11 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
     }
     focusStep.current = mine.length ? (step + 1) % (mine.length + 1) : 0;
   }, [state, it.viewerSeat, focusTarget, hexToWorld]);
+  // Expose the focus action so the board WRAPPER (HeroScapeBoard) can render the focus button ABOVE
+  // the viewer's own seat panel — where the z-20 panels can't cover it — instead of floating it over
+  // the board's left edge (which now holds the glyph HUD). Standalone embeds without a ref keep the
+  // in-board button below.
+  if (focusRef) focusRef.current = onFocusClick;
   // Frame the BOARD CENTRE (origin — the board is recentred there), not the army. The board is
   // rotated per-viewer so your side still sits at the bottom, but centring on the board keeps the
   // whole field in view and stops it floating high with a big black margin (where the panels land).
@@ -1145,18 +1150,19 @@ export default function HeroBoard3D({ state, bg, ...it }: { state: HSState; bg?:
         <CameraRig desired={desired} />
       </Canvas>
       {/* FOCUS — eases the camera to the active area (selected/acting figure, else your army) on
-          demand, at the CURRENT zoom. Since the board no longer auto-pans, this is how you snap
-          back to the action without re-zooming. Left-centre keeps it clear of the seat panels
-          (board corners) and the glyph HUD (right-centre). */}
-      <button
-        type="button"
-        onClick={onFocusClick}
-        title="Focus the current action — click again to cycle through your figures"
-        aria-label="Focus the current action; click again to cycle through your figures"
-        className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
-      >
-        ⌖
-      </button>
+          demand, at the CURRENT zoom. The board WRAPPER renders this above the viewer's own panel when
+          it passes a focusRef; only standalone embeds (no ref) fall back to this in-board button. */}
+      {!focusRef && (
+        <button
+          type="button"
+          onClick={onFocusClick}
+          title="Focus the current action — click again to cycle through your figures"
+          aria-label="Focus the current action; click again to cycle through your figures"
+          className="absolute left-2 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
+        >
+          ⌖
+        </button>
+      )}
     </div>
   );
 }
