@@ -1593,11 +1593,31 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // arrive as a separate resolve_choice once the player has seen the roll.
     engineAction = { kind: 'the_drop', d20: d20() };
   } else if (action.kind === 'resolve_choice') {
-    // The ROLL CEREMONY's "Roll" has its d20 rolled SERVER-side here (like every glyph d20),
-    // so a client can't pick its own result. Every other resolution passes through verbatim.
-    const choice = action.choice.kind === 'roll_ceremony_roll'
-      ? { kind: 'roll_ceremony_roll' as const, d20: d20() }
-      : action.choice;
+    // The ROLL CEREMONY's "Roll" has its d20 rolled SERVER-side here (like every glyph d20), so a
+    // client can't pick its own result. A SCATTER move (Deathreavers) rolls its landing's fall dice
+    // here too — the same server-roll seam as move_figure (the engine re-derives + re-validates).
+    // Every other resolution passes through verbatim.
+    let choice: HSChoiceResolution = action.choice;
+    if (choice.kind === 'roll_ceremony_roll') {
+      choice = { kind: 'roll_ceremony_roll', d20: d20() };
+    } else if (choice.kind === 'scatter' && choice.figureId != null && choice.to != null) {
+      const figureId = choice.figureId;
+      const to = choice.to;
+      const rat = state.figures?.find(f => f.id === figureId);
+      const cons = rat
+        ? hsMoveConsequences(state, rat, to)
+        : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+      choice = {
+        kind: 'scatter',
+        figureId,
+        to,
+        ...(cons.tier === 'extreme'
+          ? { extremeFallD20: d20() }
+          : cons.fallDice > 0
+            ? { fallRoll: rollDice(cons.fallDice) }
+            : {}),
+      };
+    }
     engineAction = { kind: 'resolve_choice', choice };
   } else if (action.kind === 'start_game') {
     engineAction = { kind: 'start_game', mapId: action.mapId, pointBudget: action.pointBudget, mode: action.mode, edition: action.edition, glyphSeed: Math.floor(Math.random() * 0x7fffffff) };

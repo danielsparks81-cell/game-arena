@@ -319,8 +319,8 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     baseSize: 2, // DOUBLE-SPACE Orc-on-Tyrannosaurus — occupies two adjacent hexes
   },
   // ---- Utgar: classic Grut orc squads, Deathreavers, and the Swog Rider (added 2026-06-26
-  //      from the user's printed cards). DISENGAGE is wired (flag); Scatter / Climb x2 / Orc
-  //      Champion + Beast Bonding / Orc Archer Enhancement are pending → power: 'wip' for now.
+  //      from the user's printed cards). LIVE: Disengage, Climb x2, Scatter (Deathreavers),
+  //      Orc Archer Enhancement (Swog Rider aura). PENDING: Orc Champion + Beast Bonding → 'wip'.
   deathreavers: {
     id: 'deathreavers',
     name: 'Deathreavers',
@@ -338,9 +338,10 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'R',
     species: 'Soulborg',
     unitClass: 'Deathreaver',
-    power: 'wip', // Disengage + Climb x2 live; Scatter pending
+    power: 'live', // Disengage + Climb x2 + Scatter
     disengage: true,
     climbX2: true, // CLIMB X2 — double Height for the climb limit + fall threshold
+    scatter: true, // SCATTER — reactive: scuttle 2 rats up to 4 after defending a normal attack
   },
   blade_gruts: {
     id: 'blade_gruts',

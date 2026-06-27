@@ -267,6 +267,10 @@ const SPECIES_ORC = 'Orc';
 const CLASS_WARRIORS = 'Warriors';
 const CLASS_ARCHER = 'Archer';
 const SWOG_RIDER_CARD_ID = 'swog_rider';
+/** SCATTER (Deathreavers): after defending a normal attack, the owner may move any 2 of the card's
+ *  figures up to 4 spaces each. */
+const SCATTER_RANGE = 4;
+const SCATTER_MAX_FIGURES = 2;
 /** CLIMB X2 (Deathreavers): when counting level changes for movement, this card's figures may DOUBLE
  *  their Height — so both the climb limit (canStepUp) and the fall threshold (computeFall) use 2×Height.
  *  Only affects movement; engagement / height-advantage / LOS still use the printed Height. */
@@ -2417,6 +2421,27 @@ function occupancyLookup(state: HSState, mover: Figure): (key: HexKey) => Occupa
     if (owner == null) return null;
     return owner === mover.ownerSeat ? 'friendly' : 'enemy';
   };
+}
+
+/** SCATTER destinations (Deathreavers) — the empty hexes a single rat may scuttle to during a
+ *  Scatter reaction: up to SCATTER_RANGE spaces from its current hex, by the SAME reachability rules
+ *  as a normal ground move (Climb x2 limit via climbHeightOf, occupancy, water + glyph forced-stops).
+ *  Glyph hexes are excluded as ENDPOINTS so a reactive scuttle never opens a NESTED glyph choice while
+ *  the Scatter choice is still open — the rat also can't path PAST one (glyphs are forced stops), so
+ *  this only forbids ENDING a scuttle exactly on a glyph. The single source for the board highlight,
+ *  the resolve validation, and the AI flee. Deathreavers are 1-hex, so no trailing-lobe handling. */
+export function scatterDestinations(state: HSState, figureId: string): Set<HexKey> {
+  const fig = state.figures.find(f => f.id === figureId);
+  const map = MAPS[state.mapId];
+  if (!fig || fig.at == null || !map) return new Set();
+  const def = cardDefFor(state, fig);
+  const glyphHexes = glyphHexSet(state);
+  return reachableDestinations(map.cells, fig.at, SCATTER_RANGE, occupancyLookup(state, fig), climbHeightOf(def), {
+    glyphHexes,
+    canEndOn: (key: HexKey) => !glyphHexes.has(key), // no nested glyph trigger mid-Scatter
+    flyer: effectiveFlying(state, def),
+    ghostWalk: !!def.ghostWalk,
+  });
 }
 
 /**
@@ -4652,6 +4677,12 @@ function doAttack(
   // and could even end the game — handled by the finish-gate inside the helper).
   if (destroyed) maybeQueueSpiritOnDestroy(s, targetMut);
   if (counterDestroyed) maybeQueueSpiritOnDestroy(s, attackerMut);
+  // SCATTER (Deathreavers): "after a figure on this card rolls defense dice against a normal attack,
+  // you may move any 2 of this card's figures up to 4 spaces each." EVERY attack routed through
+  // doAttack is a NORMAL attack (special attacks have their own handlers), so the defense roll above
+  // is exactly the trigger — even on a blocked hit, and whether or not the target rat survived (the
+  // OTHER rats still scuttle). Opens a reactive choice for the defending card's owner.
+  maybeOpenScatter(s, target.cardUid);
   return s;
 }
 
@@ -4732,6 +4763,57 @@ function openNextSpiritIfIdle(s: HSState): void {
 function drainSpirits(res: HSResult): HSResult {
   if (!('error' in res)) { openNextSpiritIfIdle(res); openNextWannokIfIdle(res); } // Spirits first, then the next queued Wannok curse
   return res;
+}
+
+/** Apply ONE Deathreaver's SCATTER hop to the already-cloned `s`: the rat (already proven alive, on
+ *  `cardUid`, and `to ∈ scatterDestinations`) moves to `to`, resolving any fall. Deathreavers
+ *  Disengage, so there are NEVER leaving-engagement swipes; the destination set excludes glyphs, so
+ *  no glyph fires on stop. Unlike a turn move this does NOT touch movedFigureIds / moveHistory — it
+ *  is the DEFENDER reacting on the attacker's turn, never the active mover. Returns an error string
+ *  if the server fall dice don't match the need for `to`, else null. */
+function applyScatterHop(
+  s: HSState,
+  figureId: string,
+  to: HexKey,
+  fallRoll: CombatFace[] | undefined,
+  extremeFallD20: number | undefined,
+): string | null {
+  const fig = s.figures.find(f => f.id === figureId);
+  if (!fig || fig.at == null) return 'No such rat to scatter';
+  const fromKey = fig.at;
+  const { tier, fallDice } = moveConsequences(s, fig, to); // 1-hex Disengage figure → no to2, no swipes
+  if (tier === 'extreme') {
+    if (fallRoll != null && fallRoll.length > 0) return 'Unexpected fall dice for an extreme fall';
+    if (!Number.isInteger(extremeFallD20) || extremeFallD20! < 1 || extremeFallD20! > 20) return 'Extreme fall requires a d20 roll (1-20)';
+  } else {
+    if (extremeFallD20 != null) return 'Unexpected d20 roll — this is not an extreme fall';
+    if (!validFaces(fallRoll ?? [], fallDice)) return fallDice > 0 ? `This scatter requires ${fallDice} fall die roll(s)` : 'Unexpected fall dice — no fall is due';
+  }
+  const moverLabel = figureLabel(s, fig);
+  fig.at = to;
+  fig.at2 = null;
+  pushLog(s, 'move', `${moverLabel} scatters to ${hexLabel(to)}.`);
+  if (tier !== 'none') applyFall(s, fig, fromKey, to, tier, fallRoll ?? [], extremeFallD20);
+  checkEliminationWin(s);
+  if (fig.at == null && fig.wounds >= cardDefFor(s, fig).life) maybeQueueSpiritOnDestroy(s, fig);
+  return null;
+}
+
+/** Open the Deathreavers' SCATTER reaction for `cardUid`'s owner when a figure on that card just
+ *  defended a NORMAL attack. Fires only if the card HAS Scatter (and isn't Glyph-of-Nilrend-negated),
+ *  has ≥1 living figure with somewhere to scuttle, the battle is still live, and nothing else is
+ *  mid-resolution. Attacking a Deathreaver can never harm the attacker (rats have no Counter Strike),
+ *  so no Warrior's Spirit ever races this — the choice opens cleanly at the end of doAttack. */
+function maybeOpenScatter(s: HSState, cardUid: string): void {
+  if (s.phase !== 'playing' || s.pendingChoice) return;
+  if (isCardNegated(s, cardUid)) return; // a negated card has base stats only — no powers
+  const living = s.figures.filter(f => f.cardUid === cardUid && f.at != null);
+  if (living.length === 0) return;
+  if (!cardDefFor(s, living[0]).scatter) return;
+  if (!living.some(f => scatterDestinations(s, f.id).size > 0)) return; // nowhere to run → no dead-end prompt
+  const seat = living[0].ownerSeat;
+  s.pendingChoice = { kind: 'scatter', seat, cardUid, movedFigureIds: [] };
+  pushLog(s, 'power', `Scatter — ${playerName(s, seat)} may scuttle up to ${SCATTER_MAX_FIGURES} Deathreavers up to ${SCATTER_RANGE} spaces.`);
 }
 
 /**
@@ -6300,6 +6382,41 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     return s;
   }
 
+  // --- SCATTER (Deathreavers): the owner moves ONE rat per resolution (figureId → to, ≤4 spaces),
+  //     or {done:true} to stop. Disengage → never swiped; the server pre-rolled any fall dice for the
+  //     chosen landing (re-validated in applyScatterHop). Auto-closes after 2 rats, or when no rat can
+  //     still scuttle. "you may" → declining at any point is legal. ---
+  if (pc.kind === 'scatter' && choice.kind === 'scatter') {
+    if (choice.done || (choice.figureId == null && choice.to == null)) {
+      const s = clone(state);
+      delete s.pendingChoice;
+      pushLog(s, 'power', `Scatter — ${playerName(s, pc.seat)} ends the scuttle.`);
+      return s;
+    }
+    if (choice.figureId == null || choice.to == null) return { error: 'Scatter needs a rat and a destination' };
+    if (pc.movedFigureIds.includes(choice.figureId)) return { error: 'That Deathreaver already scattered' };
+    if (pc.movedFigureIds.length >= SCATTER_MAX_FIGURES) return { error: `Only ${SCATTER_MAX_FIGURES} Deathreavers may scatter` };
+    const fig = state.figures.find(f => f.id === choice.figureId);
+    if (!fig || fig.cardUid !== pc.cardUid || fig.at == null) return { error: 'Not a living figure on this card' };
+    if (!scatterDestinations(state, choice.figureId).has(choice.to)) return { error: 'That hex is out of scatter range' };
+    const s = clone(state);
+    const err = applyScatterHop(s, choice.figureId, choice.to, choice.fallRoll, choice.extremeFallD20);
+    if (err) return { error: err };
+    if (s.phase !== 'playing') { delete s.pendingChoice; return s; } // a fall death that ends the game
+    const npc = s.pendingChoice;
+    if (npc?.kind === 'scatter') {
+      npc.movedFigureIds = [...npc.movedFigureIds, choice.figureId];
+      const more = s.figures.some(
+        f => f.cardUid === pc.cardUid && f.at != null && !npc.movedFigureIds.includes(f.id) && scatterDestinations(s, f.id).size > 0,
+      );
+      if (npc.movedFigureIds.length >= SCATTER_MAX_FIGURES || !more) {
+        delete s.pendingChoice;
+        pushLog(s, 'power', 'Scatter — the Deathreavers settle.');
+      }
+    }
+    return s;
+  }
+
   // --- Spirit placement (Finn/Thorgrim on destroy) ---
   if (pc.kind === 'spirit_placement' && choice.kind === 'spirit_placement') {
     const spiritName = pc.spirit === 'attack' ? 'Attack' : pc.spirit === 'defense' ? 'Armor' : 'Swiftness';
@@ -6782,6 +6899,22 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     const pts = (f: Figure) => cardDefFor(state, f).points;
     const pick = mine.reduce((b, f) => (pts(f) < pts(b) ? f : b), mine[0]);
     return { kind: 'resolve_choice', choice: { kind: 'glyph_wannok_victim', figureId: pick.id } };
+  }
+  // SCATTER (Deathreavers) — flee: scuttle each rat (up to 2) to the FALL-FREE hex that maximizes its
+  // distance from the nearest enemy. Fall-free so the bot needs no fall dice. One rat per call; the
+  // ai_step driver loops until the choice closes; declines once no remaining rat can flee safely.
+  if (pc.kind === 'scatter') {
+    const foes = aiEnemies(state, pc.seat).filter(f => f.at != null);
+    const distToFoes = (h: HexKey) =>
+      foes.length ? Math.min(...foes.flatMap(f => figureHexes(f).map(fh => hexDistance(h, fh)))) : 0;
+    for (const fig of state.figures) {
+      if (fig.cardUid !== pc.cardUid || fig.at == null || pc.movedFigureIds.includes(fig.id)) continue;
+      const dests = [...scatterDestinations(state, fig.id)].filter(h => moveConsequences(state, fig, h).tier === 'none');
+      if (dests.length === 0) continue;
+      const best = dests.reduce((b, h) => (distToFoes(h) > distToFoes(b) ? h : b), dests[0]);
+      return { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: fig.id, to: best } };
+    }
+    return { kind: 'resolve_choice', choice: { kind: 'scatter', done: true } };
   }
   // ROLL CEREMONY (Mitonsoul / Sturla) — the bot rolls its figures one at a time: SELECT the next
   // un-rolled figure (highlight), then ROLL it (the d20 is injected by aiEngineAction). Two calls
@@ -7411,6 +7544,27 @@ export function aiEngineAction(
   // validates it 1..20 at resolution), mirroring the human path's makeMoveHS injection.
   if (intent.kind === 'resolve_choice' && intent.choice.kind === 'roll_ceremony_roll') {
     return { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll', d20: rollers.d20() } };
+  }
+  // SCATTER (Deathreavers) — a rat's scuttle resolves like a move: roll any fall dice for the chosen
+  // landing (the engine re-derives the need + validates). The AI flees to FALL-FREE hexes, so this is
+  // normally a no-op, but it keeps the seam correct if a falling landing is ever picked.
+  if (intent.kind === 'resolve_choice' && intent.choice.kind === 'scatter') {
+    const sc = intent.choice;
+    if (sc.figureId != null && sc.to != null) {
+      const rat = state.figures.find(f => f.id === sc.figureId);
+      const cons = rat
+        ? moveConsequences(state, rat, sc.to)
+        : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
+      return {
+        kind: 'resolve_choice',
+        choice: {
+          kind: 'scatter',
+          figureId: sc.figureId,
+          to: sc.to,
+          ...(cons.tier === 'extreme' ? { extremeFallD20: rollers.d20() } : cons.fallDice > 0 ? { fallRoll: rollers.rollDice(cons.fallDice) } : {}),
+        },
+      };
+    }
   }
   return intent;
 }

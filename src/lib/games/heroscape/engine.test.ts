@@ -28,6 +28,7 @@ import {
   effectiveRange,
   moveConsequences,
   disengageMoveHexes,
+  scatterDestinations,
   aiNextAction,
   aiEngineAction,
   stepConsequences,
@@ -1391,6 +1392,102 @@ describe('slice 3: movement with elevation (The Knoll)', () => {
     s = place(s, DR(1), at(1, 1)); // grass beside the R5 pillar (rise 4)
     // Deathreaver Height 3 → Climb x2 doubles it to 6, so rise 4 < 6 clears the wall (Move 6 ≥ cost 5).
     expect(legalDestinations(s, DR(1)).has(at(0, 1))).toBe(true);
+  });
+});
+
+// --- Deathreavers: SCATTER (reactive scuttle after defending) --------------
+
+describe('Deathreavers — SCATTER (reactive: scuttle up to 2 rats after defending a normal attack)', () => {
+  const DR = (n: number) => `s0-deathreavers-${n}`;
+  const ATTACKER = 's1-marro_warriors-1';
+  const tfCells = MAPS.training_field.cells;
+
+  // p2 (Marro) attacks a Deathreaver on the FLAT Training Field (no falls); the rats' owner (p1) then
+  // gets the reactive Scatter choice. DR1 sits adjacent to the attacker (engaged, so the no-swipe
+  // behaviour shows); DR2/DR3 are parked far off. The attack is all-BLANK → fully blocked, so the
+  // target rat SURVIVES and Scatter STILL fires ("after a figure ... rolls defense dice").
+  function attackRat1(): HSState {
+    let s = customBattle(['deathreavers'], ['marro_warriors'], 'p2', 'training_field');
+    s = clearExcept(s, DR(1), DR(2), DR(3), ATTACKER);
+    const aHex = at(3, 4);
+    const r1Hex = neighborKeys(aHex).find(k => tfCells[k])!; // an in-bounds neighbour → engaged on flat ground
+    s = place(s, ATTACKER, aHex);
+    s = place(s, DR(1), r1Hex);
+    s = place(s, DR(2), at(1, 1));
+    s = place(s, DR(3), at(5, 6));
+    const req = attackDiceRequirements(s, ATTACKER, DR(1))!;
+    return unwrap(applyAction(s, 'p2', { kind: 'attack', attackerId: ATTACKER, targetId: DR(1), attackRoll: F('b'.repeat(req.attack)), defenseRoll: F('b'.repeat(req.defense)) }));
+  }
+
+  it('opens a Scatter choice for the DEFENDER after a normal attack (even when fully blocked)', () => {
+    const s = attackRat1();
+    expect(s.pendingChoice?.kind).toBe('scatter');
+    if (s.pendingChoice?.kind === 'scatter') {
+      expect(s.pendingChoice.seat).toBe(0); // p1 owns it — resolved on p2's turn
+      expect(s.pendingChoice.cardUid).toBe('s0-deathreavers');
+      expect(s.pendingChoice.movedFigureIds).toEqual([]);
+    }
+    expect(fig(s, DR(1)).at).not.toBeNull(); // blocked → the rat lives and may still scatter
+  });
+
+  it('scuttles a rat ≤4 with NO leaving-engagement swipe (Disengage), keeps the choice open for a 2nd', () => {
+    let s = attackRat1();
+    const dests = [...scatterDestinations(s, DR(1))];
+    expect(dests.length).toBeGreaterThan(0);
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: DR(1), to: dests[0] } }));
+    expect(fig(s, DR(1)).at).toBe(dests[0]);
+    expect(fig(s, DR(1)).wounds).toBe(0); // engaged when it left, but Disengage means NO swipe wound
+    expect(s.pendingChoice?.kind).toBe('scatter'); // 1 of 2 — still open
+    if (s.pendingChoice?.kind === 'scatter') expect(s.pendingChoice.movedFigureIds).toEqual([DR(1)]);
+  });
+
+  it('auto-closes once 2 rats have scattered (cap of 2)', () => {
+    let s = attackRat1();
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: DR(1), to: [...scatterDestinations(s, DR(1))][0] } }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: DR(2), to: [...scatterDestinations(s, DR(2))][0] } }));
+    expect(s.pendingChoice).toBeUndefined();
+  });
+
+  it('"Done" ends the scuttle immediately, moving no rat', () => {
+    let s = attackRat1();
+    const before = fig(s, DR(1)).at;
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'scatter', done: true } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(fig(s, DR(1)).at).toBe(before);
+  });
+
+  it('rejects a scuttle beyond 4 spaces, and a rat that already scattered', () => {
+    let s = attackRat1();
+    const far = Object.keys(tfCells).find(k => !scatterDestinations(s, DR(2)).has(k) && !s.figures.some(f => f.at === k))!;
+    expect(errOf(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: DR(2), to: far } }))).toMatch(/scatter range/i);
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: DR(1), to: [...scatterDestinations(s, DR(1))][0] } }));
+    expect(errOf(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'scatter', figureId: DR(1), to: [...scatterDestinations(s, DR(1))][0] } }))).toMatch(/already scattered/i);
+  });
+
+  it('is CARD-GATED — a non-Deathreaver squad never opens Scatter on defense', () => {
+    // Scatter opens ONLY from doAttack (a NORMAL attack) and ONLY for a `def.scatter` card, so a
+    // plain squad defending — and structurally any special-attack handler — never triggers it.
+    let s = customBattle(['marro_warriors'], ['marro_warriors'], 'p2', 'training_field');
+    s = clearExcept(s, 's0-marro_warriors-1', 's1-marro_warriors-1');
+    const aHex = at(3, 4);
+    s = place(s, 's1-marro_warriors-1', aHex);
+    s = place(s, 's0-marro_warriors-1', neighborKeys(aHex).find(k => tfCells[k])!);
+    const req = attackDiceRequirements(s, 's1-marro_warriors-1', 's0-marro_warriors-1')!;
+    s = unwrap(applyAction(s, 'p2', { kind: 'attack', attackerId: 's1-marro_warriors-1', targetId: 's0-marro_warriors-1', attackRoll: F('b'.repeat(req.attack)), defenseRoll: F('b'.repeat(req.defense)) }));
+    expect(s.pendingChoice).toBeUndefined();
+  });
+
+  it('AI flees: a bot Deathreaver owner scatters rats to safety, then ends the scuttle', () => {
+    let s = attackRat1();
+    const adjBefore = fig(s, DR(1)).at; // adjacent to the attacker
+    let guard = 0;
+    while (s.pendingChoice?.kind === 'scatter' && guard++ < 6) {
+      const intent = aiNextAction(s, 0);
+      expect(intent?.kind).toBe('resolve_choice');
+      s = unwrap(applyAction(s, 'p1', intent!));
+    }
+    expect(s.pendingChoice).toBeUndefined(); // the AI closed the choice (no deadlock)
+    expect(fig(s, DR(1)).at).not.toBe(adjBefore); // it fled the adjacent attacker
   });
 });
 
@@ -4260,14 +4357,15 @@ describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
     // and slice 8b's 5 Big Heroes. No card remains 'wip'.
     const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
     expect(live).toEqual([
-      'agent_carr', 'airborne_elite', 'braxas', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak',
+      'agent_carr', 'airborne_elite', 'braxas', 'deathreavers', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak',
       'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
       'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'swog_rider', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);
-    // The Grut squads + Deathreavers stay 'wip' until their powers (Bonding / Scatter / Climb x2)
-    // are wired; Disengage is live. Swog Rider went live with Orc Archer Enhancement (2026-06-26).
+    // The Grut squads stay 'wip' until Orc Champion / Beast Bonding is wired; Disengage is live.
+    // Deathreavers went live with Scatter + Climb x2 + Disengage; Swog Rider with Orc Archer
+    // Enhancement (2026-06-26).
     expect(Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort())
-      .toEqual(['arrow_gruts', 'blade_gruts', 'deathreavers', 'heavy_gruts']);
+      .toEqual(['arrow_gruts', 'blade_gruts', 'heavy_gruts']);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {

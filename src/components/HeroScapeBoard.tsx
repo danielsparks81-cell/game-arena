@@ -73,6 +73,7 @@ import {
   carryDestFootprint,
   erlandDestinations,
   erlandSummonableIds,
+  scatterDestinations,
   sturlaPlacementHexes,
   legalTargets,
   auraBuffedFigureIds,
@@ -2527,6 +2528,28 @@ export default function HeroScapeBoard({
     () => new Set(sturlaPlaceChoice ? sturlaPlacementHexes(state, sturlaPlaceChoice.figureId) : []),
     [sturlaPlaceChoice, state],
   );
+  // SCATTER (Deathreavers, reactive) — the rats' controller scuttles up to 2 of the card's figures up
+  // to 4 spaces each after defending a NORMAL attack. Two-tap like Erland: tap a rat, then a
+  // highlighted hex (≤4). `scatterPick` is the rat being moved; the panel's "Done" ends it early.
+  const scatterChoice = myChoice?.kind === 'scatter' ? myChoice : null;
+  const [scatterPick, setScatterPick] = useState<string | null>(null);
+  useEffect(() => { if (!scatterChoice) setScatterPick(null); }, [scatterChoice]);
+  // The rats still eligible to scuttle: living figures on the card, not already moved, with somewhere to go.
+  const scatterRatSet = useMemo(
+    () =>
+      new Set(
+        scatterChoice
+          ? state.figures
+              .filter(f => f.cardUid === scatterChoice.cardUid && f.at != null && !scatterChoice.movedFigureIds.includes(f.id) && scatterDestinations(state, f.id).size > 0)
+              .map(f => f.id)
+          : [],
+      ),
+    [scatterChoice, state],
+  );
+  const scatterDestSet = useMemo(
+    () => new Set(scatterChoice && scatterPick ? scatterDestinations(state, scatterPick) : []),
+    [scatterChoice, scatterPick, state],
+  );
   // ROLL CEREMONY (Mitonsoul curse / Sturla resurrection) — the shared d20 ritual. UNLIKE the
   // other prompts this is visible to EVERY player (they watch); only the current roller (pc.seat)
   // can act. Read straight off the pending (not myChoice) so spectators see it too.
@@ -2552,8 +2575,8 @@ export default function HeroScapeBoard({
   // ceremony's SELECTED figure glows for everyone (a curse figure is on the board; a resurrect
   // one isn't, so the ring only shows for the curse — the panel list carries the rest).
   const choiceFigIds = useMemo(
-    () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet, ...oreldOppSet, ...(ceremony?.selectedFigureId ? [ceremony.selectedFigureId] : [])]),
-    [erlandSummonSet, nilrendFigSet, wannokOppSet, wannokOwnSet, oreldOppSet, ceremony?.selectedFigureId],
+    () => new Set<string>([...erlandSummonSet, ...nilrendFigSet, ...wannokOppSet, ...wannokOwnSet, ...oreldOppSet, ...scatterRatSet, ...(scatterPick ? [scatterPick] : []), ...(ceremony?.selectedFigureId ? [ceremony.selectedFigureId] : [])]),
+    [erlandSummonSet, nilrendFigSet, wannokOppSet, wannokOwnSet, oreldOppSet, scatterRatSet, scatterPick, ceremony?.selectedFigureId],
   );
 
   // ----- 2.5D ISOMETRIC geometry (renderer; board.ts owns the pure math) -----
@@ -2764,6 +2787,14 @@ export default function HeroScapeBoard({
     // Sturla placement: the owner taps a free start-zone hex to set the risen figure down.
     if (sturlaPlaceChoice && !disabled) {
       if (sturlaPlaceSet.has(key)) onResolveChoice({ kind: 'glyph_sturla_place', hex: key });
+      return;
+    }
+    // SCATTER (Deathreavers, reactive): tap one of your living rats, then a highlighted hex (≤4) to
+    // scuttle it there. Repeat for a 2nd rat; the panel's "Done" ends it. Works outside your turn.
+    if (scatterChoice && !disabled) {
+      const occS = occupantAt(key);
+      if (scatterPick && scatterDestSet.has(key)) { onResolveChoice({ kind: 'scatter', figureId: scatterPick, to: key }); setScatterPick(null); }
+      else if (occS && scatterRatSet.has(occS.id)) setScatterPick(occS.id); // pick / re-pick a rat
       return;
     }
     if (!canAct) return;
@@ -4199,6 +4230,35 @@ export default function HeroScapeBoard({
           </div>
         )}
 
+        {/* SCATTER — Deathreavers (reactive: scuttle up to 2 rats up to 4 spaces after defending) */}
+        {scatterChoice && (
+          <div className="hs-decide rounded-lg border-2 border-amber-500 bg-neutral-900/80 px-3 py-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-bold text-amber-300">🐀 Scatter — Deathreavers</div>
+              <div className="text-[11px] font-semibold text-amber-200/80">{scatterChoice.movedFigureIds.length} / 2 scuttled</div>
+            </div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">
+              {scatterPick
+                ? 'Now tap a highlighted space (up to 4 away) to scuttle this rat there.'
+                : 'Your rats were fired upon! Tap a Deathreaver, then a highlighted space (up to 4 away). Up to 2 may flee — no leaving-engagement swipes.'}
+            </div>
+            <div className="mt-1 flex gap-1.5">
+              {scatterPick && (
+                <button onClick={() => setScatterPick(null)} className="rounded border border-neutral-600 px-2 py-0.5 text-[11px] text-neutral-300 transition hover:border-neutral-400">
+                  Pick a different rat
+                </button>
+              )}
+              <button
+                onClick={() => { setScatterPick(null); onResolveChoice({ kind: 'scatter', done: true }); }}
+                disabled={disabled}
+                className="rounded border border-amber-700 px-2 py-0.5 text-[11px] font-semibold text-amber-100 transition hover:border-amber-400 hover:bg-amber-900/30 disabled:opacity-40"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Glyph of Nilrend — Negation (tap a highlighted figure, or a card button) */}
         {nilrendChoice && (
           <div className="hs-decide rounded-lg border-2 border-violet-500 bg-neutral-900/80 px-3 py-2">
@@ -4617,7 +4677,7 @@ export default function HeroScapeBoard({
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
             placeHexes={placeHexes}
-            dropHexes={sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
+            dropHexes={scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
           />
         ) : (

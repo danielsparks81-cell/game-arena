@@ -24,6 +24,7 @@ export {
   shootingRangeHexes,
   shootBlockedHexes,
   disengageMoveHexes,
+  scatterDestinations,
   grappleDestinations,
   legalTargets,
   canFireLine,

@@ -116,6 +116,11 @@ export type HSCardDef = {
   /** DISENGAGE (Agent Carr): "never attacked when leaving an engagement" —
    *  moveConsequences yields zero leaving-engagement swipes, unconditionally. */
   disengage?: boolean;
+  /** SCATTER (Deathreavers): "after a figure on this card rolls defense dice
+   *  against a normal attack, you may move any 2 of this card's figures up to 4
+   *  spaces each." A REACTIVE power — opens a `scatter` pendingChoice for the
+   *  defender on the attacker's turn (engine.ts maybeOpenScatter). */
+  scatter?: boolean;
   /** THORIAN SPEED (Sgt. Drake): opponents must be ADJACENT to attack Drake with
    *  a NORMAL attack — a non-adjacent normal (ranged) attack cannot target him.
    *  Special attacks are unrestricted. Defensive; gates targetBlockReason. */
@@ -523,6 +528,18 @@ export type HSPendingChoice =
       seat: number;
       at: HexKey;
       controllerSeat: number;
+    }
+  | {
+      // SCATTER (Deathreavers) — a REACTIVE choice opened on the ATTACKER's turn the moment a
+      // figure on this card defends a NORMAL attack ("after a figure on this card rolls defense
+      // dice…"). Owned by the Deathreavers' controller (`seat`), NOT the active attacker. The owner
+      // may move up to 2 of `cardUid`'s living figures up to 4 spaces each (Disengage → no swipes);
+      // `movedFigureIds` are the rats already scuttled this trigger (cap 2, no repeats). Resolved
+      // one rat per `scatter` resolution ({figureId,to}); `{done:true}` ends it early ("you may").
+      kind: 'scatter';
+      seat: number;
+      cardUid: string;
+      movedFigureIds: string[];
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -538,7 +555,10 @@ export type HSChoiceResolution =
   | { kind: 'glyph_erland'; figureId: string; to: HexKey } // figure to summon + its destination hex
   | { kind: 'glyph_nilrend'; d20?: number; cardUid?: string } // d20 = the server roll step; cardUid = the human pick step
   | { kind: 'glyph_wannok'; d20?: number; opponentSeat?: number } // d20 = the server roll step; opponentSeat = the controller's pick (on 2+)
-  | { kind: 'glyph_wannok_victim'; figureId: string }; // the named opponent's own figure to wound
+  | { kind: 'glyph_wannok_victim'; figureId: string } // the named opponent's own figure to wound
+  // SCATTER (Deathreavers): move ONE rat per resolution — `figureId` → `to` (≤4 spaces), with the
+  // server-rolled fall dice for that landing; or `done: true` to stop early. Auto-closes after 2.
+  | { kind: 'scatter'; figureId?: string; to?: HexKey; fallRoll?: CombatFace[]; extremeFallD20?: number; done?: boolean };
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`
