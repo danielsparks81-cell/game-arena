@@ -542,6 +542,7 @@ const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
   arrow_gruts: { size: 'cover', position: 'center' },
   deathreavers: { size: 'cover', position: 'center' },
   su_bak_na: { size: 'cover', position: 'center' },
+  eldgrim: { size: 'cover', position: 'center' }, // had no scan (fell back to cut-out); now official card art
 };
 const DEFAULT_ART_CROP = { size: '280% auto', position: '11% 25%' };
 
