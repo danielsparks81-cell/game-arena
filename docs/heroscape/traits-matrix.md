@@ -31,7 +31,7 @@
 | Zettian Guards | 70 | Unique | Squad | Utgar | Alpha Prime | Soulborg | Guards | Precise | Single | Medium | 5 | 1 | 4 | 7 | 2 | 7 | No |
 | Ne-Gok-Sa | 90 | Unique | Hero | Utgar | Marr | Marro | Warlord | Tricky | Single | Medium | 5 | 5 | 5 | 1 | 3 | 6 | Yes |
 | Marro Warriors | 105 | Unique | Squad | Utgar | Marr | Marro | Warriors | Wild | Single | Medium | 4 | 1 | 6 | 6 | 2 | 3 | Yes |
-| Deathwalker 9000 | 140 | Unique | Hero | Utgar | Alpha Prime | Soulborg | Deathwalker | Precise | Single | Large | 7 | 1 | 5 | 7 | 4 | 7 | No |
+| Deathwalker 9000 | 140 | Unique | Hero | Utgar | Alpha Prime | Soulborg | Deathwalker | Precise | Single | Large | 7 | 1 | 5 | 7 | 4 | 9 | No |
 | Mimring | 150 | Unique | Hero | Utgar | Icaria | Dragon | Beast | Ferocious | Double | Huge | 9 | 5 | 6 | 1 | 4 | 3 | No |
 | Grimnak | 160 | Unique | Hero | Utgar | Grut | Orc | Champion | Ferocious | Double | Huge | 11 | 5 | 5 | 1 | 2 | 4 | Yes |
 | Su-Bak-Na | 160 | Unique | Hero | Utgar | Marr | Marro | Hivelord | Tricky | Double | Huge | 12 | 5 | 6 | 1 | 7 | 3 | Yes |

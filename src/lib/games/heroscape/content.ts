@@ -268,7 +268,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     move: 5,
     range: 7,
     attack: 4,
-    defense: 7,
+    defense: 9, // Defense 9 — verified 2026-06-27 from Index_3x5_Deathwalker_9000.pdf (was wrongly 7)
     height: 7,
     size: 'large', // cards.md: Large 7 — cannot be Chomped
     points: 140,

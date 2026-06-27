@@ -22,14 +22,23 @@ conflict with a prior verbal instruction — all flagged for you to confirm on r
 
 ---
 
-## 1. Fixed (high confidence — unambiguous data error vs the verified scan)
+## 1. Fixed (high confidence — unambiguous data error vs the official card)
 
 | Card | Field | Was | Now | Source |
 |---|---|---|---|---|
 | **Raelin the Kyrie Warrior** | personality | `Resolute` | **`Merciful`** | `cards.md:177` (RotV index-card scan) — "Warrior · Kyrie · **Merciful** · Valhalla" |
+| **Deathwalker 9000** | defense | `7` | **`9`** | `Index_3x5_Deathwalker_9000.pdf` — rendered + visually confirmed DEF 9. Was wrong in BOTH `content.ts` and `cards.md`. Combat-relevant; engine stat-check test updated to 9. |
 
-`CARD_IDENTITY.raelin.personality` only drives the reconstructed card header (display, not
-rules), so the fix is cosmetic/identity and low-risk. The traits matrix regenerates from it.
+`CARD_IDENTITY.raelin.personality` is display-only (low-risk). The Deathwalker Defense fix IS
+combat-relevant (a more durable Soulborg) — `content.ts`, `cards.md`, the engine `toMatchObject`
+test, and the regenerated traits matrix all updated.
+
+> ✅ **Full re-verification 2026-06-27:** with the official card library (`Desktop\Heroscape Cards`,
+> 204 PDFs) + Poppler installed, all **29** cards were re-checked field-by-field against their exact
+> canonical PDF (render + `pdftotext -raw`), not just against `cards.md`. **28/29 matched perfectly;**
+> the only error was the Deathwalker Defense above. Canonical editions are now locked + documented in
+> [`cards.md` → Card editions & sources](cards.md): Drake/Raelin = ROTV, Swog = plain, Major = Q9,
+> Deathwalker = 9000.
 
 ---
 
@@ -61,23 +70,20 @@ unfounded). `-raw` text extraction (label→value in stream order) settled the s
 | **Eldgrim** | Unique Hero · Human · Champion · Valiant · Earth · Medium 4 · L3 M5 R1 A2 D2 · 30 · Overextend Attack + Warrior's Swiftness Spirit | ✅ stats match. **Overextend** is already wired (`canOverextend`, keyed by card id). 🟡 minor gap: *Warrior's Swiftness Spirit* (on-destroy, +1 move to a unique card) isn't implemented — backlog. |
 | **Otonashi** | Unique Hero · Human · Ninja · Tricky · Earth · Medium 4 · L1 M6 R1 A2 D3 · 10 · Phantom Walk + Attack the Wild 2 + Tricky Speed 4 | ✅ fully matches (ghostWalk + disengage + attackTheWild 2 + trickySpeed 4). |
 
-### 🟠 C. Big Heroes — 1 of 6 verified; 5 still need scans
+### ✅ C. Big Heroes — RESOLVED 2026-06-27 (all 6 verified, factions confirmed)
 
-**Su-Bak-Na** was in this upload and is **fully correct** (Utgar · Marro · Hivelord · Tricky · Marr ·
-Huge 12 · L5 M6 R1 A7 D3 · 160 · Hive Supremacy + Flying). The other five weren't uploaded — I still
-can't check these, and a few **faction** values look off to me:
+All six were rendered from their canonical PDFs and the faction emblems read directly. **My earlier
+suspicions (Braxas→Utgar, Jotun→Vydar, Nilfheim uncertain) were all WRONG** — `CARD_IDENTITY` is
+correct:
 
-| Card | `content.ts` faction | My note (verify) |
+| Card | Faction (emblem) | Stats vs `content.ts` |
 |---|---|---|
-| **Braxas** | Vydar | Acid dragon — I'd have expected **Utgar**. Verify. |
-| **Jotun** | Ullar | Giant — possibly **Vydar**. Verify. |
-| **Nilfheim** | Jandar | Ice dragon — uncertain; verify. |
-| Theracus | Ullar | Gryphillin → Ullar is plausible. |
-| Major Q9 | Vydar | Soulborg → Vydar is plausible. |
-
-If you re-share the remaining 5 Big-Hero card images (Nilfheim, Braxas, Theracus, Major Q9,
-Jotun) I'll diff every field the same way and lock them into `cards.md` so they're covered going
-forward.
+| Su-Bak-Na | **Utgar** ✓ | ✅ L5 M6 R1 A7 D3 · 160 · Huge 12 · Hivelord |
+| Nilfheim | **Jandar** ✓ | ✅ L6 M6 R1 A6 D4 · 240 · Huge 12 · Dragon/King |
+| Braxas | **Vydar** ✓ | ✅ L8 M6 R1 A5 D3 · 210 · Huge 13 · Dragon/Queen |
+| Theracus | **Ullar** ✓ | ✅ L3 M7 R1 A3 D3 · 40 · Large 5 · Gryphillin/Scout |
+| Major Q9 | **Vydar** ✓ | ✅ L4 M5 R8 A4 D7 · 250 · Large 7 · Soulborg/Major |
+| Jotun | **Ullar** ✓ | ✅ L7 M6 R1 A8 D4 · 225 · Huge 10 · Giant/Warrior |
 
 ---
 

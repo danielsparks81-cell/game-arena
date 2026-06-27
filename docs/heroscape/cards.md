@@ -76,7 +76,7 @@ Vikings, Airborne Elite, Zettian Guards, Marro Warriors, Krav Maga, Izumi Samura
 | Zettian Guards | Utgar | Guards | Unique Squad | 2 | 1 | 4 | 7 | 2 | 7 | Medium 5 | 70 |
 | Ne-Gok-Sa | Utgar | Warlord | Unique Hero | 1 | 5 | 5 | 1 | 3 | 6 | Medium 5 | 90 |
 | Marro Warriors | Utgar | Warriors | Unique Squad | 4 | 1 | 6 | 6 | 2 | 3 | Medium 4 | 105 |
-| Deathwalker 9000 | Utgar | Deathwalker | Unique Hero | 1 | 1 | 5 | 7 | 4 | 7 | Large 7 | 140 |
+| Deathwalker 9000 | Utgar | Deathwalker | Unique Hero | 1 | 1 | 5 | 7 | 4 | 9 | Large 7 | 140 |
 | Mimring | Utgar | Beast | Unique Hero | 1 | 5 | 6 | 1 | 4 | 3 | Huge 9 | 150 |
 | Grimnak | Utgar | Champion | Unique Hero | 1 | 5 | 5 | 1 | 2 | 4 | Huge 11 | 160 |
 | Syvarris | Ullar | Archer | Unique Hero | 1 | 4 | 5 | 9 | 3 | 2 | Medium 5 | 100 |
@@ -87,6 +87,50 @@ Vikings, Airborne Elite, Zettian Guards, Marro Warriors, Krav Maga, Izumi Samura
 Hero cards field 1 figure (incl. the Common Swog Rider). Squad counts come from the user's
 cards / rulebook: Tarn Viking Warriors 4, Marro Warriors 4, Zettian Guards 2, Izumi Samurai 3,
 Airborne Elite 4, Krav Maga Agents 3, Blade Gruts 4, Heavy Gruts 4, Arrow Gruts 3, Deathreavers 4.
+
+## Card editions & sources (canonical provenance)
+
+The exact official card each of our 29 entries models, with its source PDF in the user's
+`Desktop\Heroscape Cards` library. **Where multiple printings exist, the edition is the canonical
+choice** (user-confirmed 2026-06-27). All 29 were re-verified field-by-field against these PDFs on
+2026-06-27 (render via Poppler `pdftoppm` + `pdftotext -raw`); every stat/species/class/faction
+matches **except** the one fix noted (Deathwalker 9000 Defense 7→9).
+
+| Card | Edition | Source PDF |
+|---|---|---|
+| Tarn Viking Warriors | — | `Index_3x5_Tarn_Viking_Warriors.pdf` |
+| Finn the Viking Champion | — | `Index_3x5_Finn_The__Viking_Champion.pdf` |
+| Thorgrim the Viking Champion | — | `Index_3x5_Thorgrim_The__Viking_Champion.pdf` |
+| Eldgrim the Viking Champion | — | `Index_3x5_Eldgrim_The__Viking_Champion.pdf` |
+| Airborne Elite | — | `Index_3x5_Airborne_Elite.pdf` |
+| Sgt. Drake Alexander | **ROTV** | `Index_3x5_Sgt._Drake_Alexander-ROTV.pdf` (not AOA/SOTM) |
+| Raelin the Kyrie Warrior | **ROTV** | `Index_3x5_Raelin_The__Kyrie_Warrior-ROTV.pdf` (not Boiling Tension/AOA/SOTM) |
+| Zettian Guards | — | `Index_3x5_Zettian_Guards.pdf` |
+| Ne-Gok-Sa | — | `Index_3x5_Ne-Gok-Sa.pdf` |
+| Marro Warriors | — | `Index_3x5_Marro_Warriors.pdf` |
+| Deathwalker 9000 | **9000** | `Index_3x5_Deathwalker_9000.pdf` (not 7000/8000) |
+| Mimring | — | `Index_3x5_Mimring.pdf` |
+| Grimnak | — | `Index_3x5_Grimnak.pdf` |
+| Deathreavers | — | `Index_3x5_Deathreavers.pdf` |
+| Blade Gruts | — | `Index_3x5_Blade_Gruts.pdf` |
+| Heavy Gruts | — | `HSB_3x5_Heavy_Gruts (3).pdf` |
+| Arrow Gruts | — | `Index_3x5_Arrow_Gruts.pdf` |
+| Swog Rider | **plain** | `Index_3x5_Swog_Rider.pdf` (not `Nerak…Swog_Rider`) |
+| Syvarris | — | `Index_3x5_Syvarris.pdf` |
+| Agent Carr | — | `Index_3x5_Agent_Carr.pdf` |
+| Krav Maga Agents | — | `Index_3x5_Krav_Maga_Agents.pdf` |
+| Otonashi | — | `Index_3x5_Otonashi.pdf` |
+| Izumi Samurai | — | `Index_3x5_Izumi_Samurai.pdf` |
+| Nilfheim | — | `Index_3x5_Nilfheim.pdf` |
+| Su-Bak-Na | — | `Index_3x5_Su-Bak-Na.pdf` |
+| Braxas | — | `Index_3x5_Braxas.pdf` |
+| Theracus | — | `Index_3x5_Theracus.pdf` |
+| Major Q9 | **Q9** | `Index_3x5_Major_Q9.pdf` (not Q10/Q11) |
+| Jotun | — | `Index_3x5_Jotun.pdf` |
+
+Faction (general) is printed as an emblem, not text — the five Big Heroes' emblems were read off
+the renders 2026-06-27: Nilfheim = **Jandar**, Su-Bak-Na = **Utgar**, Braxas = **Vydar**,
+Theracus = **Ullar**, Major Q9 = **Vydar**, Jotun = **Ullar** — all match `CARD_IDENTITY`.
 
 ## Card details
 
@@ -266,7 +310,9 @@ move."*
 #### Deathwalker 9000 — 140 points
 
 Unique Hero · Deathwalker · Soulborg · Precise · Alpha Prime · Large 7
-Life 1 · Move 5 · Range 7 · Attack 4 · Defense 7
+Life 1 · Move 5 · Range 7 · Attack 4 · Defense 9
+*Defense 9 verified 2026-06-27 from `Index_3x5_Deathwalker_9000.pdf` (this doc and the
+engine previously had a wrong Defense 7).*
 
 **EXPLOSION SPECIAL ATTACK** — Range 7. Attack 3. Choose a figure to attack.
 Any figures adjacent to the chosen figure are also affected by the Explosion

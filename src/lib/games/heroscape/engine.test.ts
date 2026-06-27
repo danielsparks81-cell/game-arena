@@ -4572,7 +4572,7 @@ describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
     expect(HS_CARDS.marro_warriors).toMatchObject({ figures: 4, life: 1, move: 6, range: 6, attack: 2, defense: 3, height: 4, points: 105 });
     expect(HS_CARDS.airborne_elite).toMatchObject({ figures: 4, range: 8, attack: 3, defense: 2, points: 110 });
     expect(HS_CARDS.zettian_guards).toMatchObject({ figures: 2, range: 7, attack: 2, defense: 7, points: 70 });
-    expect(HS_CARDS.deathwalker_9000).toMatchObject({ figures: 1, life: 1, range: 7, attack: 4, defense: 7, height: 7, points: 140 });
+    expect(HS_CARDS.deathwalker_9000).toMatchObject({ figures: 1, life: 1, range: 7, attack: 4, defense: 9, height: 7, points: 140 });
     expect(HS_CARDS.mimring).toMatchObject({ life: 5, attack: 4, defense: 3, height: 9, points: 150 });
     expect(HS_CARDS.grimnak).toMatchObject({ attack: 2, defense: 4, height: 11, points: 160 });
     expect(HS_CARDS.syvarris).toMatchObject({ range: 9, attack: 3, defense: 2, points: 100 });
