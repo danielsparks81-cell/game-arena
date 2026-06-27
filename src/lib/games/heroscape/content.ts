@@ -386,7 +386,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     name: 'Arrow Gruts',
     shortName: 'Arrow Grut',
     type: 'squad',
-    figures: 4,
+    figures: 3, // 3-figure squad (Blade/Heavy Gruts are 4)
     life: 1,
     move: 6,
     range: 6,
