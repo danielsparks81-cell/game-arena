@@ -18,7 +18,10 @@
   - **Raelin's DEFENSIVE AURA (RotV card)** — within **4** clear-sight spaces,
     **+2** defense dice, excludes Raelin. An earlier scan said "Extended Defensive
     Aura" 6 / +1 (plus a bogus Whirlwind Assault) — both wrong, corrected to the card.
-- All six squads print as **UNIQUE SQUAD** in this edition (recorded as printed).
+- The six **original** squads (Tarn Vikings, Airborne Elite, Zettian Guards, Marro
+  Warriors, Krav Maga, Izumi Samurai) print as **UNIQUE SQUAD**. The later-added Grut
+  squads (Blade / Heavy / Arrow) print as **COMMON SQUAD** — see the 2026-06-27
+  correction in the Roster summary below.
 - **POLICY: cards win for card content** (stats, power names, power text); **the
   rulebook wins for core rules** (turn structure, range counting, line of sight,
   special-attack handling).
@@ -30,7 +33,19 @@
 
 ## Roster summary
 
-21 cards: 11 Heroes (10 Unique + the Common Swog Rider) and 10 Unique Squads. Sorted by General, then points.
+21 cards: 11 Heroes (10 Unique + the Common Swog Rider) and 10 Squads — 6 Unique (Tarn
+Vikings, Airborne Elite, Zettian Guards, Marro Warriors, Krav Maga, Izumi Samurai), the
+**3 Common Grut squads** (Blade / Heavy / Arrow), and **Deathreavers** (Common/Unique
+pending re-check — see ⚠ below). Sorted by General, then points.
+
+> ⚠ **Correction 2026-06-27:** an earlier pass here recorded the Grut squads as "Unique
+> Squad" and called the Swog Rider "the roster's only Common card." That was an
+> EXTRACTION ERROR. The user's official index-card PDFs (`HSB_3x5_Heavy_Gruts`,
+> `Index_3x5_Blade_Gruts`, `Index_3x5_Arrow_Gruts`) all read **COMMON SQUAD** in the
+> nameplate — confirmed by text extraction. `content.ts` already had them `common: true`
+> (correct); this doc has now been corrected to match. **Deathreavers** was added in the
+> same batch and is *also* a Common squad in standard HeroScape — its card wasn't in this
+> upload, so verify it next (likely a `common: true` fix in `content.ts` too).
 
 > 📊 For the **full trait grid of ALL 29 draftable cards** (incl. the 8 Big Heroes) — Personality, World,
 > Base Size, Height, d20 Ability, etc. in one scannable table — see [`traits-matrix.md`](traits-matrix.md)
@@ -40,8 +55,9 @@
 > **Added 2026-06 from the user's printed cards** — five classic Utgar units: Deathreavers,
 > the three Grut squads (Blade / Heavy / Arrow), and the Swog Rider. Built AS PRINTED; this
 > rebalanced printing deviates from the classic 2004 values (e.g. Deathreavers print at **60
-> points** here, not the classic ~20), and the **Swog Rider is the roster's only Common card**
-> (it may be drafted multiple times). Powers: Scatter + Climb X2 + Disengage (Deathreavers),
+> points** here, not the classic ~20). The **Common cards** (drafted multiple times) are the
+> Swog Rider **and the three Grut squads** (Blade / Heavy / Arrow — all read COMMON SQUAD on
+> the index-card PDFs, verified 2026-06-27). Powers: Scatter + Climb X2 + Disengage (Deathreavers),
 > Orc Champion Bonding + Disengage (Blade/Heavy Gruts), Beast Bonding + Disengage (Arrow Gruts),
 > Orc Archer Enhancement + Disengage (Swog Rider).
 
@@ -54,10 +70,10 @@
 | Sgt. Drake Alexander | Jandar | Soldier | Unique Hero | 1 | 5 | 5 | 1 | 6 | 3 | Medium 5 | 110 |
 | Raelin the Kyrie Warrior | Jandar | Warrior | Unique Hero | 1 | 5 | 6 | 1 | 3 | 3 | Medium 5 | 125 |
 | Swog Rider | Utgar | Beast | Common Hero | 1 | 1 | 8 | 1 | 3 | 3 | Large 6 | 25 |
-| Blade Gruts | Utgar | Warriors | Unique Squad | 4 | 1 | 6 | 1 | 2 | 2 | Medium 4 | 40 |
-| Arrow Gruts | Utgar | Archer | Unique Squad | 3 | 1 | 6 | 6 | 1 | 1 | Medium 4 | 40 |
+| Blade Gruts | Utgar | Warriors | Common Squad | 4 | 1 | 6 | 1 | 2 | 2 | Medium 4 | 40 |
+| Arrow Gruts | Utgar | Archer | Common Squad | 3 | 1 | 6 | 6 | 1 | 1 | Medium 4 | 40 |
 | Deathreavers | Utgar | Deathreaver | Unique Squad | 4 | 1 | 6 | 1 | 1 | 4 | Small 3 | 60 |
-| Heavy Gruts | Utgar | Warriors | Unique Squad | 4 | 1 | 5 | 1 | 3 | 3 | Medium 4 | 70 |
+| Heavy Gruts | Utgar | Warriors | Common Squad | 4 | 1 | 5 | 1 | 3 | 3 | Medium 4 | 70 |
 | Zettian Guards | Utgar | Guards | Unique Squad | 2 | 1 | 4 | 7 | 2 | 7 | Medium 5 | 70 |
 | Ne-Gok-Sa | Utgar | Warlord | Unique Hero | 1 | 5 | 5 | 1 | 3 | 6 | Medium 5 | 90 |
 | Marro Warriors | Utgar | Warriors | Unique Squad | 4 | 1 | 6 | 6 | 2 | 3 | Medium 4 | 105 |
@@ -328,7 +344,7 @@ Recompute on any move. As a COMMON card the Swog Rider may be drafted more than 
 
 ##### Blade Gruts — 40 points
 
-Unique Squad (4 figures) · Warriors · Orc · Wild · Grut · Medium 4
+Common Squad (4 figures) · Warriors · Orc · Wild · Grut · Medium 4
 Life 1 · Move 6 · Range 1 · Attack 2 · Defense 2
 
 **ORC CHAMPION BONDING** — Before taking a turn with this card's figures, you may first take a
@@ -341,7 +357,7 @@ combo). Optional ("may"); turn-flow detailed in
 
 ##### Arrow Gruts — 40 points
 
-Unique Squad (3 figures) · Archer · Orc · Wild · Grut · Medium 4
+Common Squad (3 figures) · Archer · Orc · Wild · Grut · Medium 4
 Life 1 · Move 6 · Range 6 · Attack 1 · Defense 1
 
 **BEAST BONDING** — Before taking a turn with this card's figures, you may first take a turn
@@ -352,7 +368,7 @@ Archer Enhancement: +1 attack & +1 defense die.)*
 
 ##### Heavy Gruts — 70 points
 
-Unique Squad (4 figures) · Warriors · Orc · Wild · Grut · Medium 4
+Common Squad (4 figures) · Warriors · Orc · Wild · Grut · Medium 4
 Life 1 · Move 5 · Range 1 · Attack 3 · Defense 3
 
 **ORC CHAMPION BONDING** — Before taking a turn with this card's figures, you may first take a

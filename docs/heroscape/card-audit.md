@@ -35,24 +35,21 @@ rules), so the fix is cosmetic/identity and low-risk. The traits matrix regenera
 
 ## 2. Flags — please confirm against the physical cards on re-upload
 
-### 🔴 A. The three Grut squads: Common vs Unique conflict
+### ✅ A. The three Grut squads: Common — RESOLVED 2026-06-27
 
-| Card | `content.ts` | `cards.md` (scan) |
-|---|---|---|
-| Blade Gruts | `common: true` | **Unique Squad** (`cards.md:57`) |
-| Heavy Gruts | `common: true` | **Unique Squad** (`cards.md:60`) |
-| Arrow Gruts | `common: true` | **Unique Squad** (`cards.md:58`) |
+The user uploaded the official index-card PDFs (`HSB_3x5_Heavy_Gruts`, `Index_3x5_Blade_Gruts`,
+`Index_3x5_Arrow_Gruts`); text extraction shows all three nameplates read **COMMON SQUAD**.
+`content.ts` was already correct (`common: true`) — the error was in `cards.md`, which has now
+been fixed. No code change. The earlier "conflict" was my own extraction doc being wrong, not
+the game.
 
-This is a **direct contradiction**. On 2026-06-26 you told me *"the 3 gruts we just added are
-also common"* (task #178) and I set `common: true`. But the digit-verified scan reference says
-all three print as **Unique Squad**, and `cards.md:43` states *"the Swog Rider is the roster's
-only Common card."* Both ultimately trace to your cards, so **your physical card wins** — I left
-the code as you instructed (`common: true`) but need you to settle it definitively:
+### 🟠 A2. Deathreavers — likely Common too (verify next)
 
-> **Look at a Blade/Heavy/Arrow Grut nameplate — is the banner GOLD (= Unique) or SILVER/grey
-> (= Common)?** Swog Rider is Common for comparison; the named Hero cards (Finn, Grimnak) are
-> Unique. If they're Unique, I'll flip `common` off and update `cards.md`; if Common, I'll fix
-> `cards.md` instead. (Deathreavers and the other squads already agree: Unique.)
+`content.ts` currently has Deathreavers as **Unique** (no `common` flag), matching the old
+`cards.md`. But Deathreavers were added in the *same* batch that mis-labeled the Gruts, and in
+standard HeroScape Deathreavers are a **Common** squad. Their card wasn't in this upload —
+**please check the Deathreavers nameplate** (Common vs Unique). If Common, it's a one-line
+`common: true` fix in `content.ts` (deathreavers) plus a `cards.md` row update.
 
 ### 🟠 B. Eldgrim & Otonashi — playable but absent from the verified roster
 
