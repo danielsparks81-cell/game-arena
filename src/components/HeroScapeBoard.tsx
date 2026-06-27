@@ -527,6 +527,68 @@ function FigureStandee({
   );
 }
 
+/** Cards whose physical-card image is a CLEAN DIGITAL render (not a photo-scan): the
+ *  embedded figure art in those PDFs is a low-resolution raster, so zooming it 280% for
+ *  the portrait pixelates badly (the user flagged "the newest figures look low quality").
+ *  Re-rendering can't recover detail the source lacks — so for these we paint the
+ *  high-resolution hand-cut figure PNG as the portrait instead of the blurry scan-zoom.
+ *  (Eldgrim has no scan at all and already falls through to its cut-out.) */
+const PHOTO_PORTRAIT_CARDS = new Set([
+  'swog_rider', 'arrow_gruts', 'blade_gruts', 'heavy_gruts', 'deathreavers', 'su_bak_na', 'otonashi',
+]);
+
+/** Everything PRINTED on a card, lower-cased, for the draft Ctrl-F search — name, every
+ *  identity/trait row, the stat line, and all special-power names + text. Built from the
+ *  same data the card renders, so "really anything on the card" is findable. */
+function cardSearchText(cardId: string): string {
+  const def = HS_CARDS[cardId];
+  if (!def) return '';
+  const ident = CARD_IDENTITY[cardId];
+  const powers = POWER_DESCRIPTIONS[cardId] ?? [];
+  return [
+    def.name, def.species, def.unitClass,
+    def.type === 'hero' ? 'hero' : 'squad',
+    def.common ? 'common' : 'unique',
+    def.size ?? 'medium',
+    ident?.general, ident?.personality, ident?.world,
+    `life ${def.life}`, `move ${def.move}`, `range ${def.range}`,
+    `attack ${def.attack}`, `defense ${def.defense}`, `height ${def.height}`, `points ${def.points}`,
+    ...powers.flatMap(p => [p.name, p.text]),
+  ].filter(Boolean).join('   ').toLowerCase();
+}
+
+/** Split a query into search tokens (whitespace-separated). A card matches when EVERY
+ *  token appears somewhere in its text (AND semantics — "orc archer" wants both words),
+ *  which reads more naturally for "type some key words" than a single rigid substring. */
+function searchTokens(q: string): string[] {
+  return q.toLowerCase().split(/\s+/).map(t => t.trim()).filter(Boolean);
+}
+function cardMatchesSearch(cardId: string, tokens: string[]): boolean {
+  if (tokens.length === 0) return true;
+  const hay = cardSearchText(cardId);
+  return tokens.every(t => hay.includes(t));
+}
+
+/** Renders `text` with every search token wrapped in a bright <mark> — the Ctrl-F
+ *  "highlight the letters" effect, applied to the card's name / trait rows / power text. */
+function Highlighted({ text, tokens }: { text: string; tokens: string[] }) {
+  if (!tokens.length || !text) return <>{text}</>;
+  // Longest token first so overlapping tokens don't split mid-match; escape regex metachars.
+  const alt = [...tokens].sort((a, b) => b.length - a.length)
+    .map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  const lower = new Set(tokens);
+  const parts = text.split(new RegExp(`(${alt})`, 'gi'));
+  return (
+    <>
+      {parts.map((part, i) =>
+        part && lower.has(part.toLowerCase())
+          ? <mark key={i} className="rounded-[2px] bg-amber-300 px-px font-bold text-stone-950">{part}</mark>
+          : <span key={i}>{part}</span>,
+      )}
+    </>
+  );
+}
+
 /** A draft-pool card. The scanned card ART now FILLS a portrait panel (the art
  *  shows the name + full stat line). Draft-only bits overlay the image: a
  *  translucent bottom bar with name + points (so you can still scan budgets), a
@@ -534,9 +596,9 @@ function FigureStandee({
  *  overlay when drafted. If the image fails to load it hides itself (CardArt
  *  onError) and the text/stat card layered BEHIND it shows through as a graceful
  *  fallback. Clicking an affordable, available card drafts it (when it's your
- *  pick). */
+ *  pick). `search` highlights matched letters; `searchMiss` darkens a non-match. */
 function DraftCard({
-  cardId, edition, taken, takenByLabel, affordable, clickable, onPick,
+  cardId, edition, taken, takenByLabel, affordable, clickable, onPick, search, searchMiss,
 }: {
   cardId: string;
   edition: HSEdition;
@@ -545,6 +607,8 @@ function DraftCard({
   affordable: boolean;
   clickable: boolean;
   onPick: () => void;
+  search?: string[];
+  searchMiss?: boolean;
 }) {
   // Points come from the active edition so the badge matches the draft budget;
   // the scanned art (HybridCard) is the modern printing regardless.
@@ -561,7 +625,12 @@ function DraftCard({
   return (
     <div
       ref={wrapRef}
-      className="group relative w-full"
+      className={
+        'group relative w-full transition duration-200 ' +
+        // A search miss fades + desaturates the card (the "make non-matches dark" half of the
+        // Ctrl-F ask) but stays interactive — hovering it pops it back so you can still read it.
+        (searchMiss ? 'opacity-[0.18] grayscale hover:opacity-100 hover:grayscale-0' : '')
+      }
       onMouseEnter={() => {
         const r = wrapRef.current?.getBoundingClientRect();
         // Bias toward the RIGHT (the common case, "like everyone else"): only a card clearly in the right
@@ -594,7 +663,7 @@ function DraftCard({
       >
         {/* The card itself — scanned header (art + stats) + reconstructed, always
             legible powers. Same component the hover enlarges. */}
-        <HybridCard cardId={cardId} />
+        <HybridCard cardId={cardId} highlight={search} />
 
         {/* Points badge — quick budget scan, over the parchment corner. */}
         <span className="absolute bottom-1.5 right-1.5 rounded-md bg-neutral-950/90 px-1.5 py-0.5 text-sm font-extrabold tabular-nums text-amber-300 shadow-md">
@@ -665,12 +734,12 @@ function WoundPips({ life, wounds }: { life: number; wounds: number }) {
  *  power becomes a tappable button, so the play-view activation panel can let a
  *  player fire a power straight off the card. */
 /** Army colours per General — drive the stat band + the title accent. */
-const GENERAL_THEME: Record<string, { band: string; accent: string; chip: string }> = {
-  Jandar: { band: 'bg-blue-800', accent: 'border-blue-400', chip: 'bg-blue-600' },
-  Utgar: { band: 'bg-red-900', accent: 'border-red-400', chip: 'bg-red-700' },
-  Ullar: { band: 'bg-green-800', accent: 'border-green-400', chip: 'bg-green-600' },
-  Vydar: { band: 'bg-slate-700', accent: 'border-slate-300', chip: 'bg-slate-500' },
-  Einar: { band: 'bg-amber-800', accent: 'border-amber-400', chip: 'bg-amber-600' },
+const GENERAL_THEME: Record<string, { band: string; accent: string; chip: string; tint: string }> = {
+  Jandar: { band: 'bg-blue-800', accent: 'border-blue-400', chip: 'bg-blue-600', tint: '#1e3a8a' },
+  Utgar: { band: 'bg-red-900', accent: 'border-red-400', chip: 'bg-red-700', tint: '#7f1d1d' },
+  Ullar: { band: 'bg-green-800', accent: 'border-green-400', chip: 'bg-green-600', tint: '#14532d' },
+  Vydar: { band: 'bg-slate-700', accent: 'border-slate-300', chip: 'bg-slate-500', tint: '#334155' },
+  Einar: { band: 'bg-amber-800', accent: 'border-amber-400', chip: 'bg-amber-600', tint: '#78350f' },
 };
 
 /** One reconstructed stat pill — colour-coded, crisp HTML. (No Points pill: that
@@ -688,10 +757,14 @@ function HeaderPill({ tone, label, value }: { tone: string; label: string; value
  *  title bar (name + General) + the army-coloured stat band — figure art, the six
  *  identity rows, and five colour-coded stat pills. Legible at any size; Points
  *  intentionally omitted (shown on the draft tile's corner badge). */
-function HtmlCardHeader({ cardId }: { cardId: string }) {
+function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: string[] }) {
   const def = HS_CARDS[cardId];
   const ident = CARD_IDENTITY[cardId];
   if (!def) return null;
+  const hl = highlight ?? [];
+  // For cards whose scan is a low-res digital render, skip the blurry scan-zoom overlay and
+  // let the high-resolution hand-cut figure PNG underneath carry the portrait (see the set).
+  const photoPortrait = PHOTO_PORTRAIT_CARDS.has(cardId);
   const theme = GENERAL_THEME[ident?.general ?? ''] ?? GENERAL_THEME.Jandar;
   const rows = [
     def.species,
@@ -708,10 +781,15 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
             {ident.general}
           </span>
         )}
-        <span className="flex-1 truncate text-sm font-extrabold uppercase tracking-wide text-white">{def.name}</span>
+        <span className="flex-1 truncate text-sm font-extrabold uppercase tracking-wide text-white"><Highlighted text={def.name} tokens={hl} /></span>
       </div>
       <div className={'flex ' + theme.band}>
-        <div aria-hidden className="relative w-2/5 shrink-0 self-stretch overflow-hidden bg-neutral-950">
+        <div aria-hidden className={'relative w-2/5 shrink-0 self-stretch overflow-hidden ' + (photoPortrait ? '' : 'bg-neutral-950')}>
+          {/* Photo-portrait cards drop the scan and show the hand-cut figure on an army-tinted
+              "studio" gradient so the sharp cut-out reads as an intentional portrait, not a void. */}
+          {photoPortrait && (
+            <div aria-hidden className="absolute inset-0" style={{ background: `linear-gradient(to bottom, ${theme.tint}, #0a0a0a)` }} />
+          )}
           {/* Figure cut-out UNDERNEATH — the fallback portrait for any card that lacks a full card
               scan (e.g. Eldgrim). For cards WITH a scan, the zoomed card crop above fully paints over
               it; for a card whose `.jpg` 404s, this shows through instead of the bare black box. The
@@ -723,23 +801,28 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
             onError={e => { (e.currentTarget as HTMLImageElement).style.visibility = 'hidden'; }}
           />
           {/* The physical-card scan, zoomed to its figure portrait. Transparent (paints nothing) when
-              the `.jpg` doesn't exist → the cut-out below carries the portrait. */}
-          <div
-            className="absolute inset-0 bg-no-repeat"
-            style={{
-              backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=384&q=75')`,
-              backgroundSize: '280% auto',
-              backgroundPosition: '11% 25%',
-            }}
-          />
+              the `.jpg` doesn't exist → the cut-out below carries the portrait. Skipped entirely for
+              PHOTO_PORTRAIT_CARDS (low-res digital scans) so the sharp cut-out shows instead. The
+              optimizer width is 750 (a valid deviceSize), not 384, so the 280% zoom stays crisp in
+              the enlarged hover/play views where 384px would be upscaled to mush. */}
+          {!photoPortrait && (
+            <div
+              className="absolute inset-0 bg-no-repeat"
+              style={{
+                backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=750&q=75')`,
+                backgroundSize: '280% auto',
+                backgroundPosition: '11% 25%',
+              }}
+            />
+          )}
         </div>
         <div className="flex min-w-0 flex-1 items-stretch gap-1 p-1">
           <div className="flex min-w-0 flex-1 flex-col justify-center gap-px">
             {rows.map((r, i) => (
-              <div key={i} className="truncate text-[10px] font-bold uppercase leading-tight tracking-wide text-white">{r}</div>
+              <div key={i} className="truncate text-[10px] font-bold uppercase leading-tight tracking-wide text-white"><Highlighted text={r} tokens={hl} /></div>
             ))}
             <div className="text-[11px] font-extrabold uppercase leading-tight tracking-wide text-amber-200">
-              {def.size ?? 'medium'} {def.height}
+              <Highlighted text={`${def.size ?? 'medium'} ${def.height}`} tokens={hl} />
             </div>
           </div>
           <div className="flex w-16 shrink-0 flex-col justify-center gap-[3px]">
@@ -754,17 +837,18 @@ function HtmlCardHeader({ cardId }: { cardId: string }) {
     </div>
   );
 }
-function HybridCard({ cardId, onPowerTap, fit, powerAvailable }: { cardId: string; onPowerTap?: (power: { name: string; text: string }, index: number) => void; fit?: boolean; powerAvailable?: boolean }) {
+function HybridCard({ cardId, onPowerTap, fit, powerAvailable, highlight }: { cardId: string; onPowerTap?: (power: { name: string; text: string }, index: number) => void; fit?: boolean; powerAvailable?: boolean; highlight?: string[] }) {
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
+  const hl = highlight ?? [];
   // `fit` = size to the card's natural content height (used in the now-acting panel so the panel
   // grows with the card instead of clipping it). Without it the card fills its parent (h-full),
   // which equalises heights across the draft grid.
   return (
     <div className={'flex flex-col overflow-hidden rounded-lg border-2 border-amber-900/80 bg-[#c6c2ba] shadow-lg ' + (fit ? '' : 'h-full')}>
       {/* Header — fully reconstructed HTML (title + army-coloured stats), points-free. */}
-      <HtmlCardHeader cardId={cardId} />
+      <HtmlCardHeader cardId={cardId} highlight={hl} />
       {/* Reconstructed powers — crisp HTML; each is a tap target when onPowerTap.
           A hard divider line gives a clean break from the scanned header; flex-1
           lets the parchment fill to the card's height when cards are equalized. */}
@@ -772,8 +856,8 @@ function HybridCard({ cardId, onPowerTap, fit, powerAvailable }: { cardId: strin
         {powers.length > 0 ? powers.map((p, i) => {
           const inner = (
             <>
-              <div className="text-[12px] font-extrabold uppercase tracking-wide text-stone-900">{p.name}</div>
-              <div className="text-[11px] leading-snug text-stone-800">{p.text}</div>
+              <div className="text-[12px] font-extrabold uppercase tracking-wide text-stone-900"><Highlighted text={p.name} tokens={hl} /></div>
+              <div className="text-[11px] leading-snug text-stone-800"><Highlighted text={p.text} tokens={hl} /></div>
             </>
           );
           return onPowerTap ? (
@@ -1402,6 +1486,9 @@ export default function HeroScapeBoard({
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Draft Ctrl-F: a keyword search over everything printed on the pool cards. Matches stay lit
+  // (with matched letters highlighted); non-matches dim. Purely a finding aid — never disables a pick.
+  const [draftSearch, setDraftSearch] = useState('');
   // Jotun THROW: after choosing whom to throw, the player CLICKS the landing hex on the board
   // ("you may throw it to any empty space within 4 spaces" — a real choice, never auto-picked).
   const [throwAim, setThrowAim] = useState<{ targetId: string } | null>(null);
@@ -3513,6 +3600,9 @@ export default function HeroScapeBoard({
 
     // Pool sorted CHEAPEST → most expensive (user request).
     const sortedPool = [...HS_DRAFT_POOL].sort((a, b) => (effectiveCardDef(a, cardEdition)?.points ?? 0) - (effectiveCardDef(b, cardEdition)?.points ?? 0));
+    // Ctrl-F over the pool: tokens AND-match across everything printed on a card.
+    const searchToks = searchTokens(draftSearch);
+    const searchMatchCount = searchToks.length === 0 ? sortedPool.length : sortedPool.filter(id => cardMatchesSearch(id, searchToks)).length;
 
     // A drafter's panel for the top bar: name, REMAINING budget (prominent), and
     // their drafted cards as chips. Highlighted while it's their pick.
@@ -3621,6 +3711,37 @@ export default function HeroScapeBoard({
         {/* The 16-card pool — BIG readable cards that FILL the full width. The
             auto-fill / minmax(200px,1fr) track makes every card ≥200px wide and
             spreads them across the whole screen (≈6-9 per row → 2-3 rows). */}
+        {/* Ctrl-F over the whole pool — type any word(s) printed on a card (name, species,
+            class, personality, world, a stat like "range 6", or text from a power). Matching
+            cards stay lit with the matched letters highlighted; the rest dim out. */}
+        <div className="mx-auto flex w-full max-w-2xl items-center gap-2">
+          <div className="relative flex-1">
+            <span aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">🔎</span>
+            <input
+              type="text"
+              value={draftSearch}
+              onChange={e => setDraftSearch(e.target.value)}
+              placeholder="Search cards — “flying”, “orc”, “range 6”, “double attack”…"
+              className="w-full rounded-lg border-2 border-neutral-700 bg-neutral-900/80 py-2 pl-9 pr-9 text-sm text-neutral-100 placeholder:text-neutral-500 focus:border-amber-500 focus:outline-none"
+            />
+            {draftSearch && (
+              <button
+                onClick={() => setDraftSearch('')}
+                title="Clear search"
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-1.5 text-base text-neutral-400 transition hover:text-neutral-100"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {searchToks.length > 0 && (
+            <span className="shrink-0 text-xs font-semibold tabular-nums text-amber-300">
+              {searchMatchCount} match{searchMatchCount === 1 ? '' : 'es'}
+            </span>
+          )}
+        </div>
+
         <div className="text-center text-xs font-semibold uppercase tracking-wider text-neutral-500">
           Army roster — {d.pool.length} of {sortedPool.length} left · cheapest first
         </div>
@@ -3639,10 +3760,15 @@ export default function HeroScapeBoard({
                 affordable={affordable}
                 clickable={clickable}
                 onPick={() => onDraftCard(id)}
+                search={searchToks}
+                searchMiss={searchToks.length > 0 && !cardMatchesSearch(id, searchToks)}
               />
             );
           })}
         </div>
+        {searchToks.length > 0 && searchMatchCount === 0 && (
+          <div className="text-center text-xs text-neutral-500">No cards match “{draftSearch.trim()}”.</div>
+        )}
         <div className="text-center text-[10px] text-neutral-500">
           ⚡ powers WIP = drafts and fights with printed stats; its special power lands in a later update.
         </div>
