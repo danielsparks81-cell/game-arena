@@ -1169,12 +1169,19 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
               ) : (
                 <span className="text-[11px] font-semibold text-neutral-500">Unknown</span>
               )}
-              {/* Hover detail — the full effect text (esp. curses). To the LEFT, since the panel hugs the
-                  screen's right edge; vertically clamped so a long curse never spills off-screen. */}
+              {/* Hover detail — the full glyph-table entry (letter, name, short power, full effect text).
+                  To the RIGHT now, since the glyph HUD hugs the LEFT edge of the board; vertically
+                  clamped so a long curse never spills off-screen. */}
               {def && (
-                <div className="pointer-events-none absolute right-full top-1/2 z-50 mr-2 hidden max-h-[60vh] w-60 max-w-[70vw] -translate-y-1/2 overflow-y-auto rounded-lg border-2 border-rose-700 bg-neutral-950/97 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block">
-                  <div className="text-xs font-bold text-rose-200">{def.name}</div>
-                  <div className="mt-1 text-[11px] leading-snug text-neutral-200">{def.effect}</div>
+                <div className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-h-[60vh] w-64 max-w-[70vw] -translate-y-1/2 overflow-y-auto rounded-lg border-2 border-rose-700 bg-neutral-950/97 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-rose-300 bg-rose-900 text-[11px] font-black text-rose-50">{def.letter}</span>
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-bold text-rose-200">{def.name}</div>
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-rose-300/80">{def.power}</div>
+                    </div>
+                  </div>
+                  <div className="mt-1.5 text-[11px] leading-snug text-neutral-200">{def.effect}</div>
                 </div>
               )}
             </div>
@@ -3104,6 +3111,9 @@ export default function HeroScapeBoard({
     const isMe = !!me && pl.seat === me.seat;
     const placingMine = placing && isMe && !iAmReady;
     const isActive = seat === state.turnSeat && state.subPhase === 'turns';
+    // A wiped-out seat (no living figures during play) KEEPS its colour but the name is struck
+    // through (user request) — you can still tell whose army it was, plainly marked as eliminated.
+    const eliminated = state.phase === 'playing' && !livingSeats(state).includes(seat);
     // Detail level applies to every strip; a player PLACING markers needs the
     // tiles to click, so their own strip is forced to level 2 while placing.
     const level: 1 | 2 | 3 = placingMine ? 2 : armyDetail;
@@ -3115,7 +3125,7 @@ export default function HeroScapeBoard({
         <div className="flex flex-wrap items-center gap-2">
           {/* NAME on the LEFT (user request). */}
           <span className="flex items-center gap-1.5">
-            <span className="text-xs font-bold" style={{ color: seatColor(pl.seat) }}>{pl.username}{isMe ? ' (you)' : ''}</span>
+            <span className={'text-xs font-bold' + (eliminated ? ' line-through' : '')} style={{ color: seatColor(pl.seat) }} title={eliminated ? `${pl.username} — eliminated` : undefined}>{pl.username}{isMe ? ' (you)' : ''}</span>
             {isActive && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
           </span>
           {/* detail-level control (1/2/3) — global; applies to every player's strip. Pinned to the

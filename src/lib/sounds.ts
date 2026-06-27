@@ -33,7 +33,10 @@ export function unlockAudio() {
   unlocked = true;
 }
 
-type Tone = { freq: number; duration?: number; type?: OscillatorType; delay?: number };
+// `type: 'noise'` swaps the oscillator for a lowpass-filtered white-noise burst — for natural
+// "crunch / snap / thud" textures (a bite, a stone scrape) that a pure tone can't make. For noise,
+// `freq` is the lowpass cutoff (lower = duller / meatier).
+type Tone = { freq: number; duration?: number; type?: OscillatorType | 'noise'; delay?: number };
 
 function play(tones: Tone[], volume = 0.06, { ignoreMute = false }: { ignoreMute?: boolean } = {}) {
   if (!ignoreMute && areSoundsMuted()) return;
@@ -42,15 +45,31 @@ function play(tones: Tone[], volume = 0.06, { ignoreMute = false }: { ignoreMute
   if (c.state === 'suspended') c.resume().catch(() => {});
   const t0 = c.currentTime;
   for (const { freq, duration = 0.12, type = 'sine', delay = 0 } of tones) {
-    const osc = c.createOscillator();
     const g = c.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
     g.gain.setValueAtTime(volume, t0 + delay);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + delay + duration);
-    osc.connect(g).connect(c.destination);
-    osc.start(t0 + delay);
-    osc.stop(t0 + delay + duration + 0.02);
+    g.connect(c.destination);
+    if (type === 'noise') {
+      const frames = Math.max(1, Math.ceil(c.sampleRate * duration));
+      const buf = c.createBuffer(1, frames, c.sampleRate);
+      const data = buf.getChannelData(0);
+      for (let i = 0; i < frames; i++) data[i] = Math.random() * 2 - 1;
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = freq;
+      src.connect(lp).connect(g);
+      src.start(t0 + delay);
+      src.stop(t0 + delay + duration + 0.02);
+    } else {
+      const osc = c.createOscillator();
+      osc.type = type;
+      osc.frequency.value = freq;
+      osc.connect(g);
+      osc.start(t0 + delay);
+      osc.stop(t0 + delay + duration + 0.02);
+    }
   }
 }
 
@@ -150,11 +169,13 @@ export const sounds = {
     { freq: 85, duration: 0.05, type: 'triangle', delay: 0.02 },
   ], 0.03),
   /** Chomp — Grimnak's jaws snap shut. */
+  /** Chomp — a big jaw biting down: a wet crunch + a meaty low thud, not a chiptune blip. */
   hsChomp: () => play([
-    { freq: 260, duration: 0.05, type: 'square' },
-    { freq: 110, duration: 0.07, type: 'square', delay: 0.05 },
-    { freq: 65, duration: 0.11, type: 'triangle', delay: 0.10 },
-  ], 0.09),
+    { freq: 1500, duration: 0.06, type: 'noise' },                 // jaws snap shut — a crunch
+    { freq: 150, duration: 0.07, type: 'triangle', delay: 0.02 },  // meaty mid thunk
+    { freq: 68, duration: 0.17, type: 'sine', delay: 0.05 },       // deep settle / gulp
+    { freq: 700, duration: 0.05, type: 'noise', delay: 0.09 },     // teeth gnash tail
+  ], 0.10),
   /** Blast — grenade / Deathwalker explosion boom. */
   hsBlast: () => play([
     { freq: 160, duration: 0.10, type: 'square' },
