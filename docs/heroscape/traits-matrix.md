@@ -1,0 +1,42 @@
+# HeroScape — army traits matrix
+
+> AUTO-GENERATED from `content.ts` (`HS_CARDS` + `CARD_IDENTITY` + `CARD_ABILITIES`). **Do not
+> edit by hand** — regenerate with `GEN_MATRIX=1 npx vitest run traits-matrix`. Every card's
+> traits + stats in one place so card-to-card interactions (species/class auras, Bonding
+> partners, size/height limits) are easy to scan. **`d20 Ability`** = the card has a power that
+> rolls or modifies the 20-sided die. **Base Size** = Single (1 hex) / Double (2-hex peanut).
+
+**29 cards**, grouped by Faction (General) then points. Also emitted as
+[`traits-matrix.csv`](traits-matrix.csv) for spreadsheet import.
+
+| Character Name | Unit Cost | Common/Unique | Hero/Squad | Faction | World | Species | Class | Personality | Base Size | Size | Height | Life | M | R | A | D | d20 Ability |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Izumi Samurai | 60 | Unique | Squad | Einar | Earth | Human | Samurai | Disciplined | Single | Medium | 5 | 1 | 6 | 1 | 2 | 5 | No |
+| Eldgrim the Viking Champion | 30 | Unique | Hero | Jandar | Earth | Human | Champion | Valiant | Single | Medium | 4 | 3 | 5 | 1 | 2 | 2 | No |
+| Tarn Viking Warriors | 50 | Unique | Squad | Jandar | Earth | Human | Warriors | Wild | Single | Medium | 5 | 1 | 4 | 1 | 3 | 4 | Yes |
+| Finn the Viking Champion | 80 | Unique | Hero | Jandar | Earth | Human | Champion | Valiant | Single | Medium | 5 | 4 | 5 | 1 | 3 | 4 | No |
+| Thorgrim the Viking Champion | 80 | Unique | Hero | Jandar | Earth | Human | Champion | Valiant | Single | Medium | 5 | 4 | 5 | 1 | 3 | 4 | No |
+| Airborne Elite | 110 | Unique | Squad | Jandar | Earth | Human | Soldiers | Disciplined | Single | Medium | 5 | 1 | 4 | 8 | 3 | 2 | Yes |
+| Sgt. Drake Alexander | 110 | Unique | Hero | Jandar | Earth | Human | Soldier | Valiant | Single | Medium | 5 | 5 | 5 | 1 | 6 | 3 | No |
+| Raelin the Kyrie Warrior | 125 | Unique | Hero | Jandar | Valhalla | Kyrie | Warrior | Resolute | Single | Medium | 5 | 5 | 6 | 1 | 3 | 3 | No |
+| Nilfheim | 240 | Unique | Hero | Jandar | Icaria | Dragon | King | Ferocious | Double | Huge | 12 | 6 | 6 | 1 | 6 | 4 | No |
+| Theracus | 40 | Unique | Hero | Ullar | Feylund | Gryphillin | Scout | Disciplined | Double | Large | 5 | 3 | 7 | 1 | 3 | 3 | No |
+| Syvarris | 100 | Unique | Hero | Ullar | Feylund | Elf | Archer | Precise | Single | Medium | 5 | 4 | 5 | 9 | 3 | 2 | No |
+| Jotun | 225 | Unique | Hero | Ullar | Feylund | Giant | Warrior | Wild | Double | Huge | 10 | 7 | 6 | 1 | 8 | 4 | Yes |
+| Swog Rider | 25 | Common | Hero | Utgar | Grut | Orc | Beast | Wild | Double | Large | 6 | 1 | 8 | 1 | 3 | 3 | No |
+| Arrow Gruts | 40 | Unique | Squad | Utgar | Grut | Orc | Archer | Wild | Single | Medium | 4 | 1 | 6 | 6 | 1 | 1 | No |
+| Blade Gruts | 40 | Unique | Squad | Utgar | Grut | Orc | Warriors | Wild | Single | Medium | 4 | 1 | 6 | 1 | 2 | 2 | No |
+| Deathreavers | 60 | Unique | Squad | Utgar | Alpha Prime | Soulborg | Deathreaver | Tricky | Single | Small | 3 | 1 | 6 | 1 | 1 | 4 | No |
+| Heavy Gruts | 70 | Unique | Squad | Utgar | Grut | Orc | Warriors | Wild | Single | Medium | 4 | 1 | 5 | 1 | 3 | 3 | No |
+| Zettian Guards | 70 | Unique | Squad | Utgar | Alpha Prime | Soulborg | Guards | Precise | Single | Medium | 5 | 1 | 4 | 7 | 2 | 7 | No |
+| Ne-Gok-Sa | 90 | Unique | Hero | Utgar | Marr | Marro | Warlord | Tricky | Single | Medium | 5 | 5 | 5 | 1 | 3 | 6 | Yes |
+| Marro Warriors | 105 | Unique | Squad | Utgar | Marr | Marro | Warriors | Wild | Single | Medium | 4 | 1 | 6 | 6 | 2 | 3 | Yes |
+| Deathwalker 9000 | 140 | Unique | Hero | Utgar | Alpha Prime | Soulborg | Deathwalker | Precise | Single | Large | 7 | 1 | 5 | 7 | 4 | 7 | No |
+| Mimring | 150 | Unique | Hero | Utgar | Icaria | Dragon | Beast | Ferocious | Double | Huge | 9 | 5 | 6 | 1 | 4 | 3 | No |
+| Grimnak | 160 | Unique | Hero | Utgar | Grut | Orc | Champion | Ferocious | Double | Huge | 11 | 5 | 5 | 1 | 2 | 4 | Yes |
+| Su-Bak-Na | 160 | Unique | Hero | Utgar | Marr | Marro | Hivelord | Tricky | Double | Huge | 12 | 5 | 6 | 1 | 7 | 3 | Yes |
+| Otonashi | 10 | Unique | Hero | Vydar | Earth | Human | Ninja | Tricky | Single | Medium | 4 | 1 | 6 | 1 | 2 | 3 | No |
+| Agent Carr | 100 | Unique | Hero | Vydar | Earth | Human | Agent | Tricky | Single | Medium | 5 | 4 | 5 | 6 | 2 | 4 | No |
+| Krav Maga Agents | 100 | Unique | Squad | Vydar | Earth | Human | Agents | Tricky | Single | Medium | 4 | 1 | 6 | 7 | 3 | 3 | No |
+| Braxas | 210 | Unique | Hero | Vydar | Icaria | Dragon | Queen | Wild | Double | Huge | 13 | 8 | 6 | 1 | 5 | 3 | Yes |
+| Major Q9 | 250 | Unique | Hero | Vydar | Alpha Prime | Soulborg | Major | Precise | Double | Large | 7 | 4 | 5 | 8 | 4 | 7 | No |

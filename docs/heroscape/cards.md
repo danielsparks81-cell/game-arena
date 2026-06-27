@@ -32,6 +32,11 @@
 
 21 cards: 11 Heroes (10 Unique + the Common Swog Rider) and 10 Unique Squads. Sorted by General, then points.
 
+> 📊 For the **full trait grid of ALL 29 draftable cards** (incl. the 8 Big Heroes) — Personality, World,
+> Base Size, Height, d20 Ability, etc. in one scannable table — see [`traits-matrix.md`](traits-matrix.md)
+> / [`traits-matrix.csv`](traits-matrix.csv), auto-generated from the card data (`GEN_MATRIX=1 npx vitest
+> run traits-matrix`). Use it to spot card-to-card interactions (species/class auras, Bonding partners).
+
 > **Added 2026-06 from the user's printed cards** — five classic Utgar units: Deathreavers,
 > the three Grut squads (Blade / Heavy / Arrow), and the Swog Rider. Built AS PRINTED; this
 > rebalanced printing deviates from the classic 2004 values (e.g. Deathreavers print at **60
