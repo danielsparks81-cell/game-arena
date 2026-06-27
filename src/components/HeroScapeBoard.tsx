@@ -1681,7 +1681,9 @@ export default function HeroScapeBoard({
     seenGlyphSeqRef.current = maxSeq;
     if (!fresh.length) return;
     setGlyphFlash({ lines: fresh, nonce: maxSeq });
-    sounds.hsGlyph(); // a glyph just revealed/triggered
+    // Curse glyphs (Mitonsoul / Wannok / Oreld) get an ominous sting; boon glyphs the bright chime.
+    if (fresh.some(t => /Wannok|Mitonsoul|Oreld/i.test(t))) sounds.hsCurse();
+    else sounds.hsGlyph();
     if (glyphFlashTimer.current) clearTimeout(glyphFlashTimer.current);
     glyphFlashTimer.current = setTimeout(() => setGlyphFlash(null), 7000);
   }, [state.log]);
@@ -1746,6 +1748,24 @@ export default function HeroScapeBoard({
     if (!fallInitRef.current) { seenFallSeqRef.current = maxSeq; fallInitRef.current = true; return; }
     if (maxSeq > seenFallSeqRef.current) { seenFallSeqRef.current = maxSeq; sounds.hsFall(); }
   }, [state.log]);
+
+  // Scatter — the rats scuttle: fire the instant a Scatter choice opens (a public reactive event on
+  // the attacker's turn, so every viewer hears it). Rising-edge on the pendingChoice kind.
+  const scatterOpenRef = useRef(false);
+  useEffect(() => {
+    const open = state.pendingChoice?.kind === 'scatter';
+    if (open && !scatterOpenRef.current) sounds.hsScatter();
+    scatterOpenRef.current = open;
+  }, [state.pendingChoice]);
+
+  // Bonding — a rallying war-horn the instant a bonded partner takes the field for its FREE bonus turn
+  // (state.bond becomes set). Keyed on the partner card so a re-bond later in the round sounds again.
+  const bondRef = useRef<string | null>(null);
+  useEffect(() => {
+    const p = state.bond?.partnerUid ?? null;
+    if (p && p !== bondRef.current) sounds.hsBond();
+    bondRef.current = p;
+  }, [state.bond]);
 
   // Drive the AI: while a bot owes an action, the HOST's client ticks `ai_step`
   // ONE action at a time (so its moves + dice animate). The server no-ops once no

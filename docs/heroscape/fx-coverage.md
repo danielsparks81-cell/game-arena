@@ -37,12 +37,14 @@ Legend: ✅ done · 🟡 partial · ⬜ missing
 | Carry | Theracus | 🟡 carrier moves; passenger not shown riding | ⬜ | render the passenger riding along; flap/whoosh |
 | The Drop | Airborne Elite | ✅ d20 + teleport snap | ✅ `hsDrop` | |
 | Counter Strike | Izumi Samurai | ✅ sword swipe back | ✅ `hsSword` | |
+| Scatter | Deathreavers | ⬜ (rats just move) | ✅ `hsScatter` + `hsStep` | scuttle flurry when the reactive choice opens, then footsteps per rat |
+| Bonding | Grut squads | ⬜ | ✅ `hsBond` | rallying war-horn as the bonded Champion/Beast takes its free bonus turn |
 | Stealth Dodge | Krav Maga | ⬜ (passive) | ⬜ | a quick dodge flicker + whiff sound when it negates |
-| Glyph reveal / trigger | — | ✅ "Glyph triggered" banner | ✅ `hsGlyph` | a distinct ominous sting for a CURSE (Mitonsoul/Wannok/Oreld) vs a boon would add drama |
+| Glyph reveal / trigger | — | ✅ "Glyph triggered" banner | ✅ `hsGlyph` / `hsCurse` | curse glyphs (Mitonsoul/Wannok/Oreld) now play an ominous `hsCurse` sting; boon glyphs keep the chime |
 | Order-marker reveal | — | ⬜ | ✅ `hsTurn` | soft flip as the turn advances |
 | Victory | — | ✅ win banner | ✅ `win`/`draw` | |
 
 ## Summary & recommendations
 - **Animations: good.** Every special *attack* has a distinct VFX, plus dice overlays, walk/fly motion, and the glyph banner. The remaining gaps are non-attack beats: **fall impact, death fade, Wild Swing / Queglix / Throw arcs, Water Clone shimmer, Carry passenger riding.**
-- **Sound: comprehensive.** Wired: dice rattle (combat + every d20), per-figure hit / blocked / death, all six special stings, glyph reveal, footstep, fall thud, victory/draw, the roll-ceremony death/rise — and (2026-06-25) **Berserker Charge / Throw / The Drop / Water Clone** stings plus a per-turn **order-marker tick** (`hsTurn`). Remaining (low priority): a **flying takeoff whoosh** (needs the 3D layer), **Wild Swing / Queglix** stings (they reuse the plain attack overlay, no distinct event yet), a **Stealth-Dodge whiff**, and an optional **curse-vs-boon** glyph distinction.
+- **Sound: comprehensive.** Wired: dice rattle (combat + every d20), per-figure hit / blocked / death, all six special stings, glyph reveal, footstep, fall thud, victory/draw, the roll-ceremony death/rise — plus (2026-06-25) **Berserker Charge / Throw / The Drop / Water Clone** stings + a per-turn **order-marker tick** (`hsTurn`), and (2026-06-27) the two new-unit powers **Scatter** (`hsScatter` scuttle) and **Bonding** (`hsBond` war-horn) + the **curse-vs-boon** glyph split (`hsCurse` for Mitonsoul/Wannok/Oreld). Remaining (low priority): a **flying takeoff whoosh** (needs the 3D layer), **Wild Swing / Queglix** stings (they reuse the plain attack overlay — would need a distinct engine `setEffect`), and a **Stealth-Dodge whiff**.
 - Add new sounds as methods in `src/lib/sounds.ts` (Web Audio, same pattern) and call them from the same effect hooks that fire the animations (`lastEffect` / `lastRoll` / `lastAttack` overlay), so audio and visuals stay in sync.

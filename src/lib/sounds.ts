@@ -227,6 +227,26 @@ export const sounds = {
     { freq: 920, duration: 0.07, type: 'sine', delay: 0.05 },
     { freq: 760, duration: 0.11, type: 'triangle', delay: 0.11 },
   ], 0.045),
+  /** Scatter — the Deathreaver rats scuttle away in a flurry of tiny feet. */
+  hsScatter: () => play([
+    { freq: 1600, duration: 0.02, type: 'square' },
+    { freq: 2000, duration: 0.02, type: 'square', delay: 0.025 },
+    { freq: 1750, duration: 0.02, type: 'square', delay: 0.05 },
+    { freq: 2200, duration: 0.02, type: 'square', delay: 0.075 },
+    { freq: 1850, duration: 0.03, type: 'square', delay: 0.10 },
+  ], 0.035),
+  /** Bonding — a short rallying war-horn as an Orc Champion / Beast joins for a free bonus turn. */
+  hsBond: () => play([
+    { freq: 196, duration: 0.14, type: 'sawtooth' },                 // G3
+    { freq: 294, duration: 0.18, type: 'sawtooth', delay: 0.10 },    // D4
+    { freq: 392, duration: 0.22, type: 'triangle', delay: 0.22 },    // G4
+  ], 0.06),
+  /** Curse glyph (Mitonsoul / Wannok / Oreld) — an ominous low sting in place of the boon chime. */
+  hsCurse: () => play([
+    { freq: 220, duration: 0.16, type: 'sawtooth' },
+    { freq: 155, duration: 0.22, type: 'triangle', delay: 0.10 },
+    { freq:  98, duration: 0.30, type: 'sine', delay: 0.20 },
+  ], 0.07),
 
   // -------- Spellduel feedback cues --------
   // Each is mapped 1:1 to an SDEvent kind by SpellduelBoard's event-diff effect.
