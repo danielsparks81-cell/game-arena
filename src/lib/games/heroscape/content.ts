@@ -318,6 +318,110 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     power: 'live', // slice 6: Orc Warrior Enhancement + slice 8: Chomp
     baseSize: 2, // DOUBLE-SPACE Orc-on-Tyrannosaurus — occupies two adjacent hexes
   },
+  // ---- Utgar: classic Grut orc squads, Deathreavers, and the Swog Rider (added 2026-06-26
+  //      from the user's printed cards). DISENGAGE is wired (flag); Scatter / Climb x2 / Orc
+  //      Champion + Beast Bonding / Orc Archer Enhancement are pending → power: 'wip' for now.
+  deathreavers: {
+    id: 'deathreavers',
+    name: 'Deathreavers',
+    shortName: 'Deathreaver',
+    type: 'squad',
+    figures: 4,
+    life: 1,
+    move: 6,
+    range: 1,
+    attack: 1,
+    defense: 4,
+    height: 3,
+    size: 'small', // SMALL 3
+    points: 60,
+    letter: 'R',
+    species: 'Soulborg',
+    unitClass: 'Deathreaver',
+    power: 'wip', // Disengage live; Scatter + Climb x2 pending
+    disengage: true,
+  },
+  blade_gruts: {
+    id: 'blade_gruts',
+    name: 'Blade Gruts',
+    shortName: 'Blade Grut',
+    type: 'squad',
+    figures: 4,
+    life: 1,
+    move: 6,
+    range: 1,
+    attack: 2,
+    defense: 2,
+    height: 4,
+    size: 'medium',
+    points: 40,
+    letter: 'B',
+    species: 'Orc',
+    unitClass: 'Warrior',
+    power: 'wip', // Disengage live; Orc Champion Bonding pending
+    disengage: true,
+  },
+  heavy_gruts: {
+    id: 'heavy_gruts',
+    name: 'Heavy Gruts',
+    shortName: 'Heavy Grut',
+    type: 'squad',
+    figures: 4,
+    life: 1,
+    move: 5,
+    range: 1,
+    attack: 3,
+    defense: 3,
+    height: 4,
+    size: 'medium',
+    points: 70,
+    letter: 'H',
+    species: 'Orc',
+    unitClass: 'Warrior',
+    power: 'wip', // Disengage live; Orc Champion Bonding pending
+    disengage: true,
+  },
+  arrow_gruts: {
+    id: 'arrow_gruts',
+    name: 'Arrow Gruts',
+    shortName: 'Arrow Grut',
+    type: 'squad',
+    figures: 4,
+    life: 1,
+    move: 6,
+    range: 6,
+    attack: 1,
+    defense: 1,
+    height: 4,
+    size: 'medium',
+    points: 40,
+    letter: 'A',
+    species: 'Orc',
+    unitClass: 'Archer',
+    power: 'wip', // Disengage live; Beast Bonding pending
+    disengage: true,
+  },
+  swog_rider: {
+    id: 'swog_rider',
+    name: 'Swog Rider',
+    shortName: 'Swog Rider',
+    type: 'hero',
+    figures: 1,
+    life: 1,
+    move: 8,
+    range: 1,
+    attack: 3,
+    defense: 3,
+    height: 6,
+    size: 'large', // LARGE 6
+    points: 25,
+    letter: 'S',
+    species: 'Orc',
+    unitClass: 'Beast',
+    common: true, // COMMON HERO — may be drafted multiple times
+    power: 'wip', // Disengage live; Orc Archer Enhancement pending
+    disengage: true,
+  },
   // ---- Ullar ----
   syvarris: {
     id: 'syvarris',
@@ -561,6 +665,7 @@ export const HS_DRAFT_POOL: readonly string[] = [
   'zettian_guards', 'ne_gok_sa', 'marro_warriors', 'deathwalker_9000', 'mimring',
   'grimnak', 'syvarris', 'agent_carr', 'krav_maga', 'otonashi', 'izumi_samurai',
   'theracus', 'jotun', 'braxas', 'nilfheim', 'su_bak_na', 'major_q9',
+  'deathreavers', 'blade_gruts', 'heavy_gruts', 'arrow_gruts', 'swog_rider',
 ];
 
 /** Title-bar GENERAL plus the printed PERSONALITY and WORLD rows — the identity
@@ -581,6 +686,11 @@ export const CARD_IDENTITY: Record<string, { general: string; personality: strin
   deathwalker_9000: { general: 'Utgar', personality: 'Precise', world: 'Alpha Prime' },
   mimring: { general: 'Utgar', personality: 'Ferocious', world: 'Icaria' },
   grimnak: { general: 'Utgar', personality: 'Ferocious', world: 'Grut' },
+  deathreavers: { general: 'Utgar', personality: 'Tricky', world: 'Alpha Prime' },
+  blade_gruts: { general: 'Utgar', personality: 'Wild', world: 'Grut' },
+  heavy_gruts: { general: 'Utgar', personality: 'Wild', world: 'Grut' },
+  arrow_gruts: { general: 'Utgar', personality: 'Wild', world: 'Grut' },
+  swog_rider: { general: 'Utgar', personality: 'Wild', world: 'Grut' },
   syvarris: { general: 'Ullar', personality: 'Precise', world: 'Feylund' },
   agent_carr: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
   krav_maga: { general: 'Vydar', personality: 'Tricky', world: 'Earth' },
@@ -886,6 +996,12 @@ export const ABILITIES: Record<string, Ability> = {
   'Attack the Wild 2': { kind: 'passive', text: "When attacking a figure who has a Wild personality, Otonashi rolls 2 additional attack dice." },
   'Tricky Speed 4': { kind: 'passive', text: "If Otonashi starts her turn adjacent to any figure you control with a Tricky personality, she may move 4 additional spaces." },
   'Hive Supremacy': { kind: 'passive', text: "Anytime you roll the 20-sided die for a Marro or Wulsinu Army Card, you may add 1 to your die roll." },
+  // ---- classic Grut / Deathreaver / Swog Rider keywords (2026-06-26) ----
+  'Scatter': { kind: 'passive', text: "After a figure on this card rolls defense dice against a normal attack, you may move any 2 of this card's figures up to 4 spaces each." },
+  'Climb X2': { kind: 'passive', text: "When moving up or down levels of terrain, this card's figures may double their Height." },
+  'Orc Champion Bonding': { kind: 'passive', text: "Before taking a turn with this card's figures, you may first take a turn with any Orc Champion you control." },
+  'Beast Bonding': { kind: 'passive', text: "Before taking a turn with this card's figures, you may first take a turn with any Beast you control." },
+  'Orc Archer Enhancement': { kind: 'passive', text: "All friendly Orc Archers adjacent to this figure receive an additional attack die and an additional defense die." },
 };
 
 // Which abilities each card has, in printed order. References the glossary keys.
@@ -905,6 +1021,11 @@ export const CARD_ABILITIES: Record<string, string[]> = {
   deathwalker_9000: ['Explosion Special Attack', 'Range Enhancement'],
   mimring: ['Fire Line Special Attack', 'Flying'],
   grimnak: ['Chomp', 'Orc Warrior Enhancement'],
+  deathreavers: ['Scatter', 'Disengage', 'Climb X2'],
+  blade_gruts: ['Orc Champion Bonding', 'Disengage'],
+  heavy_gruts: ['Orc Champion Bonding', 'Disengage'],
+  arrow_gruts: ['Beast Bonding', 'Disengage'],
+  swog_rider: ['Disengage', 'Orc Archer Enhancement'],
   // Ullar
   syvarris: ['Double Attack'],
   // Vydar

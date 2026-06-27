@@ -3765,7 +3765,7 @@ describe('slice 5: start_game routing (draft vs quick)', () => {
     expect(s.mode).toBe('draft');
     expect(s.pointBudget).toBe(400);
     expect(s.draft).toBeDefined();
-    expect(s.draft!.pool).toHaveLength(24);
+    expect(s.draft!.pool).toHaveLength(29);
     expect(s.draft!.turnSeat).toBeNull(); // awaiting the server roll-off
     expect(getActivePlayerId(s)).toBeNull();
     // Server rolls the order; p1 wins → drafts first.
@@ -3921,8 +3921,8 @@ describe('slice 5: unique pool', () => {
 // ---- common pool (Common cards are repeatable) -----------------------------
 
 describe('slice 5: common pool (Common cards are repeatable)', () => {
-  // No card in the current roster is Common (all Unique per cards.md), so flag
-  // one for the test and restore it. Encodes the rule the user set: a Common card
+  // Swog Rider (Common Hero) is the roster's first real Common; this test still mocks
+  // izumi for an isolated repeat-draft check. Encodes the rule the user set: a Common card
   // STAYS in the shared pool and can be drafted again; a Unique leaves once.
   it('a Common card stays in the pool and can be drafted again', () => {
     HS_CARDS.izumi_samurai.common = true;
@@ -3939,8 +3939,12 @@ describe('slice 5: common pool (Common cards are repeatable)', () => {
     }
   });
 
-  it('every current roster card is Unique (no Commons yet)', () => {
-    for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id].common).toBeFalsy();
+  it('Swog Rider is the only Common card; every other roster card is Unique', () => {
+    expect(HS_CARDS.swog_rider.common).toBe(true);
+    for (const id of HS_DRAFT_POOL) {
+      if (id === 'swog_rider') continue;
+      expect(HS_CARDS[id].common).toBeFalsy();
+    }
   });
 });
 
@@ -4209,10 +4213,10 @@ describe('slice 5: placement', () => {
 
 // ---- full roster stats + power flags --------------------------------------
 
-describe('slice 5: full roster (18 base + 6 Big Heroes)', () => {
-  it('HS_CARDS has all 24 cards with the printed stats', () => {
-    expect(Object.keys(HS_CARDS)).toHaveLength(24);
-    expect(HS_DRAFT_POOL).toHaveLength(24);
+describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
+  it('HS_CARDS has all 29 cards with the printed stats', () => {
+    expect(Object.keys(HS_CARDS)).toHaveLength(29);
+    expect(HS_DRAFT_POOL).toHaveLength(29);
     // Every pool id resolves to a card.
     for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
     expect(HS_CARDS.eldgrim).toMatchObject({ life: 3, move: 5, range: 1, attack: 2, defense: 2, height: 4, points: 30 });
@@ -4248,7 +4252,10 @@ describe('slice 5: full roster (18 base + 6 Big Heroes)', () => {
       'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
       'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
     ]);
-    expect(Object.values(HS_CARDS).filter(c => c.power === 'wip')).toEqual([]);
+    // The 5 classic Utgar units added 2026-06-26 are 'wip' until their special powers
+    // (Bonding / Scatter / Climb x2 / Orc Archer Enhancement) are wired; Disengage is live.
+    expect(Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id).sort())
+      .toEqual(['arrow_gruts', 'blade_gruts', 'deathreavers', 'heavy_gruts', 'swog_rider']);
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {
@@ -4268,7 +4275,7 @@ describe('slice 5: full roster (18 base + 6 Big Heroes)', () => {
     const flagged = Object.values(HS_CARDS).filter(
       c => c.flying || c.ghostWalk || c.disengage || c.thorianSpeed || c.stealthDodge || c.counterStrike || c.grappleGun,
     ).map(c => c.id).sort();
-    expect(flagged).toEqual(['agent_carr', 'braxas', 'drake', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'theracus']);
+    expect(flagged).toEqual(['agent_carr', 'arrow_gruts', 'blade_gruts', 'braxas', 'deathreavers', 'drake', 'heavy_gruts', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'swog_rider', 'theracus']);
   });
 
   it('a wip card fights with its printed stats (no power handler)', () => {
