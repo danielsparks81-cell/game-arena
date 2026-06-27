@@ -525,16 +525,23 @@ function FigureStandee({
  *  Re-rendering can't recover detail the source lacks — so for these we paint the
  *  high-resolution hand-cut figure PNG as the portrait instead of the blurry scan-zoom.
  *  (Eldgrim has no scan at all and already falls through to its cut-out.) */
-const PHOTO_PORTRAIT_CARDS = new Set([
-  'swog_rider', 'arrow_gruts', 'blade_gruts', 'heavy_gruts', 'deathreavers', 'su_bak_na',
-]);
+// Cards whose scan was too low-res to zoom fell back to the cut-out PNG. Now EMPTY: every card
+// has a usable card-art scan (the last 6 were upgraded 2026-06-27 — figure crops from the official
+// index cards, see CARD_ART_CROP). Kept for any future low-res addition.
+const PHOTO_PORTRAIT_CARDS = new Set<string>([]);
 
-/** Per-card crop for the zoomed card-scan portrait. The DEFAULT zooms 280% into a full
- *  card scan (the figure sits in the upper-left of the printed card). A card listed here
- *  instead supplies a PRE-CROPPED figure image already framed on the figure, so it should
- *  just fill the panel (`cover`) rather than being zoomed again. */
+/** Per-card crop for the card-scan portrait. The DEFAULT zooms 280% into a full card scan (the
+ *  figure sits in the upper-left of the printed card). A card listed here instead supplies a
+ *  PRE-CROPPED figure image already framed on the figure, so it should just fill the panel
+ *  (`cover`) rather than being zoomed again. The 6 official-card figure crops added 2026-06-27. */
 const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
   otonashi: { size: 'cover', position: 'center' }, // user's card art (figure on blue), pre-cropped 2026-06-27
+  swog_rider: { size: 'cover', position: 'center' },
+  blade_gruts: { size: 'cover', position: 'center' },
+  heavy_gruts: { size: 'cover', position: 'center' },
+  arrow_gruts: { size: 'cover', position: 'center' },
+  deathreavers: { size: 'cover', position: 'center' },
+  su_bak_na: { size: 'cover', position: 'center' },
 };
 const DEFAULT_ART_CROP = { size: '280% auto', position: '11% 25%' };
 
