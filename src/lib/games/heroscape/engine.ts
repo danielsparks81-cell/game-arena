@@ -7311,6 +7311,13 @@ function aiTurn(state: HSState, seat: number): HSAction {
       !!cells && enemies.some(e => { const d = rangeDistance(cells!, hex, e.at!); return d != null && d >= 1 && d <= range; });
     const nearestEnemyDist = (hex: HexKey): number =>
       !cells ? Infinity : Math.min(...enemies.map(e => rangeDistance(cells, hex, e.at!) ?? Infinity));
+    // SELF-PRESERVATION: how badly this figure wants to avoid danger. 0 for a full-health figure or a
+    // 1-life squad member (expendable — retreating can't save it from a one-hit kill); rises with
+    // wounds for a multi-life Hero, so a badly-hurt champion (≈2/3+ wounds) values DISTANCE from foes
+    // over closing the gap. Measured (a healthy army still advances + fights). SAFETY_W=6 sets the
+    // tipping point: a hurt-fraction above ~0.67 makes a one-step retreat outweigh a one-step close.
+    const hurt = fDef.life > 1 && f.wounds > 0 ? f.wounds / fDef.life : 0;
+    const SAFETY_W = 6;
     // A DOUBLE-SPACE figure slithers and must FINISH on two LEVEL spaces. The engine
     // permits a mid-slither climb, but the bot ends its move as soon as no better step
     // exists — which would strand the peanut on a non-level footprint (engine reject →
@@ -7356,13 +7363,16 @@ function aiTurn(state: HSState, seat: number): HSAction {
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(hex) : 0;
       const glyphScore = (chaseGlyph ? glyphGain * 2 : 0) + (onG ? 14 : 0);
       const canHit = canHitFrom(hex);
+      // SELF-PRESERVATION: a wounded multi-life Hero values DISTANCE from foes (0 for healthy / 1-life
+      // figures, so the army still advances). Folds into both brawler + kiter scoring.
+      const safety = hurt > 0 ? nearestEnemyDist(hex) * hurt * SAFETY_W : 0;
       if (isRanged) {
         const ne = nearestEnemyDist(hex);
         const standoff = Math.min(ne, range); // reward distance up to the range edge — no point fleeing past it
         const adjacent = ne <= 1 ? 60 : 0;     // a shooter next to a foe gets charged → big penalty
-        return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + glyphScore - adjacent;
+        return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + glyphScore - adjacent + safety;
       }
-      return (canHit ? 50 : 0) + enemyGain * 4 + glyphScore + heightOfKey(state, hex);
+      return (canHit ? 50 : 0) + enemyGain * 4 + glyphScore + heightOfKey(state, hex) + safety;
     };
     let best: { to: HexKey; score: number } | null = null;
     for (const to of candidates) {
@@ -7379,7 +7389,11 @@ function aiTurn(state: HSState, seat: number): HSAction {
       // Make progress toward SOMETHING — a strike hex, the enemy, or a nearby glyph. A pure
       // sideways/backward step with no payoff is skipped so we never stall — but a ranged retreat that
       // STAYS in range (canHit) is a real payoff and survives this guard.
-      if (enemyGain <= 0 && glyphGain <= 0 && !openGlyphs.some(g => g.at === to) && !canHitFrom(to)) continue;
+      // A HURT Hero may take a pure RETREAT step (no offensive payoff) — backing AWAY from the nearest
+      // foe is itself the payoff (the safety term rewards it). Healthy/expendable figures still skip a
+      // payoff-less sideways/backward shuffle, so they never stall.
+      const retreatOK = hurt > 0 && nearestEnemyDist(to) > nearestEnemyDist(f.at!);
+      if (enemyGain <= 0 && glyphGain <= 0 && !openGlyphs.some(g => g.at === to) && !canHitFrom(to) && !retreatOK) continue;
       const score = scoreHex(to);
       if (!best || score > best.score) best = { to, score };
     }

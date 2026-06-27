@@ -1571,6 +1571,53 @@ describe('Grut squads — BONDING (free bonus turn with an Orc Champion / Beast)
   });
 });
 
+// --- AI self-preservation (wounded Heroes retreat) -------------------------
+
+describe('HeroScape AI — self-preservation', () => {
+  const FINN1 = 's0-finn-1';
+  const MARRO1 = 's1-marro_warriors-1';
+  const tfCells = MAPS.training_field.cells;
+  const distTo = (k: string, t: string) => rangeDistance(tfCells, k, t)!;
+
+  // Finn (Life 4, melee) on the flat field, OUT of melee range of one Marro so the move AI runs. A
+  // healthy Finn closes the gap; a badly-wounded Finn (3/4 wounds → past the ⅔ retreat tipping point)
+  // backs away instead. Same position + same enemy — only the wound count differs.
+  function finnStep(wounds: number): { from: string; to: string } {
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, FINN1, MARRO1);
+    const from = at(3, 3);
+    s = place(s, FINN1, from);
+    s = place(s, MARRO1, at(3, 6)); // ~3 away — out of Finn's Range 1, so the AI moves him
+    if (wounds) s = wound(s, FINN1, wounds);
+    const a = aiNextAction(s, 0);
+    expect(a?.kind).toBe('move_step');
+    return { from, to: (a as { to: string }).to };
+  }
+
+  it('a HEALTHY Hero closes the gap', () => {
+    const m = finnStep(0);
+    expect(distTo(m.to, at(3, 6))).toBeLessThan(distTo(m.from, at(3, 6))); // steps toward the enemy
+  });
+
+  it('a badly-WOUNDED Hero retreats to safety', () => {
+    const m = finnStep(3); // 3 of 4 Life gone → values distance over closing
+    expect(distTo(m.to, at(3, 6))).toBeGreaterThan(distTo(m.from, at(3, 6))); // steps away from the enemy
+  });
+
+  it('expendable 1-life squad figures stay aggressive even at full damage potential', () => {
+    // A Marro Warrior (Life 1) can't be "wounded and alive", so self-preservation never applies — it
+    // always advances. (Sanity: the hurt factor is 0 for a 1-life figure.)
+    let s = customBattle(['marro_warriors'], ['finn'], 'p1', 'training_field');
+    s = clearExcept(s, 's0-marro_warriors-1', 's1-finn-1');
+    const from = at(3, 3);
+    s = place(s, 's0-marro_warriors-1', from);
+    s = place(s, 's1-finn-1', at(3, 6));
+    const a = aiNextAction(s, 0);
+    // Marro Range 6 → it may already be in range and just attack; if it moves, it never retreats.
+    if (a?.kind === 'move_step') expect(distTo((a as { to: string }).to, at(3, 6))).toBeLessThanOrEqual(distTo(from, at(3, 6)));
+  });
+});
+
 // --- falling ---------------------------------------------------------------
 
 describe('slice 3: falling (server-rolled, engine re-validates)', () => {
