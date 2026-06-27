@@ -34,18 +34,17 @@
 ## Roster summary
 
 21 cards: 11 Heroes (10 Unique + the Common Swog Rider) and 10 Squads — 6 Unique (Tarn
-Vikings, Airborne Elite, Zettian Guards, Marro Warriors, Krav Maga, Izumi Samurai), the
-**3 Common Grut squads** (Blade / Heavy / Arrow), and **Deathreavers** (Common/Unique
-pending re-check — see ⚠ below). Sorted by General, then points.
+Vikings, Airborne Elite, Zettian Guards, Marro Warriors, Krav Maga, Izumi Samurai) and
+**4 Common** (Blade / Heavy / Arrow Gruts + **Deathreavers**). Sorted by General, then points.
 
-> ⚠ **Correction 2026-06-27:** an earlier pass here recorded the Grut squads as "Unique
-> Squad" and called the Swog Rider "the roster's only Common card." That was an
-> EXTRACTION ERROR. The user's official index-card PDFs (`HSB_3x5_Heavy_Gruts`,
-> `Index_3x5_Blade_Gruts`, `Index_3x5_Arrow_Gruts`) all read **COMMON SQUAD** in the
-> nameplate — confirmed by text extraction. `content.ts` already had them `common: true`
-> (correct); this doc has now been corrected to match. **Deathreavers** was added in the
-> same batch and is *also* a Common squad in standard HeroScape — its card wasn't in this
-> upload, so verify it next (likely a `common: true` fix in `content.ts` too).
+> ⚠ **Correction 2026-06-27:** an earlier pass here recorded the Grut squads **and
+> Deathreavers** as "Unique Squad" and called the Swog Rider "the roster's only Common
+> card." That was an EXTRACTION ERROR. The user's official index-card PDFs
+> (`HSB_3x5_Heavy_Gruts`, `Index_3x5_Blade_Gruts`, `Index_3x5_Arrow_Gruts`,
+> `Index_3x5_Deathreavers`) all read **COMMON SQUAD** in the nameplate (verified by text
+> extraction). `content.ts` had the Gruts right (`common: true`) but had Deathreavers as
+> Unique — now fixed to `common: true`. This doc is corrected to match. The five Common
+> Utgar units are therefore: Swog Rider (Hero) + Blade/Heavy/Arrow Gruts + Deathreavers.
 
 > 📊 For the **full trait grid of ALL 29 draftable cards** (incl. the 8 Big Heroes) — Personality, World,
 > Base Size, Height, d20 Ability, etc. in one scannable table — see [`traits-matrix.md`](traits-matrix.md)
@@ -72,7 +71,7 @@ pending re-check — see ⚠ below). Sorted by General, then points.
 | Swog Rider | Utgar | Beast | Common Hero | 1 | 1 | 8 | 1 | 3 | 3 | Large 6 | 25 |
 | Blade Gruts | Utgar | Warriors | Common Squad | 4 | 1 | 6 | 1 | 2 | 2 | Medium 4 | 40 |
 | Arrow Gruts | Utgar | Archer | Common Squad | 3 | 1 | 6 | 6 | 1 | 1 | Medium 4 | 40 |
-| Deathreavers | Utgar | Deathreaver | Unique Squad | 4 | 1 | 6 | 1 | 1 | 4 | Small 3 | 60 |
+| Deathreavers | Utgar | Deathreaver | Common Squad | 4 | 1 | 6 | 1 | 1 | 4 | Small 3 | 60 |
 | Heavy Gruts | Utgar | Warriors | Common Squad | 4 | 1 | 5 | 1 | 3 | 3 | Medium 4 | 70 |
 | Zettian Guards | Utgar | Guards | Unique Squad | 2 | 1 | 4 | 7 | 2 | 7 | Medium 5 | 70 |
 | Ne-Gok-Sa | Utgar | Warlord | Unique Hero | 1 | 5 | 5 | 1 | 3 | 6 | Medium 5 | 90 |
@@ -376,7 +375,7 @@ turn with any Orc Champion you control. *(As Blade Gruts — the free bonus turn
 
 ##### Deathreavers — 60 points
 
-Unique Squad (4 figures) · Deathreaver · Soulborg · Tricky · Alpha Prime · Small 3
+Common Squad (4 figures) · Deathreaver · Soulborg · Tricky · Alpha Prime · Small 3
 Life 1 · Move 6 · Range 1 · Attack 1 · Defense 4
 
 **SCATTER** — After a figure on this card rolls defense dice against a normal attack, you may

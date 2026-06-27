@@ -338,6 +338,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     letter: 'R',
     species: 'Soulborg',
     unitClass: 'Deathreaver',
+    common: true, // COMMON SQUAD — verified 2026-06-27 from the user's Index_3x5_Deathreavers card
     power: 'live', // Disengage + Climb x2 + Scatter
     disengage: true,
     climbX2: true, // CLIMB X2 — double Height for the climb limit + fall threshold

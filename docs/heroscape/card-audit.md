@@ -43,29 +43,29 @@ The user uploaded the official index-card PDFs (`HSB_3x5_Heavy_Gruts`, `Index_3x
 been fixed. No code change. The earlier "conflict" was my own extraction doc being wrong, not
 the game.
 
-### 🟠 A2. Deathreavers — likely Common too (verify next)
+### ✅ A2. Deathreavers: Common — RESOLVED 2026-06-27
 
-`content.ts` currently has Deathreavers as **Unique** (no `common` flag), matching the old
-`cards.md`. But Deathreavers were added in the *same* batch that mis-labeled the Gruts, and in
-standard HeroScape Deathreavers are a **Common** squad. Their card wasn't in this upload —
-**please check the Deathreavers nameplate** (Common vs Unique). If Common, it's a one-line
-`common: true` fix in `content.ts` (deathreavers) plus a `cards.md` row update.
+The `Index_3x5_Deathreavers` card reads **COMMON SQUAD**. `content.ts` had it Unique — **fixed**
+(`common: true`) + `cards.md` row corrected + the common-pool test now expects 5 Common Utgar
+units (Swog Rider + 3 Gruts + Deathreavers). Everything else on the card matches (Soulborg ·
+Deathreaver · Tricky · Alpha Prime · Small 3 · L1 M6 R1 A1 D4 · 60 · Scatter/Disengage/Climb X2).
 
-### 🟠 B. Eldgrim & Otonashi — playable but absent from the verified roster
+### ✅ B. Eldgrim & Otonashi — RESOLVED 2026-06-27 (both real, both correct)
 
-Both are in `HS_CARDS` **and** the draft pool, but **not** in `cards.md`'s 21-card verified
-roster, so I have no scan to check them against:
+The user uploaded `Index_3x5_Eldgrim_The__Viking_Champion` and `Index_3x5_Otonashi`. Both are real
+cards and **every field matches `content.ts`** (the earlier "placeholder / too cheap" worry was
+unfounded). `-raw` text extraction (label→value in stream order) settled the stat ambiguity:
 
-| Card | `content.ts` values | Concern |
+| Card | Verified from the card | Match? |
 |---|---|---|
-| **Eldgrim the Viking Champion** | Hero · Jandar · Human · Champion · Valiant · Earth · L3 M5 R1 A2 D2 H4 · **30pts** · power `live` but **no ability flags/text** | Not in the scans. Is this a real card you own? The stat line and lack of any printed power suggest a placeholder. Please re-upload its card. |
-| **Otonashi** | Hero · Vydar · Human · Ninja · Tricky · Earth · L1 M6 R1 A2 D3 H4 · **10pts** · Ghost/Phantom Walk + Disengage + Attack-the-Wild 2 + Tricky Speed 4 | Not in the scans. **10 points for four powers** looks too cheap. Re-upload to verify points + powers. |
+| **Eldgrim** | Unique Hero · Human · Champion · Valiant · Earth · Medium 4 · L3 M5 R1 A2 D2 · 30 · Overextend Attack + Warrior's Swiftness Spirit | ✅ stats match. **Overextend** is already wired (`canOverextend`, keyed by card id). 🟡 minor gap: *Warrior's Swiftness Spirit* (on-destroy, +1 move to a unique card) isn't implemented — backlog. |
+| **Otonashi** | Unique Hero · Human · Ninja · Tricky · Earth · Medium 4 · L1 M6 R1 A2 D3 · 10 · Phantom Walk + Attack the Wild 2 + Tricky Speed 4 | ✅ fully matches (ghostWalk + disengage + attackTheWild 2 + trickySpeed 4). |
 
-### 🟠 C. The 6 Big Heroes — verify against your Big-Hero scans
+### 🟠 C. Big Heroes — 1 of 6 verified; 5 still need scans
 
-`cards.md` covers only the Master Set; the Big Heroes were built from separate scans that aren't
-in the repo. Their stats/powers I can't check, but a few **faction (general)** values look
-questionable to me and are worth a glance:
+**Su-Bak-Na** was in this upload and is **fully correct** (Utgar · Marro · Hivelord · Tricky · Marr ·
+Huge 12 · L5 M6 R1 A7 D3 · 160 · Hive Supremacy + Flying). The other five weren't uploaded — I still
+can't check these, and a few **faction** values look off to me:
 
 | Card | `content.ts` faction | My note (verify) |
 |---|---|---|
@@ -74,9 +74,8 @@ questionable to me and are worth a glance:
 | **Nilfheim** | Jandar | Ice dragon — uncertain; verify. |
 | Theracus | Ullar | Gryphillin → Ullar is plausible. |
 | Major Q9 | Vydar | Soulborg → Vydar is plausible. |
-| Su-Bak-Na | Utgar | Marro hivelord → Utgar is consistent. |
 
-If you re-share the 6 Big-Hero card images (Nilfheim, Su-Bak-Na, Braxas, Theracus, Major Q9,
+If you re-share the remaining 5 Big-Hero card images (Nilfheim, Braxas, Theracus, Major Q9,
 Jotun) I'll diff every field the same way and lock them into `cards.md` so they're covered going
 forward.
 

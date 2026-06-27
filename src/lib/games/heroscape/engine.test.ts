@@ -4244,10 +4244,11 @@ describe('slice 5: common pool (Common cards are repeatable)', () => {
     }
   });
 
-  it('the Grut-family cards are Common (Swog Rider + the 3 Gruts); every other roster card is Unique', () => {
-    // Real HeroScape: Swog Rider is a Common Hero and Blade/Arrow/Heavy Gruts are Common squads
-    // (Utgar's common orcs) — all repeatable in the draft. Everything else in the roster is Unique.
-    const COMMON = new Set(['swog_rider', 'blade_gruts', 'arrow_gruts', 'heavy_gruts']);
+  it('the Common Utgar cards (Swog Rider + 3 Gruts + Deathreavers) are Common; every other roster card is Unique', () => {
+    // Real HeroScape: Swog Rider (Common Hero) and Blade/Arrow/Heavy Gruts + Deathreavers (Common
+    // squads) are Utgar's common units — all repeatable in the draft. Everything else is Unique.
+    // (All five verified 2026-06-27 from the user's index-card PDFs — nameplates read COMMON SQUAD.)
+    const COMMON = new Set(['swog_rider', 'blade_gruts', 'arrow_gruts', 'heavy_gruts', 'deathreavers']);
     for (const id of COMMON) expect(HS_CARDS[id].common).toBe(true);
     for (const id of HS_DRAFT_POOL) {
       if (COMMON.has(id)) continue;
