@@ -89,13 +89,15 @@ import {
   neighborKeys,
   mapSupportsCount,
   teamBudgetForSeat,
-  teamSpentInDraft,
   teamRemainingInDraft,
   isoTopCenter,
   isoTopHexCorners,
   isoSideFaces,
   isoSortByDepth,
   isoSceneBounds,
+  SEAT_COLORS,
+  TEAM_COLORS,
+  teamColorById,
 } from '@/lib/games/heroscape';
 
 // The 3D board (React Three Fiber) is a heavy WebGL bundle — load it lazily and
@@ -107,23 +109,9 @@ const PAD = 26;
 
 // One DISTINCT team colour per seat (up to 8). Used when a player has no
 // explicit accent_color — without a full palette here, seats 3+ all collapsed to
-// the same grey, making figures indistinguishable at 3-6 players. Chosen for
-// mutual contrast AND contrast against the board's grass/sand/water terrain.
-// PRIMARY + SECONDARY colours only (owner 2026-06-25: "stick to primary and secondary colours" — the old
-// pink/teal/lime sat too close to red/blue). Ordered so the FIRST seats get the most mutually-distinct
-// hues: a 2-player game is red vs blue, 3p adds yellow (the three primaries), then purple/orange, with
-// GREEN last (it's nearest the grass, so it only appears at 6 players). All vivid for board contrast.
-const SEAT_COLORS = [
-  '#e23b3b', // 1 red
-  '#2f7ae5', // 2 blue
-  '#f4c020', // 3 yellow
-  '#9b46d6', // 4 purple
-  '#f0871d', // 5 orange
-  '#36b14a', // 6 green
-];
-// Teams (allies share one) reuse the SAME distinct palette — index = team id − 1 (lobby assigns 1/2/3…).
-const TEAM_COLORS = SEAT_COLORS;
-const teamColorById = (team: number) => TEAM_COLORS[(team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
+// SEAT_COLORS / TEAM_COLORS / teamColorById are imported from heroscape/colors —
+// the single source of truth shared with HeroBoard3D.tsx and the map-maker, so the
+// 2D and 3D boards can never disagree on a seat's colour.
 /** Beat between an AI's actions (ms). Combat is paced slow enough to read the dice;
  *  the repetitive no-dice phases (walking a path one hex at a time, deploying, drafting,
  *  placing markers) tick FAST so the bot doesn't crawl across the board. */
@@ -2446,6 +2434,12 @@ export default function HeroScapeBoard({
     if (hintTimer.current) clearTimeout(hintTimer.current);
     hintTimer.current = setTimeout(() => setPowerHint(null), 3500);
   };
+  // Clear the flash/hint timers on unmount so a late callback never calls setState on
+  // an unmounted board (mirrors glyphFlashTimer's cleanup).
+  useEffect(() => () => {
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    if (hintTimer.current) clearTimeout(hintTimer.current);
+  }, []);
   const onCardPower = (power?: { name: string; text: string }) => {
     const cid = activeCard?.cardId;
     if (!cid || !canAct) return;
@@ -3090,7 +3084,9 @@ export default function HeroScapeBoard({
   }
 
   // Army roster panel data: cards with surviving figures, wounds, markers.
-  const roster = state.players.map(pl => ({
+  // Derived once per state change (O(players×cards×figures)); memoized so local UI
+  // re-renders (hover, panel toggles) don't recompute the whole roster every time.
+  const roster = useMemo(() => state.players.map(pl => ({
     pl,
     cards: state.cards.filter(c => c.ownerSeat === pl.seat).map(c => {
       const def = HS_CARDS[c.cardId];
@@ -3099,7 +3095,7 @@ export default function HeroScapeBoard({
       const reserve = figs.filter(f => f.at == null && f.reserve).length; // Airborne awaiting The Drop — alive, off-board
       return { uid: c.uid, def, alive, reserve, heroWounds: figs[0]?.wounds ?? 0, markers: c.orderMarkers };
     }),
-  }));
+  })), [state.players, state.cards, state.figures]);
   function assignPicked(cardUid: string) {
     const next = { ...assign, [pickedMarker]: cardUid };
     setAssign(next);

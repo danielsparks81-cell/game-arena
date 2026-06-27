@@ -53,7 +53,6 @@ export {
   acidBreathTargets,
   canAcidBreath,
   throwTargets,
-  canThrow,
   throwLandingHexes,
   carryPassengers,
   carryLandingHexes,
@@ -92,7 +91,8 @@ export {
 export type { EffectiveStat } from './engine';
 
 export { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS, POWER_DESCRIPTIONS, CARD_IDENTITY, CLASSIC_OVERRIDES, effectiveCardDef } from './content';
-export type { HSGlyphDef, HSGlyphKind } from './content';
+
+export { SEAT_COLORS, TEAM_COLORS, teamColorById } from './colors';
 
 export { MAPS, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, parseMap } from './maps';
 export type { HSMap, HSGlyphPlacement } from './maps';
@@ -156,5 +156,4 @@ export type {
   HSChoiceResolution,
   HSMode,
   HSEdition,
-  HSDraftState,
 } from './types';

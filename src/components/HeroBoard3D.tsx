@@ -15,7 +15,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Billboard, Edges, Html, Line } from '@react-three/drei';
 import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys } from '@/lib/games/heroscape';
+import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys, SEAT_COLORS, TEAM_COLORS } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2, sizeScale } from '@/lib/games/heroscape/figureBase';
 
@@ -72,12 +72,8 @@ function mottle(hex: string, j: number): string {
   );
   return '#' + c.getHexString();
 }
-// PRIMARY + SECONDARY palette, must MATCH HeroScapeBoard.tsx — red, blue, yellow, purple, orange, green,
-// ordered so small games get the most-distinct hues first (2p = red vs blue). Green is last (nearest the
-// grass). Owner 2026-06-25: "stick to primary and secondary colours."
-const SEAT_COLORS = ['#e23b3b', '#2f7ae5', '#f4c020', '#9b46d6', '#f0871d', '#36b14a'];
-// Team colours (allies share one) reuse the SAME distinct palette; index = team id − 1.
-const TEAM_COLORS = SEAT_COLORS;
+// SEAT_COLORS / TEAM_COLORS are imported from heroscape/colors — the single source
+// of truth shared with HeroScapeBoard.tsx and the map-maker (no more hand-copied palette).
 
 const parseQR = (key: string): [number, number] => { const [q, r] = key.split(',').map(Number); return [q, r]; };
 const worldXZ = (q: number, r: number): [number, number] => [SIZE * Math.sqrt(3) * (q + r / 2), SIZE * 1.5 * r];

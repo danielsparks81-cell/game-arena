@@ -4692,7 +4692,10 @@ function doAttack(
   const targetMut = s.figures.find(f => f.id === target.id)!;
   targetMut.wounds += wounds;
   const destroyed = targetMut.wounds >= tDef.life;
-  if (destroyed) targetMut.at = null;
+  // Clear BOTH lobes on a kill — a 2-hex figure (e.g. Grimnak) that's destroyed
+  // by a normal/counter-strike attack must not leave a stale `at2` tail behind
+  // (every other destruction site clears both; matches that universal invariant).
+  if (destroyed) { targetMut.at = null; targetMut.at2 = null; }
 
   // COUNTER STRIKE reflect (slice 7): the excess shields land on the ATTACKER as
   // unblockable wounds. Apply BEFORE the dice panel / elimination so a reflected
@@ -4703,7 +4706,7 @@ function doAttack(
   if (counterWounds > 0 && attackerMut.at != null) {
     attackerMut.wounds += counterWounds;
     counterDestroyed = attackerMut.wounds >= attackerDef.life;
-    if (counterDestroyed) attackerMut.at = null;
+    if (counterDestroyed) { attackerMut.at = null; attackerMut.at2 = null; }
   }
 
   const attackerLabel = figureLabel(s, attacker);
@@ -5890,9 +5893,6 @@ export function throwTargets(state: HSState, seat: number): string[] {
         figuresAdjacent(state, jotun, t),
     )
     .map(t => t.id);
-}
-export function canThrow(state: HSState, seat: number): boolean {
-  return throwTargets(state, seat).length > 0;
 }
 /** Empty hexes Jotun may throw a figure onto: within Range 4 of Jotun + clear
  *  sight from Jotun. (The thrown figure is small/medium = 1 hex.) */

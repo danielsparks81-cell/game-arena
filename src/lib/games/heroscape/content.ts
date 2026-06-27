@@ -688,7 +688,7 @@ export const CARD_IDENTITY: Record<string, { general: string; personality: strin
   eldgrim: { general: 'Jandar', personality: 'Valiant', world: 'Earth' },
   airborne_elite: { general: 'Jandar', personality: 'Disciplined', world: 'Earth' },
   drake: { general: 'Jandar', personality: 'Valiant', world: 'Earth' },
-  raelin: { general: 'Jandar', personality: 'Resolute', world: 'Valhalla' },
+  raelin: { general: 'Jandar', personality: 'Merciful', world: 'Valhalla' },
   zettian_guards: { general: 'Utgar', personality: 'Precise', world: 'Alpha Prime' },
   ne_gok_sa: { general: 'Utgar', personality: 'Tricky', world: 'Marr' },
   marro_warriors: { general: 'Utgar', personality: 'Wild', world: 'Marr' },

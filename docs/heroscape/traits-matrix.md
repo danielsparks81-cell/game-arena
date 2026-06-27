@@ -18,7 +18,7 @@
 | Thorgrim the Viking Champion | 80 | Unique | Hero | Jandar | Earth | Human | Champion | Valiant | Single | Medium | 5 | 4 | 5 | 1 | 3 | 4 | No |
 | Airborne Elite | 110 | Unique | Squad | Jandar | Earth | Human | Soldiers | Disciplined | Single | Medium | 5 | 1 | 4 | 8 | 3 | 2 | Yes |
 | Sgt. Drake Alexander | 110 | Unique | Hero | Jandar | Earth | Human | Soldier | Valiant | Single | Medium | 5 | 5 | 5 | 1 | 6 | 3 | No |
-| Raelin the Kyrie Warrior | 125 | Unique | Hero | Jandar | Valhalla | Kyrie | Warrior | Resolute | Single | Medium | 5 | 5 | 6 | 1 | 3 | 3 | No |
+| Raelin the Kyrie Warrior | 125 | Unique | Hero | Jandar | Valhalla | Kyrie | Warrior | Merciful | Single | Medium | 5 | 5 | 6 | 1 | 3 | 3 | No |
 | Nilfheim | 240 | Unique | Hero | Jandar | Icaria | Dragon | King | Ferocious | Double | Huge | 12 | 6 | 6 | 1 | 6 | 4 | No |
 | Theracus | 40 | Unique | Hero | Ullar | Feylund | Gryphillin | Scout | Disciplined | Double | Large | 5 | 3 | 7 | 1 | 3 | 3 | No |
 | Syvarris | 100 | Unique | Hero | Ullar | Feylund | Elf | Archer | Precise | Single | Medium | 5 | 4 | 5 | 9 | 3 | 2 | No |

@@ -602,6 +602,26 @@ describe('Big-Hero powers — cross-cutting fidelity', () => {
     expect(at(s, 's1-marro_warriors-1')).toBeNull(); // Jotun's A8 normal attack lands
   });
 
+  it('a 2-hex figure killed by a normal attack clears BOTH lobes (at + at2)', () => {
+    // Regression: doAttack used to null only `at` on a kill, leaving a stale `at2`
+    // tail behind for double-space figures (Grimnak) — every other destruction site
+    // clears both. Stage Drake (Attack 6, melee) vs a 2-hex Grimnak placed adjacent.
+    let { s, hero } = stage('drake');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.cards.find(c => c.uid === 's1-thorgrim')!.cardId = 'grimnak'; // figure s1-thorgrim-1 becomes Grimnak (huge, 2-hex)
+    const gid = 's1-thorgrim-1';
+    const onMap = (k: string) => Object.prototype.hasOwnProperty.call(MAPS[s.mapId].cells, k);
+    const front = neighborKeys(at(s, hero)!).find(onMap)!;          // adjacent to Drake
+    const back = neighborKeys(front).find(k => k !== at(s, hero) && onMap(k))!;
+    const g = s.figures.find(f => f.id === gid)!;
+    g.at = front; g.at2 = back; g.wounds = 0;
+    // Drake lands 6 skulls; Grimnak (Life 5) rolls only blanks → destroyed.
+    s = unwrap(applyAction(s, 'p1', { kind: 'attack', attackerId: hero, targetId: gid, attackRoll: F('kkkkkk'), defenseRoll: def(s, gid, hero) }));
+    const dead = s.figures.find(f => f.id === gid)!;
+    expect(dead.at).toBeNull();
+    expect(dead.at2).toBeNull(); // the fix — tail lobe must not dangle
+  });
+
   it('a Big-Hero special rejects the wrong active hero (Ice Shard needs Nilfheim)', () => {
     let { s, hero } = stage('jotun');
     s = put(s, 's1-thorgrim-1', cellAtDist(s, at(s, hero)!, 3));

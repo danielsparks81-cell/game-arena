@@ -8,7 +8,7 @@
 // to remix it. Reached from the top bar (⬡ HS maps).
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MAPS, HS_GLYPHS, offsetToAxial, hexKey, axialToOffset } from '@/lib/games/heroscape';
+import { MAPS, HS_GLYPHS, offsetToAxial, hexKey, axialToOffset, SEAT_COLORS } from '@/lib/games/heroscape';
 import type { HSGlyphId } from '@/lib/games/heroscape';
 
 type TerrainCode = 'G' | 'R' | 'S' | 'W';
@@ -23,7 +23,7 @@ type Brush =
 
 const TERRAIN_COLOR: Record<TerrainCode, string> = { G: '#5f9e3a', R: '#9a9b97', S: '#caa468', W: '#3f9fd6' };
 const GROUT = '#6b4a24';
-const SEAT_COLORS = ['#e23b3b', '#2f7ae5', '#f4c020', '#9b46d6', '#f0871d', '#36b14a']; // red blue yellow purple orange green
+// SEAT_COLORS imported from heroscape/colors (shared with both boards).
 const GLYPH_IDS = Object.keys(HS_GLYPHS) as HSGlyphId[];
 const S = 22; // hex radius (centre → vertex)
 const DX = S * Math.sqrt(3); // column step

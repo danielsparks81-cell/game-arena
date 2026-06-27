@@ -178,8 +178,12 @@ function dropStage(): { s: HSState; legal: string[] } {
   s = addPlayer(s, 'p2', 'Bob', 1, '#ef4444');
   s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'quick' }));
   s = JSON.parse(JSON.stringify(s)) as HSState; // phase=playing, subPhase=place_markers
-  for (const f of s.figures) { f.at = null; f.at2 = null; }
-  s.figures.find(f => f.id === 's1-thorgrim-1')!.at = Object.keys(MAPS[s.mapId].cells)[0]; // one enemy on board
+  // Keep ONLY one enemy figure on the board. Nulling every figure (the old approach)
+  // left seat 0's quick-army finn/tarn as at:null & !reserve — which seatIsAlive
+  // correctly reads as CASUALTIES, so canTheDrop saw a "dead" seat and hid the button.
+  // Removing them entirely means seat 0 owns only the 4 reserve Airborne (no casualties).
+  s.figures = s.figures.filter(f => f.id === 's1-thorgrim-1');
+  s.figures[0].at = Object.keys(MAPS[s.mapId].cells)[0]; // that lone enemy on board
   s.cards.push({ uid: 's0-airborne_elite', cardId: 'airborne_elite', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 });
   for (let n = 1; n <= 4; n++) s.figures.push({ id: `s0-airborne_elite-${n}`, cardUid: 's0-airborne_elite', ownerSeat: 0, at: null, index: n, wounds: 0, reserve: true });
   return { s, legal: theDropHexes(s, 0) };
