@@ -1032,11 +1032,23 @@ function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: nu
   const counts = bonus.map(b => { const m = b.match(/^\+(\d+)/); return m ? +m[1] : 0; });
   const perBonus = bonus.length > 0 && baseN > 0 && bonusTotal > 0
     && counts.every(c => c > 0) && counts.reduce((a, c) => a + c, 0) === bonusTotal;
+  const combined = !perBonus && bonus.length > 0 && baseN > 0 && bonusTotal > 0;
   // Ordered dice groups, each carrying its own caption directly beneath the dice it describes.
   const groups: { count: number; label: string; tone: 'base' | 'bonus' }[] = [];
-  if (roll.length > 0) groups.push({ count: baseN, label: `${baseN} base`, tone: 'base' });
-  if (perBonus) bonus.forEach((b, i) => groups.push({ count: counts[i], label: b, tone: 'bonus' }));
-  else if (bonus.length > 0 && bonusTotal > 0) groups.push({ count: bonusTotal, label: bonus.join(' · '), tone: 'bonus' });
+  if (roll.length > 0) {
+    if (perBonus) {
+      groups.push({ count: baseN, label: `${baseN} base`, tone: 'base' });
+      bonus.forEach((b, i) => groups.push({ count: counts[i], label: b, tone: 'bonus' }));
+    } else if (combined) {
+      groups.push({ count: baseN, label: `${baseN} base`, tone: 'base' });
+      groups.push({ count: bonusTotal, label: bonus.join(' · '), tone: 'bonus' });
+    } else {
+      // No usable base/bonus split (a special attack with no "printed" base → base 0, or all-base) —
+      // show EVERY die in one group. (Guard: the per-bonus rewrite wrongly used baseN here, which is
+      // 0 for a special attack, so NO dice rendered.)
+      groups.push({ count: roll.length, label: base > 0 ? `${roll.length} base` : '', tone: 'base' });
+    }
+  }
   // Precompute each group's slice start so the one-at-a-time `shown` reveal flows across all groups.
   let acc = 0;
   const placed = groups.map(g => { const start = acc; acc += g.count; return { ...g, start }; });
@@ -1048,7 +1060,7 @@ function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: nu
           <div className="flex min-h-[60px] flex-wrap items-center justify-center gap-2">
             {roll.slice(g.start, Math.min(shown, g.start + g.count)).map((f, i) => <BigDie key={gi + '-' + i} face={f} landed />)}
           </div>
-          <div className={'text-center text-[10px] font-semibold uppercase tracking-wide ' + (g.tone === 'base' ? 'text-neutral-500' : 'text-amber-400')}>{g.label}</div>
+          {g.label && <div className={'text-center text-[10px] font-semibold uppercase tracking-wide ' + (g.tone === 'base' ? 'text-neutral-500' : 'text-amber-400')}>{g.label}</div>}
         </div>
       ))}
     </div>

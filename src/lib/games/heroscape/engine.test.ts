@@ -6606,6 +6606,29 @@ describe('eliminated seat forfeits its reserve-Airborne turn — no last-chance 
     // The log names the forfeit (the marker IS still revealed per the lost-turn rule, then forfeited).
     expect(after.log.some(e => /eliminated.*forfeit/i.test(e.text))).toBe(true);
   });
+
+  it('an eliminated seat canNOT ROLL The Drop at round start — no comeback (fix 2026-06-27)', () => {
+    // The round-start path (separate from the turn loop above): the AI rolled The Drop for a defeated
+    // seat and it came back — game-breaking. Seat 0 = Airborne (reserve) + Eldgrim (deployed, killed)
+    // → wiped on board, only reserve left = eliminated; it must not be allowed to roll The Drop.
+    const atRoundStart = (cards: string[]) => {
+      let s = customBattle(cards, ['marro_warriors'], 'p1', 'training_field');
+      s = JSON.parse(JSON.stringify(s)) as HSState;
+      s.subPhase = 'place_markers'; s.markersReady = []; s.turnSeat = null; delete s.airborneDropRound;
+      for (const f of s.figures) {
+        if (f.cardUid === 's0-airborne_elite') { f.at = null; f.at2 = null; f.reserve = true; }
+        if (f.cardUid === 's0-eldgrim') { f.at = null; f.at2 = null; } // killed → casualty
+      }
+      return s;
+    };
+    const wiped = atRoundStart(['airborne_elite', 'eldgrim']);
+    expect(errOf(applyAction(wiped, 'p1', { kind: 'the_drop', d20: 20 }))).toMatch(/wiped|eliminat/i);
+    expect(aiNextAction(wiped, 0)).not.toMatchObject({ kind: 'the_drop' }); // AI never rolls for the dead seat
+    // Control: an ALL-Airborne team that never lost a figure (no casualty) CAN still roll + drop.
+    const allAir = atRoundStart(['airborne_elite']);
+    const dropped = unwrap(applyAction(allAir, 'p1', { kind: 'the_drop', d20: 20 }));
+    expect(dropped.pendingChoice?.kind).toBe('airborne_drop'); // a hit opens the landing — it's alive
+  });
 });
 
 describe('audit fixes: height × special attacks / melee (H2/H4)', () => {

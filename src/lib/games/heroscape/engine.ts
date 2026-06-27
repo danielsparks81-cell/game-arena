@@ -6128,6 +6128,11 @@ export function canTheDrop(state: HSState, seat: number): boolean {
   return (
     state.phase === 'playing' &&
     state.subPhase === 'place_markers' &&
+    // A team WIPED ON THE BOARD is eliminated even with reserve Airborne — NO last-chance Drop (the
+    // 2026-06-25 ruling). seatIsAlive is true for an all-Airborne team that never lost a figure, so
+    // it still gets to roll; it's false the instant a deployed figure dies and only reserve remains.
+    // Without this, the AI rolled The Drop for a defeated seat and it came back (game-breaking).
+    seatIsAlive(state, seat) &&
     !(state.markersReady ?? []).includes(seat) &&
     state.airborneDropRound !== state.round &&
     reserveAirborne(state, seat).length > 0
@@ -6157,6 +6162,7 @@ function doTheDrop(state: HSState, seat: number, d20: number): HSResult {
   }
   const reserve = reserveAirborne(state, seat);
   if (reserve.length === 0) return { error: 'You have no Airborne Elite in reserve' };
+  if (!seatIsAlive(state, seat)) return { error: 'Your army was wiped out — an eliminated team gets no last-chance Drop' };
   if (state.airborneDropRound === state.round) return { error: 'The Drop has already been rolled this round' };
   if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) return { error: 'The Drop requires a d20 roll (1-20)' };
 

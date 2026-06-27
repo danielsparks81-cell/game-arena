@@ -624,7 +624,10 @@ function dropStage(): { s: HSState; air: string[]; enemyHex: string } {
   s = addPlayer(s, 'p2', 'Bob', 1, '#ef4444');
   s = unwrap(applyAction(s, 'p1', { kind: 'start_game', mode: 'quick' }));
   s = JSON.parse(JSON.stringify(s)) as HSState;
-  for (const f of s.figures) { f.at = null; f.at2 = null; }
+  // Clear the board to ONE enemy + (below) the reserve Airborne. REMOVE the other quick-army figures
+  // rather than just nulling them — a real game drops unplaced figures, and seatIsAlive (correctly)
+  // reads a lingering unplaced non-reserve figure as a casualty, which would wrongly mark seat 0 dead.
+  s.figures = s.figures.filter(f => f.id === 's1-thorgrim-1');
   const enemyHex = Object.keys(MAPS[s.mapId].cells)[0];
   s.figures.find(f => f.id === 's1-thorgrim-1')!.at = enemyHex; // one enemy on board
   s.cards.push({ uid: 's0-airborne_elite', cardId: 'airborne_elite', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 });
@@ -693,8 +696,8 @@ describe('Airborne Elite — The Drop', () => {
     s.cards.find(c => c.uid === 's0-airborne_elite')!.ownerSeat = 1; // seat 1 owns the reserve Airborne now
     // Give seat 0 an ordinary ON-BOARD figure so it's a LIVING non-dropper bot ahead of the dropper.
     const freeHex = Object.keys(MAPS[s.mapId].cells).find(k => k !== enemyHex && !s.figures.some(f => f.at === k))!;
-    const s0fig = s.figures.find(f => f.id.startsWith('s0-') && f.cardUid !== 's0-airborne_elite')!;
-    s0fig.ownerSeat = 0; s0fig.at = freeHex; s0fig.reserve = false;
+    s.cards.push({ uid: 's0-marro_warriors', cardId: 'marro_warriors', ownerSeat: 0, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's0-marro_warriors-1', cardUid: 's0-marro_warriors', ownerSeat: 0, at: freeHex, index: 1, wounds: 0 });
     s.players.find(p => p.seat === 0)!.bot = true;
     s.players.find(p => p.seat === 1)!.bot = true;
     expect(canTheDrop(s, 1)).toBe(true);  // the higher-seat bot owes The Drop
