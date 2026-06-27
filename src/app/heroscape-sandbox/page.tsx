@@ -18,7 +18,7 @@ const HeroBoard3D = dynamic(() => import('@/components/HeroBoard3D'), { ssr: fal
 const COLORS = ['#ef4444', '#3b82f6', '#eab308', '#a855f7', '#ec4899', '#14b8a6'];
 // Cache-bust for the figure PNGs — bump whenever a cut-out is re-cut so the gallery (and
 // browser) fetch the new image instead of a stale same-named copy.
-const IMG_V = '20260626f';
+const IMG_V = '20260626g';
 
 function shade(hex: string, f: number): string {
   const n = parseInt(hex.slice(1), 16);
@@ -411,18 +411,28 @@ export default function HeroScapeSandbox() {
         </div>
       )}
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-        {tiles.map(t => (
-          <button
-            key={t.key}
-            onClick={() => (erase ? setEraseTile(t) : measure ? setMeasTile(t) : setSel(t))}
-            className={`rounded-lg border bg-white p-2 text-center transition hover:bg-neutral-50 ${erase ? 'border-rose-300 hover:border-rose-500' : measure ? 'border-amber-300 hover:border-amber-500' : 'border-neutral-200 hover:border-sky-500'}`}
-            title={erase ? `Erase white on ${t.name}` : measure ? `Pick cut line for ${t.name}` : `Open ${t.name} in 3D`}
-          >
-            <FigureTile tile={t} />
-            <div className="mt-1 truncate text-xs font-medium text-neutral-800">{t.name}</div>
-            <div className="text-[11px] text-neutral-500">{t.label} · crop {cropOverride(t.cardId, t.index) ?? 'auto'}</div>
-          </button>
-        ))}
+        {tiles.map(t => {
+          // Status "light": BLUE = this figure has a saved cut-line pick (a committed
+          // FIGURE_ANCHOR / FIGURE_SPAN2, or one picked this session); RED = still needs one.
+          const hasPick = !!(figureAnchor(t.cardId, t.index) || figureSpan2(t.cardId, t.index) || picks[t.label]);
+          return (
+            <button
+              key={t.key}
+              onClick={() => (erase ? setEraseTile(t) : measure ? setMeasTile(t) : setSel(t))}
+              className={`relative rounded-lg border bg-white p-2 text-center transition hover:bg-neutral-50 ${erase ? 'border-rose-300 hover:border-rose-500' : measure ? 'border-amber-300 hover:border-amber-500' : 'border-neutral-200 hover:border-sky-500'}`}
+              title={erase ? `Erase white on ${t.name}` : measure ? `Pick cut line for ${t.name}` : `Open ${t.name} in 3D`}
+            >
+              <span
+                className="absolute bottom-1.5 left-1.5 z-10 h-2.5 w-2.5 rounded-full ring-1 ring-black/25"
+                style={{ background: hasPick ? '#3b82f6' : '#ef4444' }}
+                title={hasPick ? 'cut line saved' : 'no cut-line pick yet'}
+              />
+              <FigureTile tile={t} />
+              <div className="mt-1 truncate text-xs font-medium text-neutral-800">{t.name}</div>
+              <div className="text-[11px] text-neutral-500">{t.label} · crop {cropOverride(t.cardId, t.index) ?? 'auto'}</div>
+            </button>
+          );
+        })}
       </div>
       {sel && <FigureModal tile={sel} onClose={() => setSel(null)} />}
       {measTile && <MeasureModal tile={measTile} onClose={() => setMeasTile(null)} onSave={savePick} />}
