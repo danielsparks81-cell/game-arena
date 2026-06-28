@@ -31,13 +31,15 @@ const BASE_DISC_W = SIZE * 1.28;
 const DISC_H = 0.14; // thickness of the player-colour base disc that sits on the hex
 const GLYPH_RAISE = 0.16; // a glyph's whole hex sits slightly higher than its neighbours
 const GLYPH_MAROON = '#7f1d1d'; // glyph hex tint + rune colour (maroon)
-// Water tiles render at HALF a standard tile's height (a physical HeroScape water tile is ~0.5× a normal
-// tile, so it always sits LOWER than the land around it). PURELY COSMETIC — the engine stores water as
-// height 1, so it NEVER grants a height advantage (heightAdvantage reads the cell height = 1). ONE source
-// for every "top of this hex" world-Y (tile, figures, glyphs, FX, outlines) so the sites can't drift apart.
-const WATER_SCALE = 0.5;
+// A water tile's SURFACE sits half a level BELOW its tile height (a physical HeroScape water tile reads
+// ~0.5 lower than the land it's embedded in). So a height-1 water tile reads 0.5 (a ground pond), a
+// height-2 water tile reads 1.5 (a raised pool in higher terrain), height-3 → 2.5, etc. — the author sets
+// the water's height like any tile and it always dips half a level. This MATCHES the engine: it stores the
+// full height and `combatLevel` applies the same −0.5, so render and rules agree. ONE source for every
+// "top of this hex" world-Y (tile, figures, glyphs, FX, outlines) so the sites can't drift apart.
+const WATER_DIP = 0.5; // levels a water surface sits below its tile height
 function hexTopY(height: number, terrain: string, raised: boolean): number {
-  return Math.max(0.2, height * LEVEL) * (terrain === 'water' ? WATER_SCALE : 1) + (raised ? GLYPH_RAISE : 0);
+  return Math.max(0.2, height * LEVEL) - (terrain === 'water' ? WATER_DIP * LEVEL : 0) + (raised ? GLYPH_RAISE : 0);
 }
 // BASE_CROP / BASE_CROP_BY_CARD now live in figureBase.ts (shared with the 2D gallery).
 
@@ -177,8 +179,8 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
 }) {
   const isWater = terrain === 'water';
   // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
-  // Water tiles render at HALF height (WATER_SCALE) — the physical-board look. Cosmetic only; the engine
-  // stores water as height 1, so there is NO height advantage (heightAdvantage reads the cell height as 1).
+  // Water tiles render half a level BELOW their tile height (WATER_DIP) — the physical-board look. The
+  // engine applies the same −0.5 in combatLevel, so a deeper/raised pool reads and plays consistently.
   const h = hexTopY(height, terrain, !!glyph);
   // `blocked` = in range but no line of sight (a wall is between): flat, desaturated grey so it's
   // clearly NOT a shootable hex; `dimmed` = out of a moving ranged figure's reach (darken). Both apply

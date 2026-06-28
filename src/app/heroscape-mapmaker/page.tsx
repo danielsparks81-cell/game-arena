@@ -86,8 +86,9 @@ const Hex = memo(function Hex({ cell, col, row, onDown, onEnter }: {
     const { cx, cy } = centre(col, row);
     const pts = hexCorners(cx, cy);
     const fill = cell.t ? TERRAIN_COLOR[cell.t] : 'rgba(120,120,120,0.10)';
-    // Water sits half a level below the ground (renders at .5 on the 3D board), so we show .5 here.
-    const label = cell.t ? (cell.t === 'W' ? '.5' : String(cell.h)) : '';
+    // Water's SURFACE sits half a level below its tile height (so a height-1 pond reads .5, a height-2
+    // raised pool reads 1.5, etc.). Show that effective surface; non-water shows the plain height.
+    const label = cell.t ? (cell.t === 'W' ? String(cell.h - 0.5).replace(/^0\./, '.') : String(cell.h)) : '';
     return (
       <g
         onPointerDown={e => { e.preventDefault(); onDown(col, row, e.button); }}
@@ -297,7 +298,7 @@ export default function MapMaker() {
     const rowsTxt: string[] = [];
     for (let r = 0; r < rows; r++) {
       const tk: string[] = [];
-      for (let c = 0; c < cols; c++) { const cell = cells[r * cols + c]; tk.push(cell.t ? `${cell.t}${cell.t === 'W' ? 1 : cell.h}${cell.gRand ? '*' : ''}` : '.'); }
+      for (let c = 0; c < cols; c++) { const cell = cells[r * cols + c]; tk.push(cell.t ? `${cell.t}${cell.h}${cell.gRand ? '*' : ''}` : '.'); }
       rowsTxt.push(`    row${r + 1}: ${tk.join(' ')}`);
     }
     const wallsTxt = liveWalls.map(e => `    [[${e.a[0]}, ${e.a[1]}], [${e.b[0]}, ${e.b[1]}]],`);
@@ -447,7 +448,7 @@ ${zoneTxt}${treeTxt}  return m;
                 </div>
               </div>
               <textarea readOnly value={code} className="h-64 w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 font-mono text-[10px] leading-tight text-neutral-300" />
-              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Tip: the <strong className="text-neutral-300">Sculpt</strong> tool raises (left-click) / lowers (right-click) a hex through blank → water → grass → sand → rock. <strong className="text-neutral-300">🎲 Random glyph</strong> marks a spot whose glyph type is rolled fresh each game. <strong className="text-neutral-300">🧱 Wall</strong> sits on the EDGE between two hexes (click the dot) — it blocks movement, line of sight, and adjacency across that edge. Water shows .5 but exports as height 1; trees are cosmetic.</p>
+              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Tip: the <strong className="text-neutral-300">Sculpt</strong> tool raises (left-click) / lowers (right-click) a hex through blank → water → grass → sand → rock. <strong className="text-neutral-300">🎲 Random glyph</strong> marks a spot whose glyph type is rolled fresh each game. <strong className="text-neutral-300">🧱 Wall</strong> sits on the EDGE between two hexes (click the dot) — it blocks movement, line of sight, and adjacency across that edge. Water's surface sits half a level below its tile height (height‑1 = .5 ground pond, height‑2 = 1.5 raised pool) — set it with the Height brush. Trees are cosmetic.</p>
             </div>
           </div>
         </div>
