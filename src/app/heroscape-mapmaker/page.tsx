@@ -14,12 +14,33 @@ import type { HSGlyphId } from '@/lib/games/heroscape';
 type TerrainCode = 'G' | 'R' | 'S' | 'W';
 type Cell = { t: TerrainCode | null; h: number; tree: boolean; glyph: HSGlyphId | null; zone: number };
 type Brush =
+  | { kind: 'sculpt' } // left-click raises a hex one rung, right-click lowers it (terrain auto-follows)
   | { kind: 'terrain'; t: TerrainCode }
   | { kind: 'height'; h: number }
   | { kind: 'tree' }
   | { kind: 'glyph' }
   | { kind: 'zone'; seat: number }
   | { kind: 'erase' };
+
+// SCULPT ladder (owner 2026-06-28): one rung per left/right click. Terrain auto-follows the rung —
+// blank → water (renders half-height) → grass 1/2 → sand 3/4 → rock 5/6/7.
+const RUNGS: { t: TerrainCode | null; h: number }[] = [
+  { t: null, h: 1 }, // 0 blank (no tile)
+  { t: 'W', h: 1 },  // 1 water
+  { t: 'G', h: 1 },  // 2 grass
+  { t: 'G', h: 2 },  // 3 grass
+  { t: 'S', h: 3 },  // 4 sand
+  { t: 'S', h: 4 },  // 5 sand
+  { t: 'R', h: 5 },  // 6 rock
+  { t: 'R', h: 6 },  // 7 rock
+  { t: 'R', h: 7 },  // 8 rock
+];
+// Where does a cell currently sit on the ladder? Blank → 0, water → 1, else height+1 (grass h1 → rung 2 … rock h7 → rung 8).
+function cellRung(cell: Cell): number {
+  if (!cell.t) return 0;
+  if (cell.t === 'W') return 1;
+  return Math.min(RUNGS.length - 1, cell.h + 1);
+}
 
 const TERRAIN_COLOR: Record<TerrainCode, string> = { G: '#5f9e3a', R: '#9a9b97', S: '#caa468', W: '#3f9fd6' };
 const GROUT = '#6b4a24';
@@ -50,16 +71,18 @@ function centre(col: number, row: number): { cx: number; cy: number } {
 
 const Hex = memo(function Hex({ cell, col, row, onDown, onEnter }: {
   cell: Cell; col: number; row: number;
-  onDown: (col: number, row: number) => void; onEnter: (col: number, row: number) => void;
+  onDown: (col: number, row: number, button: number) => void; onEnter: (col: number, row: number) => void;
 }) {
     const { cx, cy } = centre(col, row);
     const pts = hexCorners(cx, cy);
     const fill = cell.t ? TERRAIN_COLOR[cell.t] : 'rgba(120,120,120,0.10)';
-    const label = cell.t ? (cell.t === 'W' ? '0' : String(cell.h)) : '';
+    // Water sits half a level below the ground (renders at .5 on the 3D board), so we show .5 here.
+    const label = cell.t ? (cell.t === 'W' ? '.5' : String(cell.h)) : '';
     return (
       <g
-        onPointerDown={e => { e.preventDefault(); onDown(col, row); }}
+        onPointerDown={e => { e.preventDefault(); onDown(col, row, e.button); }}
         onPointerEnter={() => onEnter(col, row)}
+        onContextMenu={e => e.preventDefault()}
         style={{ cursor: 'pointer' }}
       >
         <polygon points={pts} fill={GROUT} />
@@ -90,6 +113,7 @@ export default function MapMaker() {
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
   const painting = useRef(false);
+  const sculptDir = useRef(1); // +1 raise (left button) / -1 lower (right button), set on pointer-down
   const brushRef = useRef(brush);
   const glyphRef = useRef(glyphId);
   brushRef.current = brush;
@@ -135,6 +159,12 @@ export default function MapMaker() {
       else if (b.kind === 'tree') { if (!next.t) { next.t = 'G'; next.h = 1; } next.tree = true; }
       else if (b.kind === 'glyph') { if (!next.t) { next.t = 'G'; next.h = 1; } next.glyph = glyphRef.current; }
       else if (b.kind === 'zone') { if (!next.t) { next.t = 'G'; next.h = 1; } next.zone = b.seat; }
+      else if (b.kind === 'sculpt') {
+        const nr = Math.max(0, Math.min(RUNGS.length - 1, cellRung(cell) + sculptDir.current));
+        const rung = RUNGS[nr];
+        next.t = rung.t; next.h = rung.h;
+        if (!rung.t) { next.tree = false; next.glyph = null; next.zone = 0; } // a blank hex can't hold a mark
+      }
       if (next.t === cell.t && next.h === cell.h && next.tree === cell.tree && next.glyph === cell.glyph && next.zone === cell.zone) return prev;
       const out = prev.slice();
       out[i] = next;
@@ -142,7 +172,11 @@ export default function MapMaker() {
     });
   }, [cols]);
 
-  const onDown = useCallback((c: number, r: number) => { painting.current = true; applyAt(c, r); }, [applyAt]);
+  const onDown = useCallback((c: number, r: number, button: number) => {
+    painting.current = true;
+    sculptDir.current = button === 2 ? -1 : 1; // right button lowers, anything else raises
+    applyAt(c, r);
+  }, [applyAt]);
   const onEnter = useCallback((c: number, r: number) => { if (painting.current) applyAt(c, r); }, [applyAt]);
 
   function resize(nc: number, nr: number) {
@@ -249,7 +283,7 @@ ${zoneTxt}${treeTxt}  return m;
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100">
-      <div className="mx-auto max-w-6xl px-4 py-5">
+      <div className="mx-auto max-w-[110rem] px-4 py-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center gap-2 text-lg font-semibold"><span className="text-sky-400">⬡</span> HeroScape Level Creator</h1>
           <div className="flex items-center gap-3 text-xs">
@@ -287,6 +321,9 @@ ${zoneTxt}${treeTxt}  return m;
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
+          <button onClick={() => setBrush({ kind: 'sculpt' })} className={btn(brush.kind === 'sculpt')}
+            title="Left-click raises a hex, right-click lowers it: blank → water → grass 1/2 → sand 3/4 → rock 5+">⛰ Sculpt</button>
+          <span className="mr-2 text-[11px] text-neutral-500">left&nbsp;raise · right&nbsp;lower</span>
           <span className="mr-1 text-[11px] uppercase tracking-wide text-neutral-500">Terrain</span>
           {(['G', 'R', 'S', 'W'] as TerrainCode[]).map(t => (
             <button key={t} onClick={() => setBrush({ kind: 'terrain', t })} className={btn(brush.kind === 'terrain' && brush.t === t)}
@@ -312,8 +349,8 @@ ${zoneTxt}${treeTxt}  return m;
           ))}
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[1fr_320px]">
-          <div className="overflow-auto rounded-lg border border-neutral-800 bg-neutral-900/30 p-2" style={{ maxHeight: '62vh', touchAction: 'none' }}>
+        <div className="grid gap-3 lg:grid-cols-[1fr_300px]">
+          <div onContextMenu={e => e.preventDefault()} className="overflow-auto rounded-lg border border-neutral-800 bg-neutral-900/30 p-2" style={{ maxHeight: '82vh', touchAction: 'none' }}>
             <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width: Math.max(Number(vbW), 300), height: 'auto', display: 'block', userSelect: 'none' }}>
               {cells.map((cell, i) => <Hex key={i} cell={cell} col={i % cols} row={Math.floor(i / cols)} onDown={onDown} onEnter={onEnter} />)}
             </svg>
@@ -333,7 +370,7 @@ ${zoneTxt}${treeTxt}  return m;
                 </div>
               </div>
               <textarea readOnly value={code} className="h-64 w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 font-mono text-[10px] leading-tight text-neutral-300" />
-              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Blank hexes = height 1; water shows 0. Trees are cosmetic until a forest mechanic lands.</p>
+              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Tip: the <strong className="text-neutral-300">Sculpt</strong> tool lets you left-click to raise a hex and right-click to lower it (blank → water → grass → sand → rock). Water shows .5 but exports as height 1. Trees are cosmetic until a forest mechanic lands.</p>
             </div>
           </div>
         </div>
