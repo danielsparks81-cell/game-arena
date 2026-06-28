@@ -875,7 +875,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   const fxAt = (key: HexKey): [number, number, number] => {
     const [x, z] = worldXZ(...parseQR(key));
     const c = map?.cells[key];
-    const y = Math.max(0.2, (c?.height ?? 1) * LEVEL) * (c?.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 1.1;
+    const y = Math.max(0.2, (c?.height ?? 1) * LEVEL) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 1.1; // water flush (height 1) — no sink
     return [x, y, z];
   };
   const [fx, setFx] = useState<{ id: number; kind: NonNullable<HSState['lastEffect']>['kind']; from: [number, number, number]; to: [number, number, number][] }[]>([]);
@@ -913,7 +913,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
       const cell = map.cells[key];
       if (!cell) continue;
       const [cxk, czk] = worldXZ(...parseQR(key));
-      const y = Math.max(0.2, cell.height * LEVEL) * (cell.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 0.07;
+      const y = Math.max(0.2, cell.height * LEVEL) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 0.07; // water flush (height 1) — no sink
       for (const n of neighborKeys(key)) {
         if (hexes.has(n)) continue; // interior edge — skip; only draw where the region ends
         const [nx, nz] = worldXZ(...parseQR(n));
@@ -957,7 +957,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const gc = map?.cells[g.at];
         if (!gc) return null;
         const [gx, gz] = worldXZ(...parseQR(g.at));
-        const gTop = Math.max(0.2, gc.height * LEVEL) * (gc.terrain === 'water' ? 0.6 : 1) + GLYPH_RAISE;
+        const gTop = Math.max(0.2, gc.height * LEVEL) + GLYPH_RAISE; // water flush (height 1) — no sink, matching the tile
         const active = state.figures.some(f => f.at === g.at); // a figure stands on it → activated
         const def = HS_GLYPHS[g.id];
         return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} faceUp={g.faceUp} letter={def?.letter ?? '?'} />;
@@ -967,7 +967,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           const lead = worldXZ(...parseQR(f.at!));
           const trail = f.at2 ? worldXZ(...parseQR(f.at2)) : null;
           const cell = map?.cells[f.at!];
-          const topY = Math.max(0.2, (cell?.height ?? 1) * LEVEL) * (cell?.terrain === 'water' ? 0.6 : 1) + (glyphSet.has(f.at!) ? GLYPH_RAISE : 0);
+          const topY = Math.max(0.2, (cell?.height ?? 1) * LEVEL) + (glyphSet.has(f.at!) ? GLYPH_RAISE : 0); // water flush (height 1) — figures stand level with grass, matching the tile
           const cardId = cardOf(f.cardUid);
           if (!cardId) return null;
           return (
