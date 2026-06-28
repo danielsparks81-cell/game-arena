@@ -169,7 +169,11 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
 }) {
   const isWater = terrain === 'water';
   // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
-  const h = Math.max(0.2, height * LEVEL) * (isWater ? 0.6 : 1) + (glyph ? GLYPH_RAISE : 0);
+  // Water renders FLUSH with the grass (its true height — water is a FLAT height-1 forced-stop, not a
+  // depression). The old `× 0.6` sank the surface ~half a level, which read as a height difference /
+  // advantage beside water on the Star Field (owner 2026-06-28). Engine height is unchanged (always 1),
+  // so this only fixes the misleading look; water still reads as water via its translucent blue top.
+  const h = Math.max(0.2, height * LEVEL) + (glyph ? GLYPH_RAISE : 0);
   // `blocked` = in range but no line of sight (a wall is between): flat, desaturated grey so it's
   // clearly NOT a shootable hex; `dimmed` = out of a moving ranged figure's reach (darken). Both apply
   // to the grassy TOP and the dirt SIDES alike so the whole tile reads one gameplay state.
