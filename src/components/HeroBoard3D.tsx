@@ -31,6 +31,14 @@ const BASE_DISC_W = SIZE * 1.28;
 const DISC_H = 0.14; // thickness of the player-colour base disc that sits on the hex
 const GLYPH_RAISE = 0.16; // a glyph's whole hex sits slightly higher than its neighbours
 const GLYPH_MAROON = '#7f1d1d'; // glyph hex tint + rune colour (maroon)
+// Water tiles render at HALF a standard tile's height (a physical HeroScape water tile is ~0.5× a normal
+// tile, so it always sits LOWER than the land around it). PURELY COSMETIC — the engine stores water as
+// height 1, so it NEVER grants a height advantage (heightAdvantage reads the cell height = 1). ONE source
+// for every "top of this hex" world-Y (tile, figures, glyphs, FX, outlines) so the sites can't drift apart.
+const WATER_SCALE = 0.5;
+function hexTopY(height: number, terrain: string, raised: boolean): number {
+  return Math.max(0.2, height * LEVEL) * (terrain === 'water' ? WATER_SCALE : 1) + (raised ? GLYPH_RAISE : 0);
+}
 // BASE_CROP / BASE_CROP_BY_CARD now live in figureBase.ts (shared with the 2D gallery).
 
 // Hexes are coloured by their HEIGHT BAND (not terrain material) so elevation reads at a glance — the
@@ -169,11 +177,9 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
 }) {
   const isWater = terrain === 'water';
   // A glyph's whole hex sits slightly RAISED and is tinted maroon so it reads as a special space.
-  // Water renders FLUSH with the grass (its true height — water is a FLAT height-1 forced-stop, not a
-  // depression). The old `× 0.6` sank the surface ~half a level, which read as a height difference /
-  // advantage beside water on the Star Field (owner 2026-06-28). Engine height is unchanged (always 1),
-  // so this only fixes the misleading look; water still reads as water via its translucent blue top.
-  const h = Math.max(0.2, height * LEVEL) + (glyph ? GLYPH_RAISE : 0);
+  // Water tiles render at HALF height (WATER_SCALE) — the physical-board look. Cosmetic only; the engine
+  // stores water as height 1, so there is NO height advantage (heightAdvantage reads the cell height as 1).
+  const h = hexTopY(height, terrain, !!glyph);
   // `blocked` = in range but no line of sight (a wall is between): flat, desaturated grey so it's
   // clearly NOT a shootable hex; `dimmed` = out of a moving ranged figure's reach (darken). Both apply
   // to the grassy TOP and the dirt SIDES alike so the whole tile reads one gameplay state.
@@ -875,7 +881,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   const fxAt = (key: HexKey): [number, number, number] => {
     const [x, z] = worldXZ(...parseQR(key));
     const c = map?.cells[key];
-    const y = Math.max(0.2, (c?.height ?? 1) * LEVEL) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 1.1; // water flush (height 1) — no sink
+    const y = hexTopY(c?.height ?? 1, c?.terrain ?? 'grass', glyphSet.has(key)) + 1.1;
     return [x, y, z];
   };
   const [fx, setFx] = useState<{ id: number; kind: NonNullable<HSState['lastEffect']>['kind']; from: [number, number, number]; to: [number, number, number][] }[]>([]);
@@ -913,7 +919,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
       const cell = map.cells[key];
       if (!cell) continue;
       const [cxk, czk] = worldXZ(...parseQR(key));
-      const y = Math.max(0.2, cell.height * LEVEL) + (glyphSet.has(key) ? GLYPH_RAISE : 0) + 0.07; // water flush (height 1) — no sink
+      const y = hexTopY(cell.height, cell.terrain, glyphSet.has(key)) + 0.07;
       for (const n of neighborKeys(key)) {
         if (hexes.has(n)) continue; // interior edge — skip; only draw where the region ends
         const [nx, nz] = worldXZ(...parseQR(n));
@@ -957,7 +963,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const gc = map?.cells[g.at];
         if (!gc) return null;
         const [gx, gz] = worldXZ(...parseQR(g.at));
-        const gTop = Math.max(0.2, gc.height * LEVEL) + GLYPH_RAISE; // water flush (height 1) — no sink, matching the tile
+        const gTop = hexTopY(gc.height, gc.terrain, true);
         const active = state.figures.some(f => f.at === g.at); // a figure stands on it → activated
         const def = HS_GLYPHS[g.id];
         return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} faceUp={g.faceUp} letter={def?.letter ?? '?'} />;
@@ -967,7 +973,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           const lead = worldXZ(...parseQR(f.at!));
           const trail = f.at2 ? worldXZ(...parseQR(f.at2)) : null;
           const cell = map?.cells[f.at!];
-          const topY = Math.max(0.2, (cell?.height ?? 1) * LEVEL) + (glyphSet.has(f.at!) ? GLYPH_RAISE : 0); // water flush (height 1) — figures stand level with grass, matching the tile
+          const topY = hexTopY(cell?.height ?? 1, cell?.terrain ?? 'grass', glyphSet.has(f.at!)); // half-height on water (physical look), matching the tile
           const cardId = cardOf(f.cardUid);
           if (!cardId) return null;
           return (
