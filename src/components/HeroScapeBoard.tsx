@@ -1589,7 +1589,9 @@ export default function HeroScapeBoard({
   // players; the user can toggle any). Keyed by seat; absent → default.
   // Global army-panel DETAIL LEVEL: 1 = names + life stacked, 2 = compact stat
   // tiles (default), 3 = full cards. Toggled from any player strip's header.
-  const [armyDetail, setArmyDetail] = useState<1 | 2 | 3>(1); // default to the thin names+life strip (with order-marker bubbles) for everyone
+  // Army panels are LOCKED to the thin names+life strip (the "small window" the owner chose); the old
+  // 1/2/3 detail selector was removed. Full card detail is the hover preview that pops over the
+  // Now-acting card. (Placement still forces level 2 so a placing player has tiles to click.)
   // The battle log is collapsible and minimized by default so the map/cards own
   // the space; expand it (a thin toggle on the far left) to read/scroll history.
   const [logOpen, setLogOpen] = useState(false);
@@ -3126,12 +3128,15 @@ export default function HeroScapeBoard({
     // A wiped-out seat (no living figures during play) KEEPS its colour but the name is struck
     // through (user request) — you can still tell whose army it was, plainly marked as eliminated.
     const eliminated = state.phase === 'playing' && !livingSeats(state).includes(seat);
-    // The big card-hover preview pins to a screen edge — push it to the edge AWAY from this panel so
-    // it never covers the panel being hovered (a RIGHT-side panel shows its preview on the LEFT, etc.).
-    const hoverSide: 'left' | 'right' = panelSlotAnchor(seat).includes('right') ? 'left' : 'right';
+    // The big card-hover preview ALWAYS pins to the RIGHT edge — directly over the "Now acting" card
+    // (the right rail) — so EVERY player's army card previews in the ONE consistent spot the owner
+    // asked for. It used to flip per seat (LEFT for a right-anchored panel), which dropped the 3rd–6th
+    // players' previews over the event LOG instead; only the left-anchored seats 1/2 landed on the
+    // now-acting card. One fixed side makes them all match.
+    const hoverSide: 'left' | 'right' = 'right';
     // Detail level applies to every strip; a player PLACING markers needs the
     // tiles to click, so their own strip is forced to level 2 while placing.
-    const level: 1 | 2 | 3 = placingMine ? 2 : armyDetail;
+    const level: 1 | 2 = placingMine ? 2 : 1;
     const colorFor = (dead: boolean) => (dead ? '#737373' : seatColor(seat));
     // The strip is only as wide as its cards (w-fit), but wraps within the column
     // when a big army would overflow (max-w-full).
@@ -3146,23 +3151,8 @@ export default function HeroScapeBoard({
             {eliminated && <span className="rounded bg-rose-950/80 px-1 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-rose-300 ring-1 ring-rose-700/70">💀 defeated</span>}
             {isActive && <span className="rounded bg-amber-900/50 px-1 text-[9px] font-semibold text-amber-300">turn</span>}
           </span>
-          {/* detail-level control (1/2/3) — global; applies to every player's strip. Pinned to the
-              UPPER-RIGHT of the panel (user request) via ml-auto. */}
-          {!placingMine && (
-            <span className="ml-auto flex items-center gap-0.5 rounded border border-neutral-700 p-0.5" title="Army-panel detail (applies to all players)">
-              {([1, 2, 3] as const).map(lv => (
-                <button
-                  key={lv}
-                  type="button"
-                  onClick={() => setArmyDetail(lv)}
-                  title={lv === 1 ? 'Names + life' : lv === 2 ? 'Compact cards' : 'Full cards'}
-                  className={'rounded px-1.5 text-[10px] font-bold leading-4 transition ' + (armyDetail === lv ? 'bg-neutral-200 text-neutral-900' : 'text-neutral-400 hover:bg-neutral-800')}
-                >
-                  {lv}
-                </button>
-              ))}
-            </span>
-          )}
+          {/* The 1/2/3 detail selector was removed (owner: "we're good with the small window default") —
+              panels stay on the thin names+life strip; hover a card for the full detail. */}
           {placingMine && (
             <span className="ml-auto flex items-center gap-1">
               {MARKERS.map(v => (
@@ -3321,28 +3311,8 @@ export default function HeroScapeBoard({
         </div>
         )}
 
-        {/* LEVEL 3 — the full cards (with markers above + a live-status badge). */}
-        {level === 3 && (
-          <div className="mt-1 flex flex-wrap gap-2">
-            {cards.map(({ uid, def, alive, reserve, heroWounds, markers }) => {
-              const active = uid === activeCardUid && state.subPhase === 'turns';
-              const dead = alive === 0 && reserve === 0;
-              return (
-                <div key={uid} className="flex flex-col items-center gap-0.5">
-                  <div className="flex h-5 items-center justify-center gap-0.5">
-                    {markers.map((m, i) => <MarkerChip key={i} m={m} size={16} />)}
-                  </div>
-                  <div className={'relative w-[240px] overflow-hidden rounded-lg ' + (active ? 'ring-2 ring-amber-500 ' : '') + (dead ? 'opacity-45 grayscale' : '')}>
-                    <HybridCard cardId={def.id} />
-                    <span className="absolute right-1 top-1 flex items-center rounded bg-neutral-950/85 px-1 py-0.5 text-[10px] font-bold tabular-nums text-neutral-200">
-                      {def.type === 'hero' ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} /> : `${alive}/${def.figures}`}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {/* (The LEVEL 3 full-card view was removed along with the 1/2/3 selector — hover any card to
+            see its full detail over the Now-acting slot.) */}
       </div>
     );
   }

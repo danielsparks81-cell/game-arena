@@ -387,6 +387,10 @@ describe('Jotun — Throw 14', () => {
     expect(at(s, 's1-thorgrim-1')).toBe(land);
     expect(s.figures.find(f => f.id === 's1-thorgrim-1')!.wounds).toBe(2);
     expect(s.turnAttacks.length).toBe(0); // Throw is NOT an attack
+    // BOTH d20s are surfaced PUBLICLY in the shared dice overlay (owner request) — the throw-success
+    // roll AND the damage roll, each labelled — not just the throw die with the damage buried in the log.
+    expect(s.lastRoll?.dice).toEqual([14, 11]);
+    expect(s.lastRoll?.labels).toEqual(['Throw (14+)', 'Damage (11+)']);
   });
 
   it('a roll below 14 fails (the figure stays); the attempt is still spent', () => {

@@ -5969,19 +5969,35 @@ function doThrow(
   // Throwing damage — UNLESS the landing is higher than Jotun's Height, or water.
   const jotunHeight = cardDefFor(s, jotun).height;
   const noDamage = (landCell && landCell.height > jotunHeight) || landCell?.terrain === 'water';
+  const dmgRoll = action.damageD20 + lodin;
+  const dmgLodinNote = lodin ? `=${action.damageD20}+${lodin} Lodin` : '';
   let woundLine = '';
+  let dmgCaption = ''; // shown UNDER the damage die in the public overlay
   if (noDamage) {
-    woundLine = landCell?.terrain === 'water' ? ' (landed in water — no throwing damage)' : ' (landed above Jotun’s height — no throwing damage)';
-  } else if (action.damageD20 + lodin >= THROW_DAMAGE_THRESHOLD) {
+    const where = landCell?.terrain === 'water' ? 'landed in water' : 'landed above Jotun’s height';
+    woundLine = ` (${where} — no throwing damage)`;
+    dmgCaption = `${where} — no damage (the die didn’t count).`;
+  } else if (dmgRoll >= THROW_DAMAGE_THRESHOLD) {
     t.wounds += THROW_WOUNDS;
     const destroyed = t.wounds >= tdef.life;
     if (destroyed) { t.at = null; t.at2 = null; maybeQueueSpiritOnDestroy(s, t); }
-    woundLine = ` and takes ${THROW_WOUNDS} wounds (rolled ${action.damageD20 + lodin}${lodin ? `=${action.damageD20}+${lodin} Lodin` : ''} ≥ ${THROW_DAMAGE_THRESHOLD})${destroyed ? ' — destroyed!' : ''}`;
+    woundLine = ` and takes ${THROW_WOUNDS} wounds (rolled ${dmgRoll}${dmgLodinNote} ≥ ${THROW_DAMAGE_THRESHOLD})${destroyed ? ' — destroyed!' : ''}`;
+    dmgCaption = `Damage ${dmgRoll}${dmgLodinNote} ≥${THROW_DAMAGE_THRESHOLD} — ${THROW_WOUNDS} wounds${destroyed ? `, ${tdef.name} destroyed!` : ''}`;
   } else {
-    woundLine = ` and is unharmed (rolled ${action.damageD20 + lodin} < ${THROW_DAMAGE_THRESHOLD})`;
+    woundLine = ` and is unharmed (rolled ${dmgRoll} < ${THROW_DAMAGE_THRESHOLD})`;
+    dmgCaption = `Damage ${dmgRoll}${dmgLodinNote} <${THROW_DAMAGE_THRESHOLD} — unharmed.`;
   }
   pushLog(s, 'power', `${figureLabel(s, jotun)} Throws ${figureLabel(s, t)} (rolled ${action.throwD20}) onto ${action.to}${woundLine}.`);
-  setLastRoll(s, { title: 'Throw', dice: [action.throwD20], success: true, detail: `${action.throwD20} (≥${THROW_THRESHOLD}) — Jotun hurls ${tdef.name}!` });
+  // Show BOTH d20s publicly (owner request) — the throw-success roll AND the damage roll — in the
+  // shared dice overlay, each labelled, so every player sees the full result (the damage die used to
+  // be buried in the log line only).
+  setLastRoll(s, {
+    title: 'Throw',
+    dice: [action.throwD20, action.damageD20],
+    labels: [`Throw (${THROW_THRESHOLD}+)`, `Damage (${THROW_DAMAGE_THRESHOLD}+)`],
+    success: true,
+    detail: `Throw ${throwRoll}${lodinNote} ≥${THROW_THRESHOLD} — Jotun hurls ${tdef.name}. ${dmgCaption}`,
+  });
   checkEliminationWin(s);
   return s;
 }
