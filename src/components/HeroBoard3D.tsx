@@ -386,7 +386,13 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
   // This is what fixes "can't tell which figures are picked for the breath": eligible = seat
   // disc + fuchsia glow; PICKED = solid orange disc.
   const solidPick = (target || splash) ? strongRing : null;
-  const discProps = { color: solidPick ?? color, emissive: ring ?? '#000000', emissiveIntensity: strongRing ? (solidPick ? 1.0 : 0.9) : actionable ? 0.5 : aura ? 0.4 : 0, roughness: 0.5, metalness: 0.2, side: THREE.DoubleSide };
+  // The player-colour base SELF-LIGHTS its seat colour when idle. The board's bright, WARM key light
+  // (directional 1.6 #fff2d6 + hemisphere 0.9 + ambient 0.3) otherwise washes a vivid base toward
+  // pastel — a purple disc read as pale lavender, not the player's colour (owner: "why aren't the bases
+  // purple?"). A modest emissive of the seat colour + metalness 0 (no grey metallic wash) makes the
+  // base read as the HUD colour under any lighting. A glow RING (selected/target/actionable/aura) still
+  // overrides with its own colour and intensity exactly as before — only the IDLE case changed (0 → 0.35).
+  const discProps = { color: solidPick ?? color, emissive: ring ?? color, emissiveIntensity: strongRing ? (solidPick ? 1.0 : 0.9) : actionable ? 0.5 : aura ? 0.4 : 0.35, roughness: 0.5, metalness: 0, side: THREE.DoubleSide };
   // 2-hex SWAY: a double-space figure must not billboard freely or its wide plane swings
   // perpendicular and hangs off the peanut. Keep its footprint along the peanut's long axis,
   // letting it sway toward the camera only up to the angle where its base edge still fits
