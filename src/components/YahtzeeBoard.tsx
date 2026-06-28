@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import {
-  NUM_DICE, ROLLS_PER_TURN, UPPER, LOWER, CATEGORY_LABELS, UPPER_BONUS, UPPER_BONUS_THRESHOLD,
+  NUM_DICE, ROLLS_PER_TURN, UPPER, LOWER, CATEGORY_LABELS, FIXED_CATEGORY_POINTS, UPPER_BONUS, UPPER_BONUS_THRESHOLD,
   scoreFor, upperTotal, upperBonus, lowerTotal, grandTotal, isYahtzee,
   type YState, type Category,
 } from '@/lib/games/yahtzee';
@@ -273,7 +273,17 @@ function ScoreRow({
   const active = state.players[state.turnIndex];
   return (
     <tr className="border-t border-neutral-800/60">
-      <td className="px-2 py-1.5 text-neutral-300">{CATEGORY_LABELS[cat]}</td>
+      <td className="px-2 py-1.5 text-neutral-300">
+        {CATEGORY_LABELS[cat]}
+        {FIXED_CATEGORY_POINTS[cat] != null && (
+          <span
+            className="ml-1.5 text-[10px] font-normal text-neutral-500"
+            title="Fixed score — these points no matter the dice faces"
+          >
+            {FIXED_CATEGORY_POINTS[cat]} pts
+          </span>
+        )}
+      </td>
       {state.players.map(p => {
         const filled = p.scorecard[cat];
         const isActive = p.playerId === active?.playerId;

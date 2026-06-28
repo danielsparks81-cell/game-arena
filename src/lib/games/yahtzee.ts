@@ -33,6 +33,17 @@ export const CATEGORY_LABELS: Record<Category, string> = {
   yahtzee: 'Yahtzee', chance: 'Chance',
 };
 
+/** Categories that pay a FIXED amount no matter the dice faces — Full House is always 25, the
+ *  straights 30/40, Yahtzee 50 — unlike the upper section / 3-4-of-a-kind / Chance, which sum the
+ *  dice. The scorecard lists these set values next to the category name so the value of each fixed
+ *  "prize" is visible. Values MUST match scoreFor (asserted in the tests). */
+export const FIXED_CATEGORY_POINTS: Partial<Record<Category, number>> = {
+  fullHouse: 25,
+  smallStraight: 30,
+  largeStraight: 40,
+  yahtzee: 50,
+};
+
 export type Scorecard = Record<Category, number | null>;
 
 export type YPlayer = {
