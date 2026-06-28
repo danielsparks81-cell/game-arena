@@ -234,7 +234,11 @@ function makeStarMap(id: string, name: string, R: number, tipCut: number): HSMap
     for (let i = 0; i < 6; i++) { out.push(hexKey(cq, cr)); [cq, cr] = rot60(cq, cr); }
     return out;
   };
-  const walls = new Set(orbit(5, 0)); // 6 height-15 pillars ringing the centre
+  // Each ring pillar is now a 3-hex WALL SEGMENT: the centre pillar (5,0) flanked by its two ring
+  // neighbours (5,-1) & (4,1), all orbited to the six arms — so every arm faces an identical tangential
+  // wall arc (owner 2026-06-28: "add more walls flanking, symmetric over the entire board"). 18 wall
+  // hexes of the 30-hex radius-5 ring, leaving a 2-wide gap per arm to keep the centre reachable.
+  const walls = new Set([...orbit(5, 0), ...orbit(5, -1), ...orbit(4, 1)]);
   const peaks = new Set(orbit(8, -4)); // each arm's hill peak (height 3)
   const slopes = new Set([...orbit(7, -3), ...orbit(9, -5)]); // ridge either side of each peak (height 2)
   // 6-fold SYMMETRIC WATER — small ponds down each arm (owner request 2026-06-25): one just inside
