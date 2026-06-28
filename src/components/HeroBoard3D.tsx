@@ -15,7 +15,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Billboard, Edges, Html, Line } from '@react-three/drei';
 import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys, SEAT_COLORS, TEAM_COLORS } from '@/lib/games/heroscape';
+import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys, SEAT_COLORS, teamColorById, computeSeatColorMap } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2, sizeScale } from '@/lib/games/heroscape/figureBase';
 
@@ -830,28 +830,12 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   // Each HUMAN keeps their website colour (accent_color); bots / no-preset seats take the palette colour
   // FARTHEST from those already used (no collisions, and a player never loses their colour to the AI —
   // owner 2026-06-25). Teams share one team colour. Mirrors HeroScapeBoard.seatColorMap.
-  const seatColorMap = useMemo(() => {
-    const isHex = (c?: string): c is string => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
-    const dist = (a: string, b: string) => {
-      const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
-      return Math.abs((x >> 16 & 255) - (y >> 16 & 255)) + Math.abs((x >> 8 & 255) - (y >> 8 & 255)) + Math.abs((x & 255) - (y & 255));
-    };
-    const map = new Map<number, string>();
-    const taken: string[] = [];
-    for (const p of state.players) {
-      if (p.team === undefined && p.accent_color && !p.bot) { map.set(p.seat, p.accent_color); if (isHex(p.accent_color)) taken.push(p.accent_color); }
-    }
-    for (const p of [...state.players].sort((a, b) => a.seat - b.seat)) {
-      if (map.has(p.seat) || p.team !== undefined) continue;
-      let best = SEAT_COLORS[0], bd = -1;
-      for (const c of SEAT_COLORS) { const d = taken.length ? Math.min(...taken.map(t => dist(t, c))) : Infinity; if (d > bd) { bd = d; best = c; } }
-      map.set(p.seat, best); taken.push(best);
-    }
-    return map;
-  }, [state.players]);
+  // SINGLE source of truth (heroscape/colors), shared with HeroScapeBoard's HUD so a figure's base
+  // disc colour always matches the player's HUD colour. (This used to be a divergent local copy.)
+  const seatColorMap = useMemo(() => computeSeatColorMap(state.players), [state.players]);
   const seatColor = (seat: number) => {
     const p = state.players.find(x => x.seat === seat);
-    if (p?.team !== undefined) return TEAM_COLORS[(p.team - 1) % TEAM_COLORS.length] ?? '#a3a3a3';
+    if (p?.team !== undefined) return teamColorById(p.team);
     return seatColorMap.get(seat) ?? SEAT_COLORS[state.players.findIndex(x => x.seat === seat)] ?? '#a3a3a3';
   };
   // Highlight priority for a tile: Drop picks/targets, then the Grapple climb set,

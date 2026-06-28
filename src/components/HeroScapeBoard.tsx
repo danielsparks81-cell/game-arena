@@ -98,6 +98,7 @@ import {
   SEAT_COLORS,
   TEAM_COLORS,
   teamColorById,
+  computeSeatColorMap,
 } from '@/lib/games/heroscape';
 
 // The 3D board (React Three Fiber) is a heavy WebGL bundle — load it lazily and
@@ -1182,7 +1183,7 @@ function GlyphsPanel({ glyphs }: { glyphs: HSState['glyphs'] }) {
                   To the RIGHT now, since the glyph HUD hugs the LEFT edge of the board; vertically
                   clamped so a long curse never spills off-screen. */}
               {def && (
-                <div className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-h-[60vh] w-64 max-w-[70vw] -translate-y-1/2 overflow-y-auto rounded-lg border-2 border-rose-700 bg-neutral-950/97 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block">
+                <div className="pointer-events-none absolute left-full top-1/2 z-50 ml-2 hidden max-h-[60vh] w-64 max-w-[70vw] -translate-y-1/2 overflow-y-auto whitespace-normal break-words rounded-lg border-2 border-rose-700 bg-neutral-950/97 px-3 py-2 text-left shadow-xl shadow-black/60 group-hover:block">
                   <div className="flex items-center gap-2">
                     <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 border-rose-300 bg-rose-900 text-[11px] font-black text-rose-50">{def.letter}</span>
                     <div className="min-w-0">
@@ -2121,29 +2122,8 @@ export default function HeroScapeBoard({
   // colour. (Earlier we kept the EXACT accent, but two players with similar customs both read as
   // "blue" and one palette colour — often orange — went missing; snapping fixes both.) Teams still
   // share one team colour so sides read at a glance.
-  const seatColorMap = useMemo(() => {
-    const isHex = (c?: string): c is string => !!c && /^#[0-9a-fA-F]{6}$/.test(c);
-    const dist = (a: string, b: string) => {
-      const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
-      return Math.abs((x >> 16 & 255) - (y >> 16 & 255)) + Math.abs((x >> 8 & 255) - (y >> 8 & 255)) + Math.abs((x & 255) - (y & 255));
-    };
-    const nearest = (c: string) => SEAT_COLORS.reduce((b, p) => (dist(c, p) < dist(c, b) ? p : b), SEAT_COLORS[0]);
-    const map = new Map<number, string>();
-    const used = new Set<string>(); // palette colours already claimed → every seat stays distinct
-    // 1) Humans with a preset accent claim their NEAREST palette hue (if still free).
-    for (const p of state.players) {
-      if (p.team !== undefined || p.bot || !isHex(p.accent_color)) continue;
-      const snap = nearest(p.accent_color);
-      if (!used.has(snap)) { map.set(p.seat, snap); used.add(snap); }
-    }
-    // 2) Everyone else takes the next UNUSED palette colour (in seat order) — keeps all ≤6 distinct.
-    for (const p of [...state.players].sort((a, b) => a.seat - b.seat)) {
-      if (map.has(p.seat) || p.team !== undefined) continue;
-      const free = SEAT_COLORS.find(c => !used.has(c)) ?? SEAT_COLORS[0];
-      map.set(p.seat, free); used.add(free);
-    }
-    return map;
-  }, [state.players]);
+  // Shared with HeroBoard3D via heroscape/colors so figure bases always match the HUD colour.
+  const seatColorMap = useMemo(() => computeSeatColorMap(state.players), [state.players]);
   const seatColor = (seat: number) => {
     const p = state.players.find(x => x.seat === seat);
     if (p?.team !== undefined) return teamColorById(p.team);
