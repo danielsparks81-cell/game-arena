@@ -958,6 +958,26 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
       {auraOutline && (
         <Line points={auraOutline} segments color="#e3c25a" lineWidth={2.6} transparent opacity={0.62} depthWrite={false} toneMapped={false} raycast={() => null} />
       )}
+      {/* WALLS — a stone slab standing on the EDGE between two hexes (a full barrier: blocks movement,
+          line of sight and adjacency). Oriented perpendicular to the line of centres, raised to sit on
+          top of the taller of the two tiles. */}
+      {(map?.walls ?? []).map(([a, b], i) => {
+        const ca = map?.cells[a], cb = map?.cells[b];
+        if (!ca || !cb) return null;
+        const [xa, za] = worldXZ(ca.q, ca.r);
+        const [xb, zb] = worldXZ(cb.q, cb.r);
+        const dx = xb - xa, dz = zb - za;
+        const dist = Math.hypot(dx, dz) || 1;
+        const edge = dist / Math.sqrt(3); // hex side length from adjacent-centre distance
+        const base = Math.max(hexTopY(ca.height, ca.terrain, glyphSet.has(a)), hexTopY(cb.height, cb.terrain, glyphSet.has(b)));
+        const wallH = LEVEL * 1.7;
+        return (
+          <mesh key={`wall-${i}`} position={[(xa + xb) / 2, base + wallH / 2, (za + zb) / 2]} rotation={[0, Math.atan2(-dx, -dz), 0]} raycast={() => null} castShadow>
+            <boxGeometry args={[edge * 1.04, wallH, 0.12]} />
+            <meshStandardMaterial color="#e7e2d8" roughness={0.9} metalness={0} />
+          </mesh>
+        );
+      })}
       {/* Power glyphs sit on the ground (rendered after tiles, before figures). */}
       {(state.glyphs ?? []).map(g => {
         const gc = map?.cells[g.at];

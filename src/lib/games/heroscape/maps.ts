@@ -10,7 +10,8 @@
 // CONTENT, not state (state stores only `mapId`), keeping the room JSONB lean.
 
 import type { HexKey, HexCell, Terrain, HSGlyphId, HSGlyph } from './types';
-import { hexKey, offsetToAxial, axialToOffset } from './board';
+import { hexKey, offsetToAxial, axialToOffset, hexDistance } from './board';
+import type { WallEdge } from './board';
 
 /** A glyph placed on a map: its identity and the hex it sits on. The runtime
  *  `HSGlyph` (with `faceUp`) is materialized from this at game start. */
@@ -42,6 +43,10 @@ export type HSMap = {
    *  Every hex here must be a real cell and not a start-zone hex (glyphs sit on
    *  neutral mid-board terrain). */
   glyphs: HSGlyphPlacement[];
+  /** WALLS: barriers on the EDGE between two adjacent hexes (NOT on a hex). Each
+   *  one severs that edge for movement, adjacency/engagement and line of sight.
+   *  Author-placed map content; absent on maps without walls. */
+  walls?: WallEdge[];
 };
 
 const TERRAIN_BY_TOKEN: Record<string, Terrain> = {
@@ -60,6 +65,7 @@ export function parseMap(
   name: string,
   spec: string,
   glyphLayout: { id: HSGlyphId; col: number; row: number }[] = [],
+  wallLayout: [[number, number], [number, number]][] = [],
 ): HSMap {
   const cells: Record<HexKey, HexCell> = {};
   const startZones: Record<number, HexKey[]> = {};
@@ -103,7 +109,21 @@ export function parseMap(
     return { id: g.id, at: key };
   });
 
-  return { id, name, cols, rows, cells, startZones, glyphSpots, glyphs };
+  // Materialize walls into axial edges, validating each sits between two real,
+  // ADJACENT cells (a wall must straddle a genuine hex border).
+  const walls: WallEdge[] = wallLayout.map(([[ca, ra], [cb, rb]]) => {
+    const a = offsetToAxial(ca, ra), b = offsetToAxial(cb, rb);
+    const ka = hexKey(a.q, a.r), kb = hexKey(b.q, b.r);
+    if (!cells[ka] || !cells[kb]) {
+      throw new Error(`heroscape maps: wall between off-map hex (${ca + 1},${ra + 1})-(${cb + 1},${rb + 1}) in "${id}"`);
+    }
+    if (hexDistance(ka, kb) !== 1) {
+      throw new Error(`heroscape maps: wall between non-adjacent hexes (${ca + 1},${ra + 1})-(${cb + 1},${rb + 1}) in "${id}"`);
+    }
+    return [ka, kb] as const;
+  });
+
+  return { id, name, cols, rows, cells, startZones, glyphSpots, glyphs, ...(walls.length ? { walls } : {}) };
 }
 
 /** TEST-1 "Training Field" (docs/heroscape/test-maps.md) — 7×8, all grass

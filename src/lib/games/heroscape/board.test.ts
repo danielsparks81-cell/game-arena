@@ -15,6 +15,8 @@ import {
   canStepUp,
   areEngaged,
   computeFall,
+  edgeKey,
+  wallSetOf,
   hasLineOfSight,
   hasLineOfSight3D,
   isoTopCenter,
@@ -452,6 +454,50 @@ describe('reachableDestinations with glyphs (forced stop) — slice 4', () => {
       canEndOn: () => false,
     });
     expect(dests.has(kelda)).toBe(false);
+  });
+});
+
+describe('walls (edge barriers) — full barrier: movement + adjacency + LOS', () => {
+  // A straight 3-hex row; a wall on the edge between the first two hexes.
+  const m = parseMap('wall_row', 'Wall Row', `row1: G1 G1 G1`);
+  const A = at(0, 0), B = at(1, 0), C = at(2, 0);
+  const walls = wallSetOf([[A, B]]);
+  const heightAt = () => 1;
+  const eye = () => 1;
+
+  it('edgeKey is order-independent', () => {
+    expect(edgeKey(A, B)).toBe(edgeKey(B, A));
+    expect(walls.has(edgeKey(B, A))).toBe(true);
+  });
+
+  it('a figure cannot move across a walled edge', () => {
+    // Without the wall the whole row is reachable; with it, B (and C beyond) are cut off.
+    expect(reachableDestinations(m.cells, A, 5, () => null, 5).has(C)).toBe(true);
+    const dests = reachableDestinations(m.cells, A, 5, () => null, 5, { walls });
+    expect(dests.has(B)).toBe(false);
+    expect(dests.has(C)).toBe(false); // the only path to C runs through the walled edge
+  });
+
+  it('dragStep refuses a step across a walled edge', () => {
+    expect(dragStep(m.cells, A, A, B, () => null, 5)).not.toBeNull();
+    expect(dragStep(m.cells, A, A, B, () => null, 5, { walls })).toBeNull();
+  });
+
+  it('two figures separated by a wall are NOT adjacent/engaged', () => {
+    expect(areEngaged(A, 5, B, 5, heightAt)).toBe(true); // flat neighbours normally engage
+    expect(areEngaged(A, 5, B, 5, heightAt, walls)).toBe(false); // the wall severs it
+  });
+
+  it('a wall blocks line of sight across it (full-height)', () => {
+    expect(hasLineOfSight3D(m.cells, A, B, [], eye)).toBe(true);
+    expect(hasLineOfSight3D(m.cells, A, B, [], eye, [[A, B]])).toBe(false);
+  });
+
+  it('a wall only blocks ITS edge — other edges and sightlines are unaffected', () => {
+    // The B–C edge has no wall: B can still reach C and see it.
+    expect(reachableDestinations(m.cells, B, 2, () => null, 5, { walls }).has(C)).toBe(true);
+    expect(hasLineOfSight3D(m.cells, B, C, [], eye, [[A, B]])).toBe(true);
+    expect(areEngaged(B, 5, C, 5, heightAt, walls)).toBe(true);
   });
 });
 

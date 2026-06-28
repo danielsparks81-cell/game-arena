@@ -41,6 +41,30 @@ export function neighborKeys(key: HexKey): HexKey[] {
   return DIRS.map(([dq, dr]) => hexKey(q + dq, r + dr));
 }
 
+// ============================================================================
+// WALLS — a barrier that sits ON THE EDGE between two adjacent hexes (not on a
+// hex). A wall fully severs that edge: you cannot MOVE across it, two figures it
+// separates are NOT adjacent (no melee / no range-1 engagement), and any line of
+// sight crossing the wall segment is blocked (full-height — blocks regardless of
+// elevation). Walls are author-placed map content (owner ruling 2026-06-28).
+// ============================================================================
+
+/** One wall: the unordered edge between two adjacent hexes. */
+export type WallEdge = readonly [HexKey, HexKey];
+
+/** Canonical key for the edge between two hexes (order-independent), so a wall
+ *  lookup is the same whichever direction you cross it. */
+export function edgeKey(a: HexKey, b: HexKey): string {
+  return a < b ? `${a}~${b}` : `${b}~${a}`;
+}
+
+/** Build the fast lookup set from a map's wall list (undefined → empty). */
+export function wallSetOf(walls: ReadonlyArray<WallEdge> | undefined): Set<string> {
+  const s = new Set<string>();
+  if (walls) for (const [a, b] of walls) s.add(edgeKey(a, b));
+  return s;
+}
+
 /**
  * The `len` hexes stepping out from `from` in hex direction `dir` (0-5, indexing
  * DIRS), nearest-first: from+dir·1 … from+dir·len. Pure; does NOT filter to
@@ -190,6 +214,11 @@ export type ReachOptions = {
    * already passes any figure).
    */
   ghostWalk?: boolean;
+  /** WALLS (owner ruling 2026-06-28): the set of blocked EDGE keys (`wallSetOf`).
+   *  A figure can never step across a walled edge (it is impassable like a void),
+   *  so a wall on the edge between two hexes splits movement there for EVERY mover
+   *  — ground, flyer, or ghost-walker alike (it is a solid barrier, not terrain). */
+  walls?: ReadonlySet<string>;
 };
 
 /**
@@ -285,6 +314,7 @@ export function reachableDestinations(
     if (curIsWater && !doubleSpace) continue;
     for (const n of neighborKeys(cur)) {
       if (!cells[n]) continue; // void / off-map
+      if (options.walls && options.walls.has(edgeKey(cur, n))) continue; // a wall severs this edge — impassable
       if (curIsWater && isWater(n)) continue; // double-space: never chain water→water in one move
       const occ = occupancyOf(n);
       // Enemy-occupied hexes block transit normally, but Ghost Walk / Flying may
@@ -334,6 +364,7 @@ export function dragStep(
 ): { cost: number; forcedStop: boolean } | null {
   if (!cells[prev] || !cells[to]) return null;
   if (!neighborKeys(prev).includes(to)) return null; // must be an adjacent hex
+  if (options.walls && options.walls.has(edgeKey(prev, to))) return null; // a wall severs this edge — impassable
   const flyer = !!options.flyer;
   const ghostWalk = flyer || !!options.ghostWalk;
   const huge = !!options.doubleSpace; // a 2-hex mover: water-stop is the caller's call (both lobes)
@@ -417,6 +448,43 @@ export function segmentCrossesHex(a: Pixel, b: Pixel, center: Pixel): boolean {
   return t1 - t0 > 1e-9;
 }
 
+/** Do segments p1p2 and p3p4 PROPERLY cross (interiors intersect)? Touching at an
+ *  endpoint or running collinear returns false — same grazing-is-fine leniency the
+ *  rest of LOS uses. Standard orientation (CCW) test. */
+function segmentsCross(p1: Pixel, p2: Pixel, p3: Pixel, p4: Pixel): boolean {
+  const ccw = (a: Pixel, b: Pixel, c: Pixel) => (c.y - a.y) * (b.x - a.x) - (b.y - a.y) * (c.x - a.x);
+  const d1 = ccw(p3, p4, p1), d2 = ccw(p3, p4, p2), d3 = ccw(p1, p2, p3), d4 = ccw(p1, p2, p4);
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+/** The pixel segment of the WALL on the edge between two adjacent hexes: the shared
+ *  edge is perpendicular to the line of centres, centred at their midpoint, with the
+ *  hex side-length (1 in unit space) — so half-length 0.5 each way. */
+function wallSegment(a: HexKey, b: HexKey): [Pixel, Pixel] {
+  const pa = hexToPixel(a), pb = hexToPixel(b);
+  const mx = (pa.x + pb.x) / 2, my = (pa.y + pb.y) / 2;
+  let dx = pb.x - pa.x, dy = pb.y - pa.y;
+  const len = Math.hypot(dx, dy) || 1;
+  dx /= len; dy /= len;
+  const px = -dy * 0.5, py = dx * 0.5; // perpendicular, half a side length
+  return [{ x: mx + px, y: my + py }, { x: mx - px, y: my - py }];
+}
+
+/** Does the centre-to-centre sightline cross any WALL segment? Walls are full-height,
+ *  so they block line of sight regardless of either figure's elevation. */
+export function sightCrossesWall(
+  from: HexKey,
+  to: HexKey,
+  wallEdges: ReadonlyArray<readonly [HexKey, HexKey]>,
+): boolean {
+  const a = hexToPixel(from), b = hexToPixel(to);
+  for (const [wa, wb] of wallEdges) {
+    const [e1, e2] = wallSegment(wa, wb);
+    if (segmentsCross(a, b, e1, e2)) return true;
+  }
+  return false;
+}
+
 /**
  * Slice-1 line of sight: a straight line between the two hex CENTERS, blocked
  * only when it crosses the interior of a hex occupied by another figure
@@ -480,11 +548,15 @@ export function hasLineOfSight3D(
   to: HexKey,
   occupiedKeys: Iterable<HexKey>,
   eyeOf: (key: HexKey) => number,
+  wallEdges?: ReadonlyArray<readonly [HexKey, HexKey]>,
 ): boolean {
   const a = hexToPixel(from);
   const b = hexToPixel(to);
   const eyeFrom = eyeOf(from);
   const eyeTo = eyeOf(to);
+
+  // A WALL on any crossed edge blocks the shot outright (full-height barrier).
+  if (wallEdges && wallEdges.length > 0 && sightCrossesWall(from, to, wallEdges)) return false;
 
   // Figures block exactly as in the flat model.
   for (const key of occupiedKeys) {
@@ -538,9 +610,13 @@ export function areEngaged(
   bKey: HexKey,
   bHeightStat: number,
   heightAt: (key: HexKey) => number,
+  walls?: ReadonlySet<string>,
 ): boolean {
   if (aKey === bKey) return false;
   if (hexDistance(aKey, bKey) !== 1) return false;
+  // A WALL on the shared edge severs adjacency entirely (the §8 exc. 2 "ruin between"
+  // case): the two figures are not engaged — no melee, no leaving-engagement swipe.
+  if (walls && walls.has(edgeKey(aKey, bKey))) return false;
   const ha = heightAt(aKey);
   const hb = heightAt(bKey);
   // Whoever stands LOWER — their Height stat gates the elevation exception.

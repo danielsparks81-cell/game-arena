@@ -8,19 +8,29 @@
 // to remix it. Reached from the top bar (⬡ HS maps).
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MAPS, HS_GLYPHS, offsetToAxial, hexKey, axialToOffset, SEAT_COLORS } from '@/lib/games/heroscape';
+import { MAPS, HS_GLYPHS, offsetToAxial, hexKey, axialToOffset, neighborKeys, SEAT_COLORS } from '@/lib/games/heroscape';
 import type { HSGlyphId } from '@/lib/games/heroscape';
 
 type TerrainCode = 'G' | 'R' | 'S' | 'W';
-type Cell = { t: TerrainCode | null; h: number; tree: boolean; glyph: HSGlyphId | null; zone: number };
+// `glyph` = a SPECIFIC glyph id (exported in the glyph layout); `gRand` = a RANDOM glyph spot (a `*`
+// token — the engine rolls a random glyph there each game). A hex holds at most one of the two.
+type Cell = { t: TerrainCode | null; h: number; tree: boolean; glyph: HSGlyphId | null; gRand?: boolean; zone: number };
 type Brush =
   | { kind: 'sculpt' } // left-click raises a hex one rung, right-click lowers it (terrain auto-follows)
   | { kind: 'terrain'; t: TerrainCode }
   | { kind: 'height'; h: number }
   | { kind: 'tree' }
   | { kind: 'glyph' }
+  | { kind: 'glyphRandom' } // marks a hex as a RANDOM-glyph spot
+  | { kind: 'wall' } // click the dot between two hexes to toggle a wall on that EDGE
   | { kind: 'zone'; seat: number }
   | { kind: 'erase' };
+
+// A wall lives on the EDGE between two hexes. Canonical id (order-independent) keyed by offset coords.
+function edgeId(a: [number, number], b: [number, number]): string {
+  const ka = a[1] * 10000 + a[0], kb = b[1] * 10000 + b[0];
+  return ka <= kb ? `${a[0]},${a[1]}|${b[0]},${b[1]}` : `${b[0]},${b[1]}|${a[0]},${a[1]}`;
+}
 
 // SCULPT ladder (owner 2026-06-28): one rung per left/right click. Terrain auto-follows the rung —
 // blank → water (renders half-height) → grass 1/2 → sand 3/4 → rock 5/6/7.
@@ -99,6 +109,12 @@ const Hex = memo(function Hex({ cell, col, row, onDown, onEnter }: {
         )}
         {cell.tree && <circle cx={cx} cy={cy - 11} r={4} fill="#1e5a16" pointerEvents="none" />}
         {cell.glyph && <circle cx={cx} cy={cy + 12} r={3.5} fill="#b91c1c" stroke="#fff" strokeWidth={0.5} pointerEvents="none" />}
+        {cell.gRand && (
+          <g pointerEvents="none">
+            <circle cx={cx} cy={cy + 11} r={5.5} fill="#a855f7" stroke="#fff" strokeWidth={0.6} />
+            <text x={cx} y={cy + 14.5} textAnchor="middle" fontSize={9} fontWeight={800} fill="#fff">?</text>
+          </g>
+        )}
       </g>
     );
 });
@@ -112,6 +128,7 @@ export default function MapMaker() {
   const [glyphId, setGlyphId] = useState<HSGlyphId>('mitonsoul');
   const [savedNames, setSavedNames] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [walls, setWalls] = useState<Set<string>>(() => new Set());
   const painting = useRef(false);
   const sculptDir = useRef(1); // +1 raise (left button) / -1 lower (right button), set on pointer-down
   const brushRef = useRef(brush);
@@ -129,6 +146,7 @@ export default function MapMaker() {
         const d = JSON.parse(cur);
         if (d && Array.isArray(d.cells) && d.cols && d.rows) {
           setCols(d.cols); setRows(d.rows); setCells(d.cells); setName(d.name ?? 'My Battlefield');
+          if (Array.isArray(d.walls)) setWalls(new Set(d.walls));
         }
       }
       const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
@@ -138,8 +156,8 @@ export default function MapMaker() {
 
   // Autosave the working draft.
   useEffect(() => {
-    try { localStorage.setItem(CURRENT_KEY, JSON.stringify({ name, cols, rows, cells })); } catch { /* quota */ }
-  }, [name, cols, rows, cells]);
+    try { localStorage.setItem(CURRENT_KEY, JSON.stringify({ name, cols, rows, cells, walls: [...walls] })); } catch { /* quota */ }
+  }, [name, cols, rows, cells, walls]);
 
   useEffect(() => {
     const up = () => { painting.current = false; };
@@ -153,19 +171,20 @@ export default function MapMaker() {
       const cell = prev[i];
       const b = brushRef.current;
       const next: Cell = { ...cell };
-      if (b.kind === 'erase') { next.t = null; next.h = 1; next.tree = false; next.glyph = null; next.zone = 0; }
+      if (b.kind === 'erase') { next.t = null; next.h = 1; next.tree = false; next.glyph = null; next.gRand = false; next.zone = 0; }
       else if (b.kind === 'terrain') { next.t = b.t; if (next.h < 1) next.h = 1; }
       else if (b.kind === 'height') { if (next.t) next.h = b.h; }
       else if (b.kind === 'tree') { if (!next.t) { next.t = 'G'; next.h = 1; } next.tree = true; }
-      else if (b.kind === 'glyph') { if (!next.t) { next.t = 'G'; next.h = 1; } next.glyph = glyphRef.current; }
+      else if (b.kind === 'glyph') { if (!next.t) { next.t = 'G'; next.h = 1; } next.glyph = glyphRef.current; next.gRand = false; }
+      else if (b.kind === 'glyphRandom') { if (!next.t) { next.t = 'G'; next.h = 1; } next.gRand = true; next.glyph = null; }
       else if (b.kind === 'zone') { if (!next.t) { next.t = 'G'; next.h = 1; } next.zone = b.seat; }
       else if (b.kind === 'sculpt') {
         const nr = Math.max(0, Math.min(RUNGS.length - 1, cellRung(cell) + sculptDir.current));
         const rung = RUNGS[nr];
         next.t = rung.t; next.h = rung.h;
-        if (!rung.t) { next.tree = false; next.glyph = null; next.zone = 0; } // a blank hex can't hold a mark
+        if (!rung.t) { next.tree = false; next.glyph = null; next.gRand = false; next.zone = 0; } // a blank hex can't hold a mark
       }
-      if (next.t === cell.t && next.h === cell.h && next.tree === cell.tree && next.glyph === cell.glyph && next.zone === cell.zone) return prev;
+      if (next.t === cell.t && next.h === cell.h && next.tree === cell.tree && next.glyph === cell.glyph && next.gRand === cell.gRand && next.zone === cell.zone) return prev;
       const out = prev.slice();
       out[i] = next;
       return out;
@@ -173,11 +192,41 @@ export default function MapMaker() {
   }, [cols]);
 
   const onDown = useCallback((c: number, r: number, button: number) => {
+    if (brushRef.current.kind === 'wall') return; // wall mode paints EDGES (the dots), not hexes
     painting.current = true;
     sculptDir.current = button === 2 ? -1 : 1; // right button lowers, anything else raises
     applyAt(c, r);
   }, [applyAt]);
   const onEnter = useCallback((c: number, r: number) => { if (painting.current) applyAt(c, r); }, [applyAt]);
+
+  const toggleWall = useCallback((id: string) => {
+    setWalls(prev => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s; });
+  }, []);
+
+  // Every interior edge between two EXISTING hexes (deduped), with its midpoint + the perpendicular
+  // wall segment in pixel space. Drives both the click-to-toggle dots (wall mode) and the wall render.
+  const edgeList = useMemo(() => {
+    const has = (c: number, r: number) => c >= 0 && c < cols && r >= 0 && r < rows && !!cells[r * cols + c]?.t;
+    const out: { id: string; a: [number, number]; b: [number, number]; mx: number; my: number; e1: [number, number]; e2: [number, number] }[] = [];
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      if (!has(c, r)) continue;
+      const { q, r: rr } = offsetToAxial(c, r);
+      for (const nk of neighborKeys(hexKey(q, rr))) {
+        const { col: nc, row: nrow } = axialToOffset(nk);
+        if (!has(nc, nrow)) continue;
+        if (nrow * 10000 + nc <= r * 10000 + c) continue; // canonical order → each edge once
+        const A = centre(c, r), B = centre(nc, nrow);
+        const mx = (A.cx + B.cx) / 2, my = (A.cy + B.cy) / 2;
+        let dx = B.cx - A.cx, dy = B.cy - A.cy; const L = Math.hypot(dx, dy) || 1; dx /= L; dy /= L;
+        const hx = -dy * (S / 2), hy = dx * (S / 2); // perpendicular half-edge
+        out.push({ id: edgeId([c, r], [nc, nrow]), a: [c, r], b: [nc, nrow], mx, my, e1: [mx + hx, my + hy], e2: [mx - hx, my - hy] });
+      }
+    }
+    return out;
+  }, [cells, cols, rows]);
+
+  // Only walls whose two hexes still exist (after edits/resize) are real — prune the rest from view + export.
+  const liveWalls = useMemo(() => edgeList.filter(e => walls.has(e.id)), [edgeList, walls]);
 
   function resize(nc: number, nr: number) {
     nc = Math.max(4, Math.min(30, nc)); nr = Math.max(4, Math.min(26, nr));
@@ -191,6 +240,7 @@ export default function MapMaker() {
 
   function clearAll() {
     setCells(makeGrid(cols, rows, () => ({ t: 'G', h: 1, tree: false, glyph: null, zone: 0 })));
+    setWalls(new Set());
   }
 
   function loadMap(id: string) {
@@ -210,13 +260,19 @@ export default function MapMaker() {
       for (const key of keys) { const { col, row } = axialToOffset(key); const g = grid[row * nc + col]; if (g) g.zone = Number(seat) + 1; }
     });
     for (const gp of m.glyphs) { const { col, row } = axialToOffset(gp.at); const g = grid[row * nc + col]; if (g) g.glyph = gp.id; }
-    setCols(nc); setRows(nr); setCells(grid); setName(m.name);
+    for (const key of m.glyphSpots ?? []) { const { col, row } = axialToOffset(key); const g = grid[row * nc + col]; if (g) g.gRand = true; }
+    const w = new Set<string>();
+    for (const [ka, kb] of m.walls ?? []) {
+      const A = axialToOffset(ka), B = axialToOffset(kb);
+      w.add(edgeId([A.col, A.row], [B.col, B.row]));
+    }
+    setCols(nc); setRows(nr); setCells(grid); setWalls(w); setName(m.name);
   }
 
   function saveDraft() {
     try {
       const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
-      drafts[name] = { name, cols, rows, cells };
+      drafts[name] = { name, cols, rows, cells, walls: [...walls] };
       localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
       setSavedNames(Object.keys(drafts));
     } catch { /* quota */ }
@@ -225,7 +281,7 @@ export default function MapMaker() {
     try {
       const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
       const d = drafts[n];
-      if (d) { setCols(d.cols); setRows(d.rows); setCells(d.cells); setName(d.name); }
+      if (d) { setCols(d.cols); setRows(d.rows); setCells(d.cells); setWalls(new Set(d.walls ?? [])); setName(d.name); }
     } catch { /* ignore */ }
   }
 
@@ -233,7 +289,7 @@ export default function MapMaker() {
 
   const stats = useMemo(() => {
     let hexes = 0, zones = 0, trees = 0, glyphs = 0; const byT: Record<string, number> = {};
-    for (const c of cells) { if (!c.t) continue; hexes++; byT[c.t] = (byT[c.t] || 0) + 1; if (c.zone) zones++; if (c.tree) trees++; if (c.glyph) glyphs++; }
+    for (const c of cells) { if (!c.t) continue; hexes++; byT[c.t] = (byT[c.t] || 0) + 1; if (c.zone) zones++; if (c.tree) trees++; if (c.glyph || c.gRand) glyphs++; }
     return { hexes, zones, trees, glyphs, byT };
   }, [cells]);
 
@@ -241,9 +297,11 @@ export default function MapMaker() {
     const rowsTxt: string[] = [];
     for (let r = 0; r < rows; r++) {
       const tk: string[] = [];
-      for (let c = 0; c < cols; c++) { const cell = cells[r * cols + c]; tk.push(cell.t ? `${cell.t}${cell.t === 'W' ? 1 : cell.h}` : '.'); }
+      for (let c = 0; c < cols; c++) { const cell = cells[r * cols + c]; tk.push(cell.t ? `${cell.t}${cell.t === 'W' ? 1 : cell.h}${cell.gRand ? '*' : ''}` : '.'); }
       rowsTxt.push(`    row${r + 1}: ${tk.join(' ')}`);
     }
+    const wallsTxt = liveWalls.map(e => `    [[${e.a[0]}, ${e.a[1]}], [${e.b[0]}, ${e.b[1]}]],`);
+    const wallsArg = wallsTxt.length ? `\n    [\n${wallsTxt.join('\n')}\n    ],` : '';
     const glyphLayout: string[] = [];
     const zoneKeys: Record<number, string[]> = {};
     const trees: string[] = [];
@@ -268,12 +326,12 @@ ${rowsTxt.join('\n')}
   \`,
     [
 ${glyphLayout.join('\n')}
-    ],
+    ],${wallsArg}
   );
 ${zoneTxt}${treeTxt}  return m;
 })();
 // then register it: add \`${slug}: ${slug.toUpperCase()}_MAP\` to the MAPS record.`);
-  }, [cells, cols, rows, name, slug]);
+  }, [cells, cols, rows, name, slug, liveWalls]);
 
   const vbW = (DX * cols + DX / 2 + 4).toFixed(0);
   const vbH = (DY * rows + S + 4).toFixed(0);
@@ -337,10 +395,15 @@ ${zoneTxt}${treeTxt}  return m;
           ))}
           <span className="mx-1 text-[11px] uppercase tracking-wide text-neutral-500">Mark</span>
           <button onClick={() => setBrush({ kind: 'tree' })} className={btn(brush.kind === 'tree')}>Tree</button>
-          <button onClick={() => setBrush({ kind: 'glyph' })} className={btn(brush.kind === 'glyph')}>Glyph</button>
+          <button onClick={() => setBrush({ kind: 'glyph' })} className={btn(brush.kind === 'glyph')} title="Place a SPECIFIC glyph">Glyph</button>
           <select value={glyphId} onChange={e => setGlyphId(e.target.value as HSGlyphId)} className="rounded border border-neutral-700 bg-neutral-800 px-1.5 py-1 text-xs">
             {GLYPH_IDS.map(g => <option key={g} value={g}>{g}</option>)}
           </select>
+          <button onClick={() => setBrush({ kind: 'glyphRandom' })} className={btn(brush.kind === 'glyphRandom')}
+            title="Mark a glyph spot — the game rolls a RANDOM glyph here each match">🎲 Random glyph</button>
+          <span className="mx-1 text-[11px] uppercase tracking-wide text-neutral-500">Wall</span>
+          <button onClick={() => setBrush({ kind: 'wall' })} className={btn(brush.kind === 'wall')}
+            title="Click a dot BETWEEN two hexes to toggle a wall on that edge (blocks movement, sight + adjacency)">🧱 Wall</button>
           <button onClick={() => setBrush({ kind: 'erase' })} className={btn(brush.kind === 'erase')}>Erase</button>
           <span className="mx-1 text-[11px] uppercase tracking-wide text-neutral-500">Zone</span>
           {SEAT_COLORS.map((c, i) => (
@@ -353,6 +416,20 @@ ${zoneTxt}${treeTxt}  return m;
           <div onContextMenu={e => e.preventDefault()} className="overflow-auto rounded-lg border border-neutral-800 bg-neutral-900/30 p-2" style={{ maxHeight: '82vh', touchAction: 'none' }}>
             <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width: Math.max(Number(vbW), 300), height: 'auto', display: 'block', userSelect: 'none' }}>
               {cells.map((cell, i) => <Hex key={i} cell={cell} col={i % cols} row={Math.floor(i / cols)} onDown={onDown} onEnter={onEnter} />)}
+              {/* WALLS — drawn on the hex edges, above the tiles */}
+              {liveWalls.map(e => (
+                <g key={e.id} pointerEvents="none">
+                  <line x1={e.e1[0]} y1={e.e1[1]} x2={e.e2[0]} y2={e.e2[1]} stroke="#1c1917" strokeWidth={7} strokeLinecap="round" />
+                  <line x1={e.e1[0]} y1={e.e1[1]} x2={e.e2[0]} y2={e.e2[1]} stroke="#d6d3d1" strokeWidth={3.5} strokeLinecap="round" />
+                </g>
+              ))}
+              {/* Wall mode: a clickable dot on every interior edge — click toggles a wall there */}
+              {brush.kind === 'wall' && edgeList.map(e => (
+                <circle key={e.id} cx={e.mx} cy={e.my} r={5}
+                  fill={walls.has(e.id) ? '#f59e0b' : 'rgba(168,162,158,0.5)'}
+                  stroke="#1c1917" strokeWidth={0.6}
+                  onClick={() => toggleWall(e.id)} style={{ cursor: 'pointer' }} />
+              ))}
             </svg>
           </div>
 
@@ -360,7 +437,7 @@ ${zoneTxt}${treeTxt}  return m;
             <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-3 text-xs text-neutral-300">
               <div className="mb-1 font-semibold text-neutral-200">{stats.hexes} hexes</div>
               <div className="text-neutral-400">grass {stats.byT.G || 0} · rock {stats.byT.R || 0} · sand {stats.byT.S || 0} · water {stats.byT.W || 0}</div>
-              <div className="text-neutral-400">zones {stats.zones} · trees {stats.trees} · glyphs {stats.glyphs}</div>
+              <div className="text-neutral-400">zones {stats.zones} · trees {stats.trees} · glyphs {stats.glyphs} · walls {liveWalls.length}</div>
             </div>
             <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
               <div className="mb-2 flex items-center justify-between">
@@ -370,7 +447,7 @@ ${zoneTxt}${treeTxt}  return m;
                 </div>
               </div>
               <textarea readOnly value={code} className="h-64 w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 font-mono text-[10px] leading-tight text-neutral-300" />
-              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Tip: the <strong className="text-neutral-300">Sculpt</strong> tool lets you left-click to raise a hex and right-click to lower it (blank → water → grass → sand → rock). Water shows .5 but exports as height 1. Trees are cosmetic until a forest mechanic lands.</p>
+              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Tip: the <strong className="text-neutral-300">Sculpt</strong> tool raises (left-click) / lowers (right-click) a hex through blank → water → grass → sand → rock. <strong className="text-neutral-300">🎲 Random glyph</strong> marks a spot whose glyph type is rolled fresh each game. <strong className="text-neutral-300">🧱 Wall</strong> sits on the EDGE between two hexes (click the dot) — it blocks movement, line of sight, and adjacency across that edge. Water shows .5 but exports as height 1; trees are cosmetic.</p>
             </div>
           </div>
         </div>

@@ -195,6 +195,8 @@ function inTurnsOn(
 const CLIFF_MAP_ID = 'test_cliffs';
 const WATER_MAP_ID = 'test_water';
 const TINY_MAP_ID = 'test_tiny';
+const WALL_MAP_ID = 'test_wall';
+const GLYPHSPOT_MAP_ID = 'test_glyphspot';
 beforeAll(() => {
   MAPS[CLIFF_MAP_ID] = parseMap(
     CLIFF_MAP_ID,
@@ -222,6 +224,40 @@ beforeAll(() => {
   // A 3-hex single row: at most TWO mutually-non-adjacent landings, so a 4-figure
   // Airborne squad can never fully drop here — used to exercise the "can't fit" path.
   MAPS[TINY_MAP_ID] = parseMap(TINY_MAP_ID, 'Test Tiny', `row1@1: G1 G1 G1`);
+  // A 7x7 map (big enough for the quick-army placement) where hex (3,3) is SEALED — walls on all six of
+  // its edges. So (3,3) is unreachable by ANY path and a figure on it is adjacent to nobody — a
+  // detour-proof way to exercise wall movement + adjacency blocking regardless of map size.
+  MAPS[WALL_MAP_ID] = parseMap(
+    WALL_MAP_ID,
+    'Test Wall',
+    `
+    row1@1: G1 G1 G1 G1 G1 G1 G1
+    row2@1: G1 G1 G1 G1 G1 G1 G1
+    row3:   G1 G1 G1 G1 G1 G1 G1
+    row4:   G1 G1 G1 G1 G1 G1 G1
+    row5:   G1 G1 G1 G1 G1 G1 G1
+    row6@2: G1 G1 G1 G1 G1 G1 G1
+    row7@2: G1 G1 G1 G1 G1 G1 G1
+    `,
+    [],
+    [
+      [[3, 3], [4, 3]], [[3, 3], [4, 2]], [[3, 3], [3, 2]],
+      [[3, 3], [2, 3]], [[3, 3], [3, 4]], [[3, 3], [4, 4]],
+    ],
+  );
+  // A flat map with a single author-placed RANDOM glyph spot (`*`) — for the random-glyph test.
+  MAPS[GLYPHSPOT_MAP_ID] = parseMap(
+    GLYPHSPOT_MAP_ID,
+    'Test Glyph Spot',
+    `
+    row1@1: G1 G1 G1 G1 G1 G1 G1 G1
+    row2@1: G1 G1 G1 G1 G1 G1 G1 G1
+    row3:   G1 G1 G1 G1* G1 G1 G1 G1
+    row4:   G1 G1 G1 G1 G1 G1 G1 G1
+    row5@2: G1 G1 G1 G1 G1 G1 G1 G1
+    row6@2: G1 G1 G1 G1 G1 G1 G1 G1
+    `,
+  );
 });
 
 /** offset (col,row) → axial key for readable coordinates. */
@@ -1842,6 +1878,39 @@ describe('slice 3: water forced stop (Ford Crossing)', () => {
     expect(MAPS['ford_crossing'].cells[at(0, 2)].terrain).toBe('water');
     expect(dests.has(at(0, 2))).toBe(true); // wades one hex into the river, stops
     expect(dests.has(at(0, 5))).toBe(false); // can't reach the far bank across water
+  });
+});
+
+// --- walls (edge barriers) + random glyph spots ----------------------------
+
+describe('walls — full barrier severs movement + engagement across the edge', () => {
+  it('a sealed hex (walls on every edge) is unreachable across the walls', () => {
+    let s = customBattle(['finn'], ['thorgrim'], 'p1', WALL_MAP_ID);
+    s = clearExcept(s, FINN);
+    s = place(s, FINN, at(4, 3)); // beside the sealed hex (3,3)
+    const dests = legalDestinations(s, FINN);
+    expect(dests.has(at(3, 3))).toBe(false); // sealed — no open edge reaches it
+    expect(dests.has(at(4, 4))).toBe(true); // an open neighbour is still reachable
+  });
+
+  it('a melee figure cannot target an enemy across a wall, but can across an open edge', () => {
+    let s = customBattle(['finn'], ['thorgrim'], 'p1', WALL_MAP_ID);
+    s = clearExcept(s, FINN, THORGRIM);
+    s = place(s, FINN, at(4, 3));
+    s = place(s, THORGRIM, at(3, 3)); // across the WALLED edge → not adjacent
+    expect(legalTargets(s, FINN)).not.toContain(THORGRIM);
+    s = place(s, THORGRIM, at(5, 3)); // across an OPEN edge → adjacent melee target
+    expect(legalTargets(s, FINN)).toContain(THORGRIM);
+  });
+});
+
+describe('random glyph spots — author-placed `*` positions, random id each game', () => {
+  it('places exactly one glyph, on the authored spot, when the map declares spots', () => {
+    const s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mapId: GLYPHSPOT_MAP_ID, mode: 'quick', glyphSeed: 42 }));
+    // The map declares ONE spot at offset (3,2); honoring it replaces the fair-equidistant auto-scatter.
+    expect(s.glyphs.length).toBe(1);
+    expect(s.glyphs[0].at).toBe(at(3, 2));
+    expect(HS_GLYPHS[s.glyphs[0].id]).toBeDefined(); // a real, randomly-chosen glyph id
   });
 });
 

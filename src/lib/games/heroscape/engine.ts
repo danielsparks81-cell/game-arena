@@ -65,6 +65,7 @@ import {
   rangeDistance,
   rangeFlood,
   reachableDestinations,
+  wallSetOf,
   type FallTier,
   type Occupancy,
 } from './board';
@@ -78,6 +79,17 @@ const QUICK_SEATS = 2;
 export const MAX_SEATS = 6;
 const DEFAULT_MAP_ID = 'training_field';
 const MARKER_VALUES: readonly OrderMarkerValue[] = ['1', '2', '3', 'X'];
+
+/** Per-map cache of the wall edge-key set. Maps are static module constants, so memoizing
+ *  by mapId is safe; returns undefined for maps with no walls (the common case → zero cost). */
+const WALL_SET_CACHE = new Map<string, ReadonlySet<string>>();
+function mapWallSet(state: HSState): ReadonlySet<string> | undefined {
+  const map = MAPS[state.mapId];
+  if (!map?.walls || map.walls.length === 0) return undefined;
+  let s = WALL_SET_CACHE.get(state.mapId);
+  if (!s) { s = wallSetOf(map.walls); WALL_SET_CACHE.set(state.mapId, s); }
+  return s;
+}
 
 /** Point-budget presets the lobby offers (slice 5). The lobby also accepts a
  *  CUSTOM amount (free entry), validated against this range. */
@@ -763,6 +775,15 @@ function generateGlyphs(s: HSState, seed: number): HSGlyph[] {
   // fair-equidistant algorithm below runs instead.)
   if (map.glyphAnchors && map.glyphAnchors.length > 0) {
     const spots = map.glyphAnchors.filter(k => cells[k] && cells[k].terrain !== 'water');
+    const gids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, spots.length);
+    return spots.map((at, i): HSGlyph => ({ id: gids[i], at, faceUp: false }));
+  }
+  // AUTHOR-PLACED RANDOM glyph spots (the level creator's `*` markers → `map.glyphSpots`): keep the
+  // hexes the designer chose, but roll a fresh random glyph id for each one per game. When a map
+  // declares its own spots we honor THEM (and skip the fair-equidistant auto-placement below) — this
+  // is how a hand-drawn map says "a glyph goes HERE, random type" (owner request 2026-06-28).
+  if (map.glyphSpots && map.glyphSpots.length > 0) {
+    const spots = map.glyphSpots.filter(k => cells[k] && cells[k].terrain !== 'water');
     const gids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, spots.length);
     return spots.map((at, i): HSGlyph => ({ id: gids[i], at, faceUp: false }));
   }
@@ -2020,9 +2041,10 @@ function engagedPair(state: HSState, fig: Figure, enemy: Figure): boolean {
   const fh = cardDefFor(state, fig).height;
   const eh = cardDefFor(state, enemy).height;
   const heightAt = (k: HexKey) => heightOfKey(state, k);
+  const walls = mapWallSet(state);
   for (const fk of figureHexes(fig)) {
     for (const ek of figureHexes(enemy)) {
-      if (areEngaged(fk, fh, ek, eh, heightAt)) return true;
+      if (areEngaged(fk, fh, ek, eh, heightAt, walls)) return true;
     }
   }
   return false;
@@ -2043,9 +2065,10 @@ function figuresAdjacent(state: HSState, a: Figure, b: Figure): boolean {
   const ah = cardDefFor(state, a).height;
   const bh = cardDefFor(state, b).height;
   const heightAt = (k: HexKey) => heightOfKey(state, k);
+  const walls = mapWallSet(state);
   for (const ak of figureHexes(a)) {
     for (const bk of figureHexes(b)) {
-      if (areEngaged(ak, ah, bk, bh, heightAt)) return true;
+      if (areEngaged(ak, ah, bk, bh, heightAt, walls)) return true;
     }
   }
   return false;
@@ -2123,7 +2146,7 @@ function raelinAuraReaches(state: HSState, defender: Figure): boolean {
     const raelinEye = heightOfKey(state, raelin.at!) + cardDefFor(state, raelin).height;
     return hasLineOfSight3D(map.cells, raelin.at!, defender.at!, [], (k: HexKey) =>
       k === raelin.at ? raelinEye : eyeHeightOfKey(state, k),
-    );
+    map.walls);
   });
 }
 
@@ -2444,7 +2467,7 @@ function movementDestinations2(
   // doubleSpace: this is a 2-hex figure, so reachableDestinations keeps the §6 bridge exception (its
   // front lobe may pass over a single water hex); the both-lobes-in-water hard stop is applied at
   // finalize. Without this flag a 2-hex figure would be hard-stopped on entering water like a 1-hex one.
-  const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk, doubleSpace: true };
+  const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk, doubleSpace: true, walls: mapWallSet(state) };
   const reach = out.reach;
   for (const start of figureHexes(fig)) {
     for (const k of reachableDestinations(map.cells, start, move, occ, climbHeightOf(def), opts)) reach.add(k);
@@ -2557,6 +2580,7 @@ function movementDestinations(state: HSState, fig: Figure): Set<HexKey> {
     canEndOn,
     flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
+    walls: mapWallSet(state),
   });
 }
 
@@ -2591,6 +2615,7 @@ export function scatterDestinations(state: HSState, figureId: string): Set<HexKe
     canEndOn: (key: HexKey) => !glyphHexes.has(key), // no nested glyph trigger mid-Scatter
     flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
+    walls: mapWallSet(state),
   });
 }
 
@@ -2935,6 +2960,7 @@ export function stepConsequences(
     flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
     doubleSpace: is2, // a 2-hex front may traverse water; the water-STOP is decided below (both lobes)
+    walls: mapWallSet(state),
   });
   if (!step) return { error: 'You can’t step there' };
   // Kelda admits only a WOUNDED figure as a stop; a forced-stop step onto it is illegal otherwise.
@@ -3031,6 +3057,7 @@ export function movementRangeHexes(state: HSState, figureId: string): Set<HexKey
     canEndOn,
     flyer: effectiveFlying(state, def),
     ghostWalk: !!def.ghostWalk,
+    walls: mapWallSet(state),
   });
 }
 
@@ -3631,7 +3658,7 @@ function targetBlockReason(
       const dist = rangeDistance(map.cells, ak, tk);
       if (dist == null || dist > range) continue;
       inRange = true;
-      if (hasLineOfSight3D(map.cells, ak, tk, [], eye)) return null;
+      if (hasLineOfSight3D(map.cells, ak, tk, [], eye, map.walls)) return null;
     }
   }
   return inRange
@@ -3976,7 +4003,7 @@ export function auraCoverageHexes(state: HSState): Set<HexKey> {
         if (h === src.at) continue;
         const d = rangeDistance(map.cells, src.at, h);
         if (d == null || d > RAELIN_AURA_RANGE) continue;
-        if (hasLineOfSight3D(map.cells, src.at, h, [], (k: HexKey) => k === src.at ? raelinEye : eyeHeightOfKey(state, k))) out.add(h);
+        if (hasLineOfSight3D(map.cells, src.at, h, [], (k: HexKey) => k === src.at ? raelinEye : eyeHeightOfKey(state, k), map.walls)) out.add(h);
       }
     } else if (id === FINN_CARD_ID || id === THORGRIM_CARD_ID || id === GRIMNAK_CARD_ID || id === SWOG_RIDER_CARD_ID) {
       for (const lobe of figureHexes(src)) {
@@ -4109,7 +4136,7 @@ export function shootBlockedHexes(state: HSState, figureId: string): Set<HexKey>
   const eye = attackerEyeFn(state, fig); // height-aware: a taller figure sees over low land/walls
   for (const k of rangeFlood(map.cells, foot, range)) {
     if (footSet.has(k)) continue; // the figure's own hexes are always "clear"
-    if (!foot.some(jk => hasLineOfSight3D(map.cells, jk, k, [], eye))) out.add(k);
+    if (!foot.some(jk => hasLineOfSight3D(map.cells, jk, k, [], eye, map.walls))) out.add(k);
   }
   return out;
 }
@@ -4217,7 +4244,7 @@ export function fireLineTargets(state: HSState, attackerId: string, dir: number,
     // the line that Mimring can see (from the firing lobe) past walls/columns is hit
     // (an enemy standing in front no longer shields the figures behind it). Hence NO
     // figure occluders in the LOS check — just elevation-aware terrain, from the origin.
-    const sighted = onLine.some(th => hasLineOfSight3D(map.cells, fireFrom, th, [], eye));
+    const sighted = onLine.some(th => hasLineOfSight3D(map.cells, fireFrom, th, [], eye, map.walls));
     if (sighted) out.push(f);
   }
   return out;
@@ -4366,7 +4393,7 @@ export function explosionTargets(state: HSState, attackerId: string): string[] {
     const reachable = figureHexes(f).some(th =>
       aHexes.some(ah => {
         const d = rangeDistance(map.cells, ah, th);
-        return d != null && d <= EXPLOSION_RANGE && hasLineOfSight3D(map.cells, ah, th, [], eye);
+        return d != null && d <= EXPLOSION_RANGE && hasLineOfSight3D(map.cells, ah, th, [], eye, map.walls);
       }),
     );
     if (reachable) out.push(f.id);
@@ -5544,7 +5571,7 @@ function withinRangeLos(state: HSState, attacker: Figure, target: Figure, range:
     for (const tk of figureHexes(target)) {
       const dist = rangeDistance(map.cells, ak, tk);
       if (dist == null || dist > range) continue;
-      if (hasLineOfSight3D(map.cells, ak, tk, [], eye)) return true;
+      if (hasLineOfSight3D(map.cells, ak, tk, [], eye, map.walls)) return true;
     }
   }
   return false;
@@ -5980,7 +6007,7 @@ export function throwLandingHexes(state: HSState, attackerId: string, targetId: 
       return d != null && d <= THROW_RANGE;
     });
     if (!within) continue;
-    if (figureHexes(jotun).some(jk => hasLineOfSight3D(map.cells, jk, key, [], eye))) out.push(key);
+    if (figureHexes(jotun).some(jk => hasLineOfSight3D(map.cells, jk, key, [], eye, map.walls))) out.push(key);
   }
   return out;
 }
