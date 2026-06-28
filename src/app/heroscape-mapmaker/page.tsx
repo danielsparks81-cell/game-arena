@@ -16,7 +16,7 @@ type TerrainCode = 'G' | 'R' | 'S' | 'W';
 // token — the engine rolls a random glyph there each game). A hex holds at most one of the two.
 type Cell = { t: TerrainCode | null; h: number; tree: boolean; glyph: HSGlyphId | null; gRand?: boolean; zone: number };
 type Brush =
-  | { kind: 'sculpt' } // left-click raises a hex one rung, right-click lowers it (terrain auto-follows)
+  | { kind: 'sculpt'; water?: boolean } // left raises / right lowers a hex one rung; `water` picks the water ladder
   | { kind: 'terrain'; t: TerrainCode }
   | { kind: 'height'; h: number }
   | { kind: 'tree' }
@@ -32,24 +32,38 @@ function edgeId(a: [number, number], b: [number, number]): string {
   return ka <= kb ? `${a[0]},${a[1]}|${b[0]},${b[1]}` : `${b[0]},${b[1]}|${a[0]},${a[1]}`;
 }
 
-// SCULPT ladder (owner 2026-06-28): one rung per left/right click. Terrain auto-follows the rung —
-// blank → water (renders half-height) → grass 1/2 → sand 3/4 → rock 5/6/7.
-const RUNGS: { t: TerrainCode | null; h: number }[] = [
-  { t: null, h: 1 }, // 0 blank (no tile)
-  { t: 'W', h: 1 },  // 1 water
-  { t: 'G', h: 1 },  // 2 grass
-  { t: 'G', h: 2 },  // 3 grass
-  { t: 'S', h: 3 },  // 4 sand
-  { t: 'S', h: 4 },  // 5 sand
-  { t: 'R', h: 5 },  // 6 rock
-  { t: 'R', h: 6 },  // 7 rock
-  { t: 'R', h: 7 },  // 8 rock
+// SCULPT ladders (owner 2026-06-28): one rung per left/right click; terrain auto-follows the rung. LAND
+// and WATER are SEPARATE tools. The LAND ladder steps blank → grass 1/2 → sand 3/4 → rock 5/6/7 (no water);
+// the WATER ladder steps blank → water .5 → 1.5 → 2.5 … (a water tile reads half a level below its height).
+const LAND_RUNGS: { t: TerrainCode | null; h: number }[] = [
+  { t: null, h: 1 }, // 0 blank
+  { t: 'G', h: 1 },  // 1 grass
+  { t: 'G', h: 2 },  // 2 grass
+  { t: 'S', h: 3 },  // 3 sand
+  { t: 'S', h: 4 },  // 4 sand
+  { t: 'R', h: 5 },  // 5 rock
+  { t: 'R', h: 6 },  // 6 rock
+  { t: 'R', h: 7 },  // 7 rock
 ];
-// Where does a cell currently sit on the ladder? Blank → 0, water → 1, else height+1 (grass h1 → rung 2 … rock h7 → rung 8).
-function cellRung(cell: Cell): number {
-  if (!cell.t) return 0;
-  if (cell.t === 'W') return 1;
-  return Math.min(RUNGS.length - 1, cell.h + 1);
+const WATER_RUNGS: { t: TerrainCode | null; h: number }[] = [
+  { t: null, h: 1 }, // 0 blank
+  { t: 'W', h: 1 },  // 1 → surface .5
+  { t: 'W', h: 2 },  // 2 → surface 1.5
+  { t: 'W', h: 3 },  // 3 → 2.5
+  { t: 'W', h: 4 },  // 4 → 3.5
+  { t: 'W', h: 5 },  // 5
+  { t: 'W', h: 6 },  // 6
+  { t: 'W', h: 7 },  // 7
+];
+// Current rung on each ladder. LAND: blank or water → 0, a land tile → its height (grass h1 → rung 1 … rock
+// h7 → 7). WATER: a water tile → its height (.5 → rung 1 …); blank/land → 0 (so the first click floods to .5).
+function landRung(cell: Cell): number {
+  if (!cell.t || cell.t === 'W') return 0;
+  return Math.min(LAND_RUNGS.length - 1, cell.h);
+}
+function waterRung(cell: Cell): number {
+  if (cell.t !== 'W') return 0;
+  return Math.min(WATER_RUNGS.length - 1, cell.h);
 }
 
 const TERRAIN_COLOR: Record<TerrainCode, string> = { G: '#5f9e3a', R: '#9a9b97', S: '#caa468', W: '#3f9fd6' };
@@ -180,8 +194,10 @@ export default function MapMaker() {
       else if (b.kind === 'glyphRandom') { if (!next.t) { next.t = 'G'; next.h = 1; } next.gRand = true; next.glyph = null; }
       else if (b.kind === 'zone') { if (!next.t) { next.t = 'G'; next.h = 1; } next.zone = b.seat; }
       else if (b.kind === 'sculpt') {
-        const nr = Math.max(0, Math.min(RUNGS.length - 1, cellRung(cell) + sculptDir.current));
-        const rung = RUNGS[nr];
+        const rungs = b.water ? WATER_RUNGS : LAND_RUNGS;
+        const cur = b.water ? waterRung(cell) : landRung(cell);
+        const nr = Math.max(0, Math.min(rungs.length - 1, cur + sculptDir.current));
+        const rung = rungs[nr];
         next.t = rung.t; next.h = rung.h;
         if (!rung.t) { next.tree = false; next.glyph = null; next.gRand = false; next.zone = 0; } // a blank hex can't hold a mark
       }
@@ -380,8 +396,10 @@ ${zoneTxt}${treeTxt}  return m;
         </div>
 
         <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
-          <button onClick={() => setBrush({ kind: 'sculpt' })} className={btn(brush.kind === 'sculpt')}
-            title="Left-click raises a hex, right-click lowers it: blank → water → grass 1/2 → sand 3/4 → rock 5+">⛰ Sculpt</button>
+          <button onClick={() => setBrush({ kind: 'sculpt' })} className={btn(brush.kind === 'sculpt' && !brush.water)}
+            title="Land sculpt — left-click raises, right-click lowers: blank → grass 1/2 → sand 3/4 → rock 5+">⛰ Sculpt</button>
+          <button onClick={() => setBrush({ kind: 'sculpt', water: true })} className={btn(brush.kind === 'sculpt' && !!brush.water)}
+            title="Water sculpt — left-click raises the pool, right-click lowers it: blank → .5 → 1.5 → 2.5 …">🌊 Sculpt water</button>
           <span className="mr-2 text-[11px] text-neutral-500">left&nbsp;raise · right&nbsp;lower</span>
           <span className="mr-1 text-[11px] uppercase tracking-wide text-neutral-500">Terrain</span>
           {(['G', 'R', 'S', 'W'] as TerrainCode[]).map(t => (
@@ -448,7 +466,7 @@ ${zoneTxt}${treeTxt}  return m;
                 </div>
               </div>
               <textarea readOnly value={code} className="h-64 w-full resize-y rounded border border-neutral-700 bg-neutral-950 p-2 font-mono text-[10px] leading-tight text-neutral-300" />
-              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Tip: the <strong className="text-neutral-300">Sculpt</strong> tool raises (left-click) / lowers (right-click) a hex through blank → water → grass → sand → rock. <strong className="text-neutral-300">🎲 Random glyph</strong> marks a spot whose glyph type is rolled fresh each game. <strong className="text-neutral-300">🧱 Wall</strong> sits on the EDGE between two hexes (click the dot) — it blocks movement, line of sight, and adjacency across that edge. Water's surface sits half a level below its tile height (height‑1 = .5 ground pond, height‑2 = 1.5 raised pool) — set it with the Height brush. Trees are cosmetic.</p>
+              <p className="mt-2 text-[11px] text-neutral-500">Paste into <code className="text-neutral-400">src/lib/games/heroscape/maps.ts</code> and add it to the <code className="text-neutral-400">MAPS</code> record — or send the code to Claude to wire it in + deploy. Tip: <strong className="text-neutral-300">⛰ Sculpt</strong> raises (left-click) / lowers (right-click) LAND through blank → grass 1/2 → sand 3/4 → rock 5+, and <strong className="text-neutral-300">🌊 Sculpt water</strong> raises / lowers a POOL through .5 → 1.5 → 2.5 … (water reads half a level below its tile height). <strong className="text-neutral-300">🎲 Random glyph</strong> marks a spot whose glyph type is rolled fresh each game. <strong className="text-neutral-300">🧱 Wall</strong> sits on the EDGE between two hexes (click the dot) — it blocks movement, line of sight, and adjacency across that edge. Trees are cosmetic.</p>
             </div>
           </div>
         </div>
