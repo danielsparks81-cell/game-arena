@@ -197,12 +197,16 @@ export type ReachOptions = {
  * movement points under the full slice-3 terrain cost model (03-movement):
  *   • Step cost = 1 + climbed levels (up); 1 for level/descent (free descent).
  *   • Climb limit: cannot step up ≥ `cardHeight` levels at once.
- *   • Water (terrain==='water') is a FORCED STOP — you may END on it, and you
- *     may pass THROUGH a single water hex to a non-water hex beyond if budget
- *     remains, but you can never chain water→water as a transit (crossing a
- *     lake is 1 space per turn). Encoded: a water node only ever continues to
- *     NON-water neighbors; reaching a water hex always makes it a valid
- *     endpoint (forced stop).
+ *   • Water (terrain==='water') is a FORCED STOP (03-movement §5): for a normal
+ *     1-hex (small/medium) figure, moving ONTO water immediately ENDS the move —
+ *     it is a valid endpoint but you can NEVER continue past it to the land
+ *     beyond in the same turn (getting out of the water is a separate turn;
+ *     crossing a lake is 1 space per turn). Encoded as a hard stop: a water node
+ *     reached mid-move is never expanded (exactly like a glyph). The §6 exception
+ *     is `options.doubleSpace` (a 2-hex figure): its FRONT lobe may BRIDGE a
+ *     single water hex, so it still expands water→non-water and only stops when
+ *     BOTH lobes are water (the caller decides that from the full footprint); it
+ *     just never chains water→water.
  *   • Glyphs (slice 4, via `options.glyphHexes`) are a FORCED STOP too — a
  *     valid endpoint that is never a pass-through node.
  *   • Voids are absent cells (impassable). May pass THROUGH friendly figures,
@@ -239,6 +243,7 @@ export function reachableDestinations(
   // stop). Ghost Walk gains only the pass-through-enemies clause.
   const flyer = !!options.flyer;
   const ghostWalk = flyer || !!options.ghostWalk; // Flying already passes any figure
+  const doubleSpace = !!options.doubleSpace; // a 2-hex figure may BRIDGE a single water hex (§6)
   // Water forces a stop only for a non-flyer (a flyer flies over water freely).
   const isWater = (key: HexKey) => !flyer && cells[key]?.terrain === 'water';
   const glyphHexes = options.glyphHexes;
@@ -273,9 +278,14 @@ export function reachableDestinations(
     const curIsWater = cur !== from && isWater(cur);
     const curIsGlyph = isGlyphStop(cur);
     if (curIsGlyph) continue; // movement ended here; do not expand past a glyph
+    // Water FORCED STOP (03-movement §5): a 1-hex figure that moved ONTO water ends its move — it can
+    // never continue to the land beyond this turn (getting out is a separate turn). Treat it exactly
+    // like a glyph: a valid endpoint that is never expanded. A double-space figure is the §6 exception
+    // (its front lobe may bridge a single water hex), so it still expands below — water→non-water only.
+    if (curIsWater && !doubleSpace) continue;
     for (const n of neighborKeys(cur)) {
       if (!cells[n]) continue; // void / off-map
-      if (curIsWater && isWater(n)) continue; // can't transit two waters in a row
+      if (curIsWater && isWater(n)) continue; // double-space: never chain water→water in one move
       const occ = occupancyOf(n);
       // Enemy-occupied hexes block transit normally, but Ghost Walk / Flying may
       // pass THROUGH them (cards.md). They still can't be an ENDPOINT — see below.

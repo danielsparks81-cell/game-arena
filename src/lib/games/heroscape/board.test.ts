@@ -358,23 +358,34 @@ describe('reachableDestinations with elevation (The Knoll)', () => {
 });
 
 describe('reachableDestinations with water (forced stop)', () => {
-  it('entering water ends the move there, but through-water-to-land is allowed', () => {
-    // Land, water, land in a row. From the left land hex:
+  it('a 1-hex figure that enters water STOPS — it cannot pass through to the land beyond', () => {
+    // Land, water, land, water, water in a 1-wide corridor. The only path to the land beyond runs
+    // through the first water hex, and moving ONTO water immediately ends the move (03-movement §5),
+    // so reaching that land is a SEPARATE turn — getting out of the water is "an extra step".
     const m = parseMap('cross', 'Cross', `row1: G1 W1 G1 W1 W1`);
     const start = at(0, 0);
-    const water1 = at(1, 0);
-    const landBeyond = at(2, 0);
-    const water2 = at(3, 0);
-    const water3 = at(4, 0);
     const dests = reachableDestinations(m.cells, start, 5, () => null, 5);
-    // Water is a valid ENDPOINT (forced stop).
-    expect(dests.has(water1)).toBe(true);
-    // You may pass THROUGH the single water to the land beyond (cost 2).
-    expect(dests.has(landBeyond)).toBe(true);
-    // But you cannot chain water→water: the far waters are only reachable as
-    // forced-stop endpoints adjacent to land, never transited past.
-    expect(dests.has(water2)).toBe(true); // adjacent to landBeyond — endpoint
-    expect(dests.has(water3)).toBe(false); // would require water2→water3 transit
+    expect(dests.has(at(1, 0))).toBe(true); // water is a valid ENDPOINT (forced stop)
+    expect(dests.has(at(2, 0))).toBe(false); // land beyond — can NOT pass through the water
+    expect(dests.has(at(3, 0))).toBe(false);
+    expect(dests.has(at(4, 0))).toBe(false);
+  });
+
+  it('leaving water onto land is free — a figure starting in water keeps moving across land', () => {
+    // Only moving ONTO water stops you; moving OUT of water onto land does not. A figure that begins
+    // its turn in the water (it stopped there last turn) walks out and continues across land normally.
+    const m = parseMap('exit', 'Exit', `row1: W1 G1 G1 G1`);
+    const dests = reachableDestinations(m.cells, at(0, 0), 3, () => null, 5);
+    expect(dests.has(at(1, 0))).toBe(true);
+    expect(dests.has(at(2, 0))).toBe(true);
+    expect(dests.has(at(3, 0))).toBe(true);
+  });
+
+  it('a figure in water moving to ADJACENT water moves 1 space, then stops (1 space per turn)', () => {
+    const m = parseMap('lake2', 'Lake2', `row1: W1 W1 W1`);
+    const dests = reachableDestinations(m.cells, at(0, 0), 5, () => null, 5);
+    expect(dests.has(at(1, 0))).toBe(true); // stepped onto the next water, stopped
+    expect(dests.has(at(2, 0))).toBe(false); // cannot chain water→water→water
   });
 
   it('a Move-1 figure that steps into water simply stops there', () => {
@@ -382,6 +393,15 @@ describe('reachableDestinations with water (forced stop)', () => {
     const dests = reachableDestinations(m.cells, at(0, 0), 1, () => null, 5);
     expect(dests.has(at(1, 0))).toBe(true); // entered water, stopped
     expect(dests.has(at(2, 0))).toBe(false); // can't reach the second water
+  });
+
+  it('a DOUBLE-SPACE figure may BRIDGE a single water hex to the land beyond (§6 exception)', () => {
+    // The 2-hex exception: its front lobe passes over one water hex, so the land beyond IS reachable
+    // in a single move (the both-lobes-in-water hard stop is applied separately at finalize).
+    const m = parseMap('cross2', 'Cross2', `row1: G1 W1 G1 W1 W1`);
+    const dests = reachableDestinations(m.cells, at(0, 0), 5, () => null, 5, { doubleSpace: true });
+    expect(dests.has(at(2, 0))).toBe(true); // bridged the single water to the land beyond
+    expect(dests.has(at(4, 0))).toBe(false); // still can't chain water→water
   });
 
   it('climbing OUT of water onto a higher bank pays the climb cost', () => {

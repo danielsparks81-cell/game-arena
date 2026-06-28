@@ -2441,7 +2441,10 @@ function movementDestinations2(
   const def = cardDefFor(state, fig);
   const move = moveOverride ?? effectiveMove(state, fig).dice;
   const occ = occupancyLookup(state, fig); // excludes the mover's BOTH hexes
-  const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk };
+  // doubleSpace: this is a 2-hex figure, so reachableDestinations keeps the §6 bridge exception (its
+  // front lobe may pass over a single water hex); the both-lobes-in-water hard stop is applied at
+  // finalize. Without this flag a 2-hex figure would be hard-stopped on entering water like a 1-hex one.
+  const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk, doubleSpace: true };
   const reach = out.reach;
   for (const start of figureHexes(fig)) {
     for (const k of reachableDestinations(map.cells, start, move, occ, climbHeightOf(def), opts)) reach.add(k);

@@ -1811,19 +1811,23 @@ describe('water sits below the ground — a figure IN water is at a height disad
 // --- water forced stop -----------------------------------------------------
 
 describe('slice 3: water forced stop (Ford Crossing)', () => {
-  it('the dry ford lets a figure cross; stepping into the river is a valid stop', () => {
-    // Marro (Move 6) on the north bank at (4,1) [G2]. The ford column (col 4)
-    // is dry grass straight across; the flanking river is water.
+  it('the dry ford is the only crossing; the Ivor glyph on it forces a stop midway', () => {
+    // Marro (Move 6) on the north bank at (4,1) [G2]. Col 4 is the dry ford straight across, but the
+    // Ivor glyph sits ON it at (4,3) and the flanking river is water — BOTH are forced stops. So the
+    // figure walks the dry ford only as far as the glyph; it can NOT reach the far bank (4,5) in one
+    // move. (Crossing water immediately ends the move per 03-movement §5, and you can't blow past a
+    // glyph either — earlier this far bank looked reachable only because a 1-hex figure was wrongly
+    // allowed to slip through the flanking water.)
     let s = inTurnsOn('ford_crossing', 'p2', { p2: 's1-marro_warriors' });
     s = clearExcept(s, MARRO(1), FINN);
     s = place(s, FINN, at(0, 0));
     s = place(s, MARRO(1), at(4, 1));
     const dests = legalDestinations(s, MARRO(1));
-    // Down the dry ford it can cross the whole river to the south bank.
-    expect(dests.has(at(4, 5))).toBe(true); // ford continues onto grass
-    // Stepping sideways off the bank into the river is a valid endpoint
-    // (forced stop): (3,2) is the nearest water hex.
-    expect(dests.has(at(3, 2))).toBe(true);
+    expect(dests.has(at(4, 3))).toBe(true); // reaches the Ivor glyph on the ford and STOPS there
+    expect(dests.has(at(4, 4))).toBe(false); // can't continue past the glyph this turn
+    expect(dests.has(at(4, 5))).toBe(false); // far bank unreachable in one move
+    // Stepping sideways off the bank into the river is also a valid forced-stop endpoint.
+    expect(dests.has(at(3, 2))).toBe(true); // (3,2) is the nearest water hex
   });
 
   it('open water cannot be crossed in one move — only the ford reaches the far bank', () => {
