@@ -252,7 +252,10 @@ ${zoneTxt}${treeTxt}  return m;
       <div className="mx-auto max-w-6xl px-4 py-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center gap-2 text-lg font-semibold"><span className="text-sky-400">⬡</span> HeroScape Level Creator</h1>
-          <a href="/lobby" className="text-xs text-neutral-400 transition hover:text-emerald-400">← Back to lobby</a>
+          <div className="flex items-center gap-3 text-xs">
+            <a href="/heroscape-mapeditor" className="text-neutral-400 transition hover:text-sky-300">✶ Star Field editor</a>
+            <a href="/lobby" className="text-neutral-400 transition hover:text-emerald-400">← Back to lobby</a>
+          </div>
         </div>
 
         <div className="mb-3 flex flex-wrap items-end gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">

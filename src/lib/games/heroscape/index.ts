@@ -95,7 +95,7 @@ export { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS, PO
 
 export { SEAT_COLORS, TEAM_COLORS, teamColorById, computeSeatColorMap } from './colors';
 
-export { MAPS, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, parseMap } from './maps';
+export { MAPS, TRAINING_FIELD, THE_KNOLL, FORD_CROSSING, STAR_FIELD, TRISKELION, CROSSROADS, parseMap } from './maps';
 export type { HSMap, HSGlyphPlacement } from './maps';
 
 export {
