@@ -232,6 +232,14 @@ type Props = {
   onPlaceFigure: (figureId: string, to: HexKey) => void;
   onUnplaceFigure: (figureId: string) => void;
   onPlacementReady: () => void;
+  /** Soft re-sync from the server, wired straight from RoomClient (no page reload → fullscreen
+      survives). Optional: if a render path doesn't pass it, the ⟳ button falls back to the
+      `hs:refresh` window event. Calling it directly removes that indirection as a failure point. */
+  onRefresh?: () => void;
+  /** True while that manual refresh is in flight — drives the ⟳ button's spin so the click is
+      visibly acknowledged even when the fetch returns instantly (the old button gave no feedback,
+      so a refresh of an already-synced board looked broken). */
+  refreshing?: boolean;
 };
 
 /** Is it my live turn (in 'turns', I am the turn seat)? */
@@ -1508,7 +1516,7 @@ export default function HeroScapeBoard({
   onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onOverextend, onTheDrop, onOrient,
-  onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady,
+  onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady, onRefresh, refreshing,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Draft Ctrl-F: a keyword search over everything printed on the pool cards. Matches stay lit
@@ -4721,8 +4729,10 @@ export default function HeroScapeBoard({
                 <div key={p.seat} className={'lg:pointer-events-none lg:absolute lg:z-20 lg:p-0.5 ' + panelSlotAnchor(p.seat)}>
                   {/* Camera FOCUS + REFRESH buttons — docked just ABOVE the viewer's own panel (owner
                       2026-06-27), where the seat panels can't cover them and they're clear of the
-                      left-edge glyph HUD. Refresh dispatches a window event RoomClient soft-handles (no
-                      page reload → stays full screen); it shows even on the 2D fallback (no camera). */}
+                      left-edge glyph HUD. Refresh calls RoomClient's soft re-sync DIRECTLY (the
+                      `onRefresh` prop; window-event fallback) so there's no indirection to fail, spins
+                      while in flight (no more dead-feeling click), and never reloads the page → stays
+                      full screen; it shows even on the 2D fallback (no camera). */}
                   {p.seat === me?.seat && (
                     <div className="pointer-events-auto mb-1 flex gap-1">
                       {can3D && (
@@ -4738,12 +4748,12 @@ export default function HeroScapeBoard({
                       )}
                       <button
                         type="button"
-                        onClick={() => window.dispatchEvent(new CustomEvent('hs:refresh'))}
+                        onClick={() => { if (onRefresh) onRefresh(); else window.dispatchEvent(new CustomEvent('hs:refresh')); }}
                         title="Refresh the game from the server (stays in full screen)"
                         aria-label="Refresh game"
                         className="flex h-8 w-8 items-center justify-center rounded-full border border-neutral-600 bg-neutral-900/80 text-base leading-none text-neutral-200 backdrop-blur transition hover:bg-neutral-800"
                       >
-                        ⟳
+                        <span className={refreshing ? 'inline-block animate-spin' : 'inline-block'}>⟳</span>
                       </button>
                     </div>
                   )}

@@ -331,6 +331,8 @@ export default function RoomClient({
             playerCount: room.room_players.length,
             pending,
             startTransition,
+            onRefresh: manualRefresh,
+            refreshing,
           });
 
           if (room.status === 'waiting') {

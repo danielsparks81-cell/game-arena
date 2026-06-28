@@ -73,6 +73,12 @@ export type BoardRenderProps = {
   /** React 18+ startTransition — wraps server-action calls so the UI stays
       responsive while the move is in flight. */
   startTransition: (fn: () => void) => void;
+  /** Soft re-sync from the server (no page reload → fullscreen survives). Passed to boards that
+      render their OWN in-board refresh button (HeroScape fills the screen) so the click triggers
+      the refresh DIRECTLY rather than via a window-event hop. */
+  onRefresh?: () => void;
+  /** True while that manual refresh is in flight — lets such a board spin its refresh control. */
+  refreshing?: boolean;
 };
 
 type Renderer = (p: BoardRenderProps) => React.ReactNode;
@@ -261,12 +267,14 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
     />
   ),
 
-  heroscape: ({ roomId, currentUserId, isHost, state, pending, startTransition }) => (
+  heroscape: ({ roomId, currentUserId, isHost, state, pending, startTransition, onRefresh, refreshing }) => (
     <HeroScapeBoard
       state={state as HSState}
       currentUserId={currentUserId}
       isHost={isHost}
       disabled={pending}
+      onRefresh={onRefresh}
+      refreshing={refreshing}
       onStart={(mapId?: string, pointBudget?: number, mode?: HSMode) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'start_game', mapId, pointBudget, mode }); })}
       onSetLobbyConfig={(cfg: { mapId?: string; pointBudget?: number; mode?: HSMode; edition?: HSEdition; teams?: Record<number, number>; teamBudgets?: Record<number, number> }) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'set_lobby_config', ...cfg }); })}
       onAddBot={(team?: number) => startTransition(() => { gameMove(roomId, { game: 'heroscape', kind: 'add_bot', team }); })}
