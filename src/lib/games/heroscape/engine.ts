@@ -615,31 +615,25 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
 function buildArmy(seat: number, cardIds: readonly string[]): { cards: ArmyCardInstance[]; figures: Figure[] } {
   const cards: ArmyCardInstance[] = [];
   const figures: Figure[] = [];
-  // A COMMON card can be drafted MORE THAN ONCE by a seat — each copy must be its OWN card with its
-  // own figures, markers, and placement. The 1st copy keeps the canonical `s{seat}-{cardId}` uid
-  // (back-compat / unique cards unchanged); every extra copy gets a `#k` suffix so uids never collide
-  // (the old code reused one uid, so 3 Swog Riders collapsed to a single placeable figure).
+  // POOLED COMMONS (owner 2026-06-28): drafting several copies of the SAME card collapses them into
+  // ONE card instance whose figures POOL — "you only need one card per army; a revealed marker
+  // activates any N of that type". So 4 Arrow Gruts → ONE `s{seat}-arrow_gruts` card with 4×3 = 12
+  // figures (ids `-1..-12`). The SAME figure count reaches the board as before — only the card/marker
+  // layer collapses (4 cards → 1) — and a revealed marker still activates just the printed squad size
+  // per turn (see activationCap / activeCardError). Uniques are drafted once, so this is a no-op for
+  // them. First-seen draft order is preserved (Map keeps insertion order).
   const copies = new Map<string, number>();
-  for (const cardId of cardIds) {
+  for (const cardId of cardIds) if (HS_CARDS[cardId]) copies.set(cardId, (copies.get(cardId) ?? 0) + 1);
+  for (const [cardId, n] of copies) {
     const def = HS_CARDS[cardId];
-    if (!def) continue;
-    const k = (copies.get(cardId) ?? 0) + 1;
-    copies.set(cardId, k);
-    const uid = k === 1 ? `s${seat}-${cardId}` : `s${seat}-${cardId}#${k}`;
-    const card: ArmyCardInstance = {
-      uid,
-      cardId,
-      ownerSeat: seat,
-      orderMarkers: [],
-      attackMod: 0,
-      defenseMod: 0,
-    };
-    cards.push(card);
+    const uid = `s${seat}-${cardId}`;
+    cards.push({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
     // Airborne Elite THE DROP: they do NOT start on the battlefield — every figure
     // begins in RESERVE (alive, off-board) and is deployed later by The Drop.
     const inReserve = def.id === AIRBORNE_CARD_ID;
-    for (let n = 1; n <= def.figures; n++) {
-      figures.push({ id: `${uid}-${n}`, cardUid: uid, ownerSeat: seat, at: null, index: n, wounds: 0, ...(inReserve ? { reserve: true } : {}) });
+    const total = def.figures * n; // pooled figure count across all drafted copies
+    for (let i = 1; i <= total; i++) {
+      figures.push({ id: `${uid}-${i}`, cardUid: uid, ownerSeat: seat, at: null, index: i, wounds: 0, ...(inReserve ? { reserve: true } : {}) });
     }
   }
   return { cards, figures };
@@ -1845,7 +1839,7 @@ function openBondOffer(s: HSState): void {
   pushLog(s, 'power', `${nameOf(squadUid)} may BOND — take a free turn with ${partners.map(nameOf).join(' or ')} first, or skip.`);
 }
 
-/** Why `fig` may not act this turn (null = it is on the revealed card). */
+/** Why `fig` may not act this turn (null = it is on the revealed card AND still within the activation cap). */
 function activeCardError(state: HSState, fig: Figure): string | null {
   const activeUid = getActiveCardUid(state);
   if (!activeUid) return 'No order marker is revealed';
@@ -1853,7 +1847,56 @@ function activeCardError(state: HSState, fig: Figure): string | null {
     const active = state.cards.find(c => c.uid === activeUid)!;
     return `Only the revealed card acts this turn — order marker ${state.turnNumber} is on ${HS_CARDS[active.cardId].name}`;
   }
+  // POOLED-COMMON ACTIVATION CAP: drafting several copies of a Common pools their figures onto ONE
+  // card (e.g. 4 Arrow Gruts → 12 figures). A revealed marker still activates only the card's PRINTED
+  // squad size (3) DISTINCT figures per turn — you pick "any 3" — so once that many have moved or
+  // attacked, the rest of the pool is locked until your next marker. For a normal card the figure
+  // count == the printed size, so this never bites.
+  if (!figureWithinActivationCap(state, fig)) {
+    const active = state.cards.find(c => c.uid === activeUid)!;
+    const cap = activationCap(state, activeUid);
+    return `Order marker ${state.turnNumber}: only ${cap} ${HS_CARDS[active.cardId].name} may act this turn — you've already activated ${cap}`;
+  }
   return null;
+}
+
+/** DISTINCT figures of the active card already activated (moved OR attacked) this turn. A figure that
+ *  both moved and attacked counts once — the cap is on distinct FIGURES, not actions. */
+function activatedFigureIdsThisTurn(state: HSState, activeUid: string): Set<string> {
+  const onCard = (id: string) => state.figures.some(f => f.id === id && f.cardUid === activeUid);
+  const set = new Set<string>();
+  for (const id of state.movedFigureIds) if (onCard(id)) set.add(id);
+  for (const a of state.turnAttacks) if (onCard(a.attackerId)) set.add(a.attackerId);
+  return set;
+}
+
+/** The per-marker ACTIVATION CAP for the active card = its PRINTED squad size (Infinity if unknown).
+ *  Only POOLED COMMONS exceed this figure count, so the cap only ever limits them. */
+function activationCap(state: HSState, activeUid: string): number {
+  const card = state.cards.find(c => c.uid === activeUid);
+  if (!card) return Infinity;
+  return effectiveCardDef(card.cardId, state.edition)?.figures ?? Infinity;
+}
+
+/** May `fig` still be activated this turn under the pooled-common cap? True if it's already one of the
+ *  chosen figures (so it can keep moving/attacking), or fewer than `cap` distinct figures have acted
+ *  yet (a fresh figure may still join). Figures off the active card are rejected by activeCardError. */
+function figureWithinActivationCap(state: HSState, fig: Figure): boolean {
+  const activeUid = getActiveCardUid(state);
+  if (!activeUid || fig.cardUid !== activeUid) return false;
+  const activated = activatedFigureIdsThisTurn(state, activeUid);
+  if (activated.has(fig.id)) return true;
+  return activated.size < activationCap(state, activeUid);
+}
+
+/** Figure ids of the active card the current player may STILL act with this turn (respects the pooled
+ *  cap). The board glows/enables only these; the AI chooses among them. Empty outside a live turn. */
+export function activatableFigureIds(state: HSState): string[] {
+  const activeUid = getActiveCardUid(state);
+  if (!activeUid || state.turnSeat == null) return [];
+  return state.figures
+    .filter(f => f.cardUid === activeUid && f.ownerSeat === state.turnSeat && f.at != null && figureWithinActivationCap(state, f))
+    .map(f => f.id);
 }
 
 // ============================================================================
@@ -7149,7 +7192,10 @@ function aiTurn(state: HSState, seat: number): HSAction {
   const activeUid = getActiveCardUid(state);
   const active = activeUid ? state.cards.find(c => c.uid === activeUid) : null;
   if (!active) return { kind: 'end_turn' };
-  const myFigs = state.figures.filter(f => f.cardUid === active.uid && f.at != null && figureAlive(f));
+  // POOLED-COMMON CAP: only the figures still activatable this turn (the chosen ≤N of a pooled squad).
+  // Recomputed each aiTurn tick, so as the bot moves/attacks Gruts the set shrinks to its picked few —
+  // it never proposes a 4th figure the engine would reject (which would freeze the bot's turn).
+  const myFigs = state.figures.filter(f => f.cardUid === active.uid && f.at != null && figureAlive(f) && figureWithinActivationCap(state, f));
   const enemies = aiEnemies(state, seat);
   if (myFigs.length === 0 || enemies.length === 0) return { kind: 'end_turn' };
 

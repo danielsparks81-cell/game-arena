@@ -99,6 +99,7 @@ import {
   TEAM_COLORS,
   teamColorById,
   computeSeatColorMap,
+  activatableFigureIds,
 } from '@/lib/games/heroscape';
 
 // The 3D board (React Three Fiber) is a heavy WebGL bundle — load it lazily and
@@ -2041,6 +2042,10 @@ export default function HeroScapeBoard({
     if (fig && fig.id !== selectedId) setSelectedId(fig.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myTurn, state.subPhase, state.movementEnded, state.turnAttacks.length, state.pendingChoice, activeCardUid, selectedId, state.figures]);
+  // Figures still ACTIVATABLE this turn under the pooled-common cap (you may use any ≤N of a pooled
+  // squad). Both disc-glow sets intersect this so a pooled common only highlights the figures you may
+  // still use — once N are chosen, the rest of the pool stops glowing (and the engine locks them out).
+  const activatable = useMemo(() => new Set(activatableFigureIds(state)), [state]);
   // Figures of the now-acting card that STILL HAVE TO MOVE this turn — their base disc lights
   // up to guide "move each one once". An id drops out the instant that figure moves
   // (movedFigureIds), and the whole set clears once an attack is made (movement is over).
@@ -2052,11 +2057,11 @@ export default function HeroScapeBoard({
       || state.waterClonedThisTurn || state.mindShackleSpent || state.threwThisTurn || state.chompedThisTurn;
     if (state.phase === 'playing' && state.subPhase === 'turns' && activeCardUid && !moveOver) {
       for (const f of state.figures) {
-        if (f.cardUid === activeCardUid && f.at != null && !state.movedFigureIds.includes(f.id)) out.add(f.id);
+        if (f.cardUid === activeCardUid && f.at != null && !state.movedFigureIds.includes(f.id) && activatable.has(f.id)) out.add(f.id);
       }
     }
     return out;
-  }, [state, activeCardUid]);
+  }, [state, activeCardUid, activatable]);
 
   // ATTACK-PHASE glow: once the move step is over ("End move" tapped, or the first attack made),
   // every active-card figure that can still attack a target lights up — and drops out the moment
@@ -2066,11 +2071,11 @@ export default function HeroScapeBoard({
     const attackPhase = state.movementEnded || state.turnAttacks.length > 0;
     if (state.phase === 'playing' && state.subPhase === 'turns' && activeCardUid && attackPhase && !state.pendingChoice) {
       for (const f of state.figures) {
-        if (f.cardUid === activeCardUid && f.at != null && legalTargets(state, f.id).length > 0) out.add(f.id);
+        if (f.cardUid === activeCardUid && f.at != null && activatable.has(f.id) && legalTargets(state, f.id).length > 0) out.add(f.id);
       }
     }
     return out;
-  }, [state, activeCardUid]);
+  }, [state, activeCardUid, activatable]);
   // One disc-glow set for the board: "to move" figures during the move phase, "to attack"
   // figures during the attack phase (the two sets are mutually exclusive by phase).
   const glowIds = useMemo(
@@ -3092,7 +3097,7 @@ export default function HeroScapeBoard({
       const figs = state.figures.filter(f => f.cardUid === c.uid);
       const alive = figs.filter(f => f.at != null).length;
       const reserve = figs.filter(f => f.at == null && f.reserve).length; // Airborne awaiting The Drop — alive, off-board
-      return { uid: c.uid, def, alive, reserve, heroWounds: figs[0]?.wounds ?? 0, markers: c.orderMarkers };
+      return { uid: c.uid, def, alive, total: figs.length, reserve, heroWounds: figs[0]?.wounds ?? 0, markers: c.orderMarkers };
     }),
   })), [state.players, state.cards, state.figures]);
   function assignPicked(cardUid: string) {
@@ -3198,7 +3203,7 @@ export default function HeroScapeBoard({
             revealed marker (the turn that came up) lights amber. */}
         {level === 1 && (
           <div className="mt-1 flex flex-col gap-0.5">
-            {cards.map(({ uid, def, alive, reserve, heroWounds, markers }) => {
+            {cards.map(({ uid, def, alive, total, reserve, heroWounds, markers }) => {
               const dead = alive === 0 && reserve === 0; // reserve Airborne are alive (off-board), not dead
               const active = uid === activeCardUid && state.subPhase === 'turns';
               const shownMarkers = markers ?? [];
@@ -3217,7 +3222,7 @@ export default function HeroScapeBoard({
                       ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} />
                       : alive === 0 && reserve > 0
                         ? <span className="text-sky-300/90" title="In reserve — deploys via The Drop, not yet on the board">⤓ {reserve} reserve</span>
-                        : `${alive}/${def.figures}`}
+                        : `${alive}/${total}`}
                   </span>
                   <CardHoverPanel cardId={def.id} big side={hoverSide} />
                 </div>
@@ -3229,7 +3234,7 @@ export default function HeroScapeBoard({
         {/* LEVEL 2 — compact stat tiles (the default); wraps if a wide army doesn't fit. */}
         {level === 2 && (
         <div className="mt-1 flex flex-wrap gap-1.5">
-          {cards.map(({ uid, def, alive, reserve, heroWounds, markers }) => {
+          {cards.map(({ uid, def, alive, total, reserve, heroWounds, markers }) => {
             const canAssign = placingMine && (alive > 0 || reserve > 0); // a reserve Airborne card CAN take a marker (to Drop)
             const markersToShow = placingMine
               ? MARKERS.filter(v => assign[v] === uid).map(v => ({ marker: v, revealed: false }))
@@ -3261,7 +3266,7 @@ export default function HeroScapeBoard({
                   <span className="shrink-0 text-[9px] font-semibold text-neutral-400 tabular-nums">
                     {def.type === 'hero'
                       ? <WoundPips life={def.life} wounds={dead ? def.life : heroWounds} />
-                      : `${alive}/${def.figures}`}
+                      : `${alive}/${total}`}
                   </span>
                 </div>
                 {/* portrait + 2×3 stat grid */}

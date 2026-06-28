@@ -4256,8 +4256,11 @@ describe('slice 5: common pool (Common cards are repeatable)', () => {
     }
   });
 
-  it('a COMMON card drafted N times becomes N DISTINCT cards, each with its own figures (placeable)', () => {
-    // The bug: 3 drafted Swog Riders shared one uid s0-swog_rider, so only one was placeable.
+  it('a COMMON drafted N times POOLS into ONE card holding all N copies’ figures (owner 2026-06-28)', () => {
+    // Owner rule: "you only need ONE card per army" for a common. Drafting 3 Swog Riders gives ONE
+    // s0-swog_rider card that POOLS all 3 figures (a revealed marker then activates any N up to the
+    // card's printed squad size — see the activation-cap test). The SAME figure count reaches the
+    // board as before; only the card/marker layer collapses 3→1.
     let s = inDraft('p1', 500); // p1 is the high roller and drafts first
     const want: Record<number, string[]> = { 0: ['swog_rider', 'swog_rider', 'swog_rider'], 1: ['finn'] };
     while (s.phase === 'draft') {
@@ -4266,13 +4269,12 @@ describe('slice 5: common pool (Common cards are repeatable)', () => {
       s = list.length ? draftCard(s, list.shift()!) : draftPass(s);
     }
     expect(s.phase).toBe('placement');
-    // Three separate Swog Rider cards with DISTINCT uids (1st canonical, then #2 / #3).
+    // ONE pooled Swog Rider card (canonical uid, no #2/#3 splits).
     const swogCards = s.cards.filter(c => c.cardId === 'swog_rider' && c.ownerSeat === 0);
-    expect(swogCards).toHaveLength(3);
-    expect(new Set(swogCards.map(c => c.uid)).size).toBe(3);
-    // …and three separate figures (Swog Rider has 1 each), every one with a distinct id → all placeable.
-    const swogUids = new Set(swogCards.map(c => c.uid));
-    const swogFigs = s.figures.filter(f => swogUids.has(f.cardUid));
+    expect(swogCards).toHaveLength(1);
+    expect(swogCards[0].uid).toBe('s0-swog_rider');
+    // …holding all 3 figures (Swog Rider = 1 each → 3 pooled), each with a distinct id → all placeable.
+    const swogFigs = s.figures.filter(f => f.cardUid === 's0-swog_rider');
     expect(swogFigs).toHaveLength(3);
     expect(new Set(swogFigs.map(f => f.id)).size).toBe(3);
   });

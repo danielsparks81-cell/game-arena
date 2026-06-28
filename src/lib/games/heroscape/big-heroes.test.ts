@@ -29,6 +29,7 @@ import {
   theDropHexes,
   legalTargets,
   legalDestinations,
+  activatableFigureIds,
   carryLandingHexes,
   carryDestFootprint,
 } from './engine';
@@ -114,6 +115,40 @@ function twoNeighbors(s: HSState, key: string): [string, string] {
   if (ns.length < 2) throw new Error(`fewer than 2 free neighbours of ${key}`);
   return [ns[0], ns[1]];
 }
+
+// ===========================================================================
+// Pooled common — per-marker ACTIVATION CAP (owner 2026-06-28): drafting N copies
+// of a common pools their figures onto ONE card, but a revealed marker still
+// activates only the printed squad size (any 3 Arrow Gruts), not the whole pool.
+// ===========================================================================
+describe('Pooled common — activation cap', () => {
+  it('a revealed marker activates only the printed squad size; the rest of the pool is locked', () => {
+    // Stage seat 0 active with the marker on s0-finn, then swap that card to Arrow Gruts (squad size 3).
+    let { s } = stage('arrow_gruts');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const card = 's0-finn'; // the (swapped) Arrow Gruts card uid
+    // Pool 5 Gruts onto the card (as if 2 copies were drafted): stage gave us s0-finn-1; add 4 more on
+    // distinct empty cells. The cap is the PRINTED size (3), not the figure count (5).
+    const occ = new Set(s.figures.filter(f => f.at != null).map(f => f.at));
+    const free = Object.keys(MAPS[s.mapId].cells).filter(k => !occ.has(k));
+    for (let i = 2; i <= 5; i++) {
+      s.figures.push({ id: `${card}-${i}`, cardUid: card, ownerSeat: 0, at: free[i - 2], index: i, wounds: 0 });
+    }
+    const gruts = s.figures.filter(f => f.cardUid === card).map(f => f.id);
+    expect(gruts).toHaveLength(5);
+    // Nothing activated yet → ANY of the 5 may start (the cap only bites once 3 have been chosen).
+    expect(activatableFigureIds(s).sort()).toEqual([...gruts].sort());
+    // Activate 3 distinct Gruts (moved this turn).
+    s.movedFigureIds = [gruts[0], gruts[1], gruts[2]];
+    // Cap (squad size 3) is now full → only those 3 stay activatable; the 4th & 5th are locked.
+    expect(activatableFigureIds(s).sort()).toEqual([gruts[0], gruts[1], gruts[2]].sort());
+    // The 4th Grut — though it never moved — can no longer act: no legal destinations, and the engine
+    // rejects a direct move of it.
+    expect(legalDestinations(s, gruts[3]).size).toBe(0);
+    const dest = cellAtDist(s, at(s, gruts[3])!, 1);
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_figure', figureId: gruts[3], to: dest }))).toMatch(/may act this turn|already activated/i);
+  });
+});
 
 // ===========================================================================
 // Nilfheim — ICE SHARD BREATH: Range 5, Attack 4, up to 3 attacks, no repeats

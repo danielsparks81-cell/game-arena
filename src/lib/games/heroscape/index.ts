@@ -27,6 +27,7 @@ export {
   scatterDestinations,
   grappleDestinations,
   legalTargets,
+  activatableFigureIds,
   canFireLine,
   fireLineSpaces,
   fireLineTargets,
