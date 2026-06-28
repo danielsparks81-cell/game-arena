@@ -1784,6 +1784,30 @@ describe('slice 3: falling (server-rolled, engine re-validates)', () => {
   });
 });
 
+// --- water = a HEIGHT DISADVANTAGE (owner house-rule 2026-06-28) ------------
+
+describe('water sits below the ground — a figure IN water is at a height disadvantage', () => {
+  it('a bank figure gets height advantage over a water figure; the water figure gets none', () => {
+    const card = (uid: string, cardId: string, seat: number) => ({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    const figAt = (id: string, uid: string, seat: number, hex: string) => ({ id, cardUid: uid, ownerSeat: seat, at: hex, at2: null, index: 1, wounds: 0 });
+    // test_water row2 = G1 G1 W1 W1 W1 → (0,1) is dry bank, (2,1)/(3,1) are water; all cell-height 1.
+    const state = {
+      mapId: WATER_MAP_ID, edition: 'modern',
+      players: [{ seat: 0 }, { seat: 1 }],
+      cards: [card('s0-finn', 'finn', 0), card('s1-thorgrim', 'thorgrim', 1)],
+      figures: [figAt('s0-finn-1', 's0-finn', 0, at(0, 1)), figAt('s1-thorgrim-1', 's1-thorgrim', 1, at(2, 1))],
+    } as unknown as HSState;
+    const bank = state.figures[0], water = state.figures[1];
+    // Bank (combat level 1) striking DOWN at the water figure (combat level 0.5) → +1 ATTACK die.
+    expect(heightAdvantage(state, bank, water)).toEqual({ attacker: 1, defender: 0 });
+    // Water figure striking UP at the bank → the higher bank DEFENDER gets +1 DEFENCE die (water gets none).
+    expect(heightAdvantage(state, water, bank)).toEqual({ attacker: 0, defender: 1 });
+    // Both in the water → level again, no height die either way (so it's a disadvantage vs LAND, not vs water).
+    bank.at = at(3, 1);
+    expect(heightAdvantage(state, bank, water)).toEqual({ attacker: 0, defender: 0 });
+  });
+});
+
 // --- water forced stop -----------------------------------------------------
 
 describe('slice 3: water forced stop (Ford Crossing)', () => {

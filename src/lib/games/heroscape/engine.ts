@@ -1915,6 +1915,18 @@ function baseLevel(state: HSState, fig: Figure): number {
   return figureStandLevel(state, fig);
 }
 
+/** A figure's COMBAT elevation for HEIGHT ADVANTAGE — its base level, but HALF A LEVEL LOWER while it
+ *  stands fully in water (owner house-rule 2026-06-28: water sits below the surrounding ground, so a
+ *  figure IN water is at a height DISADVANTAGE — figures on the ground get height advantage attacking it
+ *  and it gets none striking out; water also forces a move-stop, already enforced). Only height
+ *  advantage sees water as lower — movement, LOS and falling keep the real cell height (1) — mirroring
+ *  the half-height water TILE the board renders. A 2-hex figure must rest BOTH lobes in water to count. */
+function combatLevel(state: HSState, fig: Figure): number {
+  const hexes = figureHexes(fig);
+  const inWater = hexes.length > 0 && hexes.every(k => MAPS[state.mapId]?.cells[k]?.terrain === 'water');
+  return figureStandLevel(state, fig) - (inWater ? 0.5 : 0);
+}
+
 /** Sightline elevation of a figure for elevation-aware LOS (board §LOS): the
  *  cell height + 1, so a figure on a taller column sees over a shorter one. */
 function eyeHeightOfKey(state: HSState, key: HexKey): number {
@@ -3653,8 +3665,8 @@ export function heightAdvantage(
   attacker: Figure,
   target: Figure,
 ): { attacker: number; defender: number } {
-  const aBase = baseLevel(state, attacker);
-  const dBase = baseLevel(state, target);
+  const aBase = combatLevel(state, attacker); // water counts half a level LOWER (owner house-rule)
+  const dBase = combatLevel(state, target);
   if (aBase === dBase) return { attacker: 0, defender: 0 };
   if (aBase > dBase) {
     const big = aBase >= 10 + cardDefFor(state, target).height;
