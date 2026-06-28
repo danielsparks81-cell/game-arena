@@ -52,11 +52,12 @@ import {
   erlandDestinations,
   erlandSummonableIds,
   sturlaPlacementHexes,
+  startZoneFor,
   POINT_BUDGETS,
   glyphCountForMap,
 } from './engine';
 import { hexKey, offsetToAxial, rangeDistance, neighborKeys } from './board';
-import { MAPS, parseMap } from './maps';
+import { MAPS, parseMap, STAR_FIELD } from './maps';
 import { HS_CARDS, HS_DRAFT_POOL, CLASSIC_OVERRIDES, effectiveCardDef, HS_GLYPHS } from './content';
 import type {
   CombatFace,
@@ -6703,6 +6704,28 @@ describe('Glyph of Sturla — Resurrection on reveal', () => {
     const stay = drainCeremony(moved, () => 7);
     expect(stay.pendingChoice).toBeUndefined(); // nobody rose → no placement pending
     expect(fig(stay, MARRO(1)).at).toBeNull();
+  });
+
+  it('returns a riser to its OWNER\'s real Star-Field zone, not the raw 2-player startZones (owner 2026-06-28)', () => {
+    // Multiplayer games run on the Star Field, whose per-seat zones live in zonesByCount. Reading
+    // map.startZones DIRECTLY (the bug) gave the 2-player rectangle tips, so a resurrected figure landed
+    // in the WRONG seat's zone (or was skipped for seat 2+). startZoneFor resolves the real per-count zone.
+    const state = {
+      mapId: STAR_FIELD.id, edition: 'modern',
+      players: [
+        { seat: 0, playerId: 'p0', username: 'A' },
+        { seat: 1, playerId: 'p1', username: 'B' },
+        { seat: 2, playerId: 'p2', username: 'C' },
+      ],
+      cards: [{ uid: 's2-finn', cardId: 'finn', ownerSeat: 2, orderMarkers: [], attackMod: 0, defenseMod: 0 }],
+      figures: [{ id: 's2-finn-1', cardUid: 's2-finn', ownerSeat: 2, at: null, index: 1, wounds: 0 }],
+    } as unknown as HSState;
+    const ownerZone = startZoneFor(state, 2); // zonesByCount[3][2] — seat 2's REAL zone
+    const spots = sturlaPlacementHexes(state, 's2-finn-1');
+    expect(spots.length).toBeGreaterThan(0); // not skipped (the buggy map.startZones[2] was empty)
+    expect(spots).toEqual(ownerZone); // nothing occupied → exactly the owner's per-count zone
+    // …and that zone is NOT the raw startZones the buggy code read (the bug's wrong location).
+    expect(ownerZone).not.toEqual(STAR_FIELD.startZones[2] ?? []);
   });
 
   it('places risers one at a time, each owned by that figure\'s owner (cross-player queue)', () => {

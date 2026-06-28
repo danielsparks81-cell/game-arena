@@ -2246,7 +2246,10 @@ export function sturlaPlacementHexes(state: HSState, figureId: string): HexKey[]
   if (!map || !fig) return [];
   const occupied = new Set<HexKey>();
   for (const f of state.figures) { if (f.id === figureId) continue; if (f.at) occupied.add(f.at); if (f.at2) occupied.add(f.at2); }
-  const free = (map.startZones[fig.ownerSeat] ?? []).filter(h => !occupied.has(h));
+  // startZoneFor (NOT map.startZones) so a resurrected figure returns to its owner's ACTUAL start zone
+  // on the multiplayer Star Field, whose per-seat zones live in zonesByCount — reading map.startZones
+  // directly gave the 2-player rectangle tips, dropping the riser in the WRONG seat's zone (owner bug).
+  const free = startZoneFor(state, fig.ownerSeat).filter(h => !occupied.has(h));
   if (baseSizeOf(cardDefFor(state, fig)) === 2) {
     return free.filter(lead => tailFor(map.cells, new Set(free.filter(h => h !== lead)), lead) != null);
   }
@@ -6342,7 +6345,7 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     fig.wounds = 0; // returns FRESH
     if (baseSizeOf(cardDefFor(s, fig)) === 2) {
       const occupied = new Set(s.figures.filter(f => f.id !== fig.id && f.at != null).flatMap(f => figureHexes(f)));
-      const freeZone = new Set((map.startZones[fig.ownerSeat] ?? []).filter(h => !occupied.has(h) && h !== choice.hex));
+      const freeZone = new Set(startZoneFor(s, fig.ownerSeat).filter(h => !occupied.has(h) && h !== choice.hex)); // owner's REAL zone (Star Field zonesByCount), not the raw 2-player startZones
       const tail = tailFor(map.cells, freeZone, choice.hex);
       if (tail == null) return { error: 'That space has no room for the 2-hex figure' };
       fig.at = choice.hex; fig.at2 = tail;
