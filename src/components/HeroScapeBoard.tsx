@@ -530,21 +530,12 @@ function FigureStandee({
 // index cards, see CARD_ART_CROP). Kept for any future low-res addition.
 const PHOTO_PORTRAIT_CARDS = new Set<string>([]);
 
-/** Per-card crop for the card-scan portrait. The DEFAULT zooms 280% into a full card scan (the
- *  figure sits in the upper-left of the printed card). A card listed here instead supplies a
- *  PRE-CROPPED figure image already framed on the figure, so it should just fill the panel
- *  (`cover`) rather than being zoomed again. The 6 official-card figure crops added 2026-06-27. */
-const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
-  otonashi: { size: 'cover', position: 'center' }, // user's card art (figure on blue), pre-cropped 2026-06-27
-  swog_rider: { size: 'cover', position: 'center' },
-  blade_gruts: { size: 'cover', position: 'center' },
-  heavy_gruts: { size: 'cover', position: 'center' },
-  arrow_gruts: { size: 'cover', position: 'center' },
-  deathreavers: { size: 'cover', position: 'center' },
-  su_bak_na: { size: 'cover', position: 'center' },
-  eldgrim: { size: 'cover', position: 'center' }, // had no scan (fell back to cut-out); now official card art
-};
-const DEFAULT_ART_CROP = { size: '280% auto', position: '11% 25%' };
+/** Per-card crop for the card-scan portrait. Every `cards/<id>.jpg` is now a UNIFORM figure crop
+ *  from the official index card (2026-06-27 — figure large with the banner's chevron tip in the
+ *  top-left corner), so the DEFAULT just fills the panel (`cover`/center) and no per-card override
+ *  is needed. Add an entry here only to re-frame a single card differently. */
+const CARD_ART_CROP: Record<string, { size: string; position: string }> = {};
+const DEFAULT_ART_CROP = { size: 'cover', position: 'center' };
 
 /** Everything PRINTED on a card, lower-cased, for the draft Ctrl-F search — name, every
  *  identity/trait row, the stat line, and all special-power names + text. Built from the
