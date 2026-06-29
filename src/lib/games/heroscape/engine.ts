@@ -7450,14 +7450,13 @@ function aiTurn(state: HSState, seat: number): HSAction {
     for (const g of openGlyphs) { const d = rangeDistance(cells, from, g.at); if (d != null && d < best) best = d; }
     return best;
   };
-  // A figure WANTS to move when it can improve its square. A BRAWLER — melee (Range 1) OR a short-"reach"
-  // fighter (Range 2-3) — only closes in (it already attacks once a foe is in reach, so it holds). A
-  // LONG-RANGE shooter (Range 4+) always re-evaluates so it can KITE — hold the FAR edge of its range,
-  // climb to higher ground, or back off when a meleer closes — and bestStepFor returns null (no move)
-  // when staying put is already its best square, so it then just shoots. (Owner 2026-06-25: Range 2-3
-  // "reach" figures are brawlers, not kiters.)
-  const wantsMove = (f: Figure) =>
-    effectiveRange(state, f).dice >= 4 ? true : enemyTargets(f).length === 0;
+  // EVERY figure re-evaluates its square each tick (owner 2026-06-29: be AGGRESSIVE — push up and take
+  // the HIGH GROUND). `bestStepFor` returns null when staying put is already best (its hold rule), so a
+  // figure with no better square just attacks from where it is — but a BRAWLER that can reach a hex from
+  // which it still strikes the foe AND stands HIGHER (a +1-attack height advantage) now steps up instead
+  // of holding low, and out-of-reach figures keep closing. A LONG-RANGE shooter (4+) still KITES to the
+  // far edge of its range + high ground. (Replaces the old "a brawler with any target never moves".)
+  const wantsMove = (_f: Figure) => true;
   const bestStepFor = (f: Figure, candidatesOverride?: Iterable<HexKey>): { to: HexKey; score: number } | null => {
     // A figure that already FINISHED its move this turn can't move again — a flyer's one-shot
     // move_figure especially (a walker's legalStepHexes is already empty once finalized, but a
@@ -7486,6 +7485,15 @@ function aiTurn(state: HSState, seat: number): HSAction {
       !!cells && enemies.some(e => { const d = rangeDistance(cells!, hex, e.at!); return d != null && d >= 1 && d <= range; });
     const nearestEnemyDist = (hex: HexKey): number =>
       !cells ? Infinity : Math.min(...enemies.map(e => rangeDistance(cells, hex, e.at!) ?? Infinity));
+    // HEIGHT ADVANTAGE: does this hex let the figure strike a foe it can reach from HIGHER ground (the
+    // +1 attack die)? This is what makes a brawler step onto the high tile beside its target instead of
+    // hitting from below. (Approx: compares tile heights; the exact combat-level rule is in the engine.)
+    const strikesFromAbove = (hex: HexKey): boolean =>
+      !!cells && enemies.some(e => {
+        const d = rangeDistance(cells!, hex, e.at!);
+        return d != null && d >= 1 && d <= range && heightOfKey(state, hex) > heightOfKey(state, e.at!);
+      });
+    const HEIGHT_ADV_W = 12; // > the hold margin, so a height-advantage strike hex always beats holding low
     // SELF-PRESERVATION: how badly this figure wants to avoid danger. 0 for a full-health figure or a
     // 1-life squad member (expendable — retreating can't save it from a one-hit kill); rises with
     // wounds for a multi-life Hero, so a badly-hurt champion (≈2/3+ wounds) values DISTANCE from foes
@@ -7557,13 +7565,14 @@ function aiTurn(state: HSState, seat: number): HSAction {
       // SELF-PRESERVATION: a wounded multi-life Hero values DISTANCE from foes (0 for healthy / 1-life
       // figures, so the army still advances). Folds into both brawler + kiter scoring.
       const safety = hurt > 0 ? nearestEnemyDist(hex) * hurt * SAFETY_W : 0;
+      const heightAdv = strikesFromAbove(hex) ? HEIGHT_ADV_W : 0;
       if (isRanged) {
         const ne = nearestEnemyDist(hex);
         const standoff = Math.min(ne, range); // reward distance up to the range edge — no point fleeing past it
         const adjacent = ne <= 1 ? 60 : 0;     // a shooter next to a foe gets charged → big penalty
-        return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + glyphScore - adjacent + safety;
+        return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + heightAdv + glyphScore - adjacent + safety;
       }
-      return (canHit ? 50 : 0) + enemyGain * 4 + rawGain * 2 + glyphScore + heightOfKey(state, hex) + safety;
+      return (canHit ? 50 : 0) + enemyGain * 4 + rawGain * 2 + glyphScore + heightOfKey(state, hex) + heightAdv + safety;
     };
     let best: { to: HexKey; score: number } | null = null;
     for (const to of candidates) {
@@ -7592,10 +7601,12 @@ function aiTurn(state: HSState, seat: number): HSAction {
       const score = scoreHex(to);
       if (!best || score > best.score) best = { to, score };
     }
-    // RANGED hold rule: only SKIP a move when the shooter is ALREADY in range — then a marginal
-    // reposition isn't worth the shuffle, so it holds + attacks. When still OUT of range it must always
-    // advance to a firing spot (the margin must NEVER freeze the approach, or armies never close).
-    if (isRanged && canHitFrom(f.at!) && best && best.score <= scoreHex(f.at!) + 6) return null;
+    // HOLD rule (every figure): only SKIP a move when the figure can ALREADY strike from its current
+    // hex — then a marginal reposition isn't worth the shuffle, so it holds + attacks. A step only wins
+    // when it STRICTLY improves by > the margin, which a height-advantage strike hex (+HEIGHT_ADV_W)
+    // always does — so a brawler steps UP to high ground but won't shuffle sideways for nothing. When
+    // still OUT of reach the figure must always keep closing (the margin must never freeze the approach).
+    if (canHitFrom(f.at!) && best && best.score <= scoreHex(f.at!) + 6) return null;
     return best;
   };
   // Finish the in-progress figure's walk before switching to another.

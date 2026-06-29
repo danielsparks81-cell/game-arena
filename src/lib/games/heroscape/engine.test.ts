@@ -197,6 +197,7 @@ const WATER_MAP_ID = 'test_water';
 const TINY_MAP_ID = 'test_tiny';
 const WALL_MAP_ID = 'test_wall';
 const GLYPHSPOT_MAP_ID = 'test_glyphspot';
+const HEIGHT_ADV_MAP_ID = 'test_heightadv';
 beforeAll(() => {
   MAPS[CLIFF_MAP_ID] = parseMap(
     CLIFF_MAP_ID,
@@ -256,6 +257,21 @@ beforeAll(() => {
     row4:   G1 G1 G1 G1 G1 G1 G1 G1
     row5@2: G1 G1 G1 G1 G1 G1 G1 G1
     row6@2: G1 G1 G1 G1 G1 G1 G1 G1
+    `,
+  );
+  // 7x7 flat grass with ONE height-2 tile at offset (1,2) — for the "brawler steps up for height
+  // advantage" AI test. The G2 sits beside where the test parks the foe (a strike-from-above hex).
+  MAPS[HEIGHT_ADV_MAP_ID] = parseMap(
+    HEIGHT_ADV_MAP_ID,
+    'Test Height Adv',
+    `
+    row1@1: G1 G1 G1 G1 G1 G1 G1
+    row2@1: G1 G1 G1 G1 G1 G1 G1
+    row3:   G1 G2 G1 G1 G1 G1 G1
+    row4:   G1 G1 G1 G1 G1 G1 G1
+    row5:   G1 G1 G1 G1 G1 G1 G1
+    row6@2: G1 G1 G1 G1 G1 G1 G1
+    row7@2: G1 G1 G1 G1 G1 G1 G1
     `,
   );
 });
@@ -1672,6 +1688,26 @@ describe('HeroScape AI — self-preservation', () => {
     const a = aiNextAction(s, 0);
     // Marro Range 6 → it may already be in range and just attack; if it moves, it never retreats.
     if (a?.kind === 'move_step') expect(distTo((a as { to: string }).to, at(3, 6))).toBeLessThanOrEqual(distTo(from, at(3, 6)));
+  });
+
+  it('a brawler steps UP onto adjacent high ground to strike with height advantage', () => {
+    // Finn already stands beside the foe on LOW ground, but a height-2 tile is ALSO beside the foe and
+    // one step away — the aggressive AI moves up to it (a +1-attack height advantage) instead of holding.
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1', HEIGHT_ADV_MAP_ID);
+    s = clearExcept(s, 's0-finn-1', 's1-marro_warriors-1');
+    s = place(s, 's0-finn-1', at(0, 1)); // low ground, already adjacent to the foe
+    s = place(s, 's1-marro_warriors-1', at(1, 1)); // the foe (height 1)
+    const a = aiNextAction(s, 0);
+    expect(a?.kind).toBe('move_step');
+    expect((a as { to: string }).to).toBe(at(1, 2)); // the height-2 tile beside the foe (strike from above)
+  });
+
+  it('a brawler with a target on flat ground HOLDS (no pointless shuffle)', () => {
+    let s = customBattle(['finn'], ['marro_warriors'], 'p1', 'training_field');
+    s = clearExcept(s, 's0-finn-1', 's1-marro_warriors-1');
+    s = place(s, 's0-finn-1', at(3, 3));
+    s = place(s, 's1-marro_warriors-1', at(3, 4)); // adjacent — Finn can already hit, no higher ground nearby
+    expect(aiNextAction(s, 0)?.kind).not.toBe('move_step'); // ends the move and attacks from here
   });
 });
 
