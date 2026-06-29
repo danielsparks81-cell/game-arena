@@ -470,6 +470,57 @@ export const CROSSROADS: HSMap = makeSymHexMap('crossroads', 'Crossroads Keep', 
   wallSeeds: [[6, 0], [4, 5], [0, 6]], ridgeSeeds: [[5, 2], [2, 5]], ridge3Seeds: [], glyphSeeds: [[2, 1], [3, -1]],
 });
 
+// PERCOLATOR by Ulysses — a 2-player author map from the Level Creator: a perfectly 180°-rotationally
+// symmetric island (a height-3/4 sand massif ringed by height-2 grass, ground ponds top + bottom, four
+// raised 1.5-level pools in the core), two random-glyph spots, and short wall segments flanking the
+// massif. Verified symmetric (terrain/walls/glyphs/zones all mirror exactly) before publishing.
+export const PERCOLATOR_BY_ULYSSES_MAP: HSMap = (() => {
+  const m = parseMap(
+    'percolator_by_ulysses',
+    'PERCOLATOR by Ulysses',
+    `
+    row1: . . . . . . . . . G1 G1 G1 G1 G1 G1 G1 G1 . . . . . . . .
+    row2: . . . . . . . . G1 G1 G1 G1 G1 W1 G1 G1 G1 . . . . . . . .
+    row3: . . . . . . . . G1 G1 W1 G1 G1 W1 G1 G1 G1 G1 . . . . . . .
+    row4: . . . . . . . . G1 G1 W1 G1 G1 G1 G1 G1 G1 . . . . . . . .
+    row5: . . . . . . . . G1 G2 G2 G1 G1 G2 G2 G1 G1 . . . . . . . .
+    row6: . . . . . . . G1 G2 S3 G2 G2 G2 G2 G2 G2 G1 . . . . . . . .
+    row7: . . . . . . . G1 G2 S3 S3 S3 G2 G2 G2 G2 G2 G1 . . . . . . .
+    row8: . . . . . . G1 G2 S3 S3 S3 S3 S3 G2 G2 S3 G2 G2 . . . . . . .
+    row9: . . . . . . G2 G2 S3 S3 S3 S3 S3 S3 W2 G2 S3 G2 G2 . . . . . .
+    row10: . . . . . G2 G2 S3 S4 S3 S4 S3 S3 W2 G2 S4 S4 S3 G2* . . . . . .
+    row11: . . . . . . G2* S3 S4 S4 G2 W2 S3 S3 S4 S3 S4 S3 G2 G2 . . . . .
+    row12: . . . . . . G2 G2 S3 G2 W2 S3 S3 S3 S3 S3 S3 G2 G2 . . . . . .
+    row13: . . . . . . . G2 G2 S3 G2 G2 S3 S3 S3 S3 S3 G2 G1 . . . . . .
+    row14: . . . . . . . G1 G2 G2 G2 G2 G2 S3 S3 S3 G2 G1 . . . . . . .
+    row15: . . . . . . . . G1 G2 G2 G2 G2 G2 G2 S3 G2 G1 . . . . . . .
+    row16: . . . . . . . . G1 G1 G2 G2 G1 G1 G2 G2 G1 . . . . . . . .
+    row17: . . . . . . . . G1 G1 G1 G1 G1 G1 W1 G1 G1 . . . . . . . .
+    row18: . . . . . . . G1 G1 G1 G1 W1 G1 G1 W1 G1 G1 . . . . . . . .
+    row19: . . . . . . . . G1 G1 G1 W1 G1 G1 G1 G1 G1 . . . . . . . .
+    row20: . . . . . . . . G1 G1 G1 G1 G1 G1 G1 G1 . . . . . . . . .
+  `,
+    [],
+    [
+      [[8, 7], [9, 7]],
+      [[9, 7], [9, 8]],
+      [[9, 7], [10, 8]],
+      [[10, 7], [10, 8]],
+      [[10, 7], [11, 8]],
+      [[13, 11], [14, 12]],
+      [[14, 11], [14, 12]],
+      [[14, 11], [15, 12]],
+      [[15, 11], [15, 12]],
+      [[15, 12], [16, 12]],
+    ],
+  );
+  m.startZones = {
+    0: ['9,0', '10,0', '11,0', '12,0', '13,0', '14,0', '15,0', '16,0', '8,1', '9,1', '10,1', '11,1', '12,1', '14,1', '15,1', '16,1', '7,2', '8,2', '10,2', '11,2', '13,2', '14,2', '15,2', '16,2'],
+    1: ['-1,17', '0,17', '1,17', '2,17', '4,17', '5,17', '7,17', '8,17', '-1,18', '0,18', '1,18', '3,18', '4,18', '5,18', '6,18', '7,18', '-1,19', '0,19', '1,19', '2,19', '3,19', '4,19', '5,19', '6,19'],
+  };
+  return m;
+})();
+
 export const MAPS: Record<string, HSMap> = {
   [TRAINING_FIELD.id]: TRAINING_FIELD,
   [THE_KNOLL.id]: THE_KNOLL,
@@ -477,4 +528,5 @@ export const MAPS: Record<string, HSMap> = {
   [TRISKELION.id]: TRISKELION,
   [CROSSROADS.id]: CROSSROADS,
   [STAR_FIELD.id]: STAR_FIELD,
+  [PERCOLATOR_BY_ULYSSES_MAP.id]: PERCOLATOR_BY_ULYSSES_MAP,
 };
