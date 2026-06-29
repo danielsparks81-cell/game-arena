@@ -972,7 +972,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const dist = Math.hypot(dx, dz) || 1;
         const edge = dist / Math.sqrt(3); // hex side length from adjacent-centre distance
         const base = Math.max(hexTopY(ca.height, ca.terrain, glyphSet.has(a)), hexTopY(cb.height, cb.terrain, glyphSet.has(b)));
-        const wallH = LEVEL * 15; // a tall barrier (15 levels) — reads as a real wall, not a curb
+        const wallH = LEVEL * 10; // a tall barrier (10 levels) — reads as a real wall, not a curb
         return (
           <mesh key={`wall-${i}`} position={[(xa + xb) / 2, base + wallH / 2, (za + zb) / 2]} rotation={[0, Math.atan2(-dx, -dz), 0]} raycast={() => null} castShadow>
             <boxGeometry args={[edge * 1.04, wallH, 0.12]} />
