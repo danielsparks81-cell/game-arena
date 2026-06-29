@@ -7494,13 +7494,13 @@ function aiTurn(state: HSState, seat: number): HSAction {
         return d != null && d >= 1 && d <= range && heightOfKey(state, hex) > heightOfKey(state, e.at!);
       });
     const HEIGHT_ADV_W = 12; // > the hold margin, so a height-advantage strike hex always beats holding low
-    // SELF-PRESERVATION: how badly this figure wants to avoid danger. 0 for a full-health figure or a
-    // 1-life squad member (expendable — retreating can't save it from a one-hit kill); rises with
-    // wounds for a multi-life Hero, so a badly-hurt champion (≈2/3+ wounds) values DISTANCE from foes
-    // over closing the gap. Measured (a healthy army still advances + fights). SAFETY_W=6 sets the
-    // tipping point: a hurt-fraction above ~0.67 makes a one-step retreat outweigh a one-step close.
-    const hurt = fDef.life > 1 && f.wounds > 0 ? f.wounds / fDef.life : 0;
-    const SAFETY_W = 6;
+    // AGGRESSION (owner 2026-06-29): wounded figures KEEP ATTACKING — there is NO wound-based retreat.
+    // The one caution: a figure with just 1 HEALTH left must not provoke a leaving-engagement swipe
+    // PURELY to climb for height (the unblockable swipe could finish it) — withheld on the height bonus
+    // below. It still disengages for a REAL reason (reaching a strike it can't make from where it is).
+    const oneHealthLeft = fDef.life - f.wounds <= 1;
+    const breaksEngagement = (hex: HexKey): boolean =>
+      !fDef.disengage && moveConsequences(state, f, hex).abandonedEnemyIds.length > 0;
     // OBJECTIVE PRIORITY (the user's rule: glyphs are good and should be TAKEN unless something more
     // pressing — an enemy inbound — outweighs them). When no foe is within roughly a turn's reach,
     // an unclaimed glyph becomes the thing to go get and pulls hard; once a foe IS inbound, advancing
@@ -7553,26 +7553,27 @@ function aiTurn(state: HSState, seat: number): HSAction {
     const scoreHex = (hex: HexKey): number => {
       const toDist = pathDist(hex);
       const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
-      // Straight-line closing toward the nearest foe, ON TOP of the wall-aware path gain. This is the
-      // "charge" term: it keeps a HEALTHY melee figure advancing even where the path-field plateaus
-      // (around a wall or an ally), so it never stalls one hex short the way Thorgrim did. Gated to
-      // healthy figures so it never fights a wounded Hero's retreat (the safety term owns that case).
-      const rawGain = hurt === 0 && Number.isFinite(curRawEnemy) ? curRawEnemy - nearestEnemyDist(hex) : 0;
+      // Straight-line closing toward the nearest foe, ON TOP of the wall-aware path gain — the "charge"
+      // term that keeps a figure advancing where the path-field plateaus (around a wall or an ally).
+      const rawGain = Number.isFinite(curRawEnemy) ? curRawEnemy - nearestEnemyDist(hex) : 0;
       const onG = openGlyphs.some(g => g.at === hex);
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(hex) : 0;
       const glyphScore = (chaseGlyph ? glyphGain * glyphWeight : 0) + (onG ? 14 : 0);
       const canHit = canHitFrom(hex);
-      // SELF-PRESERVATION: a wounded multi-life Hero values DISTANCE from foes (0 for healthy / 1-life
-      // figures, so the army still advances). Folds into both brawler + kiter scoring.
-      const safety = hurt > 0 ? nearestEnemyDist(hex) * hurt * SAFETY_W : 0;
-      const heightAdv = strikesFromAbove(hex) ? HEIGHT_ADV_W : 0;
+      // HEIGHT advantage (a +1 ATTACK die from above, and the bank also gives +1 DEFENCE). Withheld only
+      // when a 1-health figure would have to BREAK AN ENGAGEMENT to take it (the swipe could kill it).
+      const fromAbove = strikesFromAbove(hex) && !(oneHealthLeft && breaksEngagement(hex));
       if (isRanged) {
         const ne = nearestEnemyDist(hex);
-        const standoff = Math.min(ne, range); // reward distance up to the range edge — no point fleeing past it
+        const standoff = Math.min(ne, range); // distance up to the range edge — no point fleeing past it
         const adjacent = ne <= 1 ? 60 : 0;     // a shooter next to a foe gets charged → big penalty
-        return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + heightAdv + glyphScore - adjacent + safety;
+        // KITER priority: HEIGHT ADVANTAGE first (weighted above any standoff, so a high firing spot beats
+        // a flat one), THEN max distance; on flat ground it just backs off and takes the long shot.
+        const heightAdv = fromAbove ? range * 6 + 20 : 0;
+        return (canHit ? 80 : 0) + (canHit ? standoff * 6 : enemyGain * 4) + heightOfKey(state, hex) * 1.5 + heightAdv + glyphScore - adjacent;
       }
-      return (canHit ? 50 : 0) + enemyGain * 4 + rawGain * 2 + glyphScore + heightOfKey(state, hex) + heightAdv + safety;
+      // BRAWLER: reach a strike hex (dominant), then close + take HIGH GROUND (steps up whenever it can).
+      return (canHit ? 50 : 0) + enemyGain * 4 + rawGain * 2 + glyphScore + heightOfKey(state, hex) + (fromAbove ? HEIGHT_ADV_W : 0);
     };
     let best: { to: HexKey; score: number } | null = null;
     for (const to of candidates) {
@@ -7586,18 +7587,12 @@ function aiTurn(state: HSState, seat: number): HSAction {
       const toDist = pathDist(to);
       const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(to) : 0;
-      // Make progress toward SOMETHING — a strike hex, the enemy, or a nearby glyph. A pure
-      // sideways/backward step with no payoff is skipped so we never stall — but a ranged retreat that
-      // STAYS in range (canHit) is a real payoff and survives this guard.
-      // A HURT Hero may take a pure RETREAT step (no offensive payoff) — backing AWAY from the nearest
-      // foe is itself the payoff (the safety term rewards it). Healthy/expendable figures still skip a
-      // payoff-less sideways/backward shuffle, so they never stall.
-      const retreatOK = hurt > 0 && nearestEnemyDist(to) > nearestEnemyDist(f.at!);
-      // A HEALTHY figure may also advance on RAW distance to the nearest foe even when the wall-aware
-      // path-field is flat (a plateau, or routing around an ally/wall) — this is the charge step that
-      // stops a melee hero stalling one hex out. Wounded figures keep retreatOK instead.
-      const closesEnemy = hurt === 0 && Number.isFinite(curRawEnemy) && nearestEnemyDist(to) < curRawEnemy;
-      if (enemyGain <= 0 && glyphGain <= 0 && !openGlyphs.some(g => g.at === to) && !canHitFrom(to) && !retreatOK && !closesEnemy) continue;
+      // Make progress toward SOMETHING — a strike hex, the enemy (path OR raw-distance closing, the
+      // charge that stops a brawler stalling a hex out), or a nearby glyph. A pure sideways/backward step
+      // with no payoff is skipped so the figure never stalls; a ranged hold that STAYS in range (canHit)
+      // is a real payoff and survives. (No wound-based retreat any more — see AGGRESSION above.)
+      const closesEnemy = Number.isFinite(curRawEnemy) && nearestEnemyDist(to) < curRawEnemy;
+      if (enemyGain <= 0 && glyphGain <= 0 && !openGlyphs.some(g => g.at === to) && !canHitFrom(to) && !closesEnemy) continue;
       const score = scoreHex(to);
       if (!best || score > best.score) best = { to, score };
     }

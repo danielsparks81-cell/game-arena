@@ -1652,9 +1652,9 @@ describe('HeroScape AI — self-preservation', () => {
   const tfCells = MAPS.training_field.cells;
   const distTo = (k: string, t: string) => rangeDistance(tfCells, k, t)!;
 
-  // Finn (Life 4, melee) on the flat field, OUT of melee range of one Marro so the move AI runs. A
-  // healthy Finn closes the gap; a badly-wounded Finn (3/4 wounds → past the ⅔ retreat tipping point)
-  // backs away instead. Same position + same enemy — only the wound count differs.
+  // Finn (Life 4, melee) on the flat field, OUT of melee range of one Marro so the move AI runs. Both a
+  // healthy AND a badly-wounded Finn now CLOSE the gap — aggression is paramount, there is no wound-based
+  // retreat (owner 2026-06-29). Same position + same enemy; the wound count no longer changes the move.
   function finnStep(wounds: number): { from: string; to: string } {
     let s = customBattle(['finn'], ['marro_warriors'], 'p1', 'training_field');
     s = clearExcept(s, FINN1, MARRO1);
@@ -1672,9 +1672,9 @@ describe('HeroScape AI — self-preservation', () => {
     expect(distTo(m.to, at(3, 6))).toBeLessThan(distTo(m.from, at(3, 6))); // steps toward the enemy
   });
 
-  it('a badly-WOUNDED Hero retreats to safety', () => {
-    const m = finnStep(3); // 3 of 4 Life gone → values distance over closing
-    expect(distTo(m.to, at(3, 6))).toBeGreaterThan(distTo(m.from, at(3, 6))); // steps away from the enemy
+  it('a badly-WOUNDED Hero keeps attacking — still closes the gap (no retreat)', () => {
+    const m = finnStep(3); // 3 of 4 Life gone, but aggression is paramount → it still charges
+    expect(distTo(m.to, at(3, 6))).toBeLessThan(distTo(m.from, at(3, 6))); // steps TOWARD the enemy
   });
 
   it('expendable 1-life squad figures stay aggressive even at full damage potential', () => {
@@ -1708,6 +1708,18 @@ describe('HeroScape AI — self-preservation', () => {
     s = place(s, 's0-finn-1', at(3, 3));
     s = place(s, 's1-marro_warriors-1', at(3, 4)); // adjacent — Finn can already hit, no higher ground nearby
     expect(aiNextAction(s, 0)?.kind).not.toBe('move_step'); // ends the move and attacks from here
+  });
+
+  it('a ranged figure prefers a HIGH firing spot over max distance (height first, then standoff)', () => {
+    // A Marro (Range 6) can already shoot the foe from low ground, but a height-2 tile one step away also
+    // has the shot — it climbs for the height advantage even though it gives up a little standoff.
+    let s = customBattle(['marro_warriors'], ['finn'], 'p1', HEIGHT_ADV_MAP_ID);
+    s = clearExcept(s, 's0-marro_warriors-1', 's1-finn-1');
+    s = place(s, 's0-marro_warriors-1', at(0, 2)); // low, in range of the foe, beside the height-2 tile
+    s = place(s, 's1-finn-1', at(4, 2)); // the foe, well within Range 6 (not adjacent → no kite-from-melee)
+    const a = aiNextAction(s, 0);
+    expect(a?.kind).toBe('move_step');
+    expect((a as { to: string }).to).toBe(at(1, 2)); // steps onto the height-2 firing tile
   });
 });
 
