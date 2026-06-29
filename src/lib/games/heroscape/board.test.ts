@@ -9,6 +9,7 @@ import {
   rangeDistance,
   rangeFlood,
   reachableDestinations,
+  shortestPath,
   dragStep,
   hexToPixel,
   stepCost,
@@ -498,6 +499,38 @@ describe('walls (edge barriers) — full barrier: movement + adjacency + LOS', (
     expect(reachableDestinations(m.cells, B, 2, () => null, 5, { walls }).has(C)).toBe(true);
     expect(hasLineOfSight3D(m.cells, B, C, [], eye, [[A, B]])).toBe(true);
     expect(areEngaged(B, 5, C, 5, heightAt, walls)).toBe(true);
+  });
+});
+
+describe('shortestPath (walk-animation routing — never crosses what a move cannot)', () => {
+  it('returns the direct line on open ground', () => {
+    const m = parseMap('sp1', 'sp1', `row1: G1 G1 G1`);
+    expect(shortestPath(m.cells, at(0, 0), at(2, 0))).toEqual([at(0, 0), at(1, 0), at(2, 0)]);
+  });
+
+  it('routes AROUND water rather than through it (water is a forced stop)', () => {
+    const m = parseMap('sp2', 'sp2', `
+      row1: G1 W1 G1
+      row2: G1 G1 G1
+    `);
+    const p = shortestPath(m.cells, at(0, 0), at(2, 0), 5);
+    expect(p).not.toBeNull();
+    expect(p![0]).toBe(at(0, 0));
+    expect(p![p!.length - 1]).toBe(at(2, 0));
+    expect(p).not.toContain(at(1, 0)); // never steps onto the water mid-route
+  });
+
+  it('a wall with no detour makes the target unreachable (null)', () => {
+    const m = parseMap('sp3', 'sp3', `row1: G1 G1 G1`, [], [[[1, 0], [2, 0]]]);
+    expect(shortestPath(m.cells, at(0, 0), at(2, 0), 5, { walls: wallSetOf(m.walls) })).toBeNull();
+  });
+
+  it('returns null for a disconnected target', () => {
+    const m = parseMap('sp4', 'sp4', `
+      row1: G1 .
+      row2: . G1
+    `);
+    expect(shortestPath(m.cells, at(0, 0), at(1, 1))).toBeNull();
   });
 });
 

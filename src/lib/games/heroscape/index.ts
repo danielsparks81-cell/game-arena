@@ -107,6 +107,8 @@ export {
   hexDistance,
   rangeDistance,
   reachableDestinations,
+  shortestPath,
+  wallSetOf,
   stepCost,
   canStepUp,
   areEngaged,

@@ -15,7 +15,8 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Billboard, Edges, Html, Line } from '@react-three/drei';
 import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys, SEAT_COLORS, teamColorById, computeSeatColorMap } from '@/lib/games/heroscape';
+import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys, shortestPath, wallSetOf, SEAT_COLORS, teamColorById, computeSeatColorMap } from '@/lib/games/heroscape';
+import type { HexCell } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2, sizeScale } from '@/lib/games/heroscape/figureBase';
 
@@ -310,9 +311,10 @@ function peanutShape(d: number, lobeR: number, waistY: number): THREE.Shape {
   return sh;
 }
 
-function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, negated, wounds, flying, onClick }: {
+function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected, target, powerTarget, splash, actionable, aura, negated, wounds, flying, pathCells, pathWalls, onClick }: {
   lead: [number, number]; trail: [number, number] | null; leadKey: string; topY: number; cardId: string; figIndex: number; color: string;
-  selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; negated: boolean; wounds: number; flying: boolean; onClick?: () => void;
+  selected: boolean; target: boolean; powerTarget: boolean; splash: boolean; actionable: boolean; aura: boolean; negated: boolean; wounds: number; flying: boolean;
+  pathCells?: Record<HexKey, HexCell>; pathWalls?: ReadonlySet<string>; onClick?: () => void;
 }) {
   const tex = useStandeeTexture(cardId, figIndex);
   const img = tex?.image as HTMLImageElement | undefined;
@@ -483,7 +485,15 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
         wpsRef.current = []; // teleport (Drop / reseat / board-span) → snap, no path to trace
         g.position.x = cx; g.position.z = cz;
       } else if (leadKey && lastLeadKeyRef.current && leadKey !== lastLeadKeyRef.current) {
-        const line = hexLine(lastLeadKeyRef.current, leadKey);
+        // A WALKER follows the actual cheapest legal route (around water/walls), so the animation never
+        // slides straight through terrain it couldn't cross; a FLYER goes as the crow flies (it ignores
+        // both). Fall back to the straight hex line if no ground path is found.
+        const def = HS_CARDS[cardId];
+        const route = flying
+          ? null
+          : shortestPath(pathCells ?? {}, lastLeadKeyRef.current, leadKey, def?.height ?? Infinity,
+              { walls: pathWalls, ghostWalk: !!def?.ghostWalk, doubleSpace: !!trail });
+        const line = route ?? hexLine(lastLeadKeyRef.current, leadKey);
         // For a 2-hex figure the trailing lobe follows one hex behind, so its CENTRE at each step is
         // the midpoint of consecutive line hexes. Stop ONE hex short of the lead's final hex: the
         // true final centre [cx,cz] (which accounts for the real tail) is enqueued last, so the body
@@ -821,6 +831,8 @@ function SwordFx({ from, to, onDone }: { from: [number, number, number]; to: [nu
 function Scene({ state, it }: { state: HSState; it: Interact }) {
   const map = MAPS[state.mapId];
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
+  // Wall edge-set for the walk-animation pathfinder (so a standee routes AROUND walls, not through them).
+  const pathWalls = useMemo(() => wallSetOf(map?.walls), [map]);
   // Hexes that hold a glyph — their tiles render raised + maroon, and figures on them sit higher.
   const glyphSet = useMemo(() => new Set((state.glyphs ?? []).map(g => g.at)), [state.glyphs]);
   // Cards shut off by the Glyph of Nilrend — their figures get a ⊘ badge (base stats only).
@@ -1001,7 +1013,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           return (
             <Standee
               key={f.id} lead={lead} trail={trail} leadKey={f.at!} topY={topY} cardId={cardId} figIndex={f.index} color={seatColor(f.ownerSeat)}
-              flying={!!HS_CARDS[cardId]?.flying}
+              flying={!!HS_CARDS[cardId]?.flying} pathCells={map?.cells} pathWalls={pathWalls}
               selected={it.selectedId === f.id} target={!!it.targetIds?.has(f.id)}
               powerTarget={!!it.powerTargetIds?.has(f.id)} splash={!!it.splashIds?.has(f.id)} actionable={!!it.actionableIds?.has(f.id)} aura={!!it.auraIds?.has(f.id)} negated={negatedUids.has(f.cardUid)} wounds={f.wounds}
               onClick={it.onHexClick ? () => it.onHexClick!(f.at!) : undefined}

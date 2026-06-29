@@ -343,6 +343,59 @@ export function reachableDestinations(
   return out;
 }
 
+/**
+ * The cheapest LEGAL route from `from` to `to` (inclusive at both ends), or null if `to` is not
+ * reachable. Same terrain cost model as `reachableDestinations` (climb cost/limit, water + glyph
+ * forced-stops, walls, flyer/ghost), so the route never crosses a hex border a real move couldn't —
+ * used by the board to ANIMATE a multi-hex move along the path the figure would actually walk
+ * (around water/walls) instead of a straight line that cuts through them. Occupancy is ignored (the
+ * move's legality was already validated by the engine; this only needs a plausible terrain route).
+ */
+export function shortestPath(
+  cells: Record<HexKey, HexCell>,
+  from: HexKey,
+  to: HexKey,
+  cardHeight = Infinity,
+  options: ReachOptions = {},
+): HexKey[] | null {
+  if (from === to) return [from];
+  if (!cells[from] || !cells[to]) return null;
+  const flyer = !!options.flyer;
+  const doubleSpace = !!options.doubleSpace;
+  const isWater = (k: HexKey) => !flyer && cells[k]?.terrain === 'water';
+  const glyphHexes = options.glyphHexes;
+  const walls = options.walls;
+  const isGlyphStop = (k: HexKey) => k !== from && !!glyphHexes?.has(k);
+  const best = new Map<HexKey, number>([[from, 0]]);
+  const prev = new Map<HexKey, HexKey>();
+  const settled = new Set<HexKey>();
+  for (;;) {
+    let cur: HexKey | null = null;
+    let curCost = Infinity;
+    for (const [k, c] of best) if (!settled.has(k) && c < curCost) { cur = k; curCost = c; }
+    if (cur == null) return null;
+    settled.add(cur);
+    if (cur === to) {
+      const path: HexKey[] = [cur];
+      let p: HexKey = cur;
+      while (prev.has(p)) { p = prev.get(p)!; path.push(p); }
+      return path.reverse();
+    }
+    const curIsWater = cur !== from && isWater(cur);
+    if (isGlyphStop(cur)) continue; // a glyph is a forced stop — never path past it
+    if (curIsWater && !doubleSpace) continue; // 1-hex: water is a hard stop — route around it
+    for (const n of neighborKeys(cur)) {
+      if (!cells[n]) continue; // void
+      if (walls && walls.has(edgeKey(cur, n))) continue; // a wall severs this edge
+      if (curIsWater && isWater(n)) continue; // double-space: never chain water→water
+      const hFrom = cells[cur].height, hTo = cells[n].height;
+      if (!flyer && !canStepUp(hFrom, hTo, cardHeight)) continue; // climb limit
+      const cost = curCost + (flyer ? 1 : stepCost(hFrom, hTo));
+      if (cost < (best.get(n) ?? Infinity)) { best.set(n, cost); prev.set(n, cur); settled.delete(n); }
+    }
+  }
+}
+
 /** ONE step of a hand-traced DRAG path (the HeroQuest-style movement input).
  *  Given the figure's START hex, the path's current last hex `prev`, and a
  *  candidate next hex `to`, returns that step's movement cost and whether `to` is a
