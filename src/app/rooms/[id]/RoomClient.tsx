@@ -336,10 +336,16 @@ export default function RoomClient({
           });
 
           if (room.status === 'waiting') {
+            // The waiting-room LOBBY renders at NATURAL size — NOT inside the scale-to-fit GameViewport.
+            // That viewport shrinks its content to fit the window HEIGHT, so every added player grew the
+            // setup (another team row) and the whole thing visibly shrank. Static + page-scroll instead
+            // (owner 2026-06-30 "make this static").
             return (
               <>
-                <GameViewport designWidth={GAME_DESIGN_WIDTH[room.game_type] ?? 1200}>
-                  <div className="w-full">
+                <div className="mx-auto w-full max-w-[1200px]">
+                  {/* HeroScape renders its OWN Players grid (humans + AIs as seats, each with a team
+                      picker), so the generic seat bar is redundant there — hide it for HeroScape. */}
+                  {room.game_type !== 'heroscape' && (
                     <Seats
                       room={room}
                       currentUserId={currentUserId}
@@ -347,9 +353,9 @@ export default function RoomClient({
                         ? (pid) => startTransition(() => { kickPlayer(roomId, pid); })
                         : undefined}
                     />
-                    {board}
-                  </div>
-                </GameViewport>
+                  )}
+                  {board}
+                </div>
                 <div className="mx-auto mt-3 w-full max-w-[1440px]">
                   <GameGuidePanel gameId={room.game_type} gameName={gameName} />
                 </div>
