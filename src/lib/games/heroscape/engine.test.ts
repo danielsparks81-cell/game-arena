@@ -3651,6 +3651,34 @@ describe('wave-3 CHOICE glyphs — Erland / Nilrend / Wannok', () => {
     expect(done.glyphs.find(g => g.id === 'nilrend')).toBeUndefined(); // temporary — consumed
   });
 
+  it('Nilrend offers UNIQUE cards only — excludes a COMMON squad AND a COMMON hero (uniqueness, NOT hero-vs-squad)', () => {
+    // The gate is the `common` flag, which is orthogonal to hero/squad: a unique SQUAD (Marro Warriors)
+    // and a unique HERO (Thorgrim) are both eligible; a common SQUAD (Blade Gruts) and a common HERO
+    // (Swog Rider) are both excluded. Pins the owner's clarification 2026-06-30.
+    let s = noGlyphs(inTurns('p1', { p1: 's0-finn' }));
+    s = clearExcept(s, FINN, MARRO(1), THORGRIM); // opponent's unique squad + unique hero, on the board
+    s = place(s, FINN, at(3, 2));
+    s = place(s, MARRO(1), at(6, 6));
+    s = place(s, THORGRIM, at(7, 7));
+    // Give the opponent a COMMON squad (Blade Gruts) and a COMMON hero (Swog Rider), each with a
+    // living on-board figure so cardHasLivingFigures includes them as candidates.
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.cards.push({ uid: 's1-blade_gruts', cardId: 'blade_gruts', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-blade_gruts-1', cardUid: 's1-blade_gruts', ownerSeat: 1, at: at(5, 5), index: 1, wounds: 0 });
+    s.cards.push({ uid: 's1-swog_rider', cardId: 'swog_rider', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-swog_rider-1', cardUid: 's1-swog_rider', ownerSeat: 1, at: at(8, 8), at2: at(9, 8), index: 1, wounds: 0 });
+    s = setGlyphs(s, [{ id: 'nilrend', at: at(3, 3), faceUp: true }]);
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: FINN, to: at(3, 3) }));
+    const pc = moved.pendingChoice;
+    if (pc?.kind !== 'glyph_nilrend') throw new Error('expected a glyph_nilrend choice');
+    const marroCard = moved.cards.find(c => c.cardId === 'marro_warriors')!;
+    const thorgrimCard = moved.cards.find(c => c.cardId === 'thorgrim')!;
+    expect(pc.foeCardUids).toContain(marroCard.uid);     // UNIQUE squad — eligible
+    expect(pc.foeCardUids).toContain(thorgrimCard.uid);  // UNIQUE hero — eligible
+    expect(pc.foeCardUids).not.toContain('s1-blade_gruts'); // COMMON squad — NOT eligible
+    expect(pc.foeCardUids).not.toContain('s1-swog_rider');  // COMMON hero — NOT eligible
+  });
+
   it('a negated card stops granting its aura (Finn Attack Aura turns off → base stats)', () => {
     let s = noGlyphs(inTurns('p1', { p1: 's0-tarn_vikings' }));
     s = clearExcept(s, FINN, TARN(1), THORGRIM);

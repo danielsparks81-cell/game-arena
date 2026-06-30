@@ -668,11 +668,15 @@ function Standee({ lead, trail, leadKey, topY, cardId, figIndex, color, selected
           is shut off by the Glyph of Nilrend: base stats only, no powers/auras. The single board
           cue for negation, which until now only showed in the card panel. */}
       {negated && (
-        <Html center position={[0, headY + 0.52, 0]} occlude="blending" style={{ pointerEvents: 'none' }}>
+        // occlude={false}, NOT "blending": a blending occlude samples the depth buffer against the
+        // figure's own plane/disc just below it and CSS-clips the badge to a crescent (the "cropped
+        // weird" report) — the same trap the glyph chips hit and fixed below. Keep it raised + un-occluded.
+        <Html center position={[0, headY + 0.52, 0]} occlude={false} style={{ pointerEvents: 'none' }}>
           <div title="Powers negated by the Glyph of Nilrend — base stats only" style={{
-            width: 18, height: 18, lineHeight: '18px', textAlign: 'center', fontSize: 13, fontWeight: 900,
-            color: '#e5e7eb', background: 'rgba(38,38,44,0.85)', borderRadius: '50%',
-            border: '1px solid rgba(229,231,235,0.55)', textShadow: '0 1px 2px rgba(0,0,0,0.9)', userSelect: 'none',
+            width: 20, height: 20, lineHeight: '20px', textAlign: 'center', fontSize: 15, fontWeight: 900,
+            color: '#e5e7eb', background: 'rgba(38,38,44,0.9)', borderRadius: '50%',
+            border: '1px solid rgba(229,231,235,0.6)', textShadow: '0 1px 2px rgba(0,0,0,0.9)', userSelect: 'none',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.6)',
           }}>⊘</div>
         </Html>
       )}
