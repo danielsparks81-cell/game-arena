@@ -152,9 +152,11 @@ function seatIsAlive(state: HSState, seat: number): boolean {
   const figs = state.figures.filter(f => f.ownerSeat === seat);
   if (figs.some(f => f.at != null)) return true; // a figure stands on the battlefield
   if (state.phase !== 'playing') return figs.some(figureAlive); // setup never eliminates (old rule)
-  const hasReserve = figs.some(f => f.reserve);
+  // A NEGATED Airborne (Glyph of Nilrend) can never roll The Drop, so an all-reserve army whose only
+  // card is negated has no route onto the board — it must NOT keep the seat alive (else stalemate).
+  const hasReserve = figs.some(f => f.reserve && !isCardNegated(state, f.cardUid));
   const hasCasualty = figs.some(f => f.at == null && !f.reserve); // a figure was destroyed (in play, unplaced = none)
-  return hasReserve && !hasCasualty; // un-deployed reserve survives; a wiped-on-board team does not
+  return hasReserve && !hasCasualty; // un-deployed (deployable) reserve survives; a wiped-on-board team does not
 }
 
 /** Seats with at least one living figure, in seat order. The round flow keys on
@@ -6219,10 +6221,15 @@ export function carryDestFootprint(state: HSState, theracusId: string, to: HexKe
 // ---------------------------------------------------------------------------
 const THE_DROP_THRESHOLD = 13;
 
-/** Reserve (un-deployed) Airborne Elite figures this seat can still drop. */
+/** Reserve (un-deployed) Airborne Elite figures this seat can still drop. THE DROP is the card's
+ *  special power, so a card NEGATED by the Glyph of Nilrend can't roll it — a negated Airborne is
+ *  excluded here, which flows to every consumer at once (canTheDrop / doTheDrop / the round-start
+ *  wait gate / the AI / placement), so the negated squad simply stays in reserve and never rolls.
+ *  Negation is permanent ("for the game"), so this is a permanent lock-out (the Airborne's only
+ *  route onto the board is The Drop) — matching the owner's expectation that a negated card can't roll. */
 function reserveAirborne(state: HSState, seat: number): Figure[] {
   return state.figures.filter(
-    f => f.ownerSeat === seat && f.reserve && cardDefFor(state, f).id === AIRBORNE_CARD_ID,
+    f => f.ownerSeat === seat && f.reserve && cardDefFor(state, f).id === AIRBORNE_CARD_ID && !isCardNegated(state, f.cardUid),
   );
 }
 

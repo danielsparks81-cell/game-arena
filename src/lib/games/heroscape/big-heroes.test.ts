@@ -732,6 +732,21 @@ describe('Airborne Elite — The Drop', () => {
     expect(legal.length).toBeGreaterThan(0);
   });
 
+  it('a NEGATED Airborne card (Glyph of Nilrend) cannot roll The Drop — The Drop is its special power (owner 2026-06-30)', () => {
+    const { s: s0, air } = dropStage();
+    expect(canTheDrop(s0, 0)).toBe(true); // un-negated: offered as normal
+    expect(livingSeats(s0)).toContain(0); // and the all-reserve seat is alive
+    // Nilrend negates the Airborne Elite card → ALL its special powers are off, incl. The Drop.
+    s0.negatedCardUids = ['s0-airborne_elite'];
+    expect(canTheDrop(s0, 0)).toBe(false); // no roll offered
+    // A stale/forced roll is rejected (reserveAirborne now excludes the negated card → "none in reserve").
+    expect(errOf(rollDrop(s0, 'p1', 18))).toMatch(/no Airborne Elite in reserve/i);
+    expect(air.every(id => reserveOf(s0, id))).toBe(true); // they stay in reserve, undeployed
+    // …and because a negated Airborne can NEVER reach the board, an army that is ONLY that card is
+    // eliminated (it can't keep the seat alive forever → no stalemate). seat 0 has no on-board figure.
+    expect(livingSeats(s0)).not.toContain(0);
+  });
+
   it('a HUMAN who still owes The Drop makes the AI driver WAIT — bots never force markers and consume it (owner 2026-06-25)', () => {
     const { s } = dropStage();
     s.players.find(p => p.seat === 1)!.bot = true; // seat 1 is a BOT; seat 0 (human) owns the reserve Airborne

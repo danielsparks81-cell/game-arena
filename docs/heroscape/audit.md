@@ -40,6 +40,21 @@ footgun was hardened. Everything else is 🟡 cosmetic / by-design.
    shared `sanitizeAuthored` now drops off-board / water / **start-zone** hexes and **dedupes**
    (order-preserving, so the seeded id assignment stays stable) for both branches.
 
+### Found in live play (post-audit, shipped 2026-06-30)
+3. **🟠 A NEGATED Airborne Elite kept rolling The Drop — FIXED.** Owner report: after negating an
+   opponent's Airborne Elite with the Glyph of Nilrend, that card still rolled The Drop every round.
+   The Drop is the card's printed **special power**, so a negated card must not roll it — but
+   `reserveAirborne` (the single chokepoint behind `canTheDrop` / `doTheDrop` / the round-start wait
+   gate / the AI / placement) never checked `isCardNegated`. The Nilrend target list (`generateGlyphs`
+   nilrend branch via `cardHasLivingFigures`, which counts reserve) legitimately lets you negate a
+   reserve Airborne, so the card was genuinely negated — the gate just ignored it. Fix: `reserveAirborne`
+   now excludes negated cards, so every consumer treats the negated squad as un-droppable and it stays
+   in reserve (negation is permanent → a permanent lock-out, matching the owner's expectation). Defense
+   against a derived stalemate: `seatIsAlive`'s "reserve keeps you alive" clause now requires a
+   **non-negated** reserve Airborne, so an army whose only card is a negated Airborne (no route to the
+   board) is eliminated rather than alive-forever. Regression test (big-heroes.test.ts "a NEGATED
+   Airborne card … cannot roll The Drop").
+
 ### Per-system findings (condensed)
 
 **1. Walls (movement / LOS / engagement) — faithful.** Every reach + dragStep site passes
