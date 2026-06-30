@@ -2326,51 +2326,46 @@ describe('step-by-step movement (move_step)', () => {
     expect(done.stepMove).toBeUndefined();
   });
 
-  it('a 2-hex figure slithers: front leads to the tapped hex, back follows into the vacated hex (either lobe can lead)', () => {
+  it('a 2-hex figure moves to a DESTINATION (−1 move) and lands with a flat adjacent back lobe — no per-step slither (owner 2026-06-30)', () => {
     let s = customBattle(['grimnak'], ['finn'], 'p1');
     const G = 's0-grimnak-1';
     s = clearExcept(s, G, ENEMY);
-    s = place(s, ENEMY, at(6, 7));
-    // A level peanut on the flat field: lead (3,3), tail (3,2) (proven-adjacent).
-    s = place2(s, G, at(3, 3), at(3, 2));
-    const opts = [...legalStepHexes(s, G)];
-    // Leading with the LEAD lobe: the back slithers into the old lead hex.
-    const leadStep = opts.find(k => {
-      const c = stepConsequences(s, G, k);
-      return !('error' in c) && c.newAt2 === at(3, 3);
-    })!;
-    expect(leadStep).toBeDefined();
-    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G, to: leadStep }));
-    expect(fig(moved, G).at).toBe(leadStep);  // front at the tapped hex
-    expect(fig(moved, G).at2).toBe(at(3, 3)); // back followed into the vacated lead
-    // EITHER lobe can be the front — a tail-led step also exists from the start.
-    const tailStep = opts.find(k => {
-      const c = stepConsequences(s, G, k);
-      return !('error' in c) && c.newAt2 === at(3, 2);
-    });
-    expect(tailStep).toBeDefined();
+    s = place(s, ENEMY, at(7, 7));
+    s = place2(s, G, at(3, 3), at(3, 2)); // a level peanut on the flat field
+    // House rule: a 2-hex figure's effective Move is printed − 1.
+    expect(effectiveMove(s, fig(s, G)).dice).toBe(HS_CARDS.grimnak.move - 1);
+    const cells = MAPS[s.mapId].cells;
+    // Commit a real move (≥2 hexes) to a destination with the engine's default back lobe.
+    const lead = [...legalDestinations(s, G)].find(l => (rangeDistance(cells, at(3, 3), l) ?? 0) >= 2)!;
+    expect(lead).toBeDefined();
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: lead }));
+    const a1 = fig(moved, G).at!, a2 = fig(moved, G).at2!;
+    expect(a1).toBe(lead);                              // lead lands exactly where tapped
+    expect(neighborKeys(a1).includes(a2)).toBe(true);  // a legal adjacent peanut
+    expect(cells[a2].height).toBe(cells[a1].height);   // both lobes level
+    expect(cells[a2].terrain).not.toBe('water');       // flat ground — never a water lobe
   });
 
-  it('a 2-hex move offers MULTIPLE anti-spin orientations for a common-neighbour lead; a chosen tail lands exactly that peanut', () => {
+  it('a 2-hex move offers MULTIPLE full-spin orientations for a lead; a chosen back lobe lands exactly that peanut', () => {
     let s = customBattle(['grimnak'], ['finn'], 'p1');
     const G = 's0-grimnak-1';
     s = clearExcept(s, G, ENEMY);
     s = place(s, ENEMY, at(6, 7));
     s = place2(s, G, at(3, 3), at(3, 2));
-    // The 2nd-click case: a landing whose trailing hex has more than one legal orientation.
+    // A landing whose back hex has more than one legal orientation (the SPIN step).
     const lead = [...legalDestinations(s, G)].find(l => moveTailOptions(s, G, l).size >= 2);
     expect(lead).toBeDefined();
     const tails = [...moveTailOptions(s, G, lead!)];
-    // ANTI-SPIN: every offered tail is a same-distance neighbour of the lead (never the lead
-    // itself) AND is itself a hex the figure could reach (a legal lead) or a current hex — so no
-    // orientation extends the peanut past what its Move paid for (no full-spin → extra step).
-    const reachable = new Set<string>([...movementRangeHexes(s, G), fig(s, G).at!, fig(s, G).at2!]);
+    const cells = MAPS[s.mapId].cells;
+    // FULL SPIN (owner house rule 2026-06-30): every offered back hex is a same-level, FLAT
+    // (non-water) neighbour of the lead — the figure may face ANY direction, no anti-spin bound.
     for (const t of tails) {
       expect(t).not.toBe(lead);
       expect(neighborKeys(lead!).includes(t)).toBe(true);
-      expect(reachable.has(t)).toBe(true);
+      expect(cells[t].height).toBe(cells[lead!].height);
+      expect(cells[t].terrain).not.toBe('water');
     }
-    // Committing with an explicit, legal orientation lands EXACTLY {lead, tail}.
+    // Committing with an explicit, legal orientation lands EXACTLY {lead, back hex}.
     const landed = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: G, to: lead!, to2: tails[1] }));
     expect(fig(landed, G).at).toBe(lead);
     expect(fig(landed, G).at2).toBe(tails[1]);
@@ -2480,55 +2475,18 @@ describe('step-by-step movement (move_step)', () => {
     expect(errOf(applyAction(neg, 'p1', { kind: 'acid_breath', attackerId: B, rolls: [] }))).toMatch(/negat/i);
   });
 
-  it('a GROUND 2-hex (Grimnak) may climb mid-move but must STOP on two level spaces', () => {
-    let s = customBattle(['grimnak'], ['finn'], 'p1', CLIFF_MAP_ID);
+  it('a DOUBLE-SPACE figure cannot be STEP-moved — it moves to a destination, then spins (owner house rule 2026-06-30)', () => {
+    // The new 2-hex model is destination-move + a SPIN step (no per-step slither), so the per-step
+    // action is rejected for a 2-hex figure — the two models can't disagree on reach/footprint. (The
+    // board only ever sends destination moves anyway.) This REPLACES the old per-step 2-hex tests
+    // (climb-mid-move, both-lobes-water stop), which described a path that no longer governs 2-hex.
+    let s = customBattle(['grimnak'], ['finn'], 'p1');
     const G = 's0-grimnak-1';
     s = clearExcept(s, G, 's1-finn-1');
     s = place(s, 's1-finn-1', at(6, 6));
-    const cells = MAPS[CLIFF_MAP_ID].cells;
-    const climbCap = 1 + HS_CARDS.grimnak.height; // a ground figure may rise up to its Height
-    // A grass lead beside a pillar it CAN climb (R5), plus a grass tail.
-    let lead = '', tail = '', pillar = '';
-    for (const k of Object.keys(cells)) {
-      if (cells[k].height !== 1) continue;
-      const hi = neighborKeys(k).find(n => cells[n] && cells[n].height > 1 && cells[n].height <= climbCap);
-      const lo = neighborKeys(k).find(n => cells[n] && cells[n].height === 1 && n !== k);
-      if (hi && lo) { lead = k; tail = lo; pillar = hi; break; }
-    }
-    expect(lead).toBeTruthy();
-    s = place2(s, G, lead, tail);
-    // Climb up onto the pillar — a cross-level footprint MID-move is allowed for a ground 2-hex.
-    const up = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G, to: pillar }));
-    expect(fig(up, G).at).toBe(pillar);
-    // …but it cannot STOP cross-level — finishing the move with mismatched lobe heights is rejected.
-    expect(errOf(applyAction(up, 'p1', { kind: 'end_move' }))).toMatch(/level/i);
-  });
-
-  it('a 2-hex stops for water only when BOTH lobes are in it (one lobe keeps moving)', () => {
-    let s = customBattle(['grimnak'], ['finn'], 'p1', WATER_MAP_ID);
-    const G = 's0-grimnak-1';
-    s = clearExcept(s, G, 's1-finn-1');
-    s = place(s, 's1-finn-1', at(0, 0));
-    const cells = MAPS[WATER_MAP_ID].cells;
-    // lead = grass beside a water hex W1 that has a SECOND water neighbour W2, plus a grass tail.
-    let lead = '', tail = '', w1 = '', w2 = '';
-    for (const wk of Object.keys(cells).filter(k => cells[k].terrain === 'water')) {
-      const w2cand = neighborKeys(wk).find(n => cells[n]?.terrain === 'water');
-      const grass = neighborKeys(wk).find(n => cells[n]?.terrain === 'grass');
-      const t = grass && neighborKeys(grass).find(n => cells[n]?.terrain === 'grass' && n !== grass);
-      if (w2cand && grass && t) { w1 = wk; w2 = w2cand; lead = grass; tail = t; break; }
-    }
-    expect(lead).toBeTruthy();
-    s = place2(s, G, lead, tail);
-    // Front into the FIRST water hex — only one lobe in water → NOT a forced stop.
-    const c1 = stepConsequences(s, G, w1);
-    if ('error' in c1) throw new Error(c1.error);
-    expect(c1.forcedStop).toBe(false);
-    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G, to: w1 }));
-    // Front into the SECOND water hex — now BOTH lobes are in water → forced stop.
-    const c2 = stepConsequences(s, G, w2);
-    if ('error' in c2) throw new Error(c2.error);
-    expect(c2.forcedStop).toBe(true);
+    s = place2(s, G, at(3, 3), at(4, 3)); // two adjacent flat grass hexes
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_step', figureId: G, to: at(3, 4) })))
+      .toMatch(/destination/i);
   });
 
   it('a 2-hex figure keeps an ENGAGED orientation when the landing allows it (owner: reach the space + stay engaged)', () => {

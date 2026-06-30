@@ -1394,6 +1394,9 @@ function doOrientFigure(state: HSState, seat: number, figureId: string, dir: num
   if (cells[tail].height !== cells[lead].height) {
     return { error: `${def.name}'s two hexes must be the same height` };
   }
+  if (cells[tail].terrain === 'water' || isWallPillar(cells[tail])) {
+    return { error: `${def.name} must rest on FLAT ground — neither hex may be on water or a wall` };
+  }
   const blocked = state.figures.some(
     o => o.id !== fig.id && o.at != null && figureHexes(o).includes(tail),
   );
@@ -2461,13 +2464,14 @@ export function legalDestinations(state: HSState, figureId: string): Set<HexKey>
 }
 
 /**
- * Simple-move destinations for a DOUBLE-SPACE figure (the approved "foundation"
- * model — not the strict snake path yet). The figure may lead with EITHER end,
- * so we union the single-hex reachable sets from its two spaces, then keep a
- * lead L (within Move) that has at least one empty SAME-LEVEL neighbour T for
- * its trailing space — it ends on {L, T}. Its own two spaces count as free (it
- * vacates them). Returns the legal LEAD hexes + the deterministic tail per lead
- * (orientation isn't player-selectable yet).
+ * Move destinations for a DOUBLE-SPACE figure — the SIMPLE model (owner house rule 2026-06-30).
+ * The LEAD hex paths like a single figure (budget = effective Move, already −1 for a 2-hex figure);
+ * the back hex is IGNORED during the move — NO slither, so the lead never gets stuck threading a gap
+ * a rigid 2-hex body couldn't fit through. After it lands, an explicit SPIN step orients the back hex
+ * (any legal direction — `moveTailOptions` / `doOrientFigure`). A landing is legal only on FLAT
+ * ground: both lobes on the SAME level, NEITHER on water (a sunken tile is never flat) nor a wall
+ * pillar. The figure may lead with EITHER current lobe. Returns the legal LEAD hexes + a sensible
+ * default back-hex per lead (the player can re-spin it).
  */
 function movementDestinations2(
   state: HSState,
@@ -2478,50 +2482,34 @@ function movementDestinations2(
   const map = MAPS[state.mapId];
   if (!map || fig.at == null) return out;
   const def = cardDefFor(state, fig);
-  const move = moveOverride ?? effectiveMove(state, fig).dice;
-  const occ = occupancyLookup(state, fig); // excludes the mover's BOTH hexes
-  // doubleSpace: this is a 2-hex figure, so reachableDestinations keeps the §6 bridge exception (its
-  // front lobe may pass over a single water hex); the both-lobes-in-water hard stop is applied at
-  // finalize. Without this flag a 2-hex figure would be hard-stopped on entering water like a 1-hex one.
-  const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk, doubleSpace: true, walls: mapWallSet(state) };
+  const move = moveOverride ?? effectiveMove(state, fig).dice; // already −1 for a 2-hex figure
+  const occ = occupancyLookup(state, fig); // the mover's BOTH hexes read free (it vacates them)
+  // The lead paths as a SINGLE figure: no doubleSpace bridge (water stops a non-flyer lead like any
+  // 1-hex figure; a flyer flies over). Glyph forced-stops, walls, ghost-walk all still apply.
+  const opts = { glyphHexes: glyphHexSet(state), flyer: effectiveFlying(state, def), ghostWalk: !!def.ghostWalk, walls: mapWallSet(state) };
   const reach = out.reach;
   for (const start of figureHexes(fig)) {
     for (const k of reachableDestinations(map.cells, start, move, occ, climbHeightOf(def), opts)) reach.add(k);
   }
-  const isFree = (k: HexKey) => !!map.cells[k] && occ(k) == null; // mover's own hexes read null → free
-  const origin = figureHexes(fig); // the figure's pre-move footprint (for the trailing default)
+  const isFree = (k: HexKey) => !!map.cells[k] && occ(k) == null;
+  // A 2-hex lobe must rest on FLAT ground: a real cell, NOT water (sunken → never level), NOT a wall.
+  const canRest = (k: HexKey) => !!map.cells[k] && map.cells[k].terrain !== 'water' && !isWallPillar(map.cells[k]);
+  const origin = figureHexes(fig);
   const distToOrigin = (k: HexKey) => Math.min(...origin.map(o => hexDistance(o, k)));
-  // Enemies this figure is engaged with at the START of the move. When non-empty, the trailing
-  // default below is OVERRIDDEN to prefer an orientation that KEEPS the figure engaged with as many
-  // of them as possible — so a 2-hex figure can reach a space (e.g. a glyph) and STAY ENGAGED when
-  // geometry allows, instead of being forced to disengage (owner report 2026-06-24). Empty (the common
-  // case) → no engagement work, identical trailing behaviour to before.
   const startEngaged = def.disengage ? [] : enemiesEngagedWith(state, fig);
   const keptEngaged = (lead: HexKey, tail: HexKey): number =>
     startEngaged.length === 0 ? 0 : startEngaged.filter(e => engagedPair(state, { ...fig, at: lead, at2: tail }, e)).length;
   for (const lead of reach) {
-    if (!isFree(lead)) continue;
+    if (lead === fig.at || lead === fig.at2) continue; // staying put / pivot is the SPIN step, not a move
+    if (!isFree(lead) || !canRest(lead)) continue;     // lead can't end on water or a wall
     const lh = map.cells[lead].height;
-    // Candidate trailing lobes: free, same-level neighbours the figure could ALSO
-    // reach this move (∈ reach, or one of its current hexes) — the SAME anti-spin
-    // bound moveTailOptions enforces, so the default placement can never jut the
-    // peanut a hex PAST the paid reach (that was the "white dragon moves 7" bug:
-    // the old code took the first neighbour, e.g. the hex one step FORWARD of the
-    // destination, with no reach check). Excludes the current no-move placement.
+    // FULL-SPIN back-hex options: any free, SAME-LEVEL, flat (non-water, non-wall) neighbour. No
+    // anti-spin bound — the owner wants the figure orientable in ANY direction. (Old hexes read free.)
     const cands = neighborKeys(lead).filter(
-      t =>
-        t !== lead &&
-        map.cells[t] &&
-        map.cells[t].height === lh && // a 2-hex figure RESTS LEVEL — both lobes same height, FLYERS INCLUDED (owner ruling 2026-06-25)
-        isFree(t) &&
-        (reach.has(t) || t === fig.at || t === fig.at2) && // anti-spin
-        !((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)),
+      t => t !== lead && map.cells[t] && map.cells[t].height === lh && canRest(t) && isFree(t),
     );
-    if (cands.length === 0) continue; // no legal in-reach tail → not a legal lead at all
-    // Choose the trailing lobe: PREFER the orientation that preserves the most start-engagement (so a
-    // figure engaged with a foe STAYS engaged after it lands — e.g. reaching a glyph beside an enemy);
-    // tie-break by TRAIL — the candidate nearest where the figure came from, so an un-engaged peanut
-    // still follows BEHIND the lead (no spin), exactly as before.
+    if (cands.length === 0) continue; // no legal flat back-hex here → not a legal lead at all
+    // Default back-hex for move-and-go: keep the most start-engagement, then trail nearest the origin.
     const tail = cands.reduce((a, b) => {
       const ka = keptEngaged(lead, a), kb = keptEngaged(lead, b);
       if (kb !== ka) return kb > ka ? b : a;
@@ -2539,30 +2527,25 @@ function moveTailFor(state: HSState, fig: Figure, to: HexKey): HexKey | null {
   return movementDestinations2(state, fig).tailOf.get(to) ?? null;
 }
 
-/** DOUBLE-SPACE only: the legal trailing-hex ORIENTATIONS for a landing `lead` —
- *  the set the player chooses among on the 2nd click. ANTI-SPIN by construction:
- *  a tail may only sit on a free, same-level neighbour of `lead` that the figure
- *  could ALSO reach this move (∈ reach, or one of its current hexes). So no
- *  orientation ever extends the peanut past what its Move paid for — you can't
- *  spin a full turn to steal an extra hex of reach. Excludes the figure's CURRENT
- *  placement (that's a no-move). Empty for a 1-hex figure or a lead it can't reach. */
+/** DOUBLE-SPACE only: the legal back-hex ORIENTATIONS for a landing `lead` — the set the player
+ *  SPINS among after a move. FULL SPIN (owner house rule 2026-06-30): any free, SAME-LEVEL, FLAT
+ *  (non-water, non-wall) neighbour of `lead` — no anti-spin bound, the figure faces any direction.
+ *  Empty for a 1-hex figure or a `lead` that isn't a legal move destination right now. */
 export function moveTailOptions(state: HSState, figureId: string, lead: HexKey): Set<HexKey> {
   const out = new Set<HexKey>();
   const fig = state.figures.find(f => f.id === figureId);
   const map = MAPS[state.mapId];
   if (!fig || fig.at == null || !map) return out;
   if (baseSizeOf(cardDefFor(state, fig)) !== 2) return out;
-  const { leads, reach } = movementDestinations2(state, fig);
+  const { leads } = movementDestinations2(state, fig);
   if (!leads.has(lead) || !map.cells[lead]) return out; // not a legal lead right now
   const occ = occupancyLookup(state, fig); // the mover's own two hexes read free
   const lh = map.cells[lead].height;
-  const reachable = (k: HexKey) => reach.has(k) || k === fig.at || k === fig.at2;
   for (const t of neighborKeys(lead)) {
     if (t === lead || !map.cells[t]) continue;
-    if (map.cells[t].height !== lh) continue;          // a 2-hex figure rests LEVEL (flyers too — owner ruling 2026-06-25)
-    if (occ(t) != null) continue;                      // another figure is there
-    if (!reachable(t)) continue;                       // ANTI-SPIN: tail stays within paid reach
-    if ((lead === fig.at && t === fig.at2) || (lead === fig.at2 && t === fig.at)) continue; // no-move
+    if (map.cells[t].height !== lh) continue;                                       // both lobes rest LEVEL
+    if (map.cells[t].terrain === 'water' || isWallPillar(map.cells[t])) continue;   // FLAT ground only — no water/wall lobe
+    if (occ(t) != null) continue;                                                   // another figure is there
     out.add(t);
   }
   return out;
@@ -3145,6 +3128,12 @@ function doMoveStep(
   const r = movableFigure(base, figureId);
   if ('error' in r) return r;
   const fig = r.fig;
+  // DOUBLE-SPACE figures move to a DESTINATION (then SPIN the back hex), NOT the per-step slither —
+  // the two models would disagree on reach/footprint, so reject step-moving a 2-hex figure (owner
+  // house rule 2026-06-30; the board only ever sends destination moves anyway).
+  if (baseSizeOf(cardDefFor(base, fig)) === 2) {
+    return { error: 'Double-space figures move to a destination, then spin — not step-by-step' };
+  }
   const sm = base.stepMove?.figureId === figureId ? base.stepMove : null;
   if (sm?.stopped) return { error: 'This figure has stopped — a water/glyph space ended its move' };
 
@@ -4077,6 +4066,10 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
     );
     if (trickyAdj) { move += def.trickySpeed; breakdown.push(`+${def.trickySpeed} Tricky Speed`); }
   }
+  // DOUBLE-SPACE penalty (owner HOUSE RULE 2026-06-30): a 2-hex figure moves 1 FEWER space — the
+  // cost of its bulk. Applied LAST, after every glyph/Spirit boost, to ALL 2-hex figures incl.
+  // flyers (Mimring 6→5). House rule: official double-space figures move their full printed Move.
+  if (baseSizeOf(def) === 2 && move > 0) { move -= 1; breakdown.push('−1 double-space'); }
   return { dice: move, breakdown };
 }
 
@@ -7557,11 +7550,12 @@ function aiTurn(state: HSState, seat: number): HSAction {
       }
       return false;
     };
-    // FLYERS pick a whole DESTINATION (the move plays as ONE smooth flight to the landing, animated
-    // as an arc — not a hex-by-hex walk); WALKERS step one hex at a time.
-    // A GRAPPLE GUN passes its own landing set as the override (an alternative one-space move
-    // with a climb waiver); otherwise flyers pick a whole destination and walkers one step.
-    const candidates = candidatesOverride ?? (isFlyer ? movementDestinations(state, f) : legalStepHexes(state, f.id));
+    // FLYERS and DOUBLE-SPACE figures pick a whole DESTINATION (move_figure — a 2-hex figure then
+    // SPINS its back hex); WALKERS step one hex at a time (move_step). movementDestinations for a 2-hex
+    // returns only legal LEADS (each has a flat same-level back-hex), so every candidate is a valid
+    // landing. A GRAPPLE GUN passes its own landing set as the override (a one-space climb-waiver move).
+    const wholeMove = isFlyer || is2hex;
+    const candidates = candidatesOverride ?? (wholeMove ? movementDestinations(state, f) : legalStepHexes(state, f.id));
     // Never step BACK to where THIS move began. That net-zero round-trip is exactly the "dance on/off
     // a glyph" the bot used to do — step off toward a foe, get yanked back by the glyph bonus, repeat —
     // which re-claims the glyph and wastes the whole turn. A figure that leaves a glyph now COMMITS.
@@ -7605,7 +7599,8 @@ function aiTurn(state: HSState, seat: number): HSAction {
         if (is2hex || isFlyer || !allyHexes.has(to) || !passThroughOk(to)) continue;
       }
       if (to === moveStart) continue;
-      if (is2hex && !isFlyer && heightOfKey(state, to) !== curH) continue; // level-keep is a WALKING-peanut limit only
+      // (No level-keep filter for a 2-hex figure any more — movementDestinations only returns leads with
+      // a legal flat same-level back-hex, so a higher flat plateau is a perfectly valid landing now.)
       const toDist = pathDist(to);
       const enemyGain = Number.isFinite(curEnemy) && Number.isFinite(toDist) ? curEnemy - toDist : 0;
       const glyphGain = chaseGlyph ? curGlyph - nearestGlyphDist(to) : 0;
@@ -7696,11 +7691,13 @@ function aiTurn(state: HSState, seat: number): HSAction {
   let bestMove: { figureId: string; to: HexKey; score: number; kind: 'move_figure' | 'move_step' | 'grapple_move' } | null = null;
   for (const f of myFigs) {
     if (!wantsMove(f)) continue;
-    const fly = effectiveFlying(state, cardDefFor(state, f));
+    const fdef = cardDefFor(state, f);
+    const fly = effectiveFlying(state, fdef);
+    const whole = fly || baseSizeOf(fdef) === 2; // flyers AND 2-hex figures move to a destination (2-hex then spins)
     const step = bestStepFor(f);
     if (step && (!bestMove || step.score > bestMove.score)) {
-      // A FLYER takes its whole flight in ONE move (a smooth arc to the landing); a walker steps a hex.
-      bestMove = { figureId: f.id, to: step.to, score: step.score, kind: fly ? 'move_figure' : 'move_step' };
+      // A FLYER / 2-HEX takes its whole move in ONE move_figure (flyer = arc; 2-hex lands + spins); a walker steps a hex.
+      bestMove = { figureId: f.id, to: step.to, score: step.score, kind: whole ? 'move_figure' : 'move_step' };
     }
     // Sgt. Drake's GRAPPLE GUN — an ALTERNATIVE one-space move that scales terrain a normal
     // step can't (climb up to its cap, land adjacent to ANY figure). Score its landings with
