@@ -770,11 +770,24 @@ function generateGlyphs(s: HSState, seed: number): HSGlyph[] {
   if (!map) return [];
   const rnd = mulberry32(seed);
   const cells = map.cells;
+  // Authored glyph positions (anchors or `*` spots) are trusted but still SANITIZED: a glyph may not
+  // sit on water, on a start-zone hex (it would spawn under a placed figure / inside a deploy area),
+  // or on a coord listed twice (would mint two glyphs on one hex). dedupe-preserving order so the
+  // seeded id assignment stays stable. Off-board coords are dropped too. See audit.md (glyph gen).
+  const startZone = new Set<HexKey>(s.players.flatMap(p => startZoneFor(s, p.seat)));
+  const sanitizeAuthored = (raw: readonly HexKey[]): HexKey[] => {
+    const seen = new Set<HexKey>();
+    return raw.filter(k => {
+      if (seen.has(k) || !cells[k] || cells[k].terrain === 'water' || startZone.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  };
   // SYMMETRIC maps declare fixed glyph anchor positions — keep the layout symmetric, but still
   // give a random GLYPH (id) per anchor each game. (Rectangles + the star have no anchors → the
   // fair-equidistant algorithm below runs instead.)
   if (map.glyphAnchors && map.glyphAnchors.length > 0) {
-    const spots = map.glyphAnchors.filter(k => cells[k] && cells[k].terrain !== 'water');
+    const spots = sanitizeAuthored(map.glyphAnchors);
     const gids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, spots.length);
     return spots.map((at, i): HSGlyph => ({ id: gids[i], at, faceUp: false }));
   }
@@ -783,7 +796,7 @@ function generateGlyphs(s: HSState, seed: number): HSGlyph[] {
   // declares its own spots we honor THEM (and skip the fair-equidistant auto-placement below) — this
   // is how a hand-drawn map says "a glyph goes HERE, random type" (owner request 2026-06-28).
   if (map.glyphSpots && map.glyphSpots.length > 0) {
-    const spots = map.glyphSpots.filter(k => cells[k] && cells[k].terrain !== 'water');
+    const spots = sanitizeAuthored(map.glyphSpots);
     const gids = shuffleSeeded(GLYPH_POOL, rnd).slice(0, spots.length);
     return spots.map((at, i): HSGlyph => ({ id: gids[i], at, faceUp: false }));
   }

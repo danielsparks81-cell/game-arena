@@ -28,6 +28,7 @@ import {
   livingSeats,
 } from './engine';
 import { COMBAT_DIE_FACES } from './content';
+import { MAPS } from './maps';
 import type { HSState, HSAction, CombatFace, InitiativeAttempt } from './types';
 
 // ---- seeded PRNG (matches ai.test.ts so seeds line up) ----------------------
@@ -88,8 +89,11 @@ function playFullGame(opts: {
   teams?: Record<number, number>;
   prep?: (s: HSState) => HSState;
   cap?: number;
+  /** Pass to materialize the RANDOM glyph pool (needed for maps that only declare
+   *  `glyphSpots`/`glyphAnchors`, like PERCOLATOR — without a seed they get no glyphs). */
+  glyphSeed?: number;
 }): Telemetry {
-  const { seed, budget, bots, mapId = 'training_field', teams, prep, cap = 20000 } = opts;
+  const { seed, budget, bots, mapId = 'training_field', teams, prep, cap = 20000, glyphSeed } = opts;
   const rng = makeRng(seed);
   const rollDie = (): CombatFace => COMBAT_DIE_FACES[Math.floor(rng() * COMBAT_DIE_FACES.length)];
   const rollers = {
@@ -107,7 +111,7 @@ function playFullGame(opts: {
       'set_teams',
     );
   }
-  s = unwrap(applyAction(s, 'host', { kind: 'start_game', mode: 'draft', pointBudget: budget, mapId }), 'start_game');
+  s = unwrap(applyAction(s, 'host', { kind: 'start_game', mode: 'draft', pointBudget: budget, mapId, ...(glyphSeed != null ? { glyphSeed } : {}) }), 'start_game');
   s = unwrap(applyAction(s, 'host', { kind: 'draft_roll', attempts: [decisive(s.players.map(p => p.seat))] }), 'draft_roll');
   if (prep) s = prep(s);
 
@@ -305,6 +309,47 @@ describe('HeroScape audit — a SPECIAL ATTACK fires in a real game', () => {
     expect(anySpecial).toBe(true);
     expect(anyGlyph).toBe(true);
   }, 60_000);
+});
+
+describe('HeroScape audit — full game on the WALLED + raised-water PERCOLATOR map', () => {
+  // COVERAGE GAP closed (audit 2026-06-30): the fuzzer + the other playthroughs use only
+  // training_field / star_field — both WALL-LESS. PERCOLATOR is the one map combining edge
+  // walls with raised (1.5-level) water, so the wall-aware paths (areEngaged / figuresAdjacent /
+  // hasLineOfSight3D severing across an edge, plus shortestPath routing) were validated ONLY by
+  // targeted unit tests, never by a full AI-vs-AI game. This drives one to a finish with a
+  // ranged (LOS-gated Fire Line) + melee (adjacency Chomp) army so wall-aware sight AND
+  // engagement both fire in ordinary play; a regression there would now fail a real game.
+  it('drives a complete AI game on percolator_by_ulysses without throwing', () => {
+    expect((MAPS['percolator_by_ulysses'].walls ?? []).length).toBeGreaterThan(0); // we ARE testing a walled map
+    const t = playFullGame({
+      seed: 5,
+      budget: 400,
+      bots: 1,
+      mapId: 'percolator_by_ulysses',
+      glyphSeed: 1234, // materialize the two authored glyph spots (PERCOLATOR has no static glyphs)
+      prep: (s) => {
+        const c = JSON.parse(JSON.stringify(s)) as HSState;
+        // Mimring = ranged Fire Line (LOS through/around walls); Grimnak = melee Chomp (adjacency
+        // across edges); squads give bodies on both sides so attacks + engagement actually occur.
+        c.draft!.armies[0] = ['mimring', 'zettian_guards'];
+        c.draft!.spent[0] = 300;
+        c.draft!.armies[1] = ['grimnak', 'izumi_samurai'];
+        c.draft!.spent[1] = 290;
+        return c;
+      },
+      cap: 40000,
+    });
+    expect(t.finished).toBe(true);
+    expect(t.capped).toBe(false);
+    expect(t.phasesSeen).toContain('playing/turns');
+    expect([0, 1]).toContain(t.state.winnerSeat);
+    // The authored glyph spots materialized AND a figure stopped on at least one of them — proves
+    // the glyphSpots branch (now start-zone-filtered + deduped) produced reachable, claimable glyphs.
+    expect((t.state.glyphs ?? []).length).toBeGreaterThan(0);
+    expect(t.glyphsRevealed).toBeGreaterThanOrEqual(1);
+    // eslint-disable-next-line no-console
+    console.log(`[audit percolator] finished=${t.finished} rounds=${t.rounds} steps=${t.steps} glyphs=${(t.state.glyphs ?? []).length} revealed=${t.glyphsRevealed} kinds=${JSON.stringify(t.kinds)}`);
+  }, 30_000);
 });
 
 describe('HeroScape audit — the ROLL CEREMONY pendingChoice IS self-resolved by the AI', () => {

@@ -1,8 +1,93 @@
 # HeroScape engine audit
 
-**Latest: 2026-06-27** — focused pass on the 5 new Utgar units + Bonding/Scatter (see the
-"2026-06-27 audit pass" section below). **Prior: 2026-06-25** — full five-bucket engine pass (the
-headline + buckets immediately below).
+**Latest: 2026-06-30** — focused pass on this session's batch: **edge walls** (movement / LOS /
+engagement + the `shortestPath` walk animation), **authorable water height** (raised 1.5-level pools)
++ falls, the **aggressive height-seeking AI** (no wound retreat, ranged height-then-distance, 1-health
+disengage guard), **random-glyph spots**, and the new **PERCOLATOR** map. **Prior: 2026-06-27** —
+the 5 new Utgar units + Bonding/Scatter. **2026-06-25** — full five-bucket engine pass.
+
+## 2026-06-30 audit pass — walls · raised water · aggressive AI · random glyphs · PERCOLATOR
+
+Four read-only subagents (water · walls · AI · glyphs+PERCOLATOR+projection+cross-system), then
+self-verification of every critical claim + a new full-game playthrough on the walled map. Fuzzer +
+playthroughs green; **591 HeroScape tests pass; tsc + production build clean.**
+
+**Headline:** **no 🔴/🟠 correctness bug in the engine** — every change this session is rules-correct
+and properly threaded. The wall barrier severs movement, adjacency/engagement AND line-of-sight at
+all sites (5 reach/dragStep, 2 areEngaged-via-engagedPair/figuresAdjacent, 8 hasLineOfSight3D), and
+**no special power reaches across a wall** (the full special-attack matrix is wall-aware — see §3).
+Raised water (falls/climb/combatLevel) is correct; the AI cannot freeze, loop, or suicide; projection
+still masks face-down glyph ids + strips `glyphSeed`. The one real finding was a **🟠 test-COVERAGE
+gap** (the fuzzer + playthroughs only ran wall-less maps) — now **closed**. A latent authored-glyph
+footgun was hardened. Everything else is 🟡 cosmetic / by-design.
+
+### Fixed in this pass (shipped)
+1. **🟠 Coverage gap: walls + raised water were never exercised by a full game — FIXED.** The fuzzer
+   defaults to `training_field` (and hard-clears glyphs), and `audit-playthrough.test.ts` ran only
+   `training_field` + `star_field` — all WALL-LESS. PERCOLATOR (the one map combining edge walls with
+   raised 1.5-level water) was played by **zero** full games, so the wall-aware severing in
+   `areEngaged` / `figuresAdjacent` / `hasLineOfSight3D` and the raised-water interactions were
+   validated *only* by targeted unit tests — a wall-interaction regression would have passed the whole
+   fuzz + playthrough suite. Fix: a new playthrough drives a complete AI-vs-AI game on
+   `percolator_by_ulysses` with a ranged (LOS-gated Fire Line / Mimring) + melee (adjacency Chomp /
+   Grimnak) army and a `glyphSeed`, asserting it finishes with a coherent winner and a real glyph
+   trigger. (`playFullGame` gained an optional `glyphSeed` so maps that declare only `glyphSpots`/
+   `glyphAnchors` actually materialize glyphs.)
+2. **🟡 Authored glyph spots were trusted blindly — HARDENED.** `generateGlyphs`' `glyphAnchors` /
+   `glyphSpots` branches filtered only water, not start-zone hexes or duplicate coords — an authored
+   `*` inside a deploy zone would spawn a glyph under a placed figure, and a coord listed twice would
+   mint two glyphs on one hex. PERCOLATOR happens to be clean, but the branch defended nothing. Fix: a
+   shared `sanitizeAuthored` now drops off-board / water / **start-zone** hexes and **dedupes**
+   (order-preserving, so the seeded id assignment stays stable) for both branches.
+
+### Per-system findings (condensed)
+
+**1. Walls (movement / LOS / engagement) — faithful.** Every reach + dragStep site passes
+`options.walls`; `engagedPair`/`figuresAdjacent` pass `mapWallSet` into `areEngaged` (6th arg); all 8
+`hasLineOfSight3D` call sites pass `map.walls`. A wall is a FULL barrier regardless of height. The
+`shortestPath` walk animation honors the same walls/water/climb cost model (ignores occupancy
+by-design — it's a cosmetic route, not a legality check). Geometry (`segmentsCross`/`wallSegment`)
+verified.
+
+**2. Special-attack matrix — every helper wall-aware.** Confirmed each reaches adjacency/LOS the
+right way: `chompTargets`, `mindShackleTargets`, `wildSwingDefenders`, `grenadeDefenders` splash,
+`explosionTargets` splash, `carryPassengers`, counter-strike/stealth-dodge → all via
+`figuresAdjacent`; `fireLineTargets`, `acidBreathTargets`→`withinRangeLos`, `explosionTargets` →
+all via `hasLineOfSight3D(...map.walls)`; glyph-claim via occupancy (`glyphAt`, wall-independent).
+`grenadeTargets` deliberately uses raw range (Lob 12 arcs over walls — card grants no-LOS). **No
+helper bypasses a wall where it shouldn't.**
+
+**3. Water (raised pools + falls) — correct, with one owner house-rule.** Falls into water are
+damage-exempt (`computeFall intoWater`); climb-out is a forced stop for 1-hex figures (the "extra step
+to get out" rule); `combatLevel = standLevel − (allHexesWater ? 0.5 : 0)` makes water a height
+DISADVANTAGE — this is an intentional **owner house rule** (the rulebook §3/§4 says water adds no
+height), documented so it isn't "fixed" later. No hardcoded `water == height 1` remains; render
+(`WATER_DIP`) and combat math agree.
+
+**4. Aggressive AI — no freeze / loop / suicide.** Proven: no no-op move is reachable (budget is
+strictly monotonic), an A→B→A shuffle is blocked by the `moveStart` guard, and an illegal proposal is
+recovered by the actions.ts driver. The new `breaksEngagement` disengage-for-height is gated behind
+`oneHealthLeft && fromAbove`, so a 1-health figure never throws away a free swipe for a climb. Ranged
+units can't be pulled into melee (the −60 adjacency penalty dominates even a range-8 worst case). Dead
+code from the old defensive brain (`SAFETY_W` / `retreatOK` / `hurt`) is fully removed.
+
+**5. Projection + PERCOLATOR — clean + playable.** `projectStateForViewer` hides unrevealed order
+markers, masks every face-down glyph id, and strips `glyphSeed` (so a modified client can't recompute
+ids); the new map/walls/glyphSpots add no new secret field. PERCOLATOR is BFS-verified fully connected
+from both start zones (walls don't isolate any of the 210 cells), perfectly 180°-symmetric, with the
+two glyph spots fair (each side owns the slightly-nearer one) and all four raised pools reachable.
+
+### Ranked OPEN issues (all 🟡 — cosmetic / by-design / latent; documented, not fixed)
+| # | Sev | Where | Issue | Why not fixed |
+|---|-----|-------|-------|---------------|
+| W1 | 🟡 | engine.ts `auraCoverageHexes` (~4008) | The gold aura-outline overlay ignores walls, so it can paint a hex a wall actually cuts off. The enforced buff (`raelinAuraReaches`) IS wall-aware — visual only. | Cosmetic overlay; the rule it depicts is correct. |
+| W2 | 🟡 | engine.ts The Drop `dropHexLegal` (~6224) | The "adjacent to a figure" guard uses raw `neighborKeys`, not wall-aware — *over*-restrictive (forbids landing next to a wall-separated figure), never illegal. | Conservative & safe for an airborne drop; never produces an illegal landing. |
+| W3 | 🟡 | engine.ts 2-hex tail (~2495/2544), maps.ts `tailFor` | A double-space figure's body can straddle a walled edge (the tail orientation uses raw neighbors). Harmless on current maps. | Latent; no current map walls a hex a 2-hex figure would seat across. |
+| W4 | 🟡 | HeroScapeBoard.tsx (2D SVG fallback) | The fallback board ignores `WATER_DIP` (draws water flat) and doesn't render walls. | Fallback-only (3D WebGL board is the default); cosmetic. |
+| W5 | 🟡 | engine.ts AI `strikesFromAbove` (~7491) | Uses raw `heightOfKey`, not `combatLevel`, when scoring a height-seeking step. | Acknowledged heuristic approximation; legality is enforced elsewhere. |
+| W6 | 🟡 | engine.ts (~2103-2110) | A stale aura-adjacency comment. | No behavior; tidy on next touch. |
+
+
 
 ## 2026-06-25 full pass
 
