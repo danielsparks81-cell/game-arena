@@ -91,7 +91,7 @@ export {
 } from './engine';
 export type { EffectiveStat } from './engine';
 
-export { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS, POWER_DESCRIPTIONS, CARD_IDENTITY, CLASSIC_OVERRIDES, effectiveCardDef } from './content';
+export { HS_CARDS, HS_DRAFT_POOL, SLICE1_ARMIES, COMBAT_DIE_FACES, HS_GLYPHS, POWER_DESCRIPTIONS, CARD_IDENTITY, CLASSIC_OVERRIDES, effectiveCardDef, HS_ART_ASPECT } from './content';
 
 export { SEAT_COLORS, TEAM_COLORS, teamColorById, computeSeatColorMap } from './colors';
 

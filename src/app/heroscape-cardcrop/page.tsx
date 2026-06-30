@@ -6,9 +6,9 @@
 // card art. Copy the result into HeroScapeBoard.tsx. Work autosaves to localStorage.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { HS_CARDS, CARD_IDENTITY } from '@/lib/games/heroscape';
+import { HS_CARDS, CARD_IDENTITY, HS_ART_ASPECT } from '@/lib/games/heroscape';
 
-const CARD_ASPECT = 0.72;        // the in-game art box, width / height
+const CARD_ASPECT = HS_ART_ASPECT; // SHARED with the in-game art box → the crop is exact
 const IMG_ASPECT = 936 / 1512;   // every cards-full render is this size
 const LS_KEY = 'hs_cardcrop_v4';
 

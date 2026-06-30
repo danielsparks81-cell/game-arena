@@ -25,6 +25,7 @@ import {
   type HSEdition,
   MAPS,
   HS_CARDS,
+  HS_ART_ASPECT,
   effectiveCardDef,
   aiPendingSeat,
   livingSeats,
@@ -799,7 +800,7 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
         <span className="flex-1 truncate text-sm font-extrabold uppercase tracking-wide text-white"><Highlighted text={def.name} tokens={hl} /></span>
       </div>
       <div className={'flex ' + theme.band}>
-        <div aria-hidden className={'relative w-2/5 shrink-0 self-stretch overflow-hidden ' + (photoPortrait ? '' : 'bg-neutral-950')}>
+        <div aria-hidden className={'relative w-2/5 shrink-0 self-start overflow-hidden ' + (photoPortrait ? '' : 'bg-neutral-950')} style={{ aspectRatio: HS_ART_ASPECT }}>
           {/* Photo-portrait cards drop the scan and show the hand-cut figure on an army-tinted
               "studio" gradient so the sharp cut-out reads as an intentional portrait, not a void. */}
           {photoPortrait && (
