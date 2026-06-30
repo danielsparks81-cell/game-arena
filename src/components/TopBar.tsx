@@ -48,6 +48,14 @@ export default function TopBar({
         >
           ⬡ HS figures
         </Link>
+        {/* HeroScape card-art crop picker — frame each card's portrait visually. */}
+        <Link
+          href="/heroscape-cardcrop"
+          title="HeroScape card-art crop picker — frame each card's portrait"
+          className="hidden text-xs text-neutral-400 transition hover:text-sky-400 sm:inline"
+        >
+          ⬡ HS cards
+        </Link>
         {/* HeroScape level creator — paint a custom battlefield, export a maps.ts block. */}
         <Link
           href="/heroscape-mapmaker"
