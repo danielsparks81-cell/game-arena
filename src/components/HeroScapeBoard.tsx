@@ -71,7 +71,6 @@ import {
   throwLandingHexes,
   carryPassengers,
   carryLandingHexes,
-  carryDestFootprint,
   erlandDestinations,
   erlandSummonableIds,
   scatterDestinations,
@@ -2377,29 +2376,23 @@ export default function HeroScapeBoard({
   const carryLandSet = carryAim?.pass && carryAim.dest && bhHeroId
     ? new Set(carryLandingHexes(state, bhHeroId, carryAim.dest, carryAim.pass))
     : null;
-  // Optimistic carry: render Theracus AT his chosen destination footprint during the drop step,
-  // so he's shown "in position" (the standee flies there) and you set the passenger down next to
-  // where he actually is. Reverts on Cancel; the real carry_move lands when you click a drop.
-  const carryPreviewFoot = carryAim?.pass && carryAim.dest && bhHeroId
-    ? carryDestFootprint(state, bhHeroId, carryAim.dest)
-    : null;
-  // DOUBLE-SPACE orientation pick: the legal (anti-spin) trailing hexes for the tapped lead, plus
-  // a default so the board PREVIEWS the peanut at the lead while the player chooses which way it
-  // faces. moveTailOptions guarantees no orientation steals an extra step of reach (no full spin).
+  // Carry NO LONGER optimistically jumps Theracus to his planned landing during aiming — that
+  // pre-move-then-revert read as "the figure returns to its spot and goes back" (owner 2026-06-30).
+  // The landing highlights (carryLandSet) already show where he'll go; he flies there ONCE, on commit.
+  // DOUBLE-SPACE orientation pick: the legal back-hexes for the tapped lead, plus a default so the
+  // board PREVIEWS the peanut at the lead while the player chooses which way it faces.
   const selIs2Hex = !!selected && selected.at2 != null;
   const orientTails = useMemo(
     () => (orientLead && selected ? moveTailOptions(state, selected.id, orientLead) : new Set<HexKey>()),
     [orientLead, selected, state],
   );
   const orientDefaultTail = orientLead ? ([...orientTails][0] ?? null) : null;
-  // One optimistic preview footprint feeds the board: carry wins (you can't carry + orient at once),
-  // else the orientation preview shows the peanut sitting at the lead with its default tail.
-  const previewFoot: [HexKey, HexKey | null] | null = carryPreviewFoot
-    ? [carryPreviewFoot[0], carryPreviewFoot[1] ?? null]
-    : orientLead && orientDefaultTail
-      ? [orientLead, orientDefaultTail]
-      : null;
-  const previewId = carryPreviewFoot ? bhHeroId : orientLead ? selected?.id : undefined;
+  // The ONLY optimistic preview footprint left: the 2-hex orientation pick (peanut at the lead with
+  // its default back hex while the player chooses a facing).
+  const previewFoot: [HexKey, HexKey | null] | null = orientLead && orientDefaultTail
+    ? [orientLead, orientDefaultTail]
+    : null;
+  const previewId = orientLead ? selected?.id : undefined;
   const boardState = previewFoot && previewId
     ? {
         ...displayState,
@@ -2884,10 +2877,11 @@ export default function HeroScapeBoard({
       }
       const onHex = occupantAt(key);
       if (onHex && onHex.ownerSeat === me!.seat) {
-        // Picking up a placed figure returns it to hand; clicking a hand figure
-        // already-picked toggles selection.
+        // Picking up a placed figure returns it to hand AND makes IT the figure now being placed —
+        // so a click-to-pick-up + click-to-redrop re-places the SAME figure (owner 2026-06-30), instead
+        // of swapping to the first hand figure. To place a different one, tap it in the hand up top.
         onUnplaceFigure(onHex.id);
-        setPlaceFigureId(null);
+        setPlaceFigureId(onHex.id);
         setPlaceSpinId(null);
         return;
       }
