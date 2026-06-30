@@ -15,7 +15,9 @@ const LS_KEY = 'hs_cardcrop_v2';
 
 type Rect = { fx: number; fy: number; fw: number; fh: number }; // fractions of the image (0..1)
 const CARDS = Object.keys(HS_CARDS).sort((a, b) => HS_CARDS[a].name.localeCompare(HS_CARDS[b].name));
-const jpg = (id: string) => `/heroscape/cards/${id}.jpg`;
+// Crop from the FULL card render (banner + figure + stats + power text) so there's real framing room.
+// The game shows your crop of this same image (HtmlCardHeader uses cards-full/<id>.jpg when a crop exists).
+const jpg = (id: string) => `/heroscape/cards-full/${id}.jpg`;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
 /** A crop rectangle → the CSS background-size / position that shows exactly that region in the box. */

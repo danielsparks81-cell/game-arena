@@ -776,6 +776,10 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
   // let the high-resolution hand-cut figure PNG underneath carry the portrait (see the set).
   const photoPortrait = PHOTO_PORTRAIT_CARDS.has(cardId);
   const artCrop = CARD_ART_CROP[cardId] ?? DEFAULT_ART_CROP;
+  // When a card has an explicit CARD_ART_CROP (framed in /heroscape-cardcrop), the crop is taken from
+  // the FULL card render (cards-full/<id>.jpg). Un-cropped cards keep their existing tight portrait
+  // (cards/<id>.jpg, shown cover/center). Owner 2026-06-30.
+  const artFolder = CARD_ART_CROP[cardId] ? 'cards-full' : 'cards';
   const theme = GENERAL_THEME[ident?.general ?? ''] ?? GENERAL_THEME.Jandar;
   const rows = [
     def.species,
@@ -820,7 +824,7 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
             <div
               className="absolute inset-0 bg-no-repeat"
               style={{
-                backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/cards/${cardId}.jpg`)}&w=750&q=75')`,
+                backgroundImage: `url('/_next/image?url=${encodeURIComponent(`/heroscape/${artFolder}/${cardId}.jpg`)}&w=750&q=75')`,
                 backgroundSize: artCrop.size,
                 backgroundPosition: artCrop.position,
               }}
