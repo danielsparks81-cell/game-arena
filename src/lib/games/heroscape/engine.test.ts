@@ -2371,6 +2371,24 @@ describe('step-by-step movement (move_step)', () => {
     expect(fig(landed, G).at2).toBe(tails[1]);
   });
 
+  it('a placed 2-hex figure SPINS to any flat neighbour via orient_figure (the placement spin)', () => {
+    let s = customBattle(['grimnak'], ['finn'], 'p1');
+    const G = 's0-grimnak-1';
+    s = clearExcept(s, G, 's1-finn-1');
+    s = place(s, 's1-finn-1', at(7, 7));
+    s = place2(s, G, at(3, 3), at(3, 2));
+    const opts = orientationOptions(s, G);
+    expect(opts.baseSize).toBe(2);
+    expect(opts.validDirs.length).toBeGreaterThan(1); // a flat field offers several legal facings
+    // Every offered facing is a real flat neighbour (orientationOptions excludes water/walls).
+    for (const d of opts.validDirs) expect(MAPS[s.mapId].cells[neighborKeys(at(3, 3))[d]].terrain).not.toBe('water');
+    // Spin the back lobe onto a DIFFERENT flat neighbour — the figure re-faces in place.
+    const dir = opts.validDirs.find(d => neighborKeys(at(3, 3))[d] !== at(3, 2))!;
+    const spun = unwrap(applyAction(s, 'p1', { kind: 'orient_figure', figureId: G, dir }));
+    expect(fig(spun, G).at2).toBe(neighborKeys(at(3, 3))[dir]);
+    expect(fig(spun, G).at).toBe(at(3, 3)); // lead unchanged — a pure spin
+  });
+
   it('a 2-hex move REJECTS an orientation outside the anti-spin set (no free spin to steal a step)', () => {
     let s = customBattle(['grimnak'], ['finn'], 'p1');
     const G = 's0-grimnak-1';

@@ -1445,6 +1445,7 @@ export function orientationOptions(
     for (let d = 0; d < 6; d++) {
       const t = neigh[d];
       if (!cells[t] || cells[t].height !== cells[lead].height) continue;
+      if (cells[t].terrain === 'water' || isWallPillar(cells[t])) continue; // a 2-hex lobe rests on FLAT ground only
       if (state.figures.some(o => o.id !== fig.id && o.at != null && figureHexes(o).includes(t))) continue;
       validDirs.push(d);
     }
