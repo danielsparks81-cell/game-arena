@@ -800,7 +800,7 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
         <span className="flex-1 truncate text-sm font-extrabold uppercase tracking-wide text-white"><Highlighted text={def.name} tokens={hl} /></span>
       </div>
       <div className={'flex ' + theme.band}>
-        <div aria-hidden className={'relative w-2/5 shrink-0 self-start overflow-hidden ' + (photoPortrait ? '' : 'bg-neutral-950')} style={{ aspectRatio: HS_ART_ASPECT }}>
+        <div aria-hidden className={'relative w-[46%] shrink-0 self-start overflow-hidden ' + (photoPortrait ? '' : 'bg-neutral-950')} style={{ aspectRatio: HS_ART_ASPECT }}>
           {/* Photo-portrait cards drop the scan and show the hand-cut figure on an army-tinted
               "studio" gradient so the sharp cut-out reads as an intentional portrait, not a void. */}
           {photoPortrait && (
@@ -4081,7 +4081,7 @@ export default function HeroScapeBoard({
             panel, so its powers (Mind Shackle, Acid Breath, …) live ON the card
             instead of as separate panels below. */}
         {state.phase === 'playing' && state.subPhase === 'turns' && activeCard && activeCardDef && (
-          <div className="[order:-1] shrink-0 rounded-lg border border-neutral-700 bg-neutral-900/60 p-2">
+          <div className="[order:-1] shrink-0 rounded-lg border border-neutral-700 bg-neutral-900/60 p-1">
             <div className="mb-1.5 flex items-center justify-between px-0.5">
               <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">Now acting</span>
               <span className="text-[11px] font-semibold" style={{ color: seatColor(state.turnSeat ?? 0) }}>
