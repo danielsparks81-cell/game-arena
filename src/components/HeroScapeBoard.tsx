@@ -3052,13 +3052,12 @@ export default function HeroScapeBoard({
       }
       return;
     }
-    // 2-HEX REORIENT (optional, AFTER the move already committed) — tap a highlighted tail hex to
-    // swing the trailing lobe there via onOrient: a FREE in-place pivot (no re-move, no reset, no
-    // turn cost). The move is already locked in, so this can never snap the figure back or lose the
-    // turn. Tapping anything else just dismisses the prompt (the move stays exactly where it is).
+    // 2-HEX SPIN STEP — the move's orientation is chosen BEFORE it commits: `orientLead` holds the
+    // tapped destination, and tapping a highlighted back-hex commits the move with that orientation
+    // (move_figure + to2), so the body faces any legal flat direction. Tapping anything else cancels
+    // the pick (no move yet). Owner house rule 2026-06-30 ("spin it in any direction").
     if (orientLead && selected) {
-      const dir = neighborKeys(orientLead).indexOf(key);
-      if (orientTails.has(key) && dir >= 0) { onOrient(selected.id, dir); setOrientLead(null); return; }
+      if (orientTails.has(key)) { onMoveFigure(selected.id, orientLead, key); setOrientLead(null); return; }
       setOrientLead(null);
       // fall through — e.g. a tap to select another of my figures
     }
@@ -3070,10 +3069,10 @@ export default function HeroScapeBoard({
     if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); return; }
       if (selIs2Hex) {
-        // Commit the move NOW. The ENGINE places the trailing lobe so the peanut TRAILS BEHIND the
-        // lead — the figure lands facing the way it was moving, exactly where you'd expect, with NO
-        // spin and NO reorient prompt. (The auto-pivot was repeatedly unwanted/confusing — it made
-        // the dragon turn on every landing — so the move just lands it forward and you're done.)
+        // 2-HEX: a landing with MORE THAN ONE legal orientation opens the SPIN pick (tap the lead,
+        // then tap which way the body faces). A single (or no) real choice just lands forward with the
+        // engine's default back hex. The move only commits once you pick — see the orient block above.
+        if (moveTailOptions(state, selected.id, key).size >= 2) { setOrientLead(key); return; }
         onMoveFigure(selected.id, key);
         return;
       }
@@ -4107,7 +4106,7 @@ export default function HeroScapeBoard({
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
-              {orientLead && '↻ Reorient (optional) — tap a highlighted hex to pivot the tail in place, or just End move / attack to keep it as is'}
+              {orientLead && '↻ Spin — tap a highlighted hex to choose which way the body faces, then it moves there. (Cancel to pick a different space.)'}
             </span>
             <button
               type="button"
