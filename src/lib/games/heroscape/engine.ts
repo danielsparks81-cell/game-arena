@@ -65,6 +65,7 @@ import {
   rangeDistance,
   rangeFlood,
   reachableDestinations,
+  isWallPillar,
   wallSetOf,
   type FallTier,
   type Occupancy,
@@ -6239,6 +6240,7 @@ function reserveAirborne(state: HSState, seat: number): Figure[] {
 function dropHexLegal(state: HSState, key: HexKey): boolean {
   const map = MAPS[state.mapId];
   if (!map || !map.cells[key]) return false;
+  if (isWallPillar(map.cells[key])) return false; // nobody lands on a wall pillar — not even an airborne drop
   if (state.figures.some(f => figureHexes(f).includes(key))) return false; // occupied
   if ((state.glyphs ?? []).some(g => g.at === key)) return false; // on a glyph
   const adj = new Set(neighborKeys(key));

@@ -415,6 +415,21 @@ describe('reachableDestinations with water (forced stop)', () => {
   });
 });
 
+describe('reachableDestinations — wall pillars (height 15) are never an endpoint (owner 2026-06-30)', () => {
+  it('a FLYER passes OVER a wall pillar but cannot LAND on it', () => {
+    const m = parseMap('pillar', 'Pillar', `row1: G1 R15 G1`);
+    const dests = reachableDestinations(m.cells, at(0, 0), 5, () => null, Infinity, { flyer: true });
+    expect(dests.has(at(1, 0))).toBe(false); // the wall pillar — nobody lands on it
+    expect(dests.has(at(2, 0))).toBe(true);  // flies clean OVER it to the land beyond
+  });
+  it('a WALKER cannot reach a wall pillar at all (unclimbable cover)', () => {
+    const m = parseMap('pillar2', 'Pillar2', `row1: G1 R15 G1`);
+    const dests = reachableDestinations(m.cells, at(0, 0), 9, () => null, 11); // a tall figure, big move
+    expect(dests.has(at(1, 0))).toBe(false); // can't climb 14 levels onto the wall
+    expect(dests.has(at(2, 0))).toBe(false); // and can't get past it — it's a wall
+  });
+});
+
 describe('reachableDestinations with glyphs (forced stop) — slice 4', () => {
   it('a glyph hex is a valid endpoint but never a pass-through node', () => {
     // A straight 1-wide corridor with a glyph on the middle hex.

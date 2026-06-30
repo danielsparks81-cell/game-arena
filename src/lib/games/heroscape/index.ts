@@ -109,6 +109,8 @@ export {
   reachableDestinations,
   shortestPath,
   wallSetOf,
+  isWallPillar,
+  WALL_PILLAR_HEIGHT,
   stepCost,
   canStepUp,
   areEngaged,

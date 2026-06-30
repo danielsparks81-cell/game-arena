@@ -256,6 +256,15 @@ export type ReachOptions = {
  * reachability — the board highlight and the engine validation both call it, so
  * a flyer lights up cliffs/water in the UI exactly where the engine permits.
  */
+/** A WALL PILLAR is a reserved height-15 rock hex (the map generators use 15 for impassable cover;
+ *  real terrain tops out ~7). NOBODY lands on one — walkers can't climb it, and a flyer flies OVER
+ *  it but may not STOP on it; The Drop can't deploy onto it either. They read as pointy spikes on
+ *  the board. Owner ruling 2026-06-30 ("make the walls pointy, I don't want anyone landing on them"). */
+export const WALL_PILLAR_HEIGHT = 15;
+export function isWallPillar(cell?: HexCell | null): boolean {
+  return !!cell && cell.height >= WALL_PILLAR_HEIGHT;
+}
+
 export function reachableDestinations(
   cells: Record<HexKey, HexCell>,
   from: HexKey,
@@ -337,7 +346,9 @@ export function reachableDestinations(
       // "end" back on the start hex (staying put is not a move); and a
       // per-figure end-restriction (Kelda) can still veto an otherwise-legal
       // endpoint.
-      if (occ === null && n !== from && (!canEndOn || canEndOn(n))) out.add(n);
+      // A flyer can PASS OVER a wall pillar (it's expanded above) but never STOPS on one — no one lands
+      // on a wall. Walkers can't climb height-15 anyway, so this only bites flyers.
+      if (occ === null && n !== from && !isWallPillar(cells[n]) && (!canEndOn || canEndOn(n))) out.add(n);
     }
   }
   return out;

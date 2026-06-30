@@ -15,7 +15,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Billboard, Edges, Html, Line } from '@react-three/drei';
 import { Suspense, useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import * as THREE from 'three';
-import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys, shortestPath, wallSetOf, SEAT_COLORS, teamColorById, computeSeatColorMap } from '@/lib/games/heroscape';
+import { MAPS, HS_CARDS, HS_GLYPHS, getActiveCardUid, neighborKeys, shortestPath, wallSetOf, WALL_PILLAR_HEIGHT, SEAT_COLORS, teamColorById, computeSeatColorMap } from '@/lib/games/heroscape';
 import type { HexCell } from '@/lib/games/heroscape';
 import type { HSState, HexKey } from '@/lib/games/heroscape';
 import { cropOverride, analyzeCut, figureAnchor, figureSpan2, sizeScale } from '@/lib/games/heroscape/figureBase';
@@ -203,6 +203,29 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
     opacity: isWater ? 0.8 : 1,
     flatShading: true,
   } as const;
+  // WALL PILLAR (height ≥ 15): render a tall hex body topped by a SPIKE (a hex cone tapering to a
+  // point) instead of a flat cap — so it visibly reads as un-standable. Nobody lands on a wall (the
+  // engine forbids it for flyers + The Drop); the pointy top makes that obvious. Owner 2026-06-30.
+  if (height >= WALL_PILLAR_HEIGHT) {
+    const capH = SIZE * 1.9;                       // the spike
+    const bodyH = Math.max(0.1, h - capH);         // the squared shaft below it
+    const rockTop = mottle(bandColor(height, terrain), j); // grey mountain rock for the point
+    return (
+      <group position={[x, 0, z]} onClick={onClick ? e => { e.stopPropagation(); onClick(); } : undefined}>
+        <mesh position={[0, bodyH / 2, 0]} castShadow receiveShadow>
+          <cylinderGeometry args={[SIZE * 1.02, SIZE * 1.02, bodyH, 6]} />
+          <meshStandardMaterial color={applyState(sideColor)} roughness={0.97} metalness={0.02} {...common} />
+          <Edges color="#13161a" />
+        </mesh>
+        <mesh position={[0, bodyH + capH / 2, 0]} castShadow receiveShadow>
+          {/* near-zero top radius → a 6-sided pyramid point */}
+          <cylinderGeometry args={[0.04, SIZE * 1.02, capH, 6]} />
+          <meshStandardMaterial color={applyState(rockTop)} roughness={0.95} metalness={0.03} {...common} />
+          <Edges color="#13161a" />
+        </mesh>
+      </group>
+    );
+  }
   return (
     <mesh
       position={[x, h / 2, z]} castShadow receiveShadow
