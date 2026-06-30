@@ -229,6 +229,77 @@ function HexTile({ x, z, height, terrain, highlight, glyph, dimmed, blocked, onC
  *  If a squad has fewer cut-outs than figures (e.g. Izumi: 3 figures, 2 poses) the
  *  missing variant falls back to the base art — mirroring the 2D board's onError
  *  chain — so a 404 can never crash the WebGL canvas. */
+/** A procedural ashlar-stone texture (mortar joints, per-block shading, weathering cracks) for the
+ *  castle walls — drawn once on a canvas so every wall shares it. Client-only (needs the DOM). */
+function makeStoneTexture(): THREE.Texture | null {
+  if (typeof document === 'undefined') return null;
+  const S = 256;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const x = c.getContext('2d'); if (!x) return null;
+  x.fillStyle = '#b7af9d'; x.fillRect(0, 0, S, S); // mortar bed shows through the joints
+  const rows = 14, courseH = S / rows, cols = 6, blockW = S / cols;
+  for (let r = 0; r < rows; r++) {
+    const y = r * courseH;
+    const off = (r % 2) * (blockW / 2); // running bond — offset every other course
+    for (let i = -1; i <= cols; i++) {
+      const bx = i * blockW + off;
+      const sh = 0.9 + Math.random() * 0.1; // per-stone shade variation
+      x.fillStyle = `rgb(${Math.round(238 * sh)},${Math.round(232 * sh)},${Math.round(218 * sh)})`;
+      x.fillRect(bx + 2, y + 2, blockW - 3.5, courseH - 3.5); // gaps reveal the mortar
+    }
+  }
+  x.strokeStyle = 'rgba(60,52,40,0.28)'; x.lineWidth = 1.1; // weathering cracks
+  for (let i = 0; i < 24; i++) {
+    let px = Math.random() * S, py = Math.random() * S; x.beginPath(); x.moveTo(px, py);
+    for (let s = 0; s < 3; s++) { px += Math.random() * 16 - 8; py += Math.random() * 14; x.lineTo(px, py); }
+    x.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter; tex.magFilter = THREE.LinearFilter; tex.anisotropy = 4;
+  return tex;
+}
+
+/** A castle-wall segment on a hex edge: a stone body with a CRENELLATED top (merlons + gaps), squared
+ *  end TOWERS, and a thin arrow-slit per face — modelled on the physical HeroScape battlement pieces. */
+function WallPiece({ cx, cz, angle, len, base, height, tex }: {
+  cx: number; cz: number; angle: number; len: number; base: number; height: number; tex: THREE.Texture | null;
+}) {
+  const thick = 0.18;
+  const merlonH = Math.min(0.55, height * 0.16);
+  const bodyH = Math.max(0.2, height - merlonH);
+  const n = Math.min(8, Math.max(3, Math.round(len / 0.22))); // merlon count across the span
+  const w = len / (2 * n - 1); // merlon (and gap) width so merlons+crenels fill the edge exactly
+  const merlons: number[] = [];
+  for (let i = 0; i < n; i++) merlons.push(-len / 2 + w / 2 + i * 2 * w);
+  const noRay = () => null; // walls never intercept clicks — those go to the hexes beneath
+  const stone = (color: string) => <meshStandardMaterial map={tex ?? undefined} color={color} roughness={0.96} metalness={0} />;
+  const towerH = height + merlonH * 0.6;
+  return (
+    <group position={[cx, base, cz]} rotation={[0, angle, 0]}>
+      <mesh position={[0, bodyH / 2, 0]} raycast={noRay} castShadow receiveShadow>
+        <boxGeometry args={[len, bodyH, thick]} />{stone('#efe9db')}
+      </mesh>
+      {merlons.map((mx, i) => (
+        <mesh key={i} position={[mx, bodyH + merlonH / 2, 0]} raycast={noRay} castShadow>
+          <boxGeometry args={[w, merlonH, thick * 1.06]} />{stone('#f1ecdf')}
+        </mesh>
+      ))}
+      {[-len / 2, len / 2].map((px, i) => (
+        <mesh key={`t${i}`} position={[px, towerH / 2, 0]} raycast={noRay} castShadow>
+          <boxGeometry args={[thick * 1.5, towerH, thick * 1.9]} />{stone('#e9e3d4')}
+        </mesh>
+      ))}
+      {[1, -1].map(s => (
+        <mesh key={`s${s}`} position={[0, bodyH * 0.55, s * (thick / 2 + 0.006)]} raycast={noRay}>
+          <boxGeometry args={[0.055, bodyH * 0.34, 0.02]} />
+          <meshStandardMaterial color="#2b2620" roughness={1} metalness={0} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
 function useStandeeTexture(cardId: string, figIndex: number): THREE.Texture | null {
   const base = `/heroscape/figures/${cardId}.png`;
   const primary = HS_CARDS[cardId]?.type === 'squad' ? `/heroscape/figures/${cardId}-${figIndex}.png` : base;
@@ -833,6 +904,8 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
   const cells = useMemo(() => (map ? Object.values(map.cells) : []), [map]);
   // Wall edge-set for the walk-animation pathfinder (so a standee routes AROUND walls, not through them).
   const pathWalls = useMemo(() => wallSetOf(map?.walls), [map]);
+  // Shared procedural ashlar-stone texture for the castle walls (built once on the client).
+  const stoneTex = useMemo(() => makeStoneTexture(), []);
   // Hexes that hold a glyph — their tiles render raised + maroon, and figures on them sit higher.
   const glyphSet = useMemo(() => new Set((state.glyphs ?? []).map(g => g.at)), [state.glyphs]);
   // Cards shut off by the Glyph of Nilrend — their figures get a ⊘ badge (base stats only).
@@ -984,12 +1057,10 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const dist = Math.hypot(dx, dz) || 1;
         const edge = dist / Math.sqrt(3); // hex side length from adjacent-centre distance
         const base = Math.max(hexTopY(ca.height, ca.terrain, glyphSet.has(a)), hexTopY(cb.height, cb.terrain, glyphSet.has(b)));
-        const wallH = LEVEL * 10; // a tall barrier (10 levels) — reads as a real wall, not a curb
+        const wallH = LEVEL * 10; // a tall barrier (10 levels) — reads as a real castle wall
         return (
-          <mesh key={`wall-${i}`} position={[(xa + xb) / 2, base + wallH / 2, (za + zb) / 2]} rotation={[0, Math.atan2(-dx, -dz), 0]} raycast={() => null} castShadow>
-            <boxGeometry args={[edge * 1.04, wallH, 0.12]} />
-            <meshStandardMaterial color="#e7e2d8" roughness={0.9} metalness={0} />
-          </mesh>
+          <WallPiece key={`wall-${i}`} cx={(xa + xb) / 2} cz={(za + zb) / 2} angle={Math.atan2(-dx, -dz)}
+            len={edge * 1.04} base={base} height={wallH} tex={stoneTex} />
         );
       })}
       {/* Power glyphs sit on the ground (rendered after tiles, before figures). */}
