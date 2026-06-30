@@ -1,37 +1,46 @@
 'use client';
 // HeroScape CARD-ART CROP PICKER (dev tool). The play/draft card shows each `cards-full/<id>.jpg`
 // (the FULL card render) in a ~40%-wide art box via CSS background-size/position (HeroScapeBoard
-// `CARD_ART_CROP`). This page is a FIXED crop FRAME (locked to the card's portrait aspect): DRAG the
-// card behind it to position the figure, SCROLL or the slider to zoom. What's in the frame is exactly
-// what the card shows. Copy the result into HeroScapeBoard.tsx. Work autosaves to localStorage.
+// `CARD_ART_CROP`). This page shows the WHOLE card with a fixed-aspect crop BOX you just MOVE around
+// (click/drag to position it over the figure) and a slider to size it. What's inside the box is the
+// card art. Copy the result into HeroScapeBoard.tsx. Work autosaves to localStorage.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { HS_CARDS, CARD_IDENTITY } from '@/lib/games/heroscape';
 
 const CARD_ASPECT = 0.72;        // the in-game art box, width / height
 const IMG_ASPECT = 936 / 1512;   // every cards-full render is this size
-const LS_KEY = 'hs_cardcrop_v3';
+const LS_KEY = 'hs_cardcrop_v4';
 
-type Crop = { zoom: number; x: number; y: number }; // background-size %, position x/y %
-const NEW: Crop = { zoom: 135, x: 30, y: 26 };        // a sane figure-ish starting view; you then drag/zoom
+type Rect = { fx: number; fy: number; fw: number; fh: number }; // fractions of the image (0..1)
 const CARDS = Object.keys(HS_CARDS).sort((a, b) => HS_CARDS[a].name.localeCompare(HS_CARDS[b].name));
 const jpg = (id: string) => `/heroscape/cards-full/${id}.jpg`;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-const cssOf = (c: Crop | null): { size: string; position: string } =>
-  c ? { size: `${c.zoom.toFixed(1)}%`, position: `${c.x.toFixed(1)}% ${c.y.toFixed(1)}%` } : { size: 'contain', position: 'center' };
+// box height fraction so the box's DISPLAYED aspect = CARD_ASPECT.
+const hOf = (fw: number) => fw * IMG_ASPECT / CARD_ASPECT;
+const DEFAULT: Rect = { fx: 0.04, fy: 0.15, fw: 0.46, fh: hOf(0.46) }; // figure-ish upper-left start
+
+/** A crop box → the CSS background-size / position that shows exactly that region in the art box. */
+function cssOf(c: Rect): { size: string; position: string } {
+  const size = `${(100 / c.fw).toFixed(1)}%`;
+  const posX = c.fw < 0.999 ? (c.fx / (1 - c.fw)) * 100 : 50;
+  const posY = c.fh < 0.999 ? (c.fy / (1 - c.fh)) * 100 : 50;
+  return { size, position: `${posX.toFixed(1)}% ${posY.toFixed(1)}%` };
+}
 
 export default function CardCropPicker() {
-  const [crops, setCrops] = useState<Record<string, Crop>>({});
+  const [crops, setCrops] = useState<Record<string, Rect>>({});
   const [i, setI] = useState(0);
   const [copied, setCopied] = useState(false);
-  const frameRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ px: number; py: number; base: Crop } | null>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const dragging = useRef(false);
 
   const id = CARDS[i];
   const def = HS_CARDS[id];
   const ident = CARD_IDENTITY[id];
-  const crop = crops[id] ?? null;
-  const css = cssOf(crop);
+  const box = crops[id] ?? DEFAULT;   // the box shown (default until you move it)
+  const committed = !!crops[id];
+  const css = cssOf(box);
 
   useEffect(() => {
     try { const raw = localStorage.getItem(LS_KEY); if (raw) setCrops(JSON.parse(raw)); } catch { /* ignore */ }
@@ -40,26 +49,26 @@ export default function CardCropPicker() {
     try { localStorage.setItem(LS_KEY, JSON.stringify(crops)); } catch { /* ignore */ }
   }, [crops]);
 
-  // --- Drag the card behind the fixed frame (pan) + scroll/slider (zoom) -------
-  const onDown = (e: React.PointerEvent) => {
-    const base = crops[id] ?? NEW;
-    if (!crops[id]) setCrops(c => ({ ...c, [id]: base }));
-    dragRef.current = { px: e.clientX, py: e.clientY, base };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  // --- Move the box: click/drag CENTERS it on the pointer (clamped in-bounds) -----
+  const place = (e: React.PointerEvent) => {
+    const r = imgRef.current?.getBoundingClientRect();
+    if (!r) return;
+    const fw = box.fw, fh = box.fh;
+    const cx = clamp((e.clientX - r.left) / r.width, fw / 2, 1 - fw / 2);
+    const cy = clamp((e.clientY - r.top) / r.height, fh / 2, 1 - fh / 2);
+    setCrops(c => ({ ...c, [id]: { fx: cx - fw / 2, fy: cy - fh / 2, fw, fh } }));
   };
-  const onMove = (e: React.PointerEvent) => {
-    const d = dragRef.current, f = frameRef.current;
-    if (!d || !f) return;
-    const fw = f.clientWidth, fh = f.clientHeight;
-    const dispW = fw * d.base.zoom / 100, dispH = dispW / IMG_ASPECT;
-    const ovW = Math.max(1, dispW - fw), ovH = Math.max(1, dispH - fh);
-    const x = clamp(d.base.x - (e.clientX - d.px) / ovW * 100, 0, 100);
-    const y = clamp(d.base.y - (e.clientY - d.py) / ovH * 100, 0, 100);
-    setCrops(c => ({ ...c, [id]: { ...d.base, x, y } }));
+  const onDown = (e: React.PointerEvent) => { dragging.current = true; (e.target as HTMLElement).setPointerCapture(e.pointerId); place(e); };
+  const onMove = (e: React.PointerEvent) => { if (dragging.current) place(e); };
+  const onUp = () => { dragging.current = false; };
+
+  // --- Size the box (slider). Re-centre + clamp so it stays on the image. ----------
+  const setSize = (fw: number) => {
+    const fh = hOf(fw);
+    const cx = clamp(box.fx + box.fw / 2, fw / 2, 1 - fw / 2);
+    const cy = clamp(box.fy + box.fh / 2, fh / 2, 1 - fh / 2);
+    setCrops(c => ({ ...c, [id]: { fx: cx - fw / 2, fy: cy - fh / 2, fw, fh } }));
   };
-  const onUp = () => { dragRef.current = null; };
-  const setZoom = (z: number) => setCrops(c => ({ ...c, [id]: { ...(c[id] ?? NEW), zoom: clamp(z, 100, 500) } }));
-  const onWheel = (e: React.WheelEvent) => { setZoom((crops[id] ?? NEW).zoom * (1 - e.deltaY * 0.0012)); };
 
   const reset = () => setCrops(c => { const n = { ...c }; delete n[id]; return n; });
   const go = (d: number) => setI(p => (p + d + CARDS.length) % CARDS.length);
@@ -74,7 +83,7 @@ export default function CardCropPicker() {
 
   const edited = useMemo(() => Object.entries(crops), [crops]);
   const exportText = useMemo(() => {
-    if (!edited.length) return '// No crops yet — drag a card behind the frame. Un-cropped cards use the existing portrait.';
+    if (!edited.length) return '// No crops yet — move the box over a figure. Un-cropped cards keep their existing portrait.';
     const body = edited.map(([cid, c]) => {
       const e = cssOf(c);
       const key = /^[a-z_][a-z0-9_]*$/.test(cid) ? cid : `'${cid}'`;
@@ -87,39 +96,47 @@ export default function CardCropPicker() {
     try { await navigator.clipboard.writeText(exportText); setCopied(true); setTimeout(() => setCopied(false), 1200); } catch { /* ignore */ }
   };
 
+  const pct = (n: number) => `${n * 100}%`;
+
   return (
     <div className="min-h-screen bg-neutral-950 px-5 py-4 text-neutral-200">
-      <div className="mx-auto max-w-[80rem]">
+      <div className="mx-auto max-w-[84rem]">
         <header className="mb-3 flex flex-wrap items-center gap-3">
           <h1 className="text-lg font-extrabold tracking-wide text-white">HeroScape · Card-art crop picker</h1>
-          <span className="text-xs text-neutral-400">DRAG the card behind the frame to position the figure · SCROLL or the slider to zoom. The frame IS the card art.</span>
+          <span className="text-xs text-neutral-400">CLICK/DRAG to move the box over the figure · slider sizes it. What's in the box is the card art.</span>
           <Link href="/heroscape-mapmaker" className="ml-auto text-xs text-sky-400 hover:underline">⬡ HS maps</Link>
         </header>
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[auto_1fr]">
-          {/* ---- LEFT: the FIXED crop frame — drag the card inside it ---- */}
+          {/* ---- LEFT: the FULL card, fully visible, with a movable crop box ---- */}
           <section>
             <div className="mb-1 flex items-center justify-between text-xs text-neutral-400">
               <span>{i + 1} / {CARDS.length} · <span className="font-mono text-neutral-200">{def?.name}</span></span>
-              <span>{crop ? <span className="text-sky-400">cropped ✓</span> : 'drag to frame the figure'}</span>
+              <span>{committed ? <span className="text-sky-400">cropped ✓</span> : 'drag the box onto the figure'}</span>
             </div>
-            <div
-              ref={frameRef}
-              onPointerDown={onDown}
-              onPointerMove={onMove}
-              onPointerUp={onUp}
-              onPointerCancel={onUp}
-              onWheel={onWheel}
-              className="relative cursor-move touch-none overflow-hidden rounded-lg border-2 border-sky-500 bg-black shadow-lg"
-              style={{ height: 'min(76vh, 620px)', aspectRatio: CARD_ASPECT, backgroundImage: `url('${jpg(id)}')`, backgroundSize: css.size, backgroundPosition: css.position, backgroundRepeat: 'no-repeat' }}
-            >
-              {/* subtle frame corners so the fixed box reads clearly */}
-              <div className="pointer-events-none absolute inset-0 ring-1 ring-inset ring-white/20" />
+            <div className="relative inline-block select-none overflow-hidden rounded-lg border border-neutral-700 bg-black">
+              <img
+                ref={imgRef}
+                src={jpg(id)}
+                alt={def?.name}
+                draggable={false}
+                onPointerDown={onDown}
+                onPointerMove={onMove}
+                onPointerUp={onUp}
+                onPointerCancel={onUp}
+                className="block max-h-[80vh] w-auto cursor-move touch-none"
+              />
+              {/* dim everything outside the box */}
+              <div className="pointer-events-none absolute inset-0 bg-black/55" style={{
+                clipPath: `polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 0, ${pct(box.fx)} ${pct(box.fy)}, ${pct(box.fx)} ${pct(box.fy + box.fh)}, ${pct(box.fx + box.fw)} ${pct(box.fy + box.fh)}, ${pct(box.fx + box.fw)} ${pct(box.fy)}, ${pct(box.fx)} ${pct(box.fy)})`,
+              }} />
+              {/* the crop box */}
+              <div className="pointer-events-none absolute border-2 border-sky-400 shadow-[0_0_0_1px_rgba(0,0,0,0.7)]" style={{ left: pct(box.fx), top: pct(box.fy), width: pct(box.fw), height: pct(box.fh) }} />
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <span className="text-[11px] text-neutral-400">Zoom</span>
-              <input type="range" min={100} max={400} step={1} value={Math.round((crop ?? NEW).zoom)} onChange={e => setZoom(+e.target.value)} className="flex-1 accent-sky-500" />
-              <span className="w-12 text-right font-mono text-[11px] text-neutral-300">{Math.round((crop ?? NEW).zoom)}%</span>
+              <span className="text-[11px] text-neutral-400">Box size</span>
+              <input type="range" min={0.18} max={0.85} step={0.01} value={box.fw} onChange={e => setSize(+e.target.value)} className="flex-1 accent-sky-500" />
+              <span className="w-10 text-right font-mono text-[11px] text-neutral-300">{Math.round(box.fw * 100)}%</span>
             </div>
             <div className="mt-2 flex gap-2">
               <button onClick={() => go(-1)} className="flex-1 rounded bg-neutral-800 py-1 text-xs hover:bg-neutral-700">◀ Prev</button>
@@ -148,15 +165,15 @@ export default function CardCropPicker() {
               <div className="mb-1 text-xs text-neutral-400">All cards — click to edit · <span className="text-sky-400">blue ring</span> = cropped</div>
               <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
                 {CARDS.map((cid, k) => {
-                  const c = crops[cid] ?? null;
-                  const e = cssOf(c);
+                  const c = crops[cid];
+                  const e = cssOf(c ?? DEFAULT);
                   return (
                     <button
                       key={cid}
                       onClick={() => setI(k)}
                       title={HS_CARDS[cid].name}
                       className={'relative aspect-[3/4] overflow-hidden rounded border ' + (k === i ? 'border-amber-400' : c ? 'border-sky-500' : 'border-neutral-800 hover:border-neutral-600')}
-                      style={{ backgroundImage: `url('${jpg(cid)}')`, backgroundSize: e.size, backgroundPosition: e.position, backgroundRepeat: 'no-repeat' }}
+                      style={c ? { backgroundImage: `url('${jpg(cid)}')`, backgroundSize: e.size, backgroundPosition: e.position, backgroundRepeat: 'no-repeat' } : { backgroundImage: `url('${jpg(cid)}')`, backgroundSize: 'contain', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}
                     >
                       <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-0.5 text-[7px] text-white">{HS_CARDS[cid].shortName ?? HS_CARDS[cid].name}</span>
                     </button>
