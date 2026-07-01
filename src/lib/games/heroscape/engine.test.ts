@@ -4632,6 +4632,38 @@ describe('slice 5: placement', () => {
     expect(s.hand![0]).toEqual([finnFig]);
   });
 
+  it('during PLACEMENT a 2-hex figure cannot SPIN its back hex OUT of the start zone (owner 2026-06-30)', () => {
+    // p1 drafts Grimnak (2-hex); p2 drafts Finn; both pass → placement.
+    let s = inDraft('p1', 500);
+    s = draftCard(s, 'grimnak');
+    s = draftCard(s, 'finn');
+    s = draftPass(s); // p1 done
+    s = draftPass(s); // p2 done → placement
+    expect(s.phase).toBe('placement');
+    const G = s.hand![0][0];
+    const map = MAPS[s.mapId];
+    const zoneSet = new Set(map.startZones[0]);
+    // Find a zone EDGE hex: it can host a 2-hex placement (a same-level zone neighbour) AND has a flat,
+    // empty, on-map neighbour OUTSIDE the zone — the direction a cheater would spin the back hex into.
+    let lead = '', outDir = -1;
+    const flat = (a: string, b: string) => map.cells[a] && map.cells[b] && map.cells[b].height === map.cells[a].height && map.cells[b].terrain !== 'water';
+    for (const k of map.startZones[0]) {
+      const nbs = neighborKeys(k);
+      const od = nbs.findIndex(t => t && !zoneSet.has(t) && flat(k, t));
+      const hasZoneTail = nbs.some(t => t && zoneSet.has(t) && flat(k, t));
+      if (od >= 0 && hasZoneTail) { lead = k; outDir = od; break; }
+    }
+    expect(lead).toBeTruthy();
+    s = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: G, to: lead }));
+    const gf = fig(s, G);
+    expect(gf.at2).not.toBeNull();
+    expect(zoneSet.has(gf.at2!)).toBe(true);                 // the engine's default tail is in-zone
+    // Spinning the back hex OUT of the zone is REJECTED…
+    expect(errOf(applyAction(s, 'p1', { kind: 'orient_figure', figureId: G, dir: outDir }))).toMatch(/start zone/i);
+    // …and orientationOptions never OFFERS an out-of-zone facing during placement.
+    for (const d of orientationOptions(s, G).validDirs) expect(zoneSet.has(neighborKeys(lead)[d])).toBe(true);
+  });
+
   it('placement SPILLS to the next row only once the start zone is FULL (overflow rule)', () => {
     const s = placementState();
     const zone0 = MAPS[s.mapId].startZones[0];

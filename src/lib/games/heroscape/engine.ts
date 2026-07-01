@@ -1397,6 +1397,11 @@ function doOrientFigure(state: HSState, seat: number, figureId: string, dir: num
   if (cells[tail].terrain === 'water' || isWallPillar(cells[tail])) {
     return { error: `${def.name} must rest on FLAT ground — neither hex may be on water or a wall` };
   }
+  // During PLACEMENT the back hex must stay INSIDE your start zone — spinning must never poke a lobe
+  // out in FRONT of the deploy area for a head start (owner report 2026-06-30). In play, orient is free.
+  if (state.phase === 'placement' && !placeableHexes(state, seat).has(tail)) {
+    return { error: `${def.name} must stay within your start zone during deployment` };
+  }
   const blocked = state.figures.some(
     o => o.id !== fig.id && o.at != null && figureHexes(o).includes(tail),
   );
@@ -1440,12 +1445,15 @@ export function orientationOptions(
   const neigh = neighborKeys(lead);
   const dirOf = fig.at2 != null ? neigh.indexOf(fig.at2) : -1;
   const currentDir = dirOf >= 0 ? dirOf : (fig.facing ?? 0);
+  // During PLACEMENT the back hex must stay inside the seat's start zone (no spinning out in front).
+  const zoneOnly = state.phase === 'placement' ? placeableHexes(state, fig.ownerSeat) : null;
   const validDirs: number[] = [];
   if (cells) {
     for (let d = 0; d < 6; d++) {
       const t = neigh[d];
       if (!cells[t] || cells[t].height !== cells[lead].height) continue;
       if (cells[t].terrain === 'water' || isWallPillar(cells[t])) continue; // a 2-hex lobe rests on FLAT ground only
+      if (zoneOnly && !zoneOnly.has(t)) continue;                            // placement: stay in the start zone
       if (state.figures.some(o => o.id !== fig.id && o.at != null && figureHexes(o).includes(t))) continue;
       validDirs.push(d);
     }
