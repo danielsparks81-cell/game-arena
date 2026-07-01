@@ -40,7 +40,9 @@ describe('HeroScape lobby — teams', () => {
   it('renders the team pickers for 3+ players and assigns a player to a side', () => {
     const cb = spies();
     render(<HeroScapeBoard state={lobbyN(3)} currentUserId="p1" isHost {...cb} />);
-    expect(screen.getByText('Teams')).toBeTruthy();
+    // Teams now live inline in the Players grid — one A–F picker row per seat, so a
+    // 3-player lobby renders three "Team A" chips (one per seat), not a separate table.
+    expect(screen.getAllByTitle('Team A').length).toBe(3);
     // One A/B/C chip trio per player → 3 "Team A" chips. Put Alice (seat 0) on A.
     fireEvent.click(screen.getAllByTitle('Team A')[0]);
     expect(cb.onSetLobbyConfig).toHaveBeenCalledWith({ teams: { 0: 1 } });
@@ -68,7 +70,8 @@ describe('HeroScape lobby — teams', () => {
   it('hides the team pickers for a 2-player lobby (1-v-1, no teams)', () => {
     const cb = spies();
     render(<HeroScapeBoard state={lobbyN(2)} currentUserId="p1" isHost {...cb} />);
-    expect(screen.queryByText('Teams')).toBeNull();
+    // 1-v-1 has no sides, so no per-seat team pickers render at all.
+    expect(screen.queryAllByTitle('Team A').length).toBe(0);
   });
 
   it('a non-host cannot edit teams', () => {

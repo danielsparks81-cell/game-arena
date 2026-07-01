@@ -39,7 +39,7 @@ import type { CombatFace, HSCardDef, HSEdition, HSGlyphId } from './types';
  *  pixel-exact). It's now a locked aspect, SHARED by the in-game card (HtmlCardHeader) and the
  *  /heroscape-cardcrop picker, so a crop framed in the picker matches the card exactly. Tune this one
  *  number to reshape every card's art box at once. */
-export const HS_ART_ASPECT = 0.72;
+export const HS_ART_ASPECT = 0.9;
 
 // ============================================================================
 // Card editions — Classic (original 2004-era) vs Modern (the rebalanced printing
