@@ -33,6 +33,9 @@
 // Krav Maga 3, Izumi 3.
 
 import type { CombatFace, HSCardDef, HSEdition, HSGlyphId } from './types';
+// STAGED classic roster (base stats only, power:'wip', NOT in HS_DRAFT_POOL) — auto-generated from
+// roster.json. Merged below so the hand-authored cards win. Regenerate: node scripts/heroscape/gen-classic-cards.mjs
+import { GENERATED_CLASSIC_CARDS, GENERATED_CLASSIC_IDENTITY } from './classic-cards.generated';
 
 /** The card-art box's FIXED width/height ratio. The art box used to `self-stretch` (its shape
  *  followed the text column's height, so it varied by card + context and a crop could never be
@@ -80,6 +83,9 @@ export function effectiveCardDef(cardId: string, edition?: HSEdition): HSCardDef
 }
 
 export const HS_CARDS: Record<string, HSCardDef> = {
+  // Staged classic cards (generated, wip, undraftable) come first so the hand-authored 29 below OVERRIDE
+  // any id collision. The generator already skips these 29 by name, so in practice there's no overlap.
+  ...GENERATED_CLASSIC_CARDS,
   // ---- Jandar ----
   tarn_vikings: {
     id: 'tarn_vikings',
@@ -690,6 +696,7 @@ export const HS_DRAFT_POOL: readonly string[] = [
  *  species/unitClass/size to render the reconstructed HTML header; `general`
  *  also drives the card's army colour. (cards.md for the 16; Big-Hero scans.) */
 export const CARD_IDENTITY: Record<string, { general: string; personality: string; world: string }> = {
+  ...GENERATED_CLASSIC_IDENTITY,
   tarn_vikings: { general: 'Jandar', personality: 'Wild', world: 'Earth' },
   finn: { general: 'Jandar', personality: 'Valiant', world: 'Earth' },
   thorgrim: { general: 'Jandar', personality: 'Valiant', world: 'Earth' },

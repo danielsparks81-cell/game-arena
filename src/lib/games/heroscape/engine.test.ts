@@ -4799,8 +4799,10 @@ describe('slice 5: placement', () => {
 // ---- full roster stats + power flags --------------------------------------
 
 describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
-  it('HS_CARDS has all 29 cards with the printed stats', () => {
-    expect(Object.keys(HS_CARDS)).toHaveLength(29);
+  it('HS_CARDS has all 29 draftable cards with the printed stats', () => {
+    // The 29 hand-authored cards are the DRAFT POOL. HS_CARDS also holds STAGED classic cards
+    // (base stats, power:'wip', generated from roster.json, NOT draftable), so its total is larger.
+    expect(Object.keys(HS_CARDS).length).toBeGreaterThanOrEqual(29);
     expect(HS_DRAFT_POOL).toHaveLength(29);
     // Every pool id resolves to a card.
     for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
@@ -4827,17 +4829,13 @@ describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
     expect(HS_CARDS.jotun).toMatchObject({ life: 7, attack: 8, defense: 4, height: 10, points: 225, baseSize: 2 });
   });
 
-  it('power flags: ALL 29 cards are now live (Grut Bonding completes the set)', () => {
-    // Every card's printed power is implemented — slice 4/6/7/8 + the Big Heroes + the five 2026-06
-    // classic Utgar units: Deathreavers (Scatter + Climb x2 + Disengage), Swog Rider (Orc Archer
-    // Enhancement), and the three Grut squads' Orc Champion / Beast Bonding. No card remains 'wip'.
-    const live = Object.values(HS_CARDS).filter(c => c.power === 'live').map(c => c.id).sort();
-    expect(live).toEqual([
-      'agent_carr', 'airborne_elite', 'arrow_gruts', 'blade_gruts', 'braxas', 'deathreavers', 'deathwalker_9000', 'drake', 'eldgrim', 'finn', 'grimnak', 'heavy_gruts',
-      'izumi_samurai', 'jotun', 'krav_maga', 'major_q9', 'marro_warriors', 'mimring', 'ne_gok_sa',
-      'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'swog_rider', 'syvarris', 'tarn_vikings', 'theracus', 'thorgrim', 'zettian_guards',
-    ]);
-    expect(Object.values(HS_CARDS).filter(c => c.power === 'wip').map(c => c.id)).toEqual([]);
+  it('power flags: every DRAFTABLE card is live (staged classic cards may be wip)', () => {
+    // Every card in the DRAFT POOL has its printed power implemented — no draftable card is 'wip'.
+    // HS_CARDS also holds STAGED classic cards (generated from roster.json: base stats, power:'wip',
+    // NOT in HS_DRAFT_POOL) that stay wip until their specials are built — they must never draft.
+    for (const id of HS_DRAFT_POOL) {
+      expect(HS_CARDS[id].power, `${id} is draftable so must be live`).toBe('live');
+    }
   });
 
   it('slice-7 power flags are set on exactly the right cards (data-driven)', () => {

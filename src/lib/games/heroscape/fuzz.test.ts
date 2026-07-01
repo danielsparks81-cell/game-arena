@@ -49,7 +49,7 @@ import {
   erlandSummonableIds,
   sturlaPlacementHexes,
 } from './engine';
-import { HS_CARDS } from './content';
+import { HS_CARDS, HS_DRAFT_POOL } from './content';
 import { MAPS } from './maps';
 import { neighborKeys } from './board';
 import type { HSState, HSAction, Figure, CombatFace, OrderMarkerValue, InitiativeAttempt } from './types';
@@ -118,7 +118,9 @@ function setupRandomBattle(rng: () => number): HSState {
   }
   const mapId = s.mapId;
   const cellKeys = Object.keys(MAPS[mapId].cells);
-  const allCards = Object.keys(HS_CARDS);
+  // Draft only from the DRAFTABLE pool (implemented powers) — NOT all of HS_CARDS, which now includes
+  // staged classic cards (power:'wip', no handler) that must never be fielded.
+  const allCards = [...HS_DRAFT_POOL];
   const armyFor = (): string[] => Array.from({ length: 1 + Math.floor(rng() * 3) }, () => pick(rng, allCards));
 
   const cards: HSState['cards'] = [];
