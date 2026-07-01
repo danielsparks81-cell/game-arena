@@ -771,7 +771,7 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'wild_swing'; attackerId: string; targetId: string }
   | { game: 'heroscape'; kind: 'acid_breath'; attackerId: string; targetIds: string[] }
   | { game: 'heroscape'; kind: 'throw_figure'; attackerId: string; targetId: string; to: string }
-  | { game: 'heroscape'; kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
+  | { game: 'heroscape'; kind: 'carry_move'; figureId: string; to: string; to2?: string; passengerId: string; passengerTo: string }
   | { game: 'heroscape'; kind: 'overextend'; figureId: string }
   | { game: 'heroscape'; kind: 'the_drop' }
   | { game: 'heroscape'; kind: 'resolve_choice'; choice: HSChoiceResolution }
@@ -1252,7 +1252,7 @@ type HSWireAction =
   | { kind: 'wild_swing'; attackerId: string; targetId: string }
   | { kind: 'acid_breath'; attackerId: string; targetIds: string[] }
   | { kind: 'throw_figure'; attackerId: string; targetId: string; to: string }
-  | { kind: 'carry_move'; figureId: string; to: string; passengerId: string; passengerTo: string }
+  | { kind: 'carry_move'; figureId: string; to: string; to2?: string; passengerId: string; passengerTo: string }
   // Eldgrim OVEREXTEND ATTACK: no dice — the self-wound is automatic; the board
   // sends only the active Eldgrim figure. The engine validates + applies the wound.
   | { kind: 'overextend'; figureId: string }
@@ -1565,12 +1565,13 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // the passenger is then placed adjacent to his new position (no dice).
     const mover: HSFigure | undefined = state.figures?.find(f => f.id === action.figureId);
     const cons = mover
-      ? hsMoveConsequences(state, mover, action.to)
+      ? hsMoveConsequences(state, mover, action.to, action.to2)
       : { tier: 'none' as const, fallDice: 0, abandonedEnemyIds: [] as string[] };
     engineAction = {
       kind: 'carry_move',
       figureId: action.figureId,
       to: action.to,
+      to2: action.to2,
       passengerId: action.passengerId,
       passengerTo: action.passengerTo,
       ...(cons.tier === 'extreme'

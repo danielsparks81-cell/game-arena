@@ -9,7 +9,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
 import HeroScapeBoard from './HeroScapeBoard';
-import { initialState, addPlayer, applyAction, MAPS, neighborKeys, theDropHexes, legalDestinations } from '@/lib/games/heroscape';
+import { initialState, addPlayer, applyAction, MAPS, neighborKeys, theDropHexes, legalDestinations, moveTailOptions, carryLandingHexes } from '@/lib/games/heroscape';
 import type { HSResult, HSState, OrderMarkerValue } from '@/lib/games/heroscape';
 
 afterEach(cleanup);
@@ -138,27 +138,29 @@ describe('Big-Hero powers — board UI panel', () => {
     expect(cb.onAcidBreath).toHaveBeenCalledWith(hero, ['s1-marro_warriors-1']);
   });
 
-  it('Theracus: Carry is a board-click flow — arm, then click passenger → destination → landing dispatches onCarry', () => {
+  it('Theracus: Carry is a board-click flow — passenger → first hex → second (peanut) hex → landing dispatches onCarry', () => {
     const { s, hero, ring } = stage('theracus', true); // 2-hex so flight has destinations
     const passenger = 's0-tarn_vikings-1';
     put(s, passenger, ring[0]); // friendly small/medium adjacent, unengaged
     const cb = spies();
     const { container } = renderBoard(s, cb);
-    const cells = MAPS[s.mapId].cells;
-    const occupied = new Set(s.figures.filter(f => f.at != null).flatMap(f => [f.at, f.at2].filter(Boolean) as string[]));
-    // A legal flight destination that still has a free neighbour to set the passenger down on.
-    const dest = [...legalDestinations(s, hero)].find(d => neighborKeys(d).some(n => cells[n] && !occupied.has(n) && n !== d))!;
-    const landing = neighborKeys(dest).find(n => cells[n] && !occupied.has(n) && n !== dest)!;
-    // Tapping Carry ON THE CARD arms the 3-click flow directly (no separate panel step) and
-    // must NOT dispatch yet.
+    // A flight LEAD with a peanut tail option AND a free landing beside the resulting footprint.
+    const dest = [...legalDestinations(s, hero)].find(d => {
+      const tails = [...moveTailOptions(s, hero, d)];
+      return tails.some(t => carryLandingHexes(s, hero, d, passenger, t).length > 0);
+    })!;
+    const tail = [...moveTailOptions(s, hero, dest)].find(t => carryLandingHexes(s, hero, dest, passenger, t).length > 0)!;
+    const landing = carryLandingHexes(s, hero, dest, passenger, tail)[0];
+    // Tapping Carry ON THE CARD arms the flow directly (no separate panel step) and must NOT dispatch yet.
     fireEvent.click(screen.getByRole('button', { name: /Carry Before moving/i }));
     expect(cb.onCarry).not.toHaveBeenCalled();
-    // 1) pick the passenger, 2) pick Theracus's flight destination, 3) pick the landing hex.
+    // 1) passenger, 2) Theracus's first hex, 3) his second (peanut) hex, 4) the landing hex.
     fireEvent.click(container.querySelector(`[data-hex="${ring[0]}"]`)!);
     fireEvent.click(container.querySelector(`[data-hex="${dest}"]`)!);
+    fireEvent.click(container.querySelector(`[data-hex="${tail}"]`)!);
     fireEvent.click(container.querySelector(`[data-hex="${landing}"]`)!);
     expect(cb.onCarry).toHaveBeenCalledTimes(1);
-    expect(cb.onCarry).toHaveBeenCalledWith(hero, dest, passenger, landing);
+    expect(cb.onCarry).toHaveBeenCalledWith(hero, dest, passenger, landing, tail);
   });
 
   it('the panel does NOT show for a non-Big-Hero active card', () => {

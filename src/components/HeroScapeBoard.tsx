@@ -223,7 +223,7 @@ type Props = {
   onWildSwing: (attackerId: string, targetId: string) => void;
   onAcidBreath: (attackerId: string, targetIds: string[]) => void;
   onThrow: (attackerId: string, targetId: string, to: HexKey) => void;
-  onCarry: (figureId: string, to: HexKey, passengerId: string, passengerTo: HexKey) => void;
+  onCarry: (figureId: string, to: HexKey, passengerId: string, passengerTo: HexKey, to2?: HexKey) => void;
   onOverextend: (figureId: string) => void;
   onTheDrop: () => void;
   onResolveChoice: (choice: HSChoiceResolution) => void;
@@ -1644,7 +1644,7 @@ export default function HeroScapeBoard({
   // Theracus CARRY — a board-click sequence (no dropdowns): pick a passenger, then Theracus's
   // flight destination, then the empty space to set the passenger down. `pass`/`dest` fill in
   // as you click; the final landing click fires the carry_move.
-  const [carryAim, setCarryAim] = useState<{ pass?: string; dest?: HexKey } | null>(null);
+  const [carryAim, setCarryAim] = useState<{ pass?: string; dest?: HexKey; destTail?: HexKey } | null>(null);
   // DOUBLE-SPACE orientation pick: after a 2-hex figure's LEAD destination is tapped, the
   // peanut's trailing hex has >1 legal (anti-spin) orientation — this holds that pending lead
   // while the player taps a 2nd hex to choose which way the figure faces.
@@ -2488,10 +2488,15 @@ export default function HeroScapeBoard({
   // chosen destination — matches the engine's "adjacent, empty" check). Only one is non-null at a time.
   const carryPassSet = carryAim && !carryAim.pass ? new Set(carryList) : null;
   const carryDestSet = carryAim?.pass && !carryAim.dest && bhHeroId ? legalDestinations(state, bhHeroId) : null;
-  // Footprint-aware drops (Theracus is 2-hex — the engine helper accounts for his tail at the
-  // destination, so the board offers exactly the legal landing spaces).
-  const carryLandSet = carryAim?.pass && carryAim.dest && bhHeroId
-    ? new Set(carryLandingHexes(state, bhHeroId, carryAim.dest, carryAim.pass))
+  // After Theracus's flight LEAD is chosen, pick his SECOND space (peanut) just like a normal 2-hex
+  // move — the same tap-lead-then-tail flow, so Carry no longer silently auto-orients him.
+  const carryTailSet = carryAim?.pass && carryAim.dest && !carryAim.destTail && bhHeroId
+    ? new Set(moveTailOptions(state, bhHeroId, carryAim.dest))
+    : null;
+  // Footprint-aware drops (Theracus is 2-hex — the helper accounts for his CHOSEN tail at the
+  // destination, so the board offers exactly the legal landing spaces for that orientation).
+  const carryLandSet = carryAim?.pass && carryAim.dest && carryAim.destTail && bhHeroId
+    ? new Set(carryLandingHexes(state, bhHeroId, carryAim.dest, carryAim.pass, carryAim.destTail))
     : null;
   // Carry NO LONGER optimistically jumps Theracus to his planned landing during aiming — that
   // pre-move-then-revert read as "the figure returns to its spot and goes back" (owner 2026-06-30).
@@ -3135,21 +3140,26 @@ export default function HeroScapeBoard({
       }
       return; // while aiming a throw, a click never falls through to move/attack
     }
-    // Theracus CARRY — three board clicks: a passenger, then his destination, then the empty
-    // space to set the passenger down (adjacent to where he lands). The carry_move fires on the
-    // final landing click; the server rolls any take-off swipe / fall just like a normal move.
+    // Theracus CARRY — FOUR board clicks: a passenger, his FIRST landing hex, his SECOND (peanut) hex,
+    // then the empty space to set the passenger down (adjacent to where he lands). carry_move fires on
+    // the final landing click; the server rolls any take-off swipe / fall just like a normal move.
     if (carryAim && bhHeroId) {
       if (!carryAim.pass) {
         const p = occupantAt(key);
         if (p && carryList.includes(p.id)) setCarryAim({ pass: p.id });
       } else if (!carryAim.dest) {
-        // STEP 2: tap where Theracus FLIES (one of his highlighted reachable hexes, ≤ his Move). Don't
-        // commit yet — record the destination and light up where the passenger may land beside it.
+        // STEP 2: tap where Theracus's LEAD lands (a highlighted reachable hex). His peanut tail options
+        // then light up green so you pick which way his body faces (STEP 3).
         if (legalDestinations(state, bhHeroId).has(key)) setCarryAim({ ...carryAim, dest: key });
+      } else if (!carryAim.destTail) {
+        // STEP 3: tap Theracus's SECOND space (the peanut). A tap off the options re-picks his lead.
+        if (carryTailSet?.has(key)) setCarryAim({ ...carryAim, destTail: key });
+        else if (legalDestinations(state, bhHeroId).has(key)) setCarryAim({ ...carryAim, dest: key });
+        else setCarryAim({ pass: carryAim.pass }); // cancel back to picking his flight
       } else if (carryLandSet?.has(key)) {
-        // STEP 3: tap where to SET THE PASSENGER DOWN — any empty hex next to Theracus's new spot,
+        // STEP 4: tap where to SET THE PASSENGER DOWN — any empty hex next to Theracus's new footprint,
         // INCLUDING a glyph, so you choose it. carry_move fires here (Theracus flies + passenger lands).
-        onCarry(bhHeroId, carryAim.dest, carryAim.pass, key);
+        onCarry(bhHeroId, carryAim.dest, carryAim.pass, key, carryAim.destTail);
         setCarryAim(null);
       }
       return; // while carrying, a click never falls through to move/attack
@@ -4258,13 +4268,15 @@ export default function HeroScapeBoard({
                 the player through it) — pick a figure → fly Theracus → set the passenger down. */}
             {canAct && carryAim ? (
               <div className="mt-1.5 rounded-lg border border-violet-500/70 bg-violet-950/50 px-3 py-2 text-center text-[11px] text-violet-100">
-                <div className="text-xs font-bold text-violet-200">🪽 Carry — step {carryAim.dest ? 3 : carryAim.pass ? 2 : 1} of 3</div>
+                <div className="text-xs font-bold text-violet-200">🪽 Carry — step {carryAim.destTail ? 4 : carryAim.dest ? 3 : carryAim.pass ? 2 : 1} of 4</div>
                 <div className="mt-0.5 leading-snug">
                   {!carryAim.pass
                     ? <>Tap a <b className="text-violet-50">highlighted friendly figure</b> to pick up.</>
                     : !carryAim.dest
-                      ? <>Carrying <b className="text-violet-50">{figName(carryAim.pass)}</b> — tap where {activeCardDef?.shortName ?? 'this figure'} flies <span className="text-violet-300/80">(move {activeCardDef?.move ?? ''})</span>.</>
-                      : <>Tap a <b className="text-violet-50">glowing hex</b> beside {activeCardDef?.shortName ?? 'it'} to set <b className="text-violet-50">{figName(carryAim.pass)}</b> down.</>}
+                      ? <>Carrying <b className="text-violet-50">{figName(carryAim.pass)}</b> — tap where {activeCardDef?.shortName ?? 'this figure'}'s FIRST space lands <span className="text-violet-300/80">(move {activeCardDef?.move ?? ''})</span>.</>
+                      : !carryAim.destTail
+                        ? <>Now tap a <b className="text-violet-50">green peanut hex</b> for {activeCardDef?.shortName ?? 'its'} SECOND space (which way it faces).</>
+                        : <>Tap a <b className="text-violet-50">glowing hex</b> beside {activeCardDef?.shortName ?? 'it'} to set <b className="text-violet-50">{figName(carryAim.pass)}</b> down.</>}
                 </div>
                 <button
                   type="button"
@@ -5102,8 +5114,8 @@ export default function HeroScapeBoard({
             splashIds={splashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
-            placeHexes={placeHexes}
-            placeLeadHex={placeLead && placingIs2 ? placeLead : undefined}
+            placeHexes={carryTailSet ?? placeHexes}
+            placeLeadHex={carryTailSet ? carryAim!.dest : (placeLead && placingIs2 ? placeLead : undefined)}
             dropHexes={scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
             airborneHexes={dropPlacing ? dropLegalSet : undefined}

@@ -299,7 +299,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onWildSwing={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'wild_swing', attackerId, targetId }); })}
       onAcidBreath={(attackerId: string, targetIds: string[]) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'acid_breath', attackerId, targetIds }); })}
       onThrow={(attackerId: string, targetId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'throw_figure', attackerId, targetId, to }); })}
-      onCarry={(figureId: string, to: HSHexKey, passengerId: string, passengerTo: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'carry_move', figureId, to, passengerId, passengerTo }); })}
+      onCarry={(figureId: string, to: HSHexKey, passengerId: string, passengerTo: HSHexKey, to2?: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'carry_move', figureId, to, to2, passengerId, passengerTo }); })}
       onOverextend={(figureId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'overextend', figureId }); })}
       onTheDrop={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'the_drop' }); })}
       onResolveChoice={(choice: HSChoiceResolution) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'resolve_choice', choice }); })}

@@ -6176,6 +6176,7 @@ function doCarryMove(
   action: {
     figureId: string;
     to: HexKey;
+    to2?: HexKey;
     passengerId: string;
     passengerTo: HexKey;
     fallRoll?: CombatFace[];
@@ -6193,7 +6194,7 @@ function doCarryMove(
   }
   // Theracus's move validates and resolves exactly like a normal flying move
   // (movement budget, takeoff leaving-engagement swipes — the SERVER rolled them).
-  const moved = doMove(state, theracus.id, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls);
+  const moved = doMove(state, theracus.id, action.to, action.fallRoll, action.extremeFallD20, action.leaveRolls, action.to2);
   if ('error' in moved) return moved;
   if (moved.phase !== 'playing') return moved; // a takeoff swipe ended the game — no carry
   const s = moved; // doMove returns a fresh clone we own
@@ -6221,11 +6222,13 @@ function doCarryMove(
  *  destination `to` — the footprint-aware twin of doCarryMove's landing check. Theracus
  *  is a 2-hex figure, so his TAIL at `to` counts: the drop must be adjacent to either
  *  lobe, on a real empty cell that isn't his footprint. Single source for the board. */
-export function carryLandingHexes(state: HSState, theracusId: string, to: HexKey, passengerId: string): HexKey[] {
+export function carryLandingHexes(state: HSState, theracusId: string, to: HexKey, passengerId: string, to2?: HexKey): HexKey[] {
   const map = MAPS[state.mapId];
   const theracus = state.figures.find(f => f.id === theracusId);
   if (!map || !theracus || !map.cells[to]) return [];
-  const tail = baseSizeOf(cardDefFor(state, theracus)) === 2 ? moveTailFor(state, theracus, to) : null;
+  // Honour the player's CHOSEN trailing hex (the peanut second-space pick) so the passenger's landing
+  // options match Theracus's actual orientation; fall back to the auto tail when none was picked.
+  const tail = to2 ?? (baseSizeOf(cardDefFor(state, theracus)) === 2 ? moveTailFor(state, theracus, to) : null);
   const footprint = [to, ...(tail ? [tail] : [])];
   const occupied = new Set(
     state.figures
@@ -6243,10 +6246,10 @@ export function carryLandingHexes(state: HSState, theracusId: string, to: HexKey
 
 /** Theracus's FOOTPRINT (lead + derived tail) if he flew to `to` — so the board can show him
  *  optimistically "in position" before the player picks where to set the passenger down. */
-export function carryDestFootprint(state: HSState, theracusId: string, to: HexKey): HexKey[] {
+export function carryDestFootprint(state: HSState, theracusId: string, to: HexKey, to2?: HexKey): HexKey[] {
   const theracus = state.figures.find(f => f.id === theracusId);
   if (!theracus) return [to];
-  const tail = baseSizeOf(cardDefFor(state, theracus)) === 2 ? moveTailFor(state, theracus, to) : null;
+  const tail = to2 ?? (baseSizeOf(cardDefFor(state, theracus)) === 2 ? moveTailFor(state, theracus, to) : null);
   return tail ? [to, tail] : [to];
 }
 

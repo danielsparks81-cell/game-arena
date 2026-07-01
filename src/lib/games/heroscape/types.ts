@@ -1175,6 +1175,9 @@ export type HSAction =
       kind: 'carry_move';
       figureId: string;
       to: HexKey;
+      /** Theracus's chosen TRAILING hex at his landing (he's 2-hex) — the peanut second-space pick.
+       *  Omitted ⇒ the engine auto-derives it via moveTailFor (AI + back-compat). */
+      to2?: HexKey;
       passengerId: string;
       passengerTo: HexKey;
       fallRoll?: CombatFace[];
