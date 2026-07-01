@@ -5204,9 +5204,9 @@ describe('slice 6: Agent Carr Sword of Reckoning 4', () => {
 // ---- Grimnak — ORC WARRIOR ENHANCEMENT (synthetic Orc Warrior) --------------
 
 describe('slice 6: Grimnak Orc Warrior Enhancement', () => {
-  // No Orc Warrior exists in the 16-card roster, so the rule never fires in
-  // practice. Prove it data-driven with a SYNTHETIC Orc Warrior card injected
-  // into HS_CARDS for the test process only.
+  // The REAL Blade/Heavy Gruts are Orc Warriors and DO get this aura (covered
+  // below). This synthetic card additionally proves the gate is data-driven and
+  // tolerant of the plural "Warriors" spelling (isOrcWarrior matches both).
   const ORC_CARD = 'test_orc_warrior';
   beforeAll(() => {
     (HS_CARDS as Record<string, typeof HS_CARDS['finn']>)[ORC_CARD] = {
@@ -5235,8 +5235,9 @@ describe('slice 6: Grimnak Orc Warrior Enhancement', () => {
   });
 
   it('buffs a REAL Orc Warrior — an adjacent Blade Grut gets +1 attack & +1 defense (the Grimnak+Grut combo, audit fix 2026-06-27)', () => {
-    // Regression for the singular/plural class bug: Blade/Heavy Gruts are unitClass 'Warriors' so
-    // Grimnak's "Orc Warrior Enhancement" actually fires on them (it keys on 'Warriors').
+    // Regression for the singular/plural class bug: Blade/Heavy Gruts are unitClass 'Warrior'
+    // (matches the printed card) and Grimnak's "Orc Warrior Enhancement" still fires on them
+    // because isOrcWarrior gates on Orc + Warrior/Warriors (audit fix 2026-07-01).
     let s = customBattle(['grimnak', 'blade_gruts'], ['finn'], 'p1', 'training_field');
     s = clearExcept(s, GRIM, 's0-blade_gruts-1', ENEMY);
     s = place(s, 's0-blade_gruts-1', at(3, 3));

@@ -9,6 +9,7 @@
 // board renders every one of them as the same face-down chip (X included).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
 import { sounds } from '@/lib/sounds';
 import {
@@ -956,23 +957,48 @@ function BigCardPreview({ cardId, scale = 1.4, baseWidth = 256 }: { cardId: stri
  *  absolutely over the board (pointer-events-none so it never eats clicks),
  *  appearing above the card. */
 function CardHoverPanel({ cardId, placement = 'above', big = false, side = 'right' }: { cardId: string; placement?: 'above' | 'below'; big?: boolean; side?: 'left' | 'right' }) {
+  // Big preview → PORTAL to <body> so its `fixed` position always resolves against the VIEWPORT.
+  // Rendered inline it gets TRAPPED by any ancestor with a CSS transform: the top-centre and
+  // right-centre panel anchors use `-translate-*`, which made `position: fixed` resolve against the
+  // PANEL box, dropping the preview onto the panel instead of the screen edge (the "shows in
+  // different spots" bug). A body portal escapes every transform → all cards preview in the SAME
+  // right-edge spot. The portalled node isn't a DOM descendant of the card's `.group`, so CSS
+  // `group-hover` can't reach it — we drive visibility with JS hover on the parent `.group` instead.
+  const anchorRef = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!big) return;
+    const group = anchorRef.current?.closest('.group') as HTMLElement | null;
+    if (!group) return;
+    const enter = () => setOpen(true);
+    const leave = () => setOpen(false);
+    group.addEventListener('mouseenter', enter);
+    group.addEventListener('mouseleave', leave);
+    return () => {
+      group.removeEventListener('mouseenter', enter);
+      group.removeEventListener('mouseleave', leave);
+    };
+  }, [big]);
   const def = HS_CARDS[cardId];
   if (!def) return null;
   const powers = POWER_DESCRIPTIONS[cardId] ?? [];
 
-  // Draft pool: the hybrid card (scanned header + reconstructed legible powers),
-  // pinned to the screen edge OPPOSITE the hovered card so it never covers the
-  // card (or its Confirm box) you're interacting with.
   if (big) {
     return (
-      <div
-        className={
-          'pointer-events-none fixed top-1/2 z-[120] hidden max-h-[96vh] w-auto -translate-y-1/2 group-hover:block ' +
-          (side === 'left' ? 'left-4' : 'right-4')
-        }
-      >
-        <BigCardPreview cardId={cardId} />
-      </div>
+      <>
+        <span ref={anchorRef} aria-hidden className="hidden" />
+        {open && typeof document !== 'undefined' && createPortal(
+          <div
+            className={
+              'pointer-events-none fixed top-1/2 z-[120] max-h-[96vh] w-auto -translate-y-1/2 ' +
+              (side === 'left' ? 'left-4' : 'right-4')
+            }
+          >
+            <BigCardPreview cardId={cardId} />
+          </div>,
+          document.body,
+        )}
+      </>
     );
   }
 
@@ -3575,7 +3601,7 @@ export default function HeroScapeBoard({
         {/* PLAYERS — seat cards in a HORIZONTAL row across the top (like the old seat bar), each with
             its colour dot + name on top and its TEAM A–F picker underneath. "+ Add AI" seats a bot in
             the next seat; ✕ removes it. Kept high in the lobby per owner (2026-06-30). */}
-        <div className="flex w-full max-w-3xl flex-col items-center gap-1.5">
+        <div className="flex w-full max-w-6xl flex-col items-center gap-1.5">
           <div className="flex items-center gap-2">
             <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Players</div>
             {showTeams && (

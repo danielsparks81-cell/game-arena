@@ -344,7 +344,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     points: 60,
     letter: 'R',
     species: 'Soulborg',
-    unitClass: 'Deathreaver',
+    unitClass: 'Deathreavers', // printed DEATHREAVERS (plural) — matches the index card
     common: true, // COMMON SQUAD — verified 2026-06-27 from the user's Index_3x5_Deathreavers card
     power: 'live', // Disengage + Climb x2 + Scatter
     disengage: true,
@@ -367,7 +367,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     points: 40,
     letter: 'B',
     species: 'Orc',
-    unitClass: 'Warriors', // plural (like Tarn/Marro squads) so Grimnak's Orc Warrior Enhancement buffs them
+    unitClass: 'Warrior', // printed WARRIOR (singular); Grimnak's Orc Warrior Enhancement matches Orc+Warrior (isOrcWarrior)
     common: true, // COMMON squad — draftable multiple times (Utgar's common orcs)
     power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,
@@ -389,7 +389,7 @@ export const HS_CARDS: Record<string, HSCardDef> = {
     points: 70,
     letter: 'H',
     species: 'Orc',
-    unitClass: 'Warriors', // plural (like Tarn/Marro squads) so Grimnak's Orc Warrior Enhancement buffs them
+    unitClass: 'Warrior', // printed WARRIOR (singular); Grimnak's Orc Warrior Enhancement matches Orc+Warrior (isOrcWarrior)
     common: true, // COMMON squad — draftable multiple times (Utgar's common orcs)
     power: 'live', // Disengage + Orc Champion Bonding (free bonus turn with an Orc Champion)
     disengage: true,

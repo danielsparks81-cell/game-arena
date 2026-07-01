@@ -279,8 +279,12 @@ const RANGE_ENHANCEMENT_BONUS = 2;
 const SPECIES_SOULBORG = 'Soulborg';
 const CLASS_GUARDS = 'Guards';
 const SPECIES_ORC = 'Orc';
-const CLASS_WARRIORS = 'Warriors';
 const CLASS_ARCHER = 'Archer';
+/** An "Orc Warrior" for Grimnak's Orc Warrior Enhancement. The printed Grut cards read class
+ *  "WARRIOR" (singular); the non-Orc Warrior squads (Tarn "Warriors", Marro "Warriors") are
+ *  excluded by the Orc gate, so this stays robust to either spelling. */
+const isOrcWarrior = (def: { species: string; unitClass: string }): boolean =>
+  def.species === SPECIES_ORC && (def.unitClass === 'Warrior' || def.unitClass === 'Warriors');
 const SWOG_RIDER_CARD_ID = 'swog_rider';
 /** SCATTER (Deathreavers): after defending a normal attack, the owner may move any 2 of the card's
  *  figures up to 4 spaces each. */
@@ -3835,12 +3839,10 @@ export function effectiveAttackDice(
   }
   // Grimnak's ORC WARRIOR ENHANCEMENT (slice 6, cards.md): "All friendly Orc
   // Warriors adjacent to Grimnak roll an additional attack die …" Data-driven on
-  // species Orc + class Warriors, same owner, adjacent to a living Grimnak. No
-  // Orc Warriors exist in the 16-card roster, so this never fires in practice —
-  // proven by a synthetic Orc Warrior in the tests.
+  // Orc + Warrior class (isOrcWarrior), same owner, adjacent to a living Grimnak.
+  // FIRES on Blade Gruts + Heavy Gruts (Orc Warriors) — verified by tests.
   if (
-    def.species === SPECIES_ORC &&
-    def.unitClass === CLASS_WARRIORS &&
+    isOrcWarrior(def) &&
     hasFiguresAdjacentLivingCard(state, attacker, GRIMNAK_CARD_ID, attacker.ownerSeat)
   ) {
     dice += 1;
@@ -3957,11 +3959,9 @@ export function effectiveDefenseDice(
   }
   // Grimnak's ORC WARRIOR ENHANCEMENT — the defense half: "… and an additional
   // defense die." Same gate as the attack half (Orc Warrior adjacent to a living
-  // friendly Grimnak). Inert in this roster (no Orc Warriors) but proven by a
-  // synthetic Orc Warrior test.
+  // friendly Grimnak). Fires on Blade Gruts + Heavy Gruts.
   if (
-    def.species === SPECIES_ORC &&
-    def.unitClass === CLASS_WARRIORS &&
+    isOrcWarrior(def) &&
     hasFiguresAdjacentLivingCard(state, defender, GRIMNAK_CARD_ID, defender.ownerSeat)
   ) {
     dice += 1;
@@ -4007,8 +4007,7 @@ export function auraBuffedFigureIds(state: HSState): Set<string> {
       (def.range === 1 && hasFiguresAdjacentLivingCard(state, f, FINN_CARD_ID, f.ownerSeat)) ||
       hasFiguresAdjacentLivingCard(state, f, THORGRIM_CARD_ID, f.ownerSeat) ||
       raelinAuraReaches(state, f) ||
-      (def.species === SPECIES_ORC &&
-        def.unitClass === CLASS_WARRIORS &&
+      (isOrcWarrior(def) &&
         hasFiguresAdjacentLivingCard(state, f, GRIMNAK_CARD_ID, f.ownerSeat)) ||
       (def.species === SPECIES_ORC &&
         def.unitClass === CLASS_ARCHER &&
