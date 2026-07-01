@@ -3444,41 +3444,10 @@ export default function HeroScapeBoard({
           {state.players.length} player{state.players.length === 1 ? '' : 's'} seated (2-6){state.players.length < 2 ? ' — waiting for one more…' : ''}
         </div>
 
-        {/* Edition toggle: Classic (original points) vs Modern (rebalanced) */}
-        <div className="flex flex-col items-center gap-1">
-          <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Card edition</div>
-          <div className="flex gap-2">
-            {([['modern', 'Modern'], ['classic', 'Classic']] as const).map(([e, label]) => {
-              const active = cardEdition === e;
-              return (
-                <button
-                  key={e}
-                  onClick={() => isHost && onSetLobbyConfig({ edition: e })}
-                  disabled={!isHost || disabled}
-                  title={e === 'classic' ? 'Original 2004-era points for the cards that differ' : 'The rebalanced printing (default)'}
-                  className={
-                    'rounded-lg border-2 px-4 py-1.5 text-sm font-semibold transition ' +
-                    (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
-                    (isHost ? '' : ' cursor-default opacity-90')
-                  }
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          <div className="text-[11px] text-neutral-500">
-            {cardEdition === 'classic'
-              ? 'The original values'
-              : 'The rebalanced printing (default)'}
-          </div>
-        </div>
-
-        {/* PLAYERS — you + every AI as a SEAT card, each with its TEAM picker right under the name
-            (owner 2026-06-30). "+ Add AI opponent" seats a bot in the next seat; ✕ removes it. This
-            replaces the old separate AI-chip row + Teams table (and the generic seat bar is hidden for
-            HeroScape upstream). */}
-        <div className="flex w-full max-w-md flex-col items-center gap-1.5">
+        {/* PLAYERS — seat cards in a HORIZONTAL row across the top (like the old seat bar), each with
+            its colour dot + name on top and its TEAM A–F picker underneath. "+ Add AI" seats a bot in
+            the next seat; ✕ removes it. Kept high in the lobby per owner (2026-06-30). */}
+        <div className="flex w-full max-w-3xl flex-col items-center gap-1.5">
           <div className="flex items-center gap-2">
             <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Players</div>
             {showTeams && (
@@ -3492,26 +3461,24 @@ export default function HeroScapeBoard({
               </button>
             )}
           </div>
-          <div className="flex w-full flex-col gap-1">
+          <div className="flex w-full flex-wrap items-start justify-center gap-2">
             {[...state.players].sort((a, b) => a.seat - b.seat).map(p => (
-              <div key={p.seat} className="flex flex-col gap-1 rounded-lg border border-neutral-800 bg-neutral-900/60 px-2 py-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="flex min-w-0 items-center gap-1.5 text-xs">
-                    <span className="shrink-0 text-[10px] text-neutral-500">Seat {p.seat + 1}</span>
-                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: seatColor(p.seat) }} />
-                    <span className="truncate text-neutral-200">{p.bot ? '🤖 ' : ''}{p.username}</span>
-                  </span>
+              <div key={p.seat} className="flex w-40 flex-col items-center gap-1 rounded-lg border border-neutral-800 bg-neutral-900/60 px-2 py-1.5">
+                <div className="flex w-full items-center justify-center gap-1.5 text-xs">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: seatColor(p.seat) }} />
+                  <span className="truncate text-neutral-200">{p.bot ? '🤖 ' : ''}{p.username}</span>
                   {p.bot && isHost && (
                     <button
                       onClick={() => onRemoveBot?.(p.seat)}
                       disabled={disabled}
                       title="Remove this AI"
-                      className="shrink-0 rounded px-1 text-fuchsia-400 transition hover:text-red-300 disabled:opacity-40"
+                      className="shrink-0 rounded px-0.5 text-fuchsia-400 transition hover:text-red-300 disabled:opacity-40"
                     >✕</button>
                   )}
                 </div>
+                <div className="text-[9px] uppercase tracking-wider text-neutral-500">Seat {p.seat + 1}</div>
                 {showTeams && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-center gap-1">
                     {TEAM_COLORS.map((c, idx) => {
                       const team = idx + 1;
                       const on = p.team === team;
@@ -3521,7 +3488,7 @@ export default function HeroScapeBoard({
                           onClick={() => sendTeam(p.seat, on ? null : team)}
                           disabled={!isHost || disabled}
                           title={`Team ${String.fromCharCode(65 + idx)}`}
-                          className={'flex h-6 w-6 items-center justify-center rounded-md border-2 text-[10px] font-bold transition ' + (on ? 'text-neutral-900' : 'text-neutral-400 hover:border-neutral-500') + (isHost ? '' : ' cursor-default')}
+                          className={'flex h-5 w-5 items-center justify-center rounded-md border-2 text-[9px] font-bold transition ' + (on ? 'text-neutral-900' : 'text-neutral-400 hover:border-neutral-500') + (isHost ? '' : ' cursor-default')}
                           style={{ borderColor: c, background: on ? c : 'transparent' }}
                         >
                           {String.fromCharCode(65 + idx)}
@@ -3536,9 +3503,9 @@ export default function HeroScapeBoard({
               <button
                 onClick={() => onAddBot?.()}
                 disabled={disabled}
-                className="rounded-lg border-2 border-dashed border-fuchsia-700/60 bg-fuchsia-950/20 px-2 py-1.5 text-xs font-bold text-fuchsia-200 transition hover:bg-fuchsia-900/40 disabled:opacity-40"
+                className="flex w-40 items-center justify-center self-stretch rounded-lg border-2 border-dashed border-fuchsia-700/60 bg-fuchsia-950/20 px-2 py-1.5 text-xs font-bold text-fuchsia-200 transition hover:bg-fuchsia-900/40 disabled:opacity-40"
               >
-                + Add AI opponent
+                + Add AI
               </button>
             )}
           </div>
@@ -3571,6 +3538,36 @@ export default function HeroScapeBoard({
           </div>
         </div>
 
+        {/* Edition toggle: Classic (original points) vs Modern (rebalanced) */}
+        <div className="flex flex-col items-center gap-1">
+          <div className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Card edition</div>
+          <div className="flex gap-2">
+            {([['modern', 'Modern'], ['classic', 'Classic']] as const).map(([e, label]) => {
+              const active = cardEdition === e;
+              return (
+                <button
+                  key={e}
+                  onClick={() => isHost && onSetLobbyConfig({ edition: e })}
+                  disabled={!isHost || disabled}
+                  title={e === 'classic' ? 'Original 2004-era points for the cards that differ' : 'The rebalanced printing (default)'}
+                  className={
+                    'rounded-lg border-2 px-4 py-1.5 text-sm font-semibold transition ' +
+                    (active ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-neutral-700 text-neutral-300 hover:border-neutral-500') +
+                    (isHost ? '' : ' cursor-default opacity-90')
+                  }
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[11px] text-neutral-500">
+            {cardEdition === 'classic'
+              ? 'The original values'
+              : 'The rebalanced printing (default)'}
+          </div>
+        </div>
+
         {/* Point-budget presets (draft mode only) */}
         {lobbyMode === 'draft' && (
           <div className="flex flex-col items-center gap-1">
@@ -3600,6 +3597,15 @@ export default function HeroScapeBoard({
                 }}
                 className="w-24 rounded-lg border-2 border-neutral-700 bg-neutral-900 px-2 py-1 text-center text-sm font-bold tabular-nums text-amber-200 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
+              {/* Roll a surprise budget in the common casual range (250–600, multiples of 10). */}
+              <button
+                onClick={() => isHost && onSetLobbyConfig({ pointBudget: 250 + Math.floor(Math.random() * 36) * 10 })}
+                disabled={!isHost || disabled}
+                title="Random budget between 250 and 600"
+                className="rounded-lg border-2 border-neutral-700 px-2 py-1 text-sm font-semibold text-neutral-200 transition hover:border-amber-400 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                🎲 Random
+              </button>
               <span className="text-[10px] text-neutral-500">{MIN_POINT_BUDGET}–{MAX_POINT_BUDGET}</span>
             </div>
           </div>
