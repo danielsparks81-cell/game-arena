@@ -2509,19 +2509,13 @@ export default function HeroScapeBoard({
     [orientLead, selected, state],
   );
   const orientDefaultTail = orientLead ? ([...orientTails][0] ?? null) : null;
-  // The ONLY optimistic preview footprint left: the 2-hex orientation pick (peanut at the lead with
-  // its default back hex while the player chooses a facing).
-  const previewFoot: [HexKey, HexKey | null] | null = orientLead && orientDefaultTail
-    ? [orientLead, orientDefaultTail]
-    : null;
-  const previewId = orientLead ? selected?.id : undefined;
-  // The footprint to draw for the moving figure: the live orient preview while choosing a facing,
-  // OR — the instant the move commits — the pendingMove footprint held through the server round-trip
-  // (so the standee never bounces back to its start before the real move arrives). Same override
-  // path either way, so the hand-off is seamless.
-  const overrideId = previewId ?? pendingMove?.id;
+  // No solid preview figure during the orient step — the figure stays put and the PEANUT OUTLINES at
+  // the destination (drawn via placeLeadHex + orientTails, same as placement/carry) show every facing.
+  // The only board-figure override left is pendingMove: it holds the moving figure at its committed
+  // footprint through the server round-trip so the standee never bounces back to its start.
+  const overrideId = pendingMove?.id;
   const overrideFoot: [HexKey, HexKey | null] | null =
-    previewFoot ?? (pendingMove ? [pendingMove.at, pendingMove.at2] : null);
+    pendingMove ? [pendingMove.at, pendingMove.at2] : null;
   const boardState = overrideFoot && overrideId
     ? {
         ...displayState,
@@ -5100,7 +5094,7 @@ export default function HeroScapeBoard({
             state={boardState}
             onHexClick={clickHex}
             selectedId={selectedId}
-            moveHexes={orientLead ? orientTails : (carryDestSet ?? (grappleMode ? destinations : safeMoveHexes))}
+            moveHexes={orientLead ? new Set<HexKey>() : (carryDestSet ?? (grappleMode ? destinations : safeMoveHexes))}
             dangerHexes={disengageHexes}
             fireHexes={fireLineMode ? fireLineHexSet : undefined}
             shootHexes={shootRange}
@@ -5114,8 +5108,8 @@ export default function HeroScapeBoard({
             splashIds={splashIds}
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
-            placeHexes={carryTailSet ?? placeHexes}
-            placeLeadHex={carryTailSet ? carryAim!.dest : (placeLead && placingIs2 ? placeLead : undefined)}
+            placeHexes={orientLead ? orientTails : (carryTailSet ?? placeHexes)}
+            placeLeadHex={orientLead ?? (carryTailSet ? carryAim!.dest : (placeLead && placingIs2 ? placeLead : undefined))}
             dropHexes={scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
             airborneHexes={dropPlacing ? dropLegalSet : undefined}
