@@ -18,7 +18,8 @@ const jpg = (id: string) => `/heroscape/cards-full/${id}.jpg`;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 // box height fraction so the box's DISPLAYED aspect = CARD_ASPECT.
 const hOf = (fw: number) => fw * IMG_ASPECT / CARD_ASPECT;
-const DEFAULT: Rect = { fx: 0.04, fy: 0.15, fw: 0.46, fh: hOf(0.46) }; // figure-ish upper-left start
+const DEFAULT_FW = 0.41; // default box size (zoom) for an un-cropped card — a tighter start than the art box's 46%
+const DEFAULT: Rect = { fx: 0.04, fy: 0.15, fw: DEFAULT_FW, fh: hOf(DEFAULT_FW) }; // figure-ish upper-left start
 
 /** A crop box → the CSS background-size / position that shows exactly that region in the art box. */
 function cssOf(c: Rect): { size: string; position: string } {
