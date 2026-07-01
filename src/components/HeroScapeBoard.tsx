@@ -13,6 +13,7 @@ import dynamic from 'next/dynamic';
 import { sounds } from '@/lib/sounds';
 import {
   type HSState,
+  type HSLogEntry,
   type Figure,
   type CombatFace,
   type LastAttack,
@@ -1106,6 +1107,82 @@ function SplitDice({ roll, shown, base, bonus }: { roll: CombatFace[]; shown: nu
         </div>
       ))}
     </div>
+  );
+}
+
+/** One quick-scan icon per log line, keyed off its tag (a death in the text wins,
+ *  since "X is destroyed!" is tagged 'attack'). Turns the log from a wall of text
+ *  into something you can skim when turns fly by. */
+function logIcon(tag: HSLogEntry['tag'], text: string): string {
+  if (/destroy|defeat|eliminat|slain|is out\b/i.test(text)) return '☠️';
+  switch (tag) {
+    case 'move': return '🚶';
+    case 'attack': return '⚔️';
+    case 'fall': return '💥';
+    case 'power': return '✨';
+    case 'glyph': return '🔷';
+    case 'roll': return '🎲';
+    case 'win': return '🏆';
+    default: return '·';
+  }
+}
+
+/** BATTLE LOG grouped into TURN CARDS. Each 'activate' entry begins a new card — a
+ *  bold header in the actor's seat colour with a matching left rule — and the actions
+ *  that follow indent beneath it with a type icon. Newest turn on top; within a turn
+ *  the actions read top-to-bottom in the order they happened. This turns a fast,
+ *  blurred stream into discrete blocks you can actually parse ("whose turn → what they
+ *  did → what died"). Entries before the first activation (round start, initiative)
+ *  fall into a leading header-less block. */
+function BattleLogGroups({ log, seatColor }: { log: HSLogEntry[]; seatColor: (seat: number) => string }) {
+  const groups = useMemo(() => {
+    const recent = log.slice(-80);
+    const gs: { key: string; header: HSLogEntry | null; items: HSLogEntry[] }[] = [];
+    for (const e of recent) {
+      if (e.tag === 'activate') gs.push({ key: `a${e.seq}`, header: e, items: [] });
+      else {
+        if (gs.length === 0) gs.push({ key: `s${e.seq}`, header: null, items: [] });
+        gs[gs.length - 1].items.push(e);
+      }
+    }
+    return gs.slice(-16);
+  }, [log]);
+
+  return (
+    <>
+      {groups.slice().reverse().map(g => {
+        const hc = g.header?.seat != null ? seatColor(g.header.seat) : '#52525b';
+        return (
+          <div key={g.key} className="mb-1.5 border-l-2 pl-2" style={{ borderColor: hc }}>
+            {g.header && (
+              <div className="flex items-baseline gap-1 font-bold" style={{ color: hc }}>
+                <span className="w-3.5 shrink-0 text-center text-[10px] leading-none">🎯</span>
+                <span className="min-w-0">{g.header.text}</span>
+              </div>
+            )}
+            {g.items.map(e => {
+              const dead = /destroy|defeat|eliminat|slain|is out\b/i.test(e.text);
+              const cls = dead ? 'font-semibold text-red-300'
+                : e.tag === 'win' ? 'font-bold text-amber-300'
+                  : e.tag === 'attack' ? 'text-red-300/85'
+                    : e.tag === 'fall' ? 'text-orange-300/90'
+                      : e.tag === 'power' ? 'text-fuchsia-300/85'
+                        : e.tag === 'glyph' ? 'text-emerald-300/85'
+                          : 'text-neutral-400';
+              return (
+                <div key={e.seq} className={'flex items-baseline gap-1 ' + cls}>
+                  <span className="w-3.5 shrink-0 text-center text-[10px] leading-none">{logIcon(e.tag, e.text)}</span>
+                  <span className="min-w-0">{e.text}</span>
+                </div>
+              );
+            })}
+            {g.header && g.items.length === 0 && (
+              <div className="pl-[18px] text-[10px] italic text-neutral-600">— no action —</div>
+            )}
+          </div>
+        );
+      })}
+    </>
   );
 }
 
@@ -4731,13 +4808,7 @@ export default function HeroScapeBoard({
                   )}
                 </div>
               )}
-              {state.log.slice(-40).reverse().map(e => (
-                <div
-                  key={e.seq}
-                  className={e.tag === 'win' ? 'font-bold text-amber-300' : e.tag === 'activate' ? 'mt-1 font-bold' : e.tag === 'attack' ? 'text-red-300/80' : e.tag === 'fall' ? 'text-orange-300/90' : ''}
-                  style={e.seat != null ? { color: seatColor(e.seat) } : undefined}
-                >{e.text}</div>
-              ))}
+              <BattleLogGroups log={state.log} seatColor={seatColor} />
             </div>
           )}
         </div>
