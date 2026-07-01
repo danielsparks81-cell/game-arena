@@ -34,6 +34,7 @@ import {
   stepConsequences,
   placeableHexes,
   placeable2Leads,
+  placementTailOptions,
   theDropHexes,
   orientationOptions,
   canMindShackle,
@@ -4629,6 +4630,35 @@ describe('slice 5: placement', () => {
     expect(s.phase).toBe('placement');
     return s;
   }
+
+  it('a 2-hex figure places with an EXPLICIT tail (tap-lead-then-tail); a bad tail is rejected', () => {
+    // The board sends both hexes the player tapped. The engine honours the chosen tail (must be an
+    // empty, same-level, adjacent zone hex) and rejects anything else, then falls back to auto only
+    // when no tail is sent.
+    let s = inDraft('p1', 500);
+    s = draftCard(s, 'mimring');       // p1: a 2-hex figure
+    s = draftCard(s, 'thorgrim');      // p2
+    s = draftPass(s);                  // p1 done
+    s = draftPass(s);                  // p2 done → placement
+    expect(s.phase).toBe('placement');
+    const mimFig = s.hand![0].find(id => {
+      const f = s.figures.find(x => x.id === id);
+      return s.cards.find(c => c.uid === f?.cardUid)?.cardId === 'mimring';
+    })!;
+    const leads = [...placeable2Leads(s, 0)];
+    expect(leads.length).toBeGreaterThan(0);
+    const lead = leads[0];
+    const tails = [...placementTailOptions(s, 0, lead)];
+    expect(tails.length).toBeGreaterThan(0);
+    // A non-adjacent lead makes an ILLEGAL tail → rejected.
+    const badTail = leads.find(l => l !== lead && !tails.includes(l));
+    if (badTail) expect(errOf(applyAction(s, 'p1', { kind: 'place_figure', figureId: mimFig, to: lead, to2: badTail }))).toMatch(/second space/i);
+    // The chosen tail is honoured exactly.
+    const placed = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: mimFig, to: lead, to2: tails[0] }));
+    const pf = placed.figures.find(f => f.id === mimFig)!;
+    expect(pf.at).toBe(lead);
+    expect(pf.at2).toBe(tails[0]);
+  });
 
   it('places only onto your own empty start-zone hexes; unplace returns to hand', () => {
     const s0 = placementState();

@@ -39,7 +39,6 @@ import {
   MAX_POINT_BUDGET,
   legalDestinations,
   moveTailOptions,
-  orientationOptions,
   movementRangeHexes,
   shootingRangeHexes,
   shootBlockedHexes,
@@ -82,6 +81,7 @@ import {
   auraCoverageHexes,
   placeableHexes,
   placeable2Leads,
+  placementTailOptions,
   figureLabel,
   getActiveCardUid,
   axialToOffset,
@@ -232,7 +232,7 @@ type Props = {
   onEndTurn: () => void;
   onDraftCard: (cardId: string) => void;
   onDraftPass: () => void;
-  onPlaceFigure: (figureId: string, to: HexKey) => void;
+  onPlaceFigure: (figureId: string, to: HexKey, to2?: HexKey) => void;
   onUnplaceFigure: (figureId: string) => void;
   onPlacementReady: () => void;
   /** Soft re-sync from the server, wired straight from RoomClient (no page reload → fullscreen
@@ -1628,7 +1628,7 @@ export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onAttack,
   onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
-  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onOverextend, onTheDrop, onOrient,
+  onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onOverextend, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady, onRefresh, refreshing,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -2129,31 +2129,32 @@ export default function HeroScapeBoard({
   const iPlacementReady = !!me && (state.placementReady ?? []).includes(me.seat);
   const canPlace = placement && !!me && !iPlacementReady && !disabled;
   const myHand = placement && me ? (state.hand?.[me.seat] ?? []) : [];
-  // Empty own start-zone hexes I may drop a figure on (engine single-source).
-  const placeHexes = useMemo(() => {
+  // 2-HEX placement is a TWO-TAP flow just like a move: tap the FIRST hex (lead), then tap the SECOND
+  // hex (tail). No ambiguous spin-after-place that stole the neighbouring hexes from the next figure —
+  // and because the −1 double-space rule always leaves a free adjacent space, a legal lead always has a
+  // legal tail, so this always works. (owner 2026-07-01, replacing the placeSpin model.)
+  const placingFigId = placeFigureId ?? (myHand[0] ?? null);
+  const placingIs2 = useMemo(() => {
+    if (!placingFigId) return false;
+    const f = state.figures.find(x => x.id === placingFigId);
+    const cid = f ? state.cards.find(c => c.uid === f.cardUid)?.cardId : null;
+    return cid ? HS_CARDS[cid]?.baseSize === 2 : false;
+  }, [placingFigId, state]);
+  const [placeLead, setPlaceLead] = useState<HexKey | null>(null);
+  useEffect(() => { setPlaceLead(null); }, [placingFigId]); // a different figure to place ⇒ start the pick over
+  const placeLeadCandidates = useMemo(() => {
     if (!canPlace || !me) return new Set<HexKey>();
-    // Highlight the legal LEAD hexes for the figure being placed: a double-space
-    // figure needs two empty same-level zone hexes, so it uses placeable2Leads.
-    const toPlaceId = placeFigureId ?? (state.hand?.[me.seat] ?? [])[0];
-    const f = toPlaceId ? state.figures.find(x => x.id === toPlaceId) : null;
-    const cardId = f ? state.cards.find(c => c.uid === f.cardUid)?.cardId : null;
-    const is2 = cardId ? HS_CARDS[cardId]?.baseSize === 2 : false;
-    return is2 ? placeable2Leads(state, me.seat) : placeableHexes(state, me.seat);
-  }, [state, me, canPlace, placeFigureId]);
-  // PLACEMENT SPIN: after dropping a 2-hex figure, hold its id here so you can orient it (tap a
-  // highlighted adjacent flat hex → onOrient). The same spin as a move, at deploy time (owner 2026-06-30).
-  const [placeSpinId, setPlaceSpinId] = useState<string | null>(null);
-  const placeSpin = useMemo(
-    () => (placeSpinId && canPlace ? orientationOptions(state, placeSpinId) : null),
-    [placeSpinId, canPlace, state],
+    // The legal FIRST hexes: a 2-hex figure needs a lead with an available same-level tail (placeable2Leads).
+    return placingIs2 ? placeable2Leads(state, me.seat) : placeableHexes(state, me.seat);
+  }, [state, me, canPlace, placingIs2]);
+  const placeTailOptions = useMemo(
+    () => (canPlace && me && placeLead && placingIs2 ? placementTailOptions(state, me.seat, placeLead) : new Set<HexKey>()),
+    [state, me, canPlace, placeLead, placingIs2],
   );
-  const placeSpinHexes = useMemo(() => {
-    if (!placeSpin || placeSpin.baseSize !== 2) return new Set<HexKey>();
-    const f = state.figures.find(x => x.id === placeSpinId);
-    if (!f || f.at == null) return new Set<HexKey>();
-    const nb = neighborKeys(f.at);
-    return new Set<HexKey>(placeSpin.validDirs.map(d => nb[d]).filter(Boolean));
-  }, [placeSpin, placeSpinId, state]);
+  // The GREEN highlight set on the board: the second-hex (tail) options once a lead is chosen, otherwise
+  // the first-hex (lead) candidates.
+  const placeHexes = (placeLead && placingIs2) ? placeTailOptions : placeLeadCandidates;
+  const placeLeadPreviewTail = placeLead ? ([...placeTailOptions][0] ?? null) : null;
   const activeCardUid = getActiveCardUid(state);
   const activeCard = state.cards.find(c => c.uid === activeCardUid);
   const activeCardDef = HS_CARDS[activeCard?.cardId ?? ''];
@@ -2514,9 +2515,12 @@ export default function HeroScapeBoard({
   // OR — the instant the move commits — the pendingMove footprint held through the server round-trip
   // (so the standee never bounces back to its start before the real move arrives). Same override
   // path either way, so the hand-off is seamless.
-  const overrideId = previewId ?? pendingMove?.id;
+  // PLACEMENT preview: once a 2-hex lead is picked, show the still-in-hand figure standing on it (with
+  // a provisional tail) so the player sees where it will land while choosing the second space.
+  const placementPreviewId = placeLead && placingIs2 && placingFigId && placeLeadPreviewTail ? placingFigId : undefined;
+  const overrideId = previewId ?? pendingMove?.id ?? placementPreviewId;
   const overrideFoot: [HexKey, HexKey | null] | null =
-    previewFoot ?? (pendingMove ? [pendingMove.at, pendingMove.at2] : null);
+    previewFoot ?? (pendingMove ? [pendingMove.at, pendingMove.at2] : null) ?? (placementPreviewId ? [placeLead!, placeLeadPreviewTail] : null);
   const boardState = overrideFoot && overrideId
     ? {
         ...displayState,
@@ -3015,12 +3019,17 @@ export default function HeroScapeBoard({
     // slice 5: placement — click your own placed figure to pick it up (unplace);
     // click a highlighted empty start-zone hex to drop the picked figure there.
     if (canPlace) {
-      // PLACEMENT SPIN first: a highlighted adjacent flat hex orients the just-placed 2-hex figure
-      // (tap any way the body should face). Keep spinning until you place/pick the next figure.
-      if (placeSpinId && placeSpinHexes.has(key)) {
-        const sf = state.figures.find(x => x.id === placeSpinId);
-        const dir = sf?.at != null ? neighborKeys(sf.at).indexOf(key) : -1;
-        if (dir >= 0) { onOrient(placeSpinId, dir); return; }
+      // 2-HEX, SECOND tap: a lead is armed → tapping a green tail option commits BOTH hexes at once.
+      if (placingIs2 && placeLead) {
+        if (placeTailOptions.has(key) && placingFigId) {
+          onPlaceFigure(placingFigId, placeLead, key);
+          setPlaceFigureId(null);
+          setPlaceLead(null);
+          return;
+        }
+        // A tap that isn't a tail option abandons the lead pick and falls through (so you can re-pick a
+        // lead, or pick up a placed figure) below.
+        setPlaceLead(null);
       }
       const onHex = occupantAt(key);
       if (onHex && onHex.ownerSeat === me!.seat) {
@@ -3029,22 +3038,18 @@ export default function HeroScapeBoard({
         // of swapping to the first hand figure. To place a different one, tap it in the hand up top.
         onUnplaceFigure(onHex.id);
         setPlaceFigureId(onHex.id);
-        setPlaceSpinId(null);
+        setPlaceLead(null);
         return;
       }
-      if (!onHex && placeHexes.has(key)) {
-        const toPlace = placeFigureId ?? myHand[0];
-        if (toPlace) {
-          onPlaceFigure(toPlace, key);
+      if (!onHex && placeLeadCandidates.has(key) && placingFigId) {
+        if (placingIs2) {
+          // 2-HEX, FIRST tap: arm the lead; its green tail options light up for the second tap.
+          setPlaceLead(key);
+        } else {
+          // 1-HEX: a single tap places it.
+          onPlaceFigure(placingFigId, key);
           setPlaceFigureId(null);
-          // Just dropped a 2-hex figure → ARM the spin so the player can orient it (read the card off
-          // the still-in-hand figure; once the state lands, placeSpinHexes lights its flat neighbours).
-          const hf = state.figures.find(x => x.id === toPlace);
-          const cid = hf ? state.cards.find(c => c.uid === hf.cardUid)?.cardId : null;
-          setPlaceSpinId(cid && HS_CARDS[cid]?.baseSize === 2 ? toPlace : null);
         }
-      } else {
-        setPlaceSpinId(null); // a tap that's neither a spin nor a placement dismisses the prompt
       }
       return;
     }
@@ -3248,11 +3253,12 @@ export default function HeroScapeBoard({
     if (selected && destinations.has(key)) {
       if (grappleMode) { onGrappleMove(selected.id, key); setGrappleMode(false); return; }
       if (selIs2Hex) {
-        // 2-HEX: a landing with MORE THAN ONE legal orientation opens the SPIN pick (tap the lead,
-        // then tap which way the body faces). A single (or no) real choice just lands forward with the
-        // engine's default back hex. The move only commits once you pick — see the orient block above.
-        if (moveTailOptions(state, selected.id, key).size >= 2) { setOrientLead(key); return; }
-        onMoveFigure(selected.id, key);
+        // 2-HEX: ALWAYS a two-tap move — this first tap picks the destination (lead); its green tail
+        // options light up so the second tap picks the SECOND space (facing). The move only commits on
+        // that second tap (see the orient block above). Consistent with 2-hex placement; the −1
+        // double-space move guarantees a legal tail exists. (owner 2026-07-01: "make me select the
+        // second hex so there's no confusion").
+        setOrientLead(key);
         return;
       }
       onMoveFigure(selected.id, key);
@@ -4081,9 +4087,8 @@ export default function HeroScapeBoard({
                     return (
                       <button
                         key={id}
-                        // Picking the next figure from the hand also ends any 2-hex spin still in progress,
-                        // so its (adjacent) spin hexes stop intercepting and you can place this one beside it.
-                        onClick={() => { setPlaceFigureId(id); setPlaceSpinId(null); }}
+                        // Picking the next figure from the hand also drops any half-made 2-hex lead pick.
+                        onClick={() => { setPlaceFigureId(id); setPlaceLead(null); }}
                         disabled={disabled}
                         title={f ? figureLabel(state, f) : id}
                         className={
@@ -4289,32 +4294,23 @@ export default function HeroScapeBoard({
             {powerHint}
           </div>
         )}
-        {(fireLineMode || grappleMode || throwAim || explosionMode || orientLead || (placeSpinId && placeSpinHexes.size > 0)) && (
+        {(fireLineMode || grappleMode || throwAim || explosionMode || orientLead || (placingIs2 && placeLead)) && (
           <div className="flex items-center justify-between gap-2 rounded-lg border-2 border-amber-500 bg-amber-950/50 px-3 py-2 text-sm font-semibold text-amber-200">
             <span>
               {fireLineMode && '🔥 Fire Line — click ANY hex on a glowing line to fire that whole row; figures in it are hit'}
               {grappleMode && '🪝 Grapple Gun — click a hex (1 space, climb anywhere)'}
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
-              {orientLead && '↻ Spin — tap a highlighted hex to choose which way the body faces, then it moves there. (Cancel to pick a different space.)'}
-              {!orientLead && placeSpinId && placeSpinHexes.size > 0 && '↻ Spin — tap a highlighted hex to face the body, then ✓ Lock facing so you can place the next figure beside it.'}
+              {orientLead && '↻ Move — first hex picked. Now tap a green hex for the SECOND space (which way the body faces), and it moves there.'}
+              {!orientLead && placingIs2 && placeLead && '⬡ First space picked — now tap a green hex for the SECOND space. (Cancel to pick a different first space.)'}
             </span>
-            {(() => {
-              // For the PLACEMENT spin the orientation is applied on every tap (nothing to undo), and the
-              // ONLY reason to leave the mode is to free the adjacent hexes for the next figure — so the
-              // button reads "✓ Lock facing", not "Cancel". Other modes (fire line, grapple, orient…) are
-              // genuine cancels.
-              const spinLock = !!placeSpinId && placeSpinHexes.size > 0 && !orientLead && !fireLineMode && !grappleMode && !throwAim && !explosionMode;
-              return (
-                <button
-                  type="button"
-                  onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); setCarryAim(null); setOrientLead(null); setPlaceSpinId(null); }}
-                  className={'shrink-0 rounded border px-2 py-0.5 text-xs ' + (spinLock ? 'border-emerald-400 bg-emerald-900/40 text-emerald-100 hover:bg-emerald-800/50' : 'border-amber-400 text-amber-100 hover:bg-amber-900/50')}
-                >
-                  {spinLock ? '✓ Lock facing' : 'Cancel'}
-                </button>
-              );
-            })()}
+            <button
+              type="button"
+              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); setCarryAim(null); setOrientLead(null); setPlaceLead(null); }}
+              className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
+            >
+              Cancel
+            </button>
           </div>
         )}
         {/* slice 8b: Big-Hero special-power control panel — dropdown pickers +
@@ -5111,7 +5107,7 @@ export default function HeroScapeBoard({
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
             placeHexes={placeHexes}
-            dropHexes={placeSpinId && placeSpinHexes.size > 0 ? placeSpinHexes : scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
+            dropHexes={scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
             airborneHexes={dropPlacing ? dropLegalSet : undefined}
             focusRef={focusRef}

@@ -985,7 +985,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           : it.dangerHexes?.has(key) ? { color: '#ef4444' } // RED = reachable, but moving here provokes a swipe
             : it.moveHexes?.has(key) ? { color: '#22c55e' } // green = a safe move destination
               : it.rangeHexes?.has(key) ? { color: '#22c55e', dim: true } // (legacy) faint within-Move backdrop
-                : it.placeHexes?.has(key) ? { color: '#38bdf8' }
+                : it.placeHexes?.has(key) ? { color: '#22c55e' } // GREEN like a move — placement (and its 2-hex second-space pick) reads the same as movement
                   : null);
   // When a moving ranged figure's shooting envelope is present, darken every hex
   // OUTSIDE it so the bright reach island stands out and its edge reads as the

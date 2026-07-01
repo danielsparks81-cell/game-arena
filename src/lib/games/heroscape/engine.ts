@@ -464,7 +464,7 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
   if (state.phase === 'placement') {
     switch (action.kind) {
       case 'place_figure':
-        return doPlaceFigure(state, me.seat, action.figureId, action.to);
+        return doPlaceFigure(state, me.seat, action.figureId, action.to, action.to2);
       case 'unplace_figure':
         return doUnplaceFigure(state, me.seat, action.figureId);
       case 'placement_ready':
@@ -1313,7 +1313,23 @@ export function placeable2Leads(state: HSState, seat: number): Set<HexKey> {
   return out;
 }
 
-function doPlaceFigure(state: HSState, seat: number, figureId: string, to: HexKey): HSResult {
+/** Every legal SECOND hex for a 2-hex figure whose FIRST hex is `lead` during deployment: an empty,
+ *  same-level start-zone hex adjacent to the lead. Powers the tap-lead-then-tail placement UI (the
+ *  player picks both hexes, so there's never any ambiguity with the next figure's placement). */
+export function placementTailOptions(state: HSState, seat: number, lead: HexKey): Set<HexKey> {
+  const map = MAPS[state.mapId];
+  if (!map) return new Set();
+  const free = placeableHexes(state, seat);
+  const lh = map.cells[lead]?.height;
+  if (!free.has(lead) || lh == null) return new Set();
+  const out = new Set<HexKey>();
+  for (const n of neighborKeys(lead)) {
+    if (n !== lead && free.has(n) && map.cells[n] && map.cells[n].height === lh) out.add(n);
+  }
+  return out;
+}
+
+function doPlaceFigure(state: HSState, seat: number, figureId: string, to: HexKey, to2?: HexKey): HSResult {
   if ((state.placementReady ?? []).includes(seat)) {
     return { error: 'You have already locked in your placement' };
   }
@@ -1330,9 +1346,17 @@ function doPlaceFigure(state: HSState, seat: number, figureId: string, to: HexKe
   const def = cardDefFor(state, fig);
   let tail: HexKey | null = null;
   if (baseSizeOf(def) === 2) {
-    tail = tailFor(MAPS[state.mapId].cells, free, to);
-    if (tail == null) {
-      return { error: `${def.name} needs two empty adjacent spaces of the same level in your start zone` };
+    if (to2 != null) {
+      // Player picked the second hex explicitly (tap-lead-then-tail). Validate it's a legal tail.
+      if (!placementTailOptions(state, seat, to).has(to2)) {
+        return { error: `${def.name}'s second space must be an empty, same-level hex in your start zone next to the first` };
+      }
+      tail = to2;
+    } else {
+      tail = tailFor(MAPS[state.mapId].cells, free, to);
+      if (tail == null) {
+        return { error: `${def.name} needs two empty adjacent spaces of the same level in your start zone` };
+      }
     }
   }
   const s = clone(state);

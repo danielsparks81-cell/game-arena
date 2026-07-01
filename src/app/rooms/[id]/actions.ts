@@ -779,7 +779,7 @@ export type GameAction =
   // Draft + placement (slice 5).
   | { game: 'heroscape'; kind: 'draft_card'; cardId: string }
   | { game: 'heroscape'; kind: 'draft_pass' }
-  | { game: 'heroscape'; kind: 'place_figure'; figureId: string; to: string }
+  | { game: 'heroscape'; kind: 'place_figure'; figureId: string; to: string; to2?: string }
   | { game: 'heroscape'; kind: 'unplace_figure'; figureId: string }
   | { game: 'heroscape'; kind: 'placement_ready' };
 
@@ -1265,7 +1265,7 @@ type HSWireAction =
   // draft order itself when entering the draft (mirrors initiative).
   | { kind: 'draft_card'; cardId: string }
   | { kind: 'draft_pass' }
-  | { kind: 'place_figure'; figureId: string; to: string }
+  | { kind: 'place_figure'; figureId: string; to: string; to2?: string }
   | { kind: 'unplace_figure'; figureId: string }
   | { kind: 'placement_ready' };
 

@@ -64,6 +64,7 @@ export {
   sturlaPlacementHexes,
   placeableHexes,
   placeable2Leads,
+  placementTailOptions,
   orientationOptions,
   mapSupportsCount,
   teamBudgetForSeat,

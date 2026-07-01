@@ -308,7 +308,7 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onEndTurn={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'end_turn' }); })}
       onDraftCard={(cardId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_card', cardId }); })}
       onDraftPass={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'draft_pass' }); })}
-      onPlaceFigure={(figureId: string, to: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_figure', figureId, to }); })}
+      onPlaceFigure={(figureId: string, to: HSHexKey, to2?: HSHexKey) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'place_figure', figureId, to, to2 }); })}
       onUnplaceFigure={(figureId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'unplace_figure', figureId }); })}
       onPlacementReady={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'placement_ready' }); })}
     />

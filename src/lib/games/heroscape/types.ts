@@ -920,6 +920,9 @@ export type HSAction =
       kind: 'place_figure';
       figureId: string;
       to: HexKey;
+      /** A 2-hex figure's SECOND hex, chosen explicitly (tap-lead-then-tail UX). Omitted ⇒ the
+       *  engine auto-picks a valid tail via tailFor (the AI + any 1-hex placement path). */
+      to2?: HexKey;
     }
   | {
       // Placement (slice 5): return a placed figure to the hand.
