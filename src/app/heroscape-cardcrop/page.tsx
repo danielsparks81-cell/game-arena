@@ -102,6 +102,7 @@ export default function CardCropPicker() {
   return (
     <div className="min-h-screen bg-neutral-950 px-5 py-4 text-neutral-200">
       <div className="mx-auto max-w-[84rem]">
+        <div className="sticky top-0 z-20 -mx-5 -mt-4 border-b border-neutral-800 bg-neutral-950 px-5 pb-3 pt-4">
         <header className="mb-3 flex flex-wrap items-center gap-3">
           <h1 className="text-lg font-extrabold tracking-wide text-white">HeroScape · Card-art crop picker</h1>
           <span className="text-xs text-neutral-400">CLICK/DRAG to move the box over the figure · slider sizes it. What's in the box is the card art.</span>
@@ -162,7 +163,12 @@ export default function CardCropPicker() {
                 </div>
               </div>
             </div>
+          </section>
+        </div>
+        </div>
 
+        {/* below the frozen line — scrolls with the page */}
+        <div className="mt-3 space-y-3">
             <div>
               <div className="mb-1 text-xs text-neutral-400">All cards — click to edit · <span className="text-sky-400">blue ring</span> = cropped</div>
               <div className="grid grid-cols-6 gap-1.5 sm:grid-cols-8">
@@ -191,7 +197,6 @@ export default function CardCropPicker() {
               </div>
               <pre className="max-h-56 overflow-auto rounded-md border border-neutral-800 bg-black/50 p-3 text-[11px] leading-snug text-emerald-300">{exportText}</pre>
             </div>
-          </section>
         </div>
       </div>
     </div>
