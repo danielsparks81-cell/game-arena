@@ -52,6 +52,19 @@ export default function CardCropPicker() {
   useEffect(() => {
     try { localStorage.setItem(LS_KEY, JSON.stringify(crops)); } catch { /* ignore */ }
   }, [crops]);
+  // Self-heal crops made before the per-image aspect fix: once THIS card's image aspect is known,
+  // re-derive the box height from its width so an old wrong-shaped box snaps to the art-box aspect
+  // (0.9) and the export updates. Only touches a card whose stored fh is off; new crops are already right.
+  useEffect(() => {
+    const c = crops[id];
+    if (!c) return;
+    const wantFh = hOf(c.fw);
+    if (Math.abs(c.fh - wantFh) > 0.003) {
+      const fy = clamp(c.fy, 0, Math.max(0, 1 - wantFh));
+      setCrops(prev => (prev[id] ? { ...prev, [id]: { ...prev[id], fh: wantFh, fy } } : prev));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, imgAspect]);
 
   // --- Move the box: click/drag CENTERS it on the pointer (clamped in-bounds) -----
   const place = (e: React.PointerEvent) => {
