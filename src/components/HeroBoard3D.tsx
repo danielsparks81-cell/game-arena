@@ -88,6 +88,23 @@ function mottle(hex: string, j: number): string {
 
 const parseQR = (key: string): [number, number] => { const [q, r] = key.split(',').map(Number); return [q, r]; };
 const worldXZ = (q: number, r: number): [number, number] => [SIZE * Math.sqrt(3) * (q + r / 2), SIZE * 1.5 * r];
+
+/** The outline of the PEANUT base spanning two adjacent hex centres (a "stadium": two semicircular caps
+ *  + straight sides) at height `y`. Used to preview each 2-hex placement orientation so the player can
+ *  SEE the shape before picking the second space. `r` ≈ hex inradius so it hugs both hexes. */
+function peanutOutlinePoints(a: [number, number], b: [number, number], y: number): [number, number, number][] {
+  const r = 0.82;
+  const [ax, az] = a, [bx, bz] = b;
+  let ux = bx - ax, uz = bz - az;
+  const d = Math.hypot(ux, uz) || 1; ux /= d; uz /= d;
+  const base = Math.atan2(ux, -uz); // angle of the perpendicular (u rotated +90°) — cap A spans base→base+π (away from B)
+  const N = 18;
+  const pts: [number, number, number][] = [];
+  for (let i = 0; i <= N; i++) { const t = base + Math.PI * (i / N); pts.push([ax + r * Math.cos(t), y, az + r * Math.sin(t)]); }
+  for (let i = 0; i <= N; i++) { const t = base + Math.PI + Math.PI * (i / N); pts.push([bx + r * Math.cos(t), y, bz + r * Math.sin(t)]); }
+  pts.push(pts[0]); // close the loop
+  return pts;
+}
 /** Hex line (cube-coord lerp) between two axial keys → every hex the straight line passes through,
  *  both ends inclusive. Used to animate a multi-hex move CENTRE-to-CENTRE (a believable walk) instead
  *  of gliding in one straight diagonal that cuts across hex corners. */
@@ -154,6 +171,9 @@ type Interact = {
    *  foe — an ORANGE "blast zone" ring shown while aiming, above the fuchsia candidate-target ring. */
   splashIds?: Set<string>;
   placeHexes?: Set<HexKey>;
+  /** 2-hex placement: the FIRST hex the player anchored. Tinted amber, and a peanut OUTLINE is drawn
+   *  from it to each candidate second hex (placeHexes) so the player sees the shape before choosing. */
+  placeLeadHex?: HexKey;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
   /** Airborne Elite THE DROP landing spaces — the LEGAL set, present only while the
@@ -985,6 +1005,7 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
           : it.dangerHexes?.has(key) ? { color: '#ef4444' } // RED = reachable, but moving here provokes a swipe
             : it.moveHexes?.has(key) ? { color: '#22c55e' } // green = a safe move destination
               : it.rangeHexes?.has(key) ? { color: '#22c55e', dim: true } // (legacy) faint within-Move backdrop
+                : it.placeLeadHex === key ? { color: '#fbbf24' } // AMBER = the anchored FIRST hex of a 2-hex placement
                 : it.placeHexes?.has(key) ? { color: '#22c55e' } // GREEN like a move — placement (and its 2-hex second-space pick) reads the same as movement
                   : null);
   // When a moving ranged figure's shooting envelope is present, darken every hex
@@ -1106,6 +1127,21 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const def = HS_GLYPHS[g.id];
         return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} faceUp={g.faceUp} letter={def?.letter ?? '?'} />;
       })}
+      {/* 2-HEX PLACEMENT — a peanut OUTLINE from the anchored first hex (amber) to each candidate second
+          hex (green), so the player sees the full body shape of every orientation and taps the one they want. */}
+      {it.placeLeadHex && it.placeHexes && map?.cells[it.placeLeadHex] && (() => {
+        const lead = it.placeLeadHex!;
+        const lc = map.cells[lead];
+        const [lx, lz] = worldXZ(...parseQR(lead));
+        const y = hexTopY(lc.height, lc.terrain, glyphSet.has(lead)) + 0.08;
+        return [...it.placeHexes].map(tail => {
+          const [tx, tz] = worldXZ(...parseQR(tail));
+          return (
+            <Line key={`peanut-${tail}`} points={peanutOutlinePoints([lx, lz], [tx, tz], y)}
+              color="#4ade80" lineWidth={2.6} transparent opacity={0.85} depthWrite={false} toneMapped={false} raycast={() => null} />
+          );
+        });
+      })()}
       {/* AIRBORNE ELITE — THE DROP. A parachute hovers over every legal landing space so the
           deployment reads at a glance (before this it was only a faint tile tint). A picked space
           gets a big bouncing chute; the rest get a small faded one marking "you can land here". */}

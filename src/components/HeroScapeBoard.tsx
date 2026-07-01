@@ -2154,7 +2154,6 @@ export default function HeroScapeBoard({
   // The GREEN highlight set on the board: the second-hex (tail) options once a lead is chosen, otherwise
   // the first-hex (lead) candidates.
   const placeHexes = (placeLead && placingIs2) ? placeTailOptions : placeLeadCandidates;
-  const placeLeadPreviewTail = placeLead ? ([...placeTailOptions][0] ?? null) : null;
   const activeCardUid = getActiveCardUid(state);
   const activeCard = state.cards.find(c => c.uid === activeCardUid);
   const activeCardDef = HS_CARDS[activeCard?.cardId ?? ''];
@@ -2515,12 +2514,9 @@ export default function HeroScapeBoard({
   // OR — the instant the move commits — the pendingMove footprint held through the server round-trip
   // (so the standee never bounces back to its start before the real move arrives). Same override
   // path either way, so the hand-off is seamless.
-  // PLACEMENT preview: once a 2-hex lead is picked, show the still-in-hand figure standing on it (with
-  // a provisional tail) so the player sees where it will land while choosing the second space.
-  const placementPreviewId = placeLead && placingIs2 && placingFigId && placeLeadPreviewTail ? placingFigId : undefined;
-  const overrideId = previewId ?? pendingMove?.id ?? placementPreviewId;
+  const overrideId = previewId ?? pendingMove?.id;
   const overrideFoot: [HexKey, HexKey | null] | null =
-    previewFoot ?? (pendingMove ? [pendingMove.at, pendingMove.at2] : null) ?? (placementPreviewId ? [placeLead!, placeLeadPreviewTail] : null);
+    previewFoot ?? (pendingMove ? [pendingMove.at, pendingMove.at2] : null);
   const boardState = overrideFoot && overrideId
     ? {
         ...displayState,
@@ -5107,6 +5103,7 @@ export default function HeroScapeBoard({
             viewerStartHexes={me ? startZones[me.seat] : undefined}
             viewerSeat={me?.seat}
             placeHexes={placeHexes}
+            placeLeadHex={placeLead && placingIs2 ? placeLead : undefined}
             dropHexes={scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
             airborneHexes={dropPlacing ? dropLegalSet : undefined}
