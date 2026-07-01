@@ -3391,11 +3391,13 @@ export default function HeroScapeBoard({
     // we mirror them here so unusable options are visibly disabled, not error toasts.
     const quickOk = count === 2;
     const selectedMapOk = mapSupportsCount(MAPS[lobbyMapId], count);
-    // --- Teams (3+ players). The host groups players into sides by colour; an
-    // unassigned player is their OWN side. A team game needs ≥2 distinct sides —
-    // all-on-one-team has no enemy and could never end, so Start is blocked on it.
-    // The engine merges `teams` (seat→team id) + `teamBudgets` (team→points). ---
-    const showTeams = lobbyMode === 'draft' && count >= 3;
+    // --- Teams. The host groups players into sides by colour; an unassigned player
+    // is their OWN side. A team game needs ≥2 distinct sides — all-on-one-team has
+    // no enemy and could never end, so Start is blocked on it. The engine merges
+    // `teams` (seat→team id) + `teamBudgets` (team→points). The colour pickers show
+    // in every draft lobby (even 1-2 players) per owner, so sides can be pre-set
+    // before the rest of the seats fill in. ---
+    const showTeams = lobbyMode === 'draft';
     const teamsInUse = state.players.some(p => p.team !== undefined);
     const distinctSides = new Set(state.players.map(p => p.team ?? -1 - p.seat)).size;
     const teamsValid = distinctSides >= 2;
@@ -3531,10 +3533,11 @@ export default function HeroScapeBoard({
               ))}
             </div>
           )}
+          {/* showTeams === draft mode, so the else here is the quick-battle preset (no teams). */}
           <div className="text-[10px] text-neutral-500">
             {showTeams
               ? (!isHost ? 'The host sets the teams.' : teamsInUse ? 'Tap a colour to ally players. Unassigned fight solo; empty team budgets use the points below.' : 'Tap a colour under a name to put players on the same side. Leave empty for free-for-all.')
-              : (isHost && lobbyMode === 'draft' ? 'AIs draft an army and play their own turns. With 3+ players a team picker appears under each name.' : '')}
+              : ''}
           </div>
         </div>
 

@@ -67,11 +67,15 @@ describe('HeroScape lobby — teams', () => {
     expect(cb.onSetLobbyConfig).toHaveBeenCalledWith({ teams: {} });
   });
 
-  it('hides the team pickers for a 2-player lobby (1-v-1, no teams)', () => {
+  it('shows the team pickers even for a 2-player lobby (sides can be pre-set)', () => {
     const cb = spies();
     render(<HeroScapeBoard state={lobbyN(2)} currentUserId="p1" isHost {...cb} />);
-    // 1-v-1 has no sides, so no per-seat team pickers render at all.
-    expect(screen.queryAllByTitle('Team A').length).toBe(0);
+    // The colour pickers now render in every draft lobby — one row per seat — so a
+    // 2-player lobby has two "Team A" chips (host can pre-assign sides before more
+    // seats fill in). Clicking Alice's puts seat 0 on side A.
+    expect(screen.getAllByTitle('Team A').length).toBe(2);
+    fireEvent.click(screen.getAllByTitle('Team A')[0]);
+    expect(cb.onSetLobbyConfig).toHaveBeenCalledWith({ teams: { 0: 1 } });
   });
 
   it('a non-host cannot edit teams', () => {
