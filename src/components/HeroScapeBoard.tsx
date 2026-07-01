@@ -541,11 +541,19 @@ function FigureStandee({
 // index cards, see CARD_ART_CROP). Kept for any future low-res addition.
 const PHOTO_PORTRAIT_CARDS = new Set<string>([]);
 
-/** Per-card crop for the card-scan portrait. Every `cards/<id>.jpg` is now a UNIFORM figure crop
- *  from the official index card (2026-06-27 — figure large with the banner's chevron tip in the
- *  top-left corner), so the DEFAULT just fills the panel (`cover`/center) and no per-card override
- *  is needed. Add an entry here only to re-frame a single card differently. */
-const CARD_ART_CROP: Record<string, { size: string; position: string }> = {};
+/** Per-card art crop, framed in /heroscape-cardcrop. A card WITH an entry here pulls from the FULL
+ *  card render (`cards-full/<id>.jpg`) and shows exactly this region in the art box; a card WITHOUT
+ *  one keeps its uniform tight portrait from `cards/<id>.jpg` (DEFAULT `cover`/center). Paste a fresh
+ *  block from the crop picker to update — size/position come straight from its Copy button. */
+const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
+  agent_carr: { size: '243.9%', position: '13.2% 23.9%' },
+  airborne_elite: { size: '243.9%', position: '12.8% 23.7%' },
+  arrow_gruts: { size: '243.9%', position: '13.9% 23.6%' },
+  blade_gruts: { size: '243.9%', position: '12.8% 23.6%' },
+  braxas: { size: '243.9%', position: '12.8% 23.7%' },
+  deathreavers: { size: '243.9%', position: '10.1% 23.7%' },
+  deathwalker_9000: { size: '243.9%', position: '12.8% 23.6%' },
+};
 const DEFAULT_ART_CROP = { size: 'cover', position: 'center' };
 
 /** Everything PRINTED on a card, lower-cased, for the draft Ctrl-F search — name, every
