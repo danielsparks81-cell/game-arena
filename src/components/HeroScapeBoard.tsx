@@ -1649,6 +1649,11 @@ export default function HeroScapeBoard({
   // peanut's trailing hex has >1 legal (anti-spin) orientation — this holds that pending lead
   // while the player taps a 2nd hex to choose which way the figure faces.
   const [orientLead, setOrientLead] = useState<HexKey | null>(null);
+  // Holds the just-committed 2-hex footprint through the server round-trip so the figure doesn't
+  // snap back to its start between clearing the orient preview and the real move landing (that bounce
+  // — "runs back to the start, then to the final hex" — is what this fixes). Cleared once the real
+  // state reaches the target (or a short safety timeout if the move was rejected).
+  const [pendingMove, setPendingMove] = useState<{ id: string; at: HexKey; at2: HexKey } | null>(null);
   // GRENADE splash preview: the first tap ARMS a target (the board shows the full blast — that
   // figure + its neighbours), a second tap on it (or the Throw button) confirms. Prevents the
   // old one-tap misfire and shows exactly who gets caught (friend or foe).
@@ -2505,14 +2510,30 @@ export default function HeroScapeBoard({
     ? [orientLead, orientDefaultTail]
     : null;
   const previewId = orientLead ? selected?.id : undefined;
-  const boardState = previewFoot && previewId
+  // The footprint to draw for the moving figure: the live orient preview while choosing a facing,
+  // OR — the instant the move commits — the pendingMove footprint held through the server round-trip
+  // (so the standee never bounces back to its start before the real move arrives). Same override
+  // path either way, so the hand-off is seamless.
+  const overrideId = previewId ?? pendingMove?.id;
+  const overrideFoot: [HexKey, HexKey | null] | null =
+    previewFoot ?? (pendingMove ? [pendingMove.at, pendingMove.at2] : null);
+  const boardState = overrideFoot && overrideId
     ? {
         ...displayState,
         figures: displayState.figures.map(f =>
-          f.id === previewId ? { ...f, at: previewFoot[0], at2: previewFoot[1] } : f,
+          f.id === overrideId ? { ...f, at: overrideFoot[0], at2: overrideFoot[1] } : f,
         ),
       }
     : displayState;
+  // Drop the held footprint once the authoritative state actually reaches it (or the figure is gone),
+  // and a 2s safety net in case the move was rejected so it can never stick.
+  useEffect(() => {
+    if (!pendingMove) return;
+    const f = state.figures.find(x => x.id === pendingMove.id);
+    if (!f || (f.at === pendingMove.at && f.at2 === pendingMove.at2)) { setPendingMove(null); return; }
+    const t = setTimeout(() => setPendingMove(null), 2000);
+    return () => clearTimeout(t);
+  }, [state.figures, pendingMove]);
   // Selecting a different figure (or deselecting) abandons a pending orientation pick.
   useEffect(() => { setOrientLead(null); }, [selectedId]);
   // Drop the optional reorient prompt the moment the move phase ends (End move / first attack) so it
@@ -3193,7 +3214,15 @@ export default function HeroScapeBoard({
     // (move_figure + to2), so the body faces any legal flat direction. Tapping anything else cancels
     // the pick (no move yet). Owner house rule 2026-06-30 ("spin it in any direction").
     if (orientLead && selected) {
-      if (orientTails.has(key)) { onMoveFigure(selected.id, orientLead, key); setOrientLead(null); return; }
+      if (orientTails.has(key)) {
+        // Hand the preview footprint straight to pendingMove BEFORE clearing orientLead, so the
+        // figure stays put at the destination through the server round-trip instead of snapping back
+        // to its start and walking forward again.
+        setPendingMove({ id: selected.id, at: orientLead, at2: key });
+        onMoveFigure(selected.id, orientLead, key);
+        setOrientLead(null);
+        return;
+      }
       setOrientLead(null);
       // fall through — e.g. a tap to select another of my figures
     }
