@@ -4099,10 +4099,9 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
     );
     if (trickyAdj) { move += def.trickySpeed; breakdown.push(`+${def.trickySpeed} Tricky Speed`); }
   }
-  // DOUBLE-SPACE penalty (owner HOUSE RULE 2026-06-30): a 2-hex figure moves 1 FEWER space — the
-  // cost of its bulk. Applied LAST, after every glyph/Spirit boost, to ALL 2-hex figures incl.
-  // flyers (Mimring 6→5). House rule: official double-space figures move their full printed Move.
-  if (baseSizeOf(def) === 2 && move > 0) { move -= 1; breakdown.push('−1 double-space'); }
+  // 2-hex figures move their FULL printed Move — the official rule. (The old −1 "double-space" house
+  // rule was dropped 2026-07-01: it only existed to justify the spin/placement flow, which the explicit
+  // tap-lead-then-tail selection replaced, so the penalty no longer earns its keep.)
   return { dice: move, breakdown };
 }
 

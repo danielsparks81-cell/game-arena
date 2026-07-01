@@ -89,19 +89,27 @@ function mottle(hex: string, j: number): string {
 const parseQR = (key: string): [number, number] => { const [q, r] = key.split(',').map(Number); return [q, r]; };
 const worldXZ = (q: number, r: number): [number, number] => [SIZE * Math.sqrt(3) * (q + r / 2), SIZE * 1.5 * r];
 
-/** The outline of the PEANUT base spanning two adjacent hex centres (a "stadium": two semicircular caps
- *  + straight sides) at height `y`. Used to preview each 2-hex placement orientation so the player can
- *  SEE the shape before picking the second space. `r` ≈ hex inradius so it hugs both hexes. */
+/** The outline of the PEANUT base spanning two adjacent hex centres, at height `y`: a round lobe on each
+ *  hex joined by a PINCHED waist (the sides curve inward to `neck` half-width at the midpoint) so it reads
+ *  as a peanut, not a fat tube — this keeps the many candidate outlines from overlapping into a blob.
+ *  Used to preview each 2-hex placement orientation so the player sees the shape before picking. */
 function peanutOutlinePoints(a: [number, number], b: [number, number], y: number): [number, number, number][] {
-  const r = 0.82;
+  const r = 0.8, neck = 0.34; // lobe radius ≈ hex inradius; waist ~40% of it for a clear pinch
   const [ax, az] = a, [bx, bz] = b;
   let ux = bx - ax, uz = bz - az;
   const d = Math.hypot(ux, uz) || 1; ux /= d; uz /= d;
-  const base = Math.atan2(ux, -uz); // angle of the perpendicular (u rotated +90°) — cap A spans base→base+π (away from B)
-  const N = 18;
+  const px = -uz, pz = ux; // perpendicular = u rotated +90°
+  const base = Math.atan2(pz, px); // angle of +perp; cap A spans base→base+π (away from B), cap B the other half
+  const NC = 16, NS = 8;
   const pts: [number, number, number][] = [];
-  for (let i = 0; i <= N; i++) { const t = base + Math.PI * (i / N); pts.push([ax + r * Math.cos(t), y, az + r * Math.sin(t)]); }
-  for (let i = 0; i <= N; i++) { const t = base + Math.PI + Math.PI * (i / N); pts.push([bx + r * Math.cos(t), y, bz + r * Math.sin(t)]); }
+  // Far lobe of A (the half pointing away from B): A+r·p → A−r·p.
+  for (let i = 0; i <= NC; i++) { const t = base + Math.PI * (i / NC); pts.push([ax + r * Math.cos(t), y, az + r * Math.sin(t)]); }
+  // −p waist side A→B, pinched to `neck` at the midpoint (parabolic half-width).
+  for (let i = 1; i < NS; i++) { const s = i / NS, w = neck + (r - neck) * (2 * s - 1) ** 2, cx = ax + (bx - ax) * s, cz = az + (bz - az) * s; pts.push([cx - px * w, y, cz - pz * w]); }
+  // Far lobe of B: B−r·p → B+r·p.
+  for (let i = 0; i <= NC; i++) { const t = base + Math.PI + Math.PI * (i / NC); pts.push([bx + r * Math.cos(t), y, bz + r * Math.sin(t)]); }
+  // +p waist side B→A, pinched.
+  for (let i = 1; i < NS; i++) { const s = i / NS, w = neck + (r - neck) * (2 * s - 1) ** 2, cx = bx + (ax - bx) * s, cz = bz + (az - bz) * s; pts.push([cx + px * w, y, cz + pz * w]); }
   pts.push(pts[0]); // close the loop
   return pts;
 }
