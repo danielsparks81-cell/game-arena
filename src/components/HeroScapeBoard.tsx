@@ -583,6 +583,11 @@ const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
   theracus: { size: '250.0%', position: '13.4% 23.8%' },
   thorgrim: { size: '256.4%', position: '11.8% 23.1%' },
   zettian_guards: { size: '243.9%', position: '11.3% 23.7%' },
+  brunak: { size: '285.7%', position: '13.5% 22.6%' },
+  retiarius: { size: '243.9%', position: '12.4% 23.9%' },
+  spartacus: { size: '357.1%', position: '67.7% 21.1%' },
+  capuan_gladiators: { size: '303.0%', position: '72.6% 11.3%' },
+  crixus: { size: '344.8%', position: '68.0% 20.1%' },
 };
 const DEFAULT_ART_CROP = { size: 'cover', position: 'center' };
 
