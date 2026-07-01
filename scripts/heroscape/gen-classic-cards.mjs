@@ -39,6 +39,7 @@ const heightOf = s => { const m = (s || '').match(/(\d+)/); return m ? +m[1] : 5
 const shortOf = name => { const i = name.indexOf(' the '); return i > 0 ? name.slice(0, i) : name; };
 const letterOf = name => { const m = name.match(/[A-Za-z0-9]/); return (m ? m[0] : '?').toUpperCase(); };
 
+const TWO_HEX = new Set(['brunak']); // double-space (2-hex peanut) figures — confirmed from the figure image; add ids as cut
 const cards = {}, ident = {}, seen = new Set();
 let generated = 0, skipped = 0;
 const skippedNames = [];
@@ -63,6 +64,7 @@ for (const c of roster) {
     species: c.species || '', unitClass: c.class || '',
     common: /\bCommon\b/.test(c.type),
     power: (c.powers && c.powers.length) ? 'wip' : 'live',
+    baseSize: TWO_HEX.has(id) ? 2 : 1,
   };
   cards[id] = def;
   ident[id] = { general: c.faction || '', personality: c.personality || '', world: '' };
@@ -78,6 +80,7 @@ const cardLine = d => {
     `height: ${d.height}`,
   ];
   if (d.size !== 'medium') parts.push(`size: '${d.size}'`);
+  if (d.baseSize === 2) parts.push('baseSize: 2');
   parts.push(`points: ${d.points}`, `letter: '${esc(d.letter)}'`, `species: '${esc(d.species)}'`, `unitClass: '${esc(d.unitClass)}'`);
   if (d.common) parts.push(`common: true`);
   parts.push(`power: '${d.power}'`);
