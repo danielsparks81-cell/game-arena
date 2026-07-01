@@ -5198,11 +5198,16 @@ export function mindShackleTargets(state: HSState, seat: number): string[] {
   const negok = state.figures.find(f => f.cardUid === activeUid && f.at != null);
   if (!negok) return [];
   return state.figures
-    .filter(f => f.at != null && f.ownerSeat !== seat && figuresAdjacent(state, negok, f))
+    .filter(f =>
+      f.at != null &&
+      f.ownerSeat !== seat &&
+      !cardDefFor(state, f).common && // "any UNIQUE figure" — a common (Gruts/Deathreavers/Swog Rider) is never a legal target
+      figuresAdjacent(state, negok, f),
+    )
     .map(f => f.id);
 }
 
-/** Can this seat's Ne-Gok-Sa Mind Shackle right now (≥1 legal adjacent enemy)? */
+/** Can this seat's Ne-Gok-Sa Mind Shackle right now (≥1 legal adjacent UNIQUE enemy)? */
 export function canMindShackle(state: HSState, seat: number): boolean {
   return mindShackleTargets(state, seat).length > 0;
 }
@@ -5217,9 +5222,11 @@ export function canMindShackle(state: HSState, seat: number): boolean {
  * Clause-by-clause (rules-fidelity):
  *  • WHO/WHEN: the active Ne-Gok-Sa only, after the move step and BEFORE attacking
  *    (turnAttacks empty), one attempt per turn (mindShackleSpent). Optional.
- *  • TARGET: a unique figure ADJACENT to Ne-Gok-Sa. All roster cards are Unique,
- *    so we admit any adjacent ENEMY (shackling your own card is a pointless no-op
- *    the rule never intends).
+ *  • TARGET: a UNIQUE figure ADJACENT to Ne-Gok-Sa — a Unique Hero OR a Unique
+ *    Squad figure, but NEVER a common (Gruts/Deathreavers/Swog Rider). The roster
+ *    now includes commons, so we filter them out (this used to admit any adjacent
+ *    enemy on the false assumption every card was unique). Shackling your own card
+ *    is a pointless no-op the rule never intends, so own figures are excluded too.
  *  • ROLL: success on a NATURAL 20 only.
  *  • EFFECT: the target's whole Army Card AND every figure on it change owner to
  *    the shackler; that card's Order Markers are removed (so it sits out the rest
@@ -5248,6 +5255,10 @@ function doMindShackle(state: HSState, seat: number, targetId: string, d20: numb
   const target = state.figures.find(f => f.id === targetId);
   if (!target || target.at == null) return { error: 'No such figure to Mind Shackle' };
   if (target.ownerSeat === seat) return { error: 'Choose an enemy figure to Mind Shackle' };
+  if (cardDefFor(state, target).common) {
+    // "choose any UNIQUE figure": commons (Gruts, Deathreavers, Swog Rider) can't be shackled.
+    return { error: 'Mind Shackle can only seize a UNIQUE figure, not a common one' };
+  }
   if (!figuresAdjacent(state, negok, target)) {
     return { error: 'The target must be adjacent to Ne-Gok-Sa' };
   }

@@ -21,6 +21,7 @@ import {
   aiNextAction,
   aiPendingSeat,
   iceShardTargets,
+  mindShackleTargets,
   queglixDiceLeft,
   queglixTargets,
   throwLandingHexes,
@@ -1031,6 +1032,37 @@ describe('Glyphs — wave 2 occupancy auras', () => {
     noGlyph.glyphs = [];
     const missed = unwrap(applyAction(noGlyph, 'p1', { kind: 'mind_shackle', targetId: target.id, d20: 19 }));
     expect(missed.figures.find(f => f.id === target.id)!.ownerSeat).toBe(1);
+  });
+
+  it('Mind Shackle targets a UNIQUE figure but NEVER a common (Arrow Grut)', () => {
+    // The card says "choose any UNIQUE figure adjacent" — a common squad (Gruts, Deathreavers,
+    // Swog Rider) is off-limits. Regression for a live game where Ne-Gok-Sa shackled an Arrow Grut.
+    expect(HS_CARDS.arrow_gruts.common).toBe(true);   // guard: the roster still marks it common
+    expect(HS_CARDS.marro_warriors.common).toBeFalsy(); // and Marro Warriors stays UNIQUE
+    let { s, hero } = stage('ne_gok_sa');
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    const cells = Object.keys(MAPS[s.mapId].cells);
+    const ngHex = cells.find(k => neighborKeys(k).filter(n => cells.includes(n)).length >= 2)!;
+    const [adjA, adjB] = neighborKeys(ngHex).filter(n => cells.includes(n));
+    s.figures.find(f => f.id === hero)!.at = ngHex;
+    // A UNIQUE enemy (Marro Warriors) adjacent — a legal shackle target.
+    s.figures.find(f => f.id === 's1-marro_warriors-1')!.at = adjA;
+    // A COMMON enemy (Arrow Grut) adjacent — must NOT be targetable.
+    s.cards.push({ uid: 's1-arrow_gruts', cardId: 'arrow_gruts', ownerSeat: 1, orderMarkers: [], attackMod: 0, defenseMod: 0 });
+    s.figures.push({ id: 's1-arrow_gruts-1', cardUid: 's1-arrow_gruts', ownerSeat: 1, at: adjB, at2: null, index: 1, wounds: 0 });
+
+    const targets = mindShackleTargets(s, 0);
+    expect(targets).toContain('s1-marro_warriors-1');     // unique squad IS shackle-able
+    expect(targets).not.toContain('s1-arrow_gruts-1');    // common is NOT
+
+    // The engine also rejects a hand-crafted attempt on the common (server re-validation),
+    // even on a natural 20…
+    const onCommon = applyAction(s, 'p1', { kind: 'mind_shackle', targetId: 's1-arrow_gruts-1', d20: 20 });
+    expect('error' in onCommon).toBe(true);
+    expect(s.figures.find(f => f.id === 's1-arrow_gruts-1')!.ownerSeat).toBe(1); // untouched
+    // …but a 20 on the UNIQUE target still seizes it.
+    const onUnique = unwrap(applyAction(s, 'p1', { kind: 'mind_shackle', targetId: 's1-marro_warriors-1', d20: 20 }));
+    expect(onUnique.figures.find(f => f.id === 's1-marro_warriors-1')!.ownerSeat).toBe(0);
   });
 
   it("Proftaka: a figure on the glyph can't move unless a friendly is adjacent", () => {

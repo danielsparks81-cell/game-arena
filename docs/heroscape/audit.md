@@ -1,5 +1,17 @@
 # HeroScape engine audit
 
+**2026-06-30 — Specials targeting audit (UNIQUE vs COMMON).** Triggered by a live game where
+Ne-Gok-Sa Mind Shackled an Arrow Grut. Real bug: `mindShackleTargets`/`doMindShackle` admitted "any
+adjacent enemy" on a stale assumption that every card is Unique — but the card reads "choose any
+**UNIQUE** figure adjacent," so commons (the three Grut squads, Deathreavers, Swog Rider) are illegal.
+**Fixed** — both the eligibility helper and the apply-handler now reject a `common` target (a Unique
+Squad like Marro Warriors is still fair game); regression test added (`big-heroes.test.ts`). Swept
+every other special for type gating and found **no other unique/common bug**: Chomp / Acid Breath /
+Throw / Carry are correctly size-gated (small/medium; Throw also excludes flyers); Warrior's Spirit
+correctly places on any Unique card; the special ATTACKS (Ice Shard, Queglix, Wild Swing, Explosion,
+Fire Line, Grenade) have no unique/common clause on their real cards and correctly impose none. 597
+HeroScape tests pass.
+
 **Latest: 2026-06-30** — focused pass on this session's batch: **edge walls** (movement / LOS /
 engagement + the `shortestPath` walk animation), **authorable water height** (raised 1.5-level pools)
 + falls, the **aggressive height-seeking AI** (no wound retreat, ranged height-then-distance, 1-health
