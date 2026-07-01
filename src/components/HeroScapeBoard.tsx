@@ -3886,7 +3886,7 @@ export default function HeroScapeBoard({
       )}
       {/* RIGHT RAIL — banner/status, initiative, last attack, choices, end turn.
           (DOM-first so it appears at the top on narrow screens; order-3 on lg+.) */}
-      <div className="flex w-full shrink-0 flex-col gap-3 lg:order-3 lg:w-[290px] lg:min-h-0 lg:overflow-y-auto">
+      <div className="flex w-full shrink-0 flex-col gap-3 lg:order-3 lg:w-[310px] lg:min-h-0 lg:overflow-y-auto">
         {/* Teams / standings (3+ players) — who's allied + each side's strength. */}
         <TeamsPanel state={state} seatColor={seatColor} />
         {/* (Glyphs roster moved onto the board — see the right-centered overlay there.) */}

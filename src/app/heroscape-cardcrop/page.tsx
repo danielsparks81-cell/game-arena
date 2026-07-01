@@ -153,8 +153,9 @@ export default function CardCropPicker() {
                 <span className="truncate text-sm font-extrabold uppercase tracking-wide text-white">{def?.name}</span>
               </div>
               <div className="flex">
-                <div className="w-2/5 shrink-0 bg-neutral-950" style={{ aspectRatio: CARD_ASPECT, backgroundImage: `url('${jpg(id)}')`, backgroundSize: css.size, backgroundPosition: css.position, backgroundRepeat: 'no-repeat' }} />
-                <div className="w-3/5 space-y-0.5 bg-neutral-900 px-2 py-2 text-[10px] leading-tight text-neutral-300">
+                {/* art box matches the in-game card: 46% width, HS_ART_ASPECT shape */}
+                <div className="w-[46%] shrink-0 self-start bg-neutral-950" style={{ aspectRatio: CARD_ASPECT, backgroundImage: `url('${jpg(id)}')`, backgroundSize: css.size, backgroundPosition: css.position, backgroundRepeat: 'no-repeat' }} />
+                <div className="w-[54%] space-y-0.5 bg-neutral-900 px-2 py-2 text-[10px] leading-tight text-neutral-300">
                   {rows.map((r, k) => <div key={k} className={k === 0 ? 'font-bold text-white' : ''}>{r}</div>)}
                   <div className="mt-1 border-t border-neutral-700 pt-1 font-mono text-[9px] text-neutral-400">L{def?.life} · M{def?.move} · R{def?.range} · A{def?.attack} · D{def?.defense}</div>
                 </div>
