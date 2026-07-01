@@ -541,10 +541,10 @@ function FigureStandee({
 // index cards, see CARD_ART_CROP). Kept for any future low-res addition.
 const PHOTO_PORTRAIT_CARDS = new Set<string>([]);
 
-/** Per-card art crop, framed in /heroscape-cardcrop. A card WITH an entry here pulls from the FULL
- *  card render (`cards-full/<id>.jpg`) and shows exactly this region in the art box; a card WITHOUT
- *  one keeps its uniform tight portrait from `cards/<id>.jpg` (DEFAULT `cover`/center). Paste a fresh
- *  block from the crop picker to update — size/position come straight from its Copy button. */
+/** Per-card art crop, framed in /heroscape-cardcrop — now covering all 29 cards. Every card pulls
+ *  from its FULL card render (`cards-full/<id>.jpg`) and shows exactly this region in the near-square
+ *  art box. A card without an entry would fall back to the tight `cards/<id>.jpg` portrait (DEFAULT
+ *  `cover`/center). To re-frame, paste a fresh block from the crop picker's Copy button over this. */
 const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
   agent_carr: { size: '243.9%', position: '13.2% 23.9%' },
   airborne_elite: { size: '243.9%', position: '12.8% 23.7%' },
@@ -553,6 +553,28 @@ const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
   braxas: { size: '243.9%', position: '12.8% 23.7%' },
   deathreavers: { size: '243.9%', position: '10.1% 23.7%' },
   deathwalker_9000: { size: '243.9%', position: '12.8% 23.6%' },
+  eldgrim: { size: '243.9%', position: '10.5% 23.7%' },
+  finn: { size: '243.9%', position: '10.9% 23.6%' },
+  grimnak: { size: '243.9%', position: '13.2% 23.7%' },
+  heavy_gruts: { size: '243.9%', position: '13.2% 23.6%' },
+  izumi_samurai: { size: '243.9%', position: '12.8% 23.6%' },
+  jotun: { size: '243.9%', position: '12.8% 23.6%' },
+  krav_maga: { size: '243.9%', position: '12.4% 23.6%' },
+  major_q9: { size: '243.9%', position: '10.1% 23.6%' },
+  marro_warriors: { size: '243.9%', position: '10.1% 23.6%' },
+  mimring: { size: '243.9%', position: '10.1% 23.6%' },
+  ne_gok_sa: { size: '243.9%', position: '10.5% 23.6%' },
+  nilfheim: { size: '243.9%', position: '11.7% 23.6%' },
+  otonashi: { size: '243.9%', position: '10.5% 23.6%' },
+  raelin: { size: '243.9%', position: '10.9% 23.7%' },
+  drake: { size: '243.9%', position: '10.9% 23.7%' },
+  su_bak_na: { size: '243.9%', position: '10.5% 23.4%' },
+  swog_rider: { size: '243.9%', position: '10.9% 23.6%' },
+  syvarris: { size: '243.9%', position: '12.4% 23.7%' },
+  tarn_vikings: { size: '243.9%', position: '11.7% 23.6%' },
+  theracus: { size: '243.9%', position: '12.8% 23.6%' },
+  thorgrim: { size: '243.9%', position: '12.4% 23.7%' },
+  zettian_guards: { size: '243.9%', position: '11.3% 23.7%' },
 };
 const DEFAULT_ART_CROP = { size: 'cover', position: 'center' };
 
