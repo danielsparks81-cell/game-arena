@@ -2350,14 +2350,14 @@ describe('step-by-step movement (move_step)', () => {
     expect(done.stepMove).toBeUndefined();
   });
 
-  it('a 2-hex figure moves to a DESTINATION (full printed Move) and lands with a flat adjacent back lobe — no per-step slither (owner 2026-06-30)', () => {
+  it('a 2-hex figure moves to a DESTINATION (−1 move) and lands with a flat adjacent back lobe — no per-step slither (owner 2026-06-30)', () => {
     let s = customBattle(['grimnak'], ['finn'], 'p1');
     const G = 's0-grimnak-1';
     s = clearExcept(s, G, ENEMY);
     s = place(s, ENEMY, at(7, 7));
     s = place2(s, G, at(3, 3), at(3, 2)); // a level peanut on the flat field
-    // 2-hex figures move their FULL printed Move (the −1 double-space house rule was dropped 2026-07-01).
-    expect(effectiveMove(s, fig(s, G)).dice).toBe(HS_CARDS.grimnak.move);
+    // House rule: a 2-hex figure's effective Move is printed − 1 (compensates the peanut's forward tail).
+    expect(effectiveMove(s, fig(s, G)).dice).toBe(HS_CARDS.grimnak.move - 1);
     const cells = MAPS[s.mapId].cells;
     // Commit a real move (≥2 hexes) to a destination with the engine's default back lobe.
     const lead = [...legalDestinations(s, G)].find(l => (rangeDistance(cells, at(3, 3), l) ?? 0) >= 2)!;

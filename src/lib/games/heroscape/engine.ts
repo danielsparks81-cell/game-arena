@@ -4099,9 +4099,11 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
     );
     if (trickyAdj) { move += def.trickySpeed; breakdown.push(`+${def.trickySpeed} Tricky Speed`); }
   }
-  // 2-hex figures move their FULL printed Move — the official rule. (The old −1 "double-space" house
-  // rule was dropped 2026-07-01: it only existed to justify the spin/placement flow, which the explicit
-  // tap-lead-then-tail selection replaced, so the penalty no longer earns its keep.)
+  // DOUBLE-SPACE penalty (owner HOUSE RULE) — RESTORED 2026-07-01. The peanut second-space pick can
+  // point the trailing lobe FORWARD, which would otherwise net an extra hex of forward reach beyond the
+  // move budget; the −1 compensates so a 2-hex figure's forward reach matches a 1-hex figure's. Applied
+  // LAST, after every glyph/Spirit boost, to ALL 2-hex figures incl. flyers (Mimring 6→5).
+  if (baseSizeOf(def) === 2 && move > 0) { move -= 1; breakdown.push('−1 double-space'); }
   return { dice: move, breakdown };
 }
 
