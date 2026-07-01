@@ -9,17 +9,16 @@ import Link from 'next/link';
 import { HS_CARDS, CARD_IDENTITY, HS_ART_ASPECT } from '@/lib/games/heroscape';
 
 const CARD_ASPECT = HS_ART_ASPECT; // SHARED with the in-game art box → the crop is exact
-const IMG_ASPECT = 936 / 1512;   // every cards-full render is this size
+const DEFAULT_IMG_ASPECT = 936 / 1512; // portrait Index-card fallback; hex cards differ, so we read each image's real aspect on load
 const LS_KEY = 'hs_cardcrop_v4';
 
 type Rect = { fx: number; fy: number; fw: number; fh: number }; // fractions of the image (0..1)
 const CARDS = Object.keys(HS_CARDS).sort((a, b) => HS_CARDS[a].name.localeCompare(HS_CARDS[b].name));
 const jpg = (id: string) => `/heroscape/cards-full/${id}.jpg`;
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
-// box height fraction so the box's DISPLAYED aspect = CARD_ASPECT.
-const hOf = (fw: number) => fw * IMG_ASPECT / CARD_ASPECT;
 const DEFAULT_FW = 0.41; // default box size (zoom) for an un-cropped card — a tighter start than the art box's 46%
-const DEFAULT: Rect = { fx: 0.04, fy: 0.15, fw: DEFAULT_FW, fh: hOf(DEFAULT_FW) }; // figure-ish upper-left start
+// hOf (box height fraction so the box's DISPLAYED aspect = CARD_ASPECT) + the DEFAULT box live in the
+// component: they depend on the LOADED image's real aspect (portrait Index cards vs near-square hex cards).
 
 /** A crop box → the CSS background-size / position that shows exactly that region in the art box. */
 function cssOf(c: Rect): { size: string; position: string } {
@@ -33,12 +32,16 @@ export default function CardCropPicker() {
   const [crops, setCrops] = useState<Record<string, Rect>>({});
   const [i, setI] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [imgAspect, setImgAspect] = useState(DEFAULT_IMG_ASPECT); // real W/H of the loaded card image
   const imgRef = useRef<HTMLImageElement>(null);
   const dragging = useRef(false);
 
   const id = CARDS[i];
   const def = HS_CARDS[id];
   const ident = CARD_IDENTITY[id];
+  // box height fraction so the box's DISPLAYED aspect = CARD_ASPECT, using THIS image's real aspect.
+  const hOf = (fw: number) => fw * imgAspect / CARD_ASPECT;
+  const DEFAULT: Rect = { fx: 0.04, fy: 0.15, fw: DEFAULT_FW, fh: hOf(DEFAULT_FW) };
   const box = crops[id] ?? DEFAULT;   // the box shown (default until you move it)
   const committed = !!crops[id];
   const css = cssOf(box);
@@ -119,6 +122,7 @@ export default function CardCropPicker() {
               <img
                 ref={imgRef}
                 src={jpg(id)}
+                onLoad={e => { const im = e.currentTarget; if (im.naturalWidth && im.naturalHeight) setImgAspect(im.naturalWidth / im.naturalHeight); }}
                 alt={def?.name}
                 draggable={false}
                 onPointerDown={onDown}
