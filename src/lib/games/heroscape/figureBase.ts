@@ -89,6 +89,10 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   'heavy_gruts-2': { x: 0.50, y: 0.84 },
   'heavy_gruts-3': { x: 0.38, y: 0.80 },
   'heavy_gruts-4': { x: 0.51, y: 0.84 },
+  // Thora's Vengeance gladiator heroes (2026-07-01) — user-picked in the gallery.
+  crixus: { x: 0.53, y: 0.80 },
+  retiarius: { x: 0.44, y: 0.80 },
+  spartacus: { x: 0.55, y: 0.81 },
   // 2-hex big figures — Y (cut) applies; X is ignored for double-space figures (they stay
   // centred on the peanut). The high Y's = these fill the frame with the base at the bottom.
   braxas: { x: 0.43, y: 0.94 },
