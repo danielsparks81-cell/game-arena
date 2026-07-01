@@ -3720,16 +3720,18 @@ export default function HeroScapeBoard({
                 }}
                 className="w-24 rounded-lg border-2 border-neutral-700 bg-neutral-900 px-2 py-1 text-center text-sm font-bold tabular-nums text-amber-200 focus:border-amber-400 focus:outline-none disabled:opacity-60"
               />
+              {/* The valid range for the CUSTOM field — sits next to the input so it isn't mistaken for
+                  the Random button's range (which is the narrower 250–600 shown on the button itself). */}
+              <span className="text-[10px] text-neutral-500">{MIN_POINT_BUDGET}–{MAX_POINT_BUDGET}</span>
               {/* Roll a surprise budget in the common casual range (250–600, multiples of 10). */}
               <button
                 onClick={() => isHost && onSetLobbyConfig({ pointBudget: 250 + Math.floor(Math.random() * 36) * 10 })}
                 disabled={!isHost || disabled}
-                title="Random budget between 250 and 600"
+                title="Roll a random budget between 250 and 600"
                 className="rounded-lg border-2 border-neutral-700 px-2 py-1 text-sm font-semibold text-neutral-200 transition hover:border-amber-400 hover:text-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                🎲 Random
+                🎲 Random <span className="ml-0.5 text-[10px] font-normal opacity-70">250–600</span>
               </button>
-              <span className="text-[10px] text-neutral-500">{MIN_POINT_BUDGET}–{MAX_POINT_BUDGET}</span>
             </div>
           </div>
         )}
@@ -4079,7 +4081,9 @@ export default function HeroScapeBoard({
                     return (
                       <button
                         key={id}
-                        onClick={() => setPlaceFigureId(id)}
+                        // Picking the next figure from the hand also ends any 2-hex spin still in progress,
+                        // so its (adjacent) spin hexes stop intercepting and you can place this one beside it.
+                        onClick={() => { setPlaceFigureId(id); setPlaceSpinId(null); }}
                         disabled={disabled}
                         title={f ? figureLabel(state, f) : id}
                         className={
@@ -4293,15 +4297,24 @@ export default function HeroScapeBoard({
               {throwAim && `🤾 Throw ${figName(throwAim.targetId)} — click a highlighted landing hex`}
               {explosionMode && '💥 Explosion — click a highlighted enemy (Range 7); the blast hits its neighbours'}
               {orientLead && '↻ Spin — tap a highlighted hex to choose which way the body faces, then it moves there. (Cancel to pick a different space.)'}
-              {!orientLead && placeSpinId && placeSpinHexes.size > 0 && '↻ Spin — tap a highlighted hex to face the body, or just place your next figure.'}
+              {!orientLead && placeSpinId && placeSpinHexes.size > 0 && '↻ Spin — tap a highlighted hex to face the body, then ✓ Lock facing so you can place the next figure beside it.'}
             </span>
-            <button
-              type="button"
-              onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); setCarryAim(null); setOrientLead(null); setPlaceSpinId(null); }}
-              className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-xs text-amber-100 hover:bg-amber-900/50"
-            >
-              Cancel
-            </button>
+            {(() => {
+              // For the PLACEMENT spin the orientation is applied on every tap (nothing to undo), and the
+              // ONLY reason to leave the mode is to free the adjacent hexes for the next figure — so the
+              // button reads "✓ Lock facing", not "Cancel". Other modes (fire line, grapple, orient…) are
+              // genuine cancels.
+              const spinLock = !!placeSpinId && placeSpinHexes.size > 0 && !orientLead && !fireLineMode && !grappleMode && !throwAim && !explosionMode;
+              return (
+                <button
+                  type="button"
+                  onClick={() => { setFireLineMode(false); setGrappleMode(false); setThrowAim(null); setExplosionMode(false); setCarryAim(null); setOrientLead(null); setPlaceSpinId(null); }}
+                  className={'shrink-0 rounded border px-2 py-0.5 text-xs ' + (spinLock ? 'border-emerald-400 bg-emerald-900/40 text-emerald-100 hover:bg-emerald-800/50' : 'border-amber-400 text-amber-100 hover:bg-amber-900/50')}
+                >
+                  {spinLock ? '✓ Lock facing' : 'Cancel'}
+                </button>
+              );
+            })()}
           </div>
         )}
         {/* slice 8b: Big-Hero special-power control panel — dropdown pickers +
