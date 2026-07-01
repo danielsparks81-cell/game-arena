@@ -127,11 +127,17 @@ const AI_STEP_MS = 1150;
 const AI_STEP_FAST_MS = 210; // per walking step — snappy so a multi-hex march doesn't crawl
 // Player-panel SCREEN anchors (lg+ overlay). You are always slot 0 = bottom-left; the rest are placed
 // at the corner matching WHERE their army rings the map (clockwise from you), so each panel sits on the
-// same side as its figures — see `panelAnchorBySeat`. The 4 corners for ≤4 players; 6 spots (corners +
-// top/bottom centre) for 5-6, filled in that clockwise order. The `-1` insets keep every panel hugging
-// the board corner with just a hair of padding (tightened from -2).
+// same side as its figures — see `panelAnchorBySeat`. The 4 corners for ≤4 players; +top-centre for 5;
+// +right-centre (the last, least-ideal spot) only at 6. The `-1` insets keep every panel hugging the
+// board corner with just a hair of padding (tightened from -2).
 const PANEL_ANCHORS_4 = ['bottom-1 left-1', 'top-1 left-1', 'top-1 right-1', 'bottom-1 right-1'];
-// 5-6 players: YOU bottom-left, then clockwise — top-left, top-centre, top-right, then down the RIGHT
+// 5 players: the 4 CORNERS + top-centre. Deliberately SKIPS the mid-right-edge spot — it's the
+// least-ideal position, so the owner wants it to appear ONLY when a 6th player forces it (2026-07-01).
+const PANEL_ANCHORS_5 = [
+  'bottom-1 left-1', 'top-1 left-1', 'top-1 left-1/2 -translate-x-1/2',
+  'top-1 right-1', 'bottom-1 right-1',
+];
+// 6 players: YOU bottom-left, then clockwise — top-left, top-centre, top-right, then down the RIGHT
 // edge (centre, then bottom-right). The old layout put the 5th/6th panels at top- AND bottom-CENTRE,
 // and the bottom-centre one overlapped the viewer's own hand; routing the last two down the right edge
 // keeps the bottom clear (own panel left, glyphs move to the left edge) — owner 2026-06-27.
@@ -2095,7 +2101,7 @@ export default function HeroScapeBoard({
   // abstract seat order. Zones don't move, so the layout is stable all game (no shuffling round to round).
   const panelAnchorBySeat = useMemo(() => {
     const players = state.players;
-    const anchors = players.length <= 4 ? PANEL_ANCHORS_4 : PANEL_ANCHORS_6;
+    const anchors = players.length <= 4 ? PANEL_ANCHORS_4 : players.length === 5 ? PANEL_ANCHORS_5 : PANEL_ANCHORS_6;
     const out = new Map<number, string>();
     const cells = map ? Object.values(map.cells) : [];
     // Pointy-top axial → plane, proportional to HeroBoard3D's worldXZ (the SIZE scale cancels for angles).
