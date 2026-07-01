@@ -210,6 +210,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
   const [cur, setCur] = useState<{ x: number; y: number } | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [count, setCount] = useState(0);
+  const [aspect, setAspect] = useState(1); // W/H of the loaded image → scale the canvas up to fill the screen
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -236,6 +237,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
       baseRef.current = new Uint8ClampedArray(id.data);
       workRef.current = id;
       dim.current = { w: W, h: H };
+      setAspect(W / H);
       const cv = dispRef.current; if (cv) { cv.width = W; cv.height = H; }
       undo.current = []; setCount(0); setLoaded(true);
       paint();
@@ -319,7 +321,7 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
             ref={dispRef}
             onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onLeave}
             className="block select-none"
-            style={{ maxWidth: '96vw', maxHeight: '82vh', width: 'auto', height: 'auto', cursor: mode === 'flood' ? 'crosshair' : 'none', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+            style={{ width: `min(96vw, ${(aspect * 80).toFixed(1)}vh)`, height: 'auto', maxWidth: '96vw', maxHeight: '80vh', cursor: mode === 'flood' ? 'crosshair' : 'none', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
           />
           {cur && mode !== 'flood' && (
             <div className="pointer-events-none absolute rounded-full" style={{ left: cur.x - brushR, top: cur.y - brushR, width: brushR * 2, height: brushR * 2, border: mode === 'restore' ? '2px solid #34d399' : '2px solid #f87171', boxShadow: '0 0 0 1px rgba(0,0,0,0.7)' }} />
