@@ -1642,6 +1642,29 @@ describe('Grut squads — BONDING (free bonus turn with an Orc Champion / Beast)
     const actorId = (a as { figureId?: string; attackerId?: string }).figureId ?? (a as { attackerId?: string }).attackerId;
     expect(actorId).toContain('grimnak'); // it's the PARTNER acting, not a Blade Grut
   });
+
+  it('a bonded 2-hex Swog Rider MOVES on its free bonus turn and the move PERSISTS', () => {
+    // Regression for a live report that Swog Rider "runs back to his original position". The engine
+    // keeps the move (it was a client display bug); prove the bonded double-space move applies + sticks.
+    let s = setup('arrow_gruts', 'swog_rider');
+    expect(s.pendingChoice?.kind).toBe('bond');
+    const c: HSState = JSON.parse(JSON.stringify(s));
+    const sr = c.figures.find(f => f.cardUid === 's0-swog_rider')!;
+    sr.at = at(3, 3); sr.at2 = at(4, 3); // a valid 2-hex footprint (customBattle leaves at2 unset)
+    c.figures.filter(f => f.cardUid === 's0-arrow_gruts').forEach((f, i) => { f.at = at(i, 0); f.at2 = null; });
+    c.figures.filter(f => f.cardUid === 's1-marro_warriors').forEach((f, i) => { f.at = at(i, 7); f.at2 = null; });
+    s = c;
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'bond', partnerUid: 's0-swog_rider' } }));
+    expect(getActiveCardUid(s)).toBe('s0-swog_rider'); // the free bonus turn is Swog Rider's
+    const dests = [...legalDestinations(s, sr.id)].filter(d => d !== sr.at);
+    expect(dests.length).toBeGreaterThan(0);
+    const to = dests[0];
+    const tail = [...moveTailOptions(s, sr.id, to)][0];
+    const moved = unwrap(applyAction(s, 'p1', { kind: 'move_figure', figureId: sr.id, to, to2: tail }));
+    const m = moved.figures.find(f => f.id === sr.id)!;
+    expect(m.at).toBe(to);     // applied + persisted — no lost move
+    expect(m.at2).toBe(tail);
+  });
 });
 
 // --- AI self-preservation (wounded Heroes retreat) -------------------------

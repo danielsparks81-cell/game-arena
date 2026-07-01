@@ -2539,6 +2539,20 @@ export default function HeroScapeBoard({
   // Drop the optional reorient prompt the moment the move phase ends (End move / first attack) so it
   // never lingers into the attack phase — the move is already committed, nothing to lose here.
   useEffect(() => { if (state.movementEnded) setOrientLead(null); }, [state.movementEnded]);
+  // If the player taps "End move" / "End turn" while a 2-hex orientation pick is still OPEN (destination
+  // tapped, facing not yet chosen), COMMIT that move with the default facing instead of silently
+  // discarding it. Discarding used to leave the previewed figure to run all the way back to its start
+  // (the peanut preview is drawn at the destination, so abandoning it walks it home) — and logged "no
+  // action". The player clearly meant to move there, so finish the move first. Returns whether it did.
+  const commitPendingOrient = (): boolean => {
+    if (orientLead && selected && orientDefaultTail && !state.movementEnded) {
+      setPendingMove({ id: selected.id, at: orientLead, at2: orientDefaultTail });
+      onMoveFigure(selected.id, orientLead, orientDefaultTail);
+      setOrientLead(null);
+      return true;
+    }
+    return false;
+  };
   // Carry is intentionally NOT here — Theracus's Carry is driven from the card TAP + an inline,
   // step-by-step hint UNDER the card (owner 2026-06-25), so it no longer needs the Special-Power panel.
   const anyBigHeroPower =
@@ -4748,7 +4762,11 @@ export default function HeroScapeBoard({
               </button>
             )}
             <button
-              onClick={() => onEndMove()} // keep the active figure SELECTED so its attack targets glow + its special powers light up
+              // If a 2-hex orientation pick is still open, COMMIT that move first (so the previewed
+              // figure lands where you put it instead of running home) and stop — a second tap ends the
+              // move. Sending both in one tick could race the move behind end_move and lose it. Keep the
+              // figure SELECTED so its attack targets glow + its special powers light up.
+              onClick={() => { if (commitPendingOrient()) return; onEndMove(); }}
               disabled={disabled}
               className="flex-1 rounded-lg border-2 border-emerald-600 bg-neutral-950/85 px-3 py-2 text-sm font-semibold text-emerald-300 backdrop-blur-sm transition hover:bg-emerald-900/50 disabled:opacity-40"
               title="Finish moving and switch to attacking — no figure can move again this turn"
@@ -4768,7 +4786,7 @@ export default function HeroScapeBoard({
             card above can never push the primary action out of reach. */}
         {myTurn && !pending && (
           <button
-            onClick={() => { onEndTurn(); setSelectedId(null); }}
+            onClick={() => { if (commitPendingOrient()) return; onEndTurn(); setSelectedId(null); }}
             disabled={disabled}
             title={bondTurn ? 'End only this bonus turn and hand back to the bonding squad' : undefined}
             className="rounded-lg border-2 border-amber-600 bg-neutral-950/85 px-4 py-2 text-sm font-semibold text-amber-300 backdrop-blur-sm transition hover:bg-amber-900/50 disabled:opacity-40"
