@@ -156,6 +156,12 @@ type Interact = {
   placeHexes?: Set<HexKey>;
   dropHexes?: Set<HexKey>;
   dropPicks?: Set<HexKey>;
+  /** Airborne Elite THE DROP landing spaces — the LEGAL set, present only while the
+   *  owner is resolving an airborne_drop choice. Each gets a hovering parachute marker
+   *  (faded = a legal landing, bold + bouncing = one you've picked) so the deployment
+   *  is impossible to miss. Kept separate from `dropHexes` (which is multiplexed across
+   *  several powers) so the chute icon shows for THE DROP only. */
+  airborneHexes?: Set<HexKey>;
   /** Sgt. Drake GRAPPLE GUN targets — a one-space climb-anywhere move. Coloured
    *  DISTINCTLY (violet) from a normal green move so the 25-level climb is obvious. */
   climbHexes?: Set<HexKey>;
@@ -1099,6 +1105,21 @@ function Scene({ state, it }: { state: HSState; it: Interact }) {
         const active = state.figures.some(f => f.at === g.at); // a figure stands on it → activated
         const def = HS_GLYPHS[g.id];
         return <GlyphMarker key={g.at} x={gx} z={gz} topY={gTop} active={active} faceUp={g.faceUp} letter={def?.letter ?? '?'} />;
+      })}
+      {/* AIRBORNE ELITE — THE DROP. A parachute hovers over every legal landing space so the
+          deployment reads at a glance (before this it was only a faint tile tint). A picked space
+          gets a big bouncing chute; the rest get a small faded one marking "you can land here". */}
+      {it.airborneHexes && [...it.airborneHexes].map(key => {
+        const cell = map?.cells[key];
+        if (!cell) return null;
+        const [mx, mz] = worldXZ(...parseQR(key));
+        const topY = hexTopY(cell.height, cell.terrain, glyphSet.has(key));
+        const picked = it.dropPicks?.has(key);
+        return (
+          <Html key={`chute-${key}`} center position={[mx, topY + 1.5, mz]} occlude={false} style={{ pointerEvents: 'none' }}>
+            <div className={'select-none leading-none ' + (picked ? 'animate-bounce text-3xl drop-shadow-[0_3px_4px_rgba(0,0,0,0.85)]' : 'text-xl opacity-60')}>🪂</div>
+          </Html>
+        );
       })}
       <Suspense fallback={null}>
         {state.figures.filter(f => f.at != null).map(f => {

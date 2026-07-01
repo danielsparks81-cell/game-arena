@@ -4982,6 +4982,7 @@ export default function HeroScapeBoard({
             placeHexes={placeHexes}
             dropHexes={placeSpinId && placeSpinHexes.size > 0 ? placeSpinHexes : scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
             dropPicks={new Set(dropPicks)}
+            airborneHexes={dropPlacing ? dropLegalSet : undefined}
             focusRef={focusRef}
           />
         ) : (
