@@ -837,7 +837,7 @@ function HtmlCardHeader({ cardId, highlight }: { cardId: string; highlight?: str
             {rows.map((r, i) => (
               <div key={i} className="truncate text-[10px] font-bold uppercase leading-tight tracking-wide text-white"><Highlighted text={r} tokens={hl} /></div>
             ))}
-            <div className="text-[11px] font-extrabold uppercase leading-tight tracking-wide text-amber-200">
+            <div className="truncate text-[11px] font-extrabold uppercase leading-tight text-amber-200">
               <Highlighted text={`${def.size ?? 'medium'} ${def.height}`} tokens={hl} />
             </div>
           </div>
