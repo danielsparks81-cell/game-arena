@@ -390,7 +390,8 @@ export default function HeroScapeSandbox() {
         Every figure ({tiles.length} total, squads expanded) cropped and seated on its player disc.{' '}
         {erase ? 'White eraser ON: click a figure, then click each leftover-white blob to flood-erase it (brush for the rest), and Download the cleaned PNG to send back.' : measure ? 'Cut-line picker ON: click a figure, then click where its feet meet the base — it prints the anchor to paste back.' : 'Click any figure to open it on a hex in the real 3D board (orbit/zoom).'}
       </p>
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="sticky top-0 z-20 -mx-4 mb-4 flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-white/95 px-4 py-2 backdrop-blur">
+        <span className="mr-1 text-sm font-semibold text-neutral-800">Figure gallery</span>
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-neutral-300 px-2 py-1 text-sm text-neutral-700">
           <input type="checkbox" checked={measure} onChange={e => { setMeasure(e.target.checked); if (e.target.checked) setErase(false); }} />
           Cut-line picker
