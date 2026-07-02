@@ -57,6 +57,11 @@ import {
   canGrenade,
   grenadeTargets,
   grenadeDefenders,
+  // Gladiators + Esenwein vampires (2026-07-01).
+  bloodHungryTargets,
+  canNetTrip,
+  chillingTouchTargets,
+  summonRechetsSpaces,
   // Airborne Elite THE DROP (slice 8).
   canTheDrop,
   theDropHexes,
@@ -222,6 +227,10 @@ type Props = {
   onWaterClone: () => void;
   onMindShackle: (targetId: string) => void;
   onChomp: (targetId: string) => void;
+  // Gladiators + Esenwein vampires (2026-07-01).
+  onBloodHungry: (attackerId: string, targetId: string) => void;
+  onNetTrip: () => void;
+  onChillingTouch: (targetId: string) => void;
   onGrenade: () => void;
   onGrenadeThrow: (targetId: string) => void;
   // Big Heroes special powers (slice 8b).
@@ -588,6 +597,13 @@ const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
   spartacus: { size: '357.1%', position: '67.7% 21.1%' },
   capuan_gladiators: { size: '303.0%', position: '72.6% 11.3%' },
   crixus: { size: '344.8%', position: '68.0% 20.1%' },
+  // Esenwein vampires — DEFAULT frames on the standard Index_3x5 left-side art box
+  // (same layout as Retiarius); fine-tune in /heroscape-cardcrop when desired.
+  cyprien_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
+  iskra_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
+  sonya_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
+  marcu_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
+  rechets_of_bogdan: { size: '243.9%', position: '12.4% 23.9%' },
 };
 const DEFAULT_ART_CROP = { size: 'cover', position: 'center' };
 
@@ -1664,7 +1680,7 @@ function TurnOrderSnake({ state, seatColor }: { state: HSState; seatColor: (seat
 export default function HeroScapeBoard({
   state, currentUserId, isHost, disabled,
   onStart, onSetLobbyConfig, onAddBot, onRemoveBot, onAiStep, onPlaceMarkers, onMoveFigure, onMoveStep, onGrappleMove, onFireLine, onExplosion, onAttack,
-  onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
+  onBerserkerCharge, onWaterClone, onMindShackle, onChomp, onBloodHungry, onNetTrip, onChillingTouch, onGrenade, onGrenadeThrow, onResolveChoice, onUndoMove, onEndMove, onEndTurn,
   onIceShard, onQueglix, onWildSwing, onAcidBreath, onThrow, onCarry, onOverextend, onTheDrop,
   onDraftCard, onDraftPass, onPlaceFigure, onUnplaceFigure, onPlacementReady, onRefresh, refreshing,
 }: Props) {
@@ -1716,6 +1732,12 @@ export default function HeroScapeBoard({
   const [shackleMode, setShackleMode] = useState(false);
   // slice 8: Grimnak CHOMP targeting mode (same idea — adjacent enemy click).
   const [chompMode, setChompMode] = useState(false);
+  // Brunak BLOOD HUNGRY targeting mode (adjacent enemy click; a kill re-arms it).
+  const [bloodMode, setBloodMode] = useState(false);
+  // Cyprien CHILLING TOUCH targeting mode (adjacent non-Soulborg click, once per turn).
+  const [chillMode, setChillMode] = useState(false);
+  // Iskra SUMMON THE RECHETS placement picks (hexes tapped so far while the summon choice is open).
+  const [summonPicks, setSummonPicks] = useState<HexKey[]>([]);
   // slice 8b: Big-Hero special-power control panel — current dropdown selections
   // (figure / hex ids). A single object so each power's pickers are independent
   // without a hook per field. Defaults fill in from the first legal option.
@@ -1789,6 +1811,9 @@ export default function HeroScapeBoard({
     setFireLineMode(false);
     setShackleMode(false);
     setChompMode(false);
+    setBloodMode(false);
+    setChillMode(false);
+    setSummonPicks([]);
     setThrowAim(null);
     setCarryAim(null);
     setExplosionMode(false);
@@ -2156,8 +2181,11 @@ export default function HeroScapeBoard({
       ? winners[0].username
       : `Team ${String.fromCharCode(64 + (winners[0].team ?? 1))} — ${winners.map(w => w.username).join(' & ')}`;
   const placing = state.phase === 'playing' && state.subPhase === 'place_markers';
+  // ETERNAL HATRED (Marcu): while an opponent controls Marcu, THAT seat acts the turn — the
+  // board's controls follow the ACTING seat, not the marker owner (mirrors the engine gate).
+  const actingSeat = state.marcuControlSeat ?? state.turnSeat;
   const myTurn =
-    state.phase === 'playing' && state.subPhase === 'turns' && !!me && state.turnSeat === me.seat;
+    state.phase === 'playing' && state.subPhase === 'turns' && !!me && actingSeat === me.seat;
   const canAct = myTurn && !disabled;
   const iAmReady = !!me && state.markersReady.includes(me.seat);
 
@@ -2482,6 +2510,40 @@ export default function HeroScapeBoard({
     [chompMode, me, state],
   );
 
+  // Brunak BLOOD HUNGRY + Cyprien CHILLING TOUCH — adjacent-figure click targeting (like Chomp).
+  const activeHeroFigId = useMemo(() => {
+    const uid = getActiveCardUid(state);
+    return uid ? (state.figures.find(f => f.cardUid === uid && f.at != null)?.id ?? null) : null;
+  }, [state]);
+  const bloodTargetList = useMemo(
+    () => (canAct && activeHeroFigId ? bloodHungryTargets(state, activeHeroFigId) : []),
+    [canAct, activeHeroFigId, state],
+  );
+  const bloodTargetSet = useMemo(
+    () => (bloodMode ? new Set(bloodTargetList) : new Set<string>()),
+    [bloodMode, bloodTargetList],
+  );
+  const chillTargetList = useMemo(
+    () => (canAct && activeHeroFigId ? chillingTouchTargets(state, activeHeroFigId) : []),
+    [canAct, activeHeroFigId, state],
+  );
+  const chillTargetSet = useMemo(
+    () => (chillMode ? new Set(chillTargetList) : new Set<string>()),
+    [chillMode, chillTargetList],
+  );
+  // Iskra SUMMON THE RECHETS — the open choice (owner only) + the legal landing spaces once rolled.
+  const summonChoice = myChoice?.kind === 'summon_rechets' ? myChoice : null;
+  const summonSpaces = useMemo(
+    () => (summonChoice && summonChoice.d20 != null ? new Set(summonRechetsSpaces(state)) : new Set<HexKey>()),
+    [summonChoice, state],
+  );
+  const summonReserveCount = summonChoice
+    ? state.figures.filter(f => f.cardUid === summonChoice.rechetsUid && f.reserve).length
+    : 0;
+  const summonNeeded = summonChoice ? Math.min(summonReserveCount, summonSpaces.size) : 0;
+  // Marcu ETERNAL HATRED — the owner's opponent-pick step (only after a 17+ roll with >1 opponent).
+  const hatredChoice = myChoice?.kind === 'eternal_hatred' && myChoice.d20 != null ? myChoice : null;
+
   // slice 8: Airborne GRENADE SPECIAL ATTACK. canThrowGrenade offers the
   // initiate button; once the throw sequence is open, grenadeChoice holds it and
   // grenadeTargetSet is the CURRENT Elite's in-range figures (each click resolves
@@ -2719,6 +2781,39 @@ export default function HeroScapeBoard({
         if (acidList.length > 0) { setBhAim({ kind: 'acid', picks: [] }); revealPowerPanel(); }
         else showPowerHint('Acid Breath — no small or medium figure adjacent.');
         return;
+      case 'brunak': {
+        // Brunak has TWO tappable powers — Carry was already routed by name above, so a tap
+        // here is BLOOD HUNGRY: highlight the adjacent enemies; tap one to savage it.
+        if (bloodTargetList.length === 0) {
+          showPowerHint(state.turnAttacks.some(a => a.special !== 'blood_hungry')
+            ? 'Blood Hungry — Brunak already made his normal attack.'
+            : 'Blood Hungry — move Brunak next to an enemy first.');
+          return;
+        }
+        if (bloodTargetList.length === 1 && activeHeroFigId) onBloodHungry(activeHeroFigId, bloodTargetList[0]);
+        else setBloodMode(true);
+        return;
+      }
+      case 'retiarius':
+        // NET TRIP 14 — one tap: roll the d20 (14+ = his small/medium targets defend with 1 die).
+        if (canNetTrip(state)) onNetTrip();
+        else showPowerHint(
+          state.netTripRolled ? 'Net Trip — already rolled this turn.'
+            : state.turnAttacks.length > 0 ? 'Net Trip — after moving and BEFORE attacking.'
+              : 'Net Trip — not available.');
+        return;
+      case 'cyprien_esenwein': {
+        // CHILLING TOUCH — highlight the adjacent (non-Soulborg) figures; tap one to attempt.
+        if (chillTargetList.length === 0) {
+          showPowerHint(state.chillingTouchSpent ? 'Chilling Touch — already attempted this turn.'
+            : state.turnAttacks.length > 0 ? 'Chilling Touch — after moving and BEFORE attacking.'
+              : 'Chilling Touch — move Cyprien next to a (non-Soulborg) figure first.');
+          return;
+        }
+        if (chillTargetList.length === 1) onChillingTouch(chillTargetList[0]);
+        else setChillMode(true);
+        return;
+      }
       case 'eldgrim': {
         // OVEREXTEND ATTACK — one tap: place a wound on Eldgrim and take another turn with him.
         if (canOver && eldHeroId) { onOverextend(eldHeroId); return; }
@@ -2743,7 +2838,8 @@ export default function HeroScapeBoard({
     // fell through to `anyBigHeroPower` (which needs a target), so an out-of-range Queglix gun was
     // silently dead with NO feedback ("Q9 gun not available"). Tapping now always shows the reason.
     (['tarn_vikings', 'marro_warriors', 'ne_gok_sa', 'grimnak', 'mimring', 'drake', 'airborne_elite', 'deathwalker_9000', 'eldgrim',
-      'major_q9', 'nilfheim', 'jotun', 'braxas', 'theracus'].includes(
+      'major_q9', 'nilfheim', 'jotun', 'braxas', 'theracus',
+      'brunak', 'retiarius', 'cyprien_esenwein'].includes(
       activeCard.cardId,
     ) ||
       !!anyBigHeroPower);
@@ -2759,6 +2855,9 @@ export default function HeroScapeBoard({
                   : activeCard?.cardId === 'deathwalker_9000' ? canExplode
                     : activeCard?.cardId === 'eldgrim' ? canOver
                       : activeCard?.cardId === 'theracus' ? carryList.length > 0
+                        : activeCard?.cardId === 'brunak' ? (carryList.length > 0 || bloodTargetList.length > 0)
+                          : activeCard?.cardId === 'retiarius' ? canNetTrip(state)
+                            : activeCard?.cardId === 'cyprien_esenwein' ? chillTargetList.length > 0
                     : !!anyBigHeroPower;
   /** Readable label for a figure id (card short name + squad index + hex). */
   const figName = (id: string): string => {
@@ -3215,6 +3314,29 @@ export default function HeroScapeBoard({
     // Chomps it (server rolls the d20; Squad figures die automatically).
     if (chompMode) {
       if (occ && chompTargetSet.has(occ.id)) { onChomp(occ.id); setChompMode(false); }
+      return;
+    }
+    // Brunak BLOOD HUNGRY — clicking a highlighted adjacent enemy swings (Attack 4 special);
+    // a kill re-arms the chain, so STAY in the mode until a swing fails to kill (the target
+    // set empties or the engine clears the chain — the memo then drops the highlights).
+    if (bloodMode) {
+      if (occ && bloodTargetSet.has(occ.id) && activeHeroFigId) onBloodHungry(activeHeroFigId, occ.id);
+      else setBloodMode(false);
+      return;
+    }
+    // Cyprien CHILLING TOUCH — clicking a highlighted adjacent figure attempts the touch
+    // (server d20; wound bands). One attempt per turn, so the mode drops after the click.
+    if (chillMode) {
+      if (occ && chillTargetSet.has(occ.id)) onChillingTouch(occ.id);
+      setChillMode(false);
+      return;
+    }
+    // Iskra SUMMON THE RECHETS — placement step: toggle up to N highlighted spaces, then
+    // confirm from the summon panel.
+    if (summonChoice && summonChoice.d20 != null) {
+      if (summonSpaces.has(key)) {
+        setSummonPicks(p => (p.includes(key) ? p.filter(x => x !== key) : p.length < summonNeeded ? [...p, key] : p));
+      }
       return;
     }
     // Deathwalker 9000 EXPLOSION — click a highlighted enemy in range/sight to detonate; the
@@ -4282,6 +4404,87 @@ export default function HeroScapeBoard({
             )}
           </div>
         )}
+        {/* SUMMON THE RECHETS (Iskra) — opens at the end of her turn while the bats sit in
+            reserve: attempt/decline; on 14+ pick the landing spaces and (optionally) take the
+            immediate bonus turn with them. */}
+        {summonChoice && !disabled && (
+          <div className="hs-decide rounded-lg border-2 border-fuchsia-600 bg-neutral-900/70 px-3 py-2">
+            <div className="text-sm font-bold text-fuchsia-300">🦇 Summon the Rechets of Bogdan</div>
+            {summonChoice.d20 == null ? (
+              <div className="mt-1 flex flex-wrap gap-2">
+                <button
+                  onClick={() => onResolveChoice({ kind: 'summon_rechets' })}
+                  title="Roll the d20 — on 14+ place all 3 Rechets on empty spaces within 6 clear sight spaces of Iskra, then you may immediately take a turn with them."
+                  className="rounded-lg border-2 border-fuchsia-500 px-3 py-1 text-sm font-bold text-fuchsia-200 transition hover:bg-fuchsia-900/50"
+                >
+                  🎲 Attempt the summon (d20, 14+)
+                </button>
+                <button
+                  onClick={() => onResolveChoice({ kind: 'summon_rechets', decline: true })}
+                  className="rounded-lg border border-neutral-600 px-3 py-1 text-sm font-semibold text-neutral-300 transition hover:border-neutral-400"
+                >
+                  Not this turn
+                </button>
+              </div>
+            ) : (
+              <>
+                <div className="mt-0.5 text-[11px] text-emerald-300">
+                  Rolled 14+! Click {summonNeeded} highlighted space{summonNeeded === 1 ? '' : 's'} within 6 clear sight of Iskra. ({summonPicks.length}/{summonNeeded})
+                </div>
+                {summonNeeded < summonReserveCount && (
+                  <div className="mt-0.5 text-[11px] text-amber-300">
+                    Only {summonNeeded} space{summonNeeded === 1 ? '' : 's'} available — the rest are destroyed (they cannot be summoned again).
+                  </div>
+                )}
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <button
+                    disabled={summonPicks.length !== summonNeeded}
+                    onClick={() => { onResolveChoice({ kind: 'summon_rechets', placements: summonPicks, takeTurn: true }); setSummonPicks([]); }}
+                    className="rounded-lg border-2 border-fuchsia-500 px-3 py-1 text-sm font-bold text-fuchsia-200 transition hover:bg-fuchsia-900/50 disabled:opacity-40"
+                  >
+                    🦇 Summon + take their turn
+                  </button>
+                  <button
+                    disabled={summonPicks.length !== summonNeeded}
+                    onClick={() => { onResolveChoice({ kind: 'summon_rechets', placements: summonPicks, takeTurn: false }); setSummonPicks([]); }}
+                    className="rounded-lg border border-neutral-600 px-3 py-1 text-sm font-semibold text-neutral-300 transition hover:border-neutral-400 disabled:opacity-40"
+                  >
+                    Summon only
+                  </button>
+                  <button
+                    onClick={() => setSummonPicks([])}
+                    disabled={summonPicks.length === 0}
+                    className="rounded-lg border border-neutral-600 px-3 py-1 text-sm font-semibold text-neutral-300 transition hover:border-neutral-400 disabled:opacity-40"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+        {/* ETERNAL HATRED (Marcu) — the owner's opponent-pick after a 17+ roll (auto-assigned
+            when only one opponent lives, so this panel appears only with a real choice). */}
+        {hatredChoice && !disabled && (
+          <div className="hs-decide rounded-lg border-2 border-red-700 bg-neutral-900/70 px-3 py-2">
+            <div className="text-sm font-bold text-red-300">🩸 Eternal Hatred — Marcu turns on you!</div>
+            <div className="mt-0.5 text-[11px] text-neutral-300">Choose which opponent controls Marcu for the rest of this turn.</div>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {state.players
+                .filter(p => p.seat !== me?.seat && (p.team ?? -1 - p.seat) !== (me ? (me.team ?? -1 - me.seat) : null))
+                .map(p => (
+                  <button
+                    key={p.seat}
+                    onClick={() => onResolveChoice({ kind: 'eternal_hatred', opponentSeat: p.seat })}
+                    className="rounded-lg border-2 px-3 py-1 text-sm font-bold transition hover:bg-neutral-800"
+                    style={{ borderColor: seatColor(p.seat), color: seatColor(p.seat) }}
+                  >
+                    {p.username}
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
         {/* NOW ACTING — the active unit's card AND its action controls in ONE
             panel, so its powers (Mind Shackle, Acid Breath, …) live ON the card
             instead of as separate panels below. */}
@@ -5138,7 +5341,7 @@ export default function HeroScapeBoard({
             shootBlockedHexes={shootBlocked}
             climbHexes={grappleMode ? grappleHexes : undefined}
             targetIds={targets}
-            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? []), ...choiceFigIds])}
+            powerTargetIds={new Set([...shackleTargets, ...chompTargetSet, ...bloodTargetSet, ...chillTargetSet, ...grenadeTargetSet, ...fireLineVictims, ...explosionTargetSet, ...iceList, ...qList, ...wildList, ...acidList, ...throwList, ...(carryPassSet ?? []), ...choiceFigIds])}
             actionableIds={glowIds}
             auraIds={auraIds}
             auraHexes={auraHexes}
@@ -5147,8 +5350,8 @@ export default function HeroScapeBoard({
             viewerSeat={me?.seat}
             placeHexes={orientLead ? orientTails : (carryTailSet ?? placeHexes)}
             placeLeadHex={orientLead ?? (carryTailSet ? carryAim!.dest : (placeLead && placingIs2 ? placeLead : undefined))}
-            dropHexes={scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
-            dropPicks={new Set(dropPicks)}
+            dropHexes={summonChoice && summonChoice.d20 != null ? summonSpaces : scatterChoice && scatterPick ? scatterDestSet : sturlaPlaceChoice ? sturlaPlaceSet : erlandChoice && erlandPick ? erlandDestSet : carryLandSet ?? (throwAim && bhHeroId ? new Set(throwLandingHexes(state, bhHeroId, throwAim.targetId)) : dropLegalSet)}
+            dropPicks={new Set([...dropPicks, ...summonPicks])}
             airborneHexes={dropPlacing ? dropLegalSet : undefined}
             focusRef={focusRef}
           />

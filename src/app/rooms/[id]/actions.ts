@@ -94,6 +94,7 @@ import {
   grenadeDefenders as hsGrenadeDefenders,
   wildSwingDefenders as hsWildSwingDefenders,
   effectiveDefenseDice as hsEffectiveDefenseDice,
+  capuanInitiativeBonus as hsCapuanInitiativeBonus,
   moveConsequences as hsMoveConsequences,
   stepConsequences as hsStepConsequences,
   getActiveCardUid as hsGetActiveCardUid,
@@ -761,6 +762,10 @@ export type GameAction =
   | { game: 'heroscape'; kind: 'orient_figure'; figureId: string; dir: number }
   | { game: 'heroscape'; kind: 'mind_shackle'; targetId: string }
   | { game: 'heroscape'; kind: 'chomp'; targetId: string }
+  // Gladiators + Esenwein vampires (2026-07-01) — the server rolls every die.
+  | { game: 'heroscape'; kind: 'blood_hungry'; attackerId: string; targetId: string }
+  | { game: 'heroscape'; kind: 'net_trip' }
+  | { game: 'heroscape'; kind: 'chilling_touch'; targetId: string }
   | { game: 'heroscape'; kind: 'grenade' }
   | { game: 'heroscape'; kind: 'grenade_throw'; targetId: string }
   | { game: 'heroscape'; kind: 'berserker_charge' }
@@ -1234,6 +1239,11 @@ type HSWireAction =
   // Grimnak CHOMP (slice 8): the d20 is NOT on the wire — the server rolls it
   // (only consulted for Hero targets); the board sends the chosen adjacent enemy.
   | { kind: 'chomp'; targetId: string }
+  // Gladiators + Esenwein vampires (2026-07-01): dice are NOT on the wire — the
+  // server rolls Blood Hungry's attack+defense, Net Trip's d20, Chilling Touch's d20.
+  | { kind: 'blood_hungry'; attackerId: string; targetId: string }
+  | { kind: 'net_trip' }
+  | { kind: 'chilling_touch'; targetId: string }
   // Airborne GRENADE SPECIAL ATTACK (slice 8): `grenade` initiates (no dice);
   // each `grenade_throw` carries only the chosen Range-5 target — the server
   // rolls the 2 attack dice + each affected figure's defense.
@@ -1488,6 +1498,28 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     // Hero; a Squad figure is destroyed automatically). The engine validates the
     // adjacent-enemy + medium/small-size + timing.
     engineAction = { kind: 'chomp', targetId: action.targetId, d20: d20() };
+  } else if (action.kind === 'blood_hungry') {
+    // Brunak BLOOD HUNGRY SPECIAL ATTACK — flat Attack 4 (special: unmodifiable) +
+    // the target's FULL effective defense (printed + auras + height, §117). The
+    // engine validates adjacency + the kill-chain gate.
+    const tgt = state.figures?.find(f => f.id === action.targetId);
+    const atk = state.figures?.find(f => f.id === action.attackerId);
+    const defDice = tgt && atk ? Math.max(0, hsEffectiveDefenseDice(state, tgt, atk).dice) : 0;
+    engineAction = {
+      kind: 'blood_hungry',
+      attackerId: action.attackerId,
+      targetId: action.targetId,
+      attackRoll: rollDice(4),
+      defenseRoll: rollDice(defDice),
+    };
+  } else if (action.kind === 'net_trip') {
+    // Retiarius NET TRIP 14 — the server rolls the d20; 14+ caps his small/medium
+    // targets at 1 defense die for the rest of the turn.
+    engineAction = { kind: 'net_trip', d20: d20() };
+  } else if (action.kind === 'chilling_touch') {
+    // Cyprien CHILLING TOUCH — the server rolls the d20 (wound bands 13/16/18/20;
+    // Sonya's Eternal Strength +2 and Lodin fold in engine-side).
+    engineAction = { kind: 'chilling_touch', targetId: action.targetId, d20: d20() };
   } else if (action.kind === 'water_clone') {
     // Marro WATER CLONE — roll one d20 per LIVING Marro Warrior of the active
     // card; the engine validates the set + per-Warrior threshold and collects
@@ -1601,6 +1633,10 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
     let choice: HSChoiceResolution = action.choice;
     if (choice.kind === 'roll_ceremony_roll') {
       choice = { kind: 'roll_ceremony_roll', d20: d20() };
+    } else if (choice.kind === 'summon_rechets' && !choice.decline && choice.d20 == null && choice.placements == null) {
+      // Iskra's SUMMON attempt — the player pressed "Attempt": the d20 is rolled SERVER-side (like
+      // every power d20). Declines and the later placement step pass through verbatim.
+      choice = { kind: 'summon_rechets', d20: d20() };
     } else if (choice.kind === 'scatter' && choice.figureId != null && choice.to != null) {
       const figureId = choice.figureId;
       const to = choice.to;
@@ -1731,6 +1767,11 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
         // the glyph + rolls the next round; on 2+ it leaves the choice open for the controller to
         // name an opponent. Either way the loop breaks afterward (a 1 clears it; a 2+ awaits input).
         resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: 'glyph_wannok', d20: d20() } });
+      } else if (pc?.kind === 'eternal_hatred' && pc.d20 == null) {
+        // Marcu's ETERNAL HATRED — "you MUST roll": the mandatory d20 is rolled server-side
+        // immediately (no button). On <17 the engine closes it (Marcu obeys); on 17+ it either
+        // auto-assigns the lone opponent or leaves the owner's opponent-pick open.
+        resolved = applyActionHS(next, pid, { kind: 'resolve_choice', choice: { kind: 'eternal_hatred', d20: d20() } });
       } else {
         break;
       }
@@ -1765,7 +1806,10 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
       );
     const dagmarBonus = (seat: number): number =>
       (controlsGlyph(seat, 'dagmar', HS_GLYPHS.dagmar.active) ? 8 : 0) +
-      (controlsGlyph(seat, 'lodin', HS_GLYPHS.lodin.active) ? 1 : 0);
+      (controlsGlyph(seat, 'lodin', HS_GLYPHS.lodin.active) ? 1 : 0) +
+      // Capuan Gladiators' INITIATIVE ADVANTAGE — the engine's exported helper, so the
+      // server's bonus can never drift from the engine's re-validation.
+      hsCapuanInitiativeBonus(afterPlace, seat);
     // Only the seats TIED FOR HIGHEST re-roll until one wins; everyone else keeps their first roll
     // (02-rounds §Step 2 — only the tying players re-roll). Dagmar/Lodin bonuses carry into the re-rolls.
     const rollSeat = (seat: number): HSInitiativeAttempt[number] => {

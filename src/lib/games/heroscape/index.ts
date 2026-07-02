@@ -59,6 +59,13 @@ export {
   carryLandingHexes,
   carryDestFootprint,
   canOverextend,
+  // Gladiators + Esenwein vampires (2026-07-01) — availability/target helpers.
+  bloodHungryTargets,
+  canNetTrip,
+  chillingTouchTargets,
+  eternalStrengthBonus,
+  summonRechetsSpaces,
+  capuanInitiativeBonus,
   erlandDestinations,
   erlandSummonableIds,
   sturlaPlacementHexes,

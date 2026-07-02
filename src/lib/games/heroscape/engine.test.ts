@@ -4244,7 +4244,7 @@ describe('slice 5: start_game routing (draft vs quick)', () => {
     expect(s.mode).toBe('draft');
     expect(s.pointBudget).toBe(400);
     expect(s.draft).toBeDefined();
-    expect(s.draft!.pool).toHaveLength(29);
+    expect(s.draft!.pool).toHaveLength(39);
     expect(s.draft!.turnSeat).toBeNull(); // awaiting the server roll-off
     expect(getActivePlayerId(s)).toBeNull();
     // Server rolls the order; p1 wins → drafts first.
@@ -4422,7 +4422,7 @@ describe('slice 5: common pool (Common cards are repeatable)', () => {
     // Real HeroScape: Swog Rider (Common Hero) and Blade/Arrow/Heavy Gruts + Deathreavers (Common
     // squads) are Utgar's common units — all repeatable in the draft. Everything else is Unique.
     // (All five verified 2026-06-27 from the user's index-card PDFs — nameplates read COMMON SQUAD.)
-    const COMMON = new Set(['swog_rider', 'blade_gruts', 'arrow_gruts', 'heavy_gruts', 'deathreavers']);
+    const COMMON = new Set(['swog_rider', 'blade_gruts', 'arrow_gruts', 'heavy_gruts', 'deathreavers', 'capuan_gladiators']);
     for (const id of COMMON) expect(HS_CARDS[id].common).toBe(true);
     for (const id of HS_DRAFT_POOL) {
       if (COMMON.has(id)) continue;
@@ -4803,7 +4803,7 @@ describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
     // The 29 hand-authored cards are the DRAFT POOL. HS_CARDS also holds STAGED classic cards
     // (base stats, power:'wip', generated from roster.json, NOT draftable), so its total is larger.
     expect(Object.keys(HS_CARDS).length).toBeGreaterThanOrEqual(29);
-    expect(HS_DRAFT_POOL).toHaveLength(29);
+    expect(HS_DRAFT_POOL).toHaveLength(39);
     // Every pool id resolves to a card.
     for (const id of HS_DRAFT_POOL) expect(HS_CARDS[id]).toBeDefined();
     expect(HS_CARDS.eldgrim).toMatchObject({ life: 3, move: 5, range: 1, attack: 2, defense: 2, height: 4, points: 30 });
@@ -4855,7 +4855,7 @@ describe('slice 5: full roster (23 base + 6 Big Heroes)', () => {
     const flagged = Object.values(HS_CARDS).filter(
       c => c.flying || c.ghostWalk || c.disengage || c.thorianSpeed || c.stealthDodge || c.counterStrike || c.grappleGun,
     ).map(c => c.id).sort();
-    expect(flagged).toEqual(['agent_carr', 'arrow_gruts', 'blade_gruts', 'braxas', 'deathreavers', 'drake', 'heavy_gruts', 'izumi_samurai', 'krav_maga', 'mimring', 'nilfheim', 'otonashi', 'raelin', 'su_bak_na', 'swog_rider', 'theracus']);
+    expect(flagged).toEqual(['agent_carr', 'arrow_gruts', 'blade_gruts', 'braxas', 'cyprien_esenwein', 'deathreavers', 'drake', 'heavy_gruts', 'iskra_esenwein', 'izumi_samurai', 'krav_maga', 'marcu_esenwein', 'mimring', 'nilfheim', 'otonashi', 'raelin', 'rechets_of_bogdan', 'sonya_esenwein', 'su_bak_na', 'swog_rider', 'theracus']);
   });
 
   it('a wip card fights with its printed stats (no power handler)', () => {

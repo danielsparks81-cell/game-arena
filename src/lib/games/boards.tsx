@@ -292,6 +292,9 @@ export const BOARD_RENDERERS: Record<string, Renderer> = {
       onWaterClone={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'water_clone' }); })}
       onMindShackle={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'mind_shackle', targetId }); })}
       onChomp={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'chomp', targetId }); })}
+      onBloodHungry={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'blood_hungry', attackerId, targetId }); })}
+      onNetTrip={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'net_trip' }); })}
+      onChillingTouch={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'chilling_touch', targetId }); })}
       onGrenade={() => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grenade' }); })}
       onGrenadeThrow={(targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'grenade_throw', targetId }); })}
       onIceShard={(attackerId: string, targetId: string) => unlockAndRun(startTransition, () => { gameMove(roomId, { game: 'heroscape', kind: 'ice_shard', attackerId, targetId }); })}

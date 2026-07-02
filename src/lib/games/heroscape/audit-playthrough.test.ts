@@ -26,6 +26,7 @@ import {
   aiPendingSeat,
   aiEngineAction,
   livingSeats,
+  capuanInitiativeBonus,
 } from './engine';
 import { COMBAT_DIE_FACES } from './content';
 import { MAPS } from './maps';
@@ -56,7 +57,8 @@ function anyPendingSeat(s: HSState): number | null {
     const living = livingSeats(s);
     return s.players.find(p => living.includes(p.seat) && !(s.markersReady ?? []).includes(p.seat))?.seat ?? null;
   }
-  return s.turnSeat ?? null;
+  // ETERNAL HATRED (Marcu): while an opponent controls Marcu, THAT seat owes the turn actions.
+  return s.marcuControlSeat ?? s.turnSeat ?? null;
 }
 
 /** A decisive d20 roll-off: distinct descending rolls → no tie, first seat wins. */
@@ -129,7 +131,14 @@ function playFullGame(opts: {
       s.subPhase === 'place_markers' &&
       livingSeats(s).every(seat => (s.markersReady ?? []).includes(seat))
     ) {
-      s = unwrap(applyAction(s, 'host', { kind: 'roll_initiative', attempts: [decisive(livingSeats(s))] }), 'roll_initiative');
+      // Mirror the SERVER'S roller: a seat owed the Capuan Gladiators' Initiative Advantage
+      // (all markers on Gladiator cards) must carry raw+bonus, or the engine rejects the attempt.
+      const stateAtRoll = s;
+      const att = decisive(livingSeats(s)).map(a => {
+        const bonus = capuanInitiativeBonus(stateAtRoll, a.seat);
+        return bonus > 0 ? { seat: a.seat, raw: a.roll, bonus, roll: a.roll + bonus } : a;
+      });
+      s = unwrap(applyAction(s, 'host', { kind: 'roll_initiative', attempts: [att] }), 'roll_initiative');
       continue;
     }
     const seat = anyPendingSeat(s);

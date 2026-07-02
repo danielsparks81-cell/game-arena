@@ -258,6 +258,27 @@ const WATER_CLONE_THRESHOLD = 15;
 const WATER_CLONE_WATER_THRESHOLD = 10;
 const DAGMAR_INITIATIVE_BONUS = 8;
 
+// ---- Gladiators + Esenwein vampires (2026-07-01, card ids the engine acts on) ----
+const SPARTACUS_CARD_ID = 'spartacus';
+const CAPUAN_CARD_ID = 'capuan_gladiators';
+const CRIXUS_CARD_ID = 'crixus';
+const RETIARIUS_CARD_ID = 'retiarius';
+const BRUNAK_CARD_ID = 'brunak';
+const CYPRIEN_CARD_ID = 'cyprien_esenwein';
+const ISKRA_CARD_ID = 'iskra_esenwein';
+const SONYA_CARD_ID = 'sonya_esenwein';
+const MARCU_CARD_ID = 'marcu_esenwein';
+const RECHETS_CARD_ID = 'rechets_of_bogdan';
+const NET_TRIP_THRESHOLD = 14;
+const SUMMON_RECHETS_THRESHOLD = 14;
+const ETERNAL_HATRED_THRESHOLD = 17;
+const SUMMON_RECHETS_RANGE = 6; // "within 6 clear sight spaces of Iskra"
+const BLOOD_HUNGRY_ATTACK = 4; // Range 1. Attack 4.
+/** Is this card's printed class a Gladiator one? (heroes print "Gladiator", the
+ *  Capuan squad "Gladiator(s)" — Spartacus's Inspiration and the Capuans'
+ *  Initiative Advantage both read "Gladiator Army Cards"). */
+const isGladiatorClass = (cardId: string): boolean => /gladiator/i.test(HS_CARDS[cardId]?.unitClass ?? '');
+
 // ---- slice 6: stat-folding special powers (cards.md exact text) ----
 /** Aura/power source card ids the effective-stat helpers recompute from. */
 const RAELIN_CARD_ID = 'raelin';
@@ -420,6 +441,7 @@ const SPECIAL_POWER_ACTION_KINDS: ReadonlySet<HSAction['kind']> = new Set([
   'fire_line', 'explosion', 'grenade', 'berserker_charge', 'water_clone',
   'mind_shackle', 'chomp', 'ice_shard', 'queglix', 'wild_swing', 'acid_breath',
   'throw_figure', 'carry_move', 'overextend',
+  'blood_hungry', 'net_trip', 'chilling_touch',
 ] as HSAction['kind'][]);
 
 export function applyAction(state: HSState, playerId: string, action: HSAction): HSResult {
@@ -539,9 +561,15 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
     case 'carry_move':
     case 'orient_figure':
     case 'overextend':
+    case 'blood_hungry':
+    case 'net_trip':
+    case 'chilling_touch':
     case 'end_turn': {
       if (state.subPhase !== 'turns') return { error: 'Place your order markers first' };
-      if (state.turnSeat !== me.seat) return { error: 'Not your turn' };
+      // ETERNAL HATRED (Marcu): while an opponent controls Marcu for this turn, TURN actions are
+      // accepted from THAT seat instead of the owner (the owner is locked out for the turn).
+      const actingSeat = state.marcuControlSeat ?? state.turnSeat;
+      if (actingSeat !== me.seat) return { error: 'Not your turn' };
       // Glyph of Nilrend — the active card's SPECIAL POWERS are negated: server-side block of
       // every special-power action (the canX gates also hide them for the board/AI). A negated
       // unit may still move + make NORMAL attacks (those aren't powers), so move/attack/end pass.
@@ -583,6 +611,9 @@ export function applyAction(state: HSState, playerId: string, action: HSAction):
       else if (action.kind === 'acid_breath') res = doAcidBreath(state, me.seat, action.rolls);
       else if (action.kind === 'throw_figure') res = doThrow(state, me.seat, action);
       else if (action.kind === 'carry_move') res = doCarryMove(state, me.seat, action);
+      else if (action.kind === 'blood_hungry') res = doBloodHungry(state, action);
+      else if (action.kind === 'net_trip') res = doNetTrip(state, me.seat, action.d20);
+      else if (action.kind === 'chilling_touch') res = doChillingTouch(state, me.seat, action.targetId, action.d20);
       else if (action.kind === 'orient_figure') res = doOrientFigure(state, me.seat, action.figureId, action.dir);
       // "End move": a soft commit — the boundary below clears the undo stack so the move is
       // locked in. No other state change, so it stays clear of the Berserker/pending-choice flow.
@@ -647,9 +678,10 @@ function buildArmy(seat: number, cardIds: readonly string[]): { cards: ArmyCardI
     const def = HS_CARDS[cardId];
     const uid = `s${seat}-${cardId}`;
     cards.push({ uid, cardId, ownerSeat: seat, orderMarkers: [], attackMod: 0, defenseMod: 0 });
-    // Airborne Elite THE DROP: they do NOT start on the battlefield — every figure
-    // begins in RESERVE (alive, off-board) and is deployed later by The Drop.
-    const inReserve = def.id === AIRBORNE_CARD_ID;
+    // Airborne Elite THE DROP / Rechets of Bogdan ISKRA'S SUMMONING: they do NOT start on the
+    // battlefield — every figure begins in RESERVE (alive, off-board) and is deployed later by
+    // The Drop / Iskra's summon.
+    const inReserve = def.id === AIRBORNE_CARD_ID || def.id === RECHETS_CARD_ID;
     const total = def.figures * n; // pooled figure count across all drafted copies
     for (let i = 1; i <= total; i++) {
       figures.push({ id: `${uid}-${i}`, cardUid: uid, ownerSeat: seat, at: null, index: i, wounds: 0, ...(inReserve ? { reserve: true } : {}) });
@@ -851,6 +883,11 @@ function resetTurnScratch(s: HSState): void {
   delete s.chompedThisTurn;
   delete s.queglixDiceSpent;
   delete s.threwThisTurn;
+  delete s.netTripRolled;
+  delete s.netTripActive;
+  delete s.bloodHungryChain;
+  delete s.chillingTouchSpent;
+  delete s.marcuControlSeat;
 }
 
 function enterPlaying(s: HSState): void {
@@ -1617,10 +1654,13 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
   // SERVER applies it; the engine re-validates the bonus matches Dagmar control
   // (controlled by whoever occupies the glyph right now). Each seat is owed
   // exactly 0 or 8.
-  // Dagmar (+8) and Lodin (+1) both add to a seat's initiative; a seat may hold either,
-  // both, or neither. The server carries raw+bonus; this re-validates the exact total.
+  // Dagmar (+8), Lodin (+1) and the Capuan Gladiators' Initiative Advantage (+1 per marker on
+  // their card, max +3, only while ALL the seat's markers sit on Gladiator cards) all add to a
+  // seat's initiative. The server carries raw+bonus; this re-validates the exact total.
   const initiativeBonusFor = (seat: number): number =>
-    seatGlyphCount(state, seat, 'dagmar') * DAGMAR_INITIATIVE_BONUS + lodinD20Bonus(state, seat);
+    seatGlyphCount(state, seat, 'dagmar') * DAGMAR_INITIATIVE_BONUS +
+    lodinD20Bonus(state, seat) +
+    capuanInitiativeBonus(state, seat);
   for (const attempt of attempts) {
     if (
       !Array.isArray(attempt) ||
@@ -1659,6 +1699,32 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
 
   const s = clone(state);
   s.initiativeRolls = attempts;
+  // GLADIATOR INSPIRATION (Spartacus): evaluated per seat the moment the round's markers are all
+  // committed — "if ALL Order Markers for a round are placed on Gladiator Army Cards, and at least
+  // one Order Marker is placed on Spartacus, then all Gladiators you control (except Spartacus)
+  // become inspired" (+1 Move, +1 attack die, +1 defense die for the REST OF THE ROUND). Skipped
+  // while Spartacus is Nilrend-negated (his power is stripped).
+  s.inspiredCardUids = [];
+  for (const seat of seats) {
+    const marked = s.cards.filter(c => c.ownerSeat === seat && c.orderMarkers.length > 0);
+    if (marked.length === 0) continue;
+    const allGladiator = marked.every(c => isGladiatorClass(c.cardId));
+    const spartacus = marked.find(c => c.cardId === SPARTACUS_CARD_ID);
+    if (allGladiator && spartacus && !isCardNegated(s, spartacus.uid)) {
+      const inspired = s.cards.filter(
+        c => c.ownerSeat === seat && c.cardId !== SPARTACUS_CARD_ID && isGladiatorClass(c.cardId),
+      );
+      s.inspiredCardUids.push(...inspired.map(c => c.uid));
+      if (inspired.length > 0) {
+        pushLog(
+          s,
+          'power',
+          `Gladiator Inspiration! ${playerName(s, seat)}'s Gladiators (+1 move, +1 attack die, +1 defense die this round).`,
+          seat,
+        );
+      }
+    }
+  }
   // Highest roller takes the first turn; play then passes LEFT around the table (p. 9) — i.e.
   // the PHYSICAL start-zone ring rotated to the winner, NOT raw seat-index order (seat numbers
   // are assigned farthest-first on the Star, so they don't run around the board).
@@ -1736,6 +1802,15 @@ function beginTurnOrSkip(s: HSState): void {
       // One clean, colour-coded headline per turn ("Braxas activates" in the
       // owner's hue) instead of the old verbose "Round/turn/marker reveals…" line.
       pushLog(s, 'activate', `${HS_CARDS[holder.cardId].name} activates`, seat);
+      // ETERNAL HATRED (Marcu Esenwein): "After revealing an order marker on this card, you MUST
+      // roll the 20-sided die." Open the mandatory roll ceremony BEFORE anything else this turn —
+      // on 17+ an opponent controls Marcu for the remainder of the turn. Skipped while negated
+      // (Glyph of Nilrend strips the card's powers — including its drawbacks).
+      if (HS_CARDS[holder.cardId].id === MARCU_CARD_ID && !isCardNegated(s, holder.uid)) {
+        s.pendingChoice = { kind: 'eternal_hatred', seat, cardUid: holder.uid, d20: null };
+        pushLog(s, 'power', `Eternal Hatred — ${playerName(s, seat)} must roll the d20 for Marcu Esenwein.`);
+        return;
+      }
       // BONDING (Grut squads): if this card bonds and the owner controls an eligible partner, offer
       // a FREE bonus turn FIRST — the pendingChoice gate blocks the squad until the owner bonds/skips.
       openBondOffer(s);
@@ -1854,6 +1929,7 @@ function startNextRound(s: HSState): void {
   s.moveHistory = [];
   s.bond = undefined; // BONDING: never carry a bonus turn across a round boundary
   s.bondOffered = false;
+  s.inspiredCardUids = []; // GLADIATOR INSPIRATION lasts "for the rest of the round" only
   resetTurnScratch(s);
   for (const card of s.cards) card.orderMarkers = [];
   pushLog(s, 'info', `Round ${s.round} — all players place their order markers.`);
@@ -1896,6 +1972,11 @@ function bondPartnerCardUids(state: HSState, squadUid: string): string[] {
       if (!cardHasLivingFigures(state, c.uid)) return false;
       const def = effectiveCardDef(c.cardId, state.edition);
       if (!def) return false;
+      // 'human_gladiator_hero' (Capuan Gladiators): "any Human Gladiator HERO you control" —
+      // species Human + a Gladiator class + a HERO card (the Capuan squad itself never qualifies).
+      if (kind === 'human_gladiator_hero') {
+        return def.type === 'hero' && def.species === 'Human' && isGladiatorClass(c.cardId);
+      }
       return kind === 'champion' ? def.species === 'Orc' && def.unitClass === 'Champion' : def.unitClass === 'Beast';
     })
     .map(c => c.uid);
@@ -2252,6 +2333,21 @@ function seatGlyphCount(state: HSState, seat: number, glyphId: HSGlyphId): numbe
  *  Dagmar — The Drop, Mind Shackle, Berserker Charge, Chomp, extreme-fall saves). */
 function lodinD20Bonus(state: HSState, seat: number): number {
   return seatGlyphCount(state, seat, 'lodin');
+}
+
+/** Capuan Gladiators' INITIATIVE ADVANTAGE: "If all of your order markers are on Gladiator Army
+ *  Cards, you may add 1 to your initiative roll for every order marker on the Capuan Gladiators'
+ *  Army Card, up to a maximum of +3." Auto-applied (a free, strictly-beneficial "may"). 0 unless
+ *  EVERY one of the seat's placed markers (1/2/3/X) sits on a Gladiator-class card; the X marker
+ *  counts toward the +1s. Exported so the SERVER'S initiative roller adds the same bonus the
+ *  engine re-validates. Off while the Capuan card is Nilrend-negated. */
+export function capuanInitiativeBonus(state: HSState, seat: number): number {
+  const marked = state.cards.filter(c => c.ownerSeat === seat && c.orderMarkers.length > 0);
+  if (marked.length === 0) return 0;
+  if (!marked.every(c => isGladiatorClass(c.cardId))) return 0;
+  const capuan = marked.find(c => c.cardId === CAPUAN_CARD_ID);
+  if (!capuan || isCardNegated(state, capuan.uid)) return 0;
+  return Math.min(3, capuan.orderMarkers.length);
 }
 
 /** HIVE SUPREMACY (Su-Bak-Na): +1 to a d20 the owner rolls FOR one of their MARRO or WULSINU figures,
@@ -2861,6 +2957,7 @@ function applyValidatedMove(
       const dead = fig.wounds >= cardDefFor(s, fig).life;
       if (dead) fig.at = null;
       pushLog(s, 'fall', `${enemyLabel} takes a leaving-engagement swipe at ${moverLabel} — 1 wound${dead ? `, ${moverLabel} is destroyed!` : '.'}`);
+      if (dead && enemy) applyLifeDrain(s, enemy); // a vampire's killing swipe feeds it
     } else {
       pushLog(s, 'fall', `${enemyLabel} swipes at ${moverLabel} as it leaves — miss.`);
     }
@@ -3239,6 +3336,7 @@ function doMoveStep(
       const dead = f.wounds >= cardDefFor(s, f).life;
       if (dead) { f.at = null; f.at2 = null; }
       pushLog(s, 'fall', `${enemyLabel} takes a leaving-engagement swipe at ${moverLabel} — 1 wound${dead ? `, ${moverLabel} is destroyed!` : '.'}`);
+      if (dead && enemy) applyLifeDrain(s, enemy); // a vampire's killing swipe feeds it
     } else {
       pushLog(s, 'fall', `${enemyLabel} swipes at ${moverLabel} as it leaves — miss.`);
     }
@@ -3859,6 +3957,13 @@ export function effectiveAttackDice(
     dice += 1;
     breakdown.push('+1 Swog Rider aura');
   }
+  // GLADIATOR INSPIRATION (Spartacus): inspired Gladiators "add … 1 extra attack die" for the rest
+  // of the round. NORMAL attacks only (§117 — special attacks are unmodifiable; the Gladiators have
+  // none anyway). Set at roll_initiative; off while Spartacus is currently negated.
+  if (isNormalAttack && figureInspired(state, attacker)) {
+    dice += 1;
+    breakdown.push('+1 Inspired');
+  }
   // Zettian Guards' ZETTIAN TARGETING (slice 6, cards.md): "When attacking, if
   // your second Zettian Guard attacks the same figure as the first Zettian Guard,
   // add one attack die to the second Zettian Guard's attack." The FIRST Guard's
@@ -3988,6 +4093,24 @@ export function effectiveDefenseDice(
     dice += jalgardN * 2;
     breakdown.push(`+${jalgardN * 2} Jalgard`);
   }
+  // GLADIATOR INSPIRATION (Spartacus): inspired Gladiators "add … 1 extra … defense die" for the
+  // rest of the round.
+  if (figureInspired(state, defender)) {
+    dice += 1;
+    breakdown.push('+1 Inspired');
+  }
+  // NET TRIP 14 (Retiarius): after a successful d20 this turn, "any small or medium figure attacked
+  // by Retiarius this turn may roll no more than 1 die for defense." Applied LAST — it's a hard cap
+  // over every bonus (auras, height, glyphs alike).
+  if (
+    state.netTripActive &&
+    cardDefFor(state, attacker).id === RETIARIUS_CARD_ID &&
+    isSmallOrMedium(cardDefFor(state, defender)) &&
+    dice > 1
+  ) {
+    dice = 1;
+    breakdown.push('capped at 1 — Net Trip');
+  }
   return { dice, breakdown };
 }
 
@@ -4098,12 +4221,24 @@ export function effectiveMove(state: HSState, fig: Figure): EffectiveStat {
     );
     if (trickyAdj) { move += def.trickySpeed; breakdown.push(`+${def.trickySpeed} Tricky Speed`); }
   }
+  // GLADIATOR INSPIRATION (Spartacus): inspired Gladiators "add one to their Move number" for the
+  // rest of the round. Set at roll_initiative; off while Spartacus is currently negated.
+  if (figureInspired(state, fig)) { move += 1; breakdown.push('+1 Inspired'); }
   // DOUBLE-SPACE penalty (owner HOUSE RULE) — RESTORED 2026-07-01. The peanut second-space pick can
   // point the trailing lobe FORWARD, which would otherwise net an extra hex of forward reach beyond the
   // move budget; the −1 compensates so a 2-hex figure's forward reach matches a 1-hex figure's. Applied
   // LAST, after every glyph/Spirit boost, to ALL 2-hex figures incl. flyers (Mimring 6→5).
   if (baseSizeOf(def) === 2 && move > 0) { move -= 1; breakdown.push('−1 double-space'); }
   return { dice: move, breakdown };
+}
+
+/** Is `fig` currently benefiting from GLADIATOR INSPIRATION? Its card is in this round's inspired
+ *  set AND the owner's Spartacus isn't (now) Nilrend-negated — negating Spartacus mid-round strips
+ *  the aura he granted, matching every other power-source negation. */
+function figureInspired(state: HSState, fig: Figure): boolean {
+  if (!state.inspiredCardUids?.includes(fig.cardUid)) return false;
+  const spartacus = state.cards.find(c => c.ownerSeat === fig.ownerSeat && c.cardId === SPARTACUS_CARD_ID);
+  return !!spartacus && !isCardNegated(state, spartacus.uid);
 }
 
 /**
@@ -4799,7 +4934,27 @@ function doAttack(
   // damage." Only vs a NON-adjacent attacker, and only with ≥1 shield rolled →
   // ALL damage is negated. An adjacent attacker resolves normally.
   const stealthDodge = !!tDef.stealthDodge && !adjacent && shields >= 1;
-  const wounds = stealthDodge ? 0 : Math.max(0, skulls - shields);
+  // LETHAL STING (Rechets of Bogdan): "when rolling attack dice against a small or medium figure,
+  // if a Rechet rolls a skull on EVERY die, the defending figure cannot roll any defense dice and
+  // is immediately destroyed." Every die (incl. height bonuses) must be a skull; the defense roll
+  // is ignored outright. Off while the Rechets are Nilrend-negated.
+  const lethalSting =
+    attackerDef.id === RECHETS_CARD_ID &&
+    !isCardNegated(state, attacker.cardUid) &&
+    isSmallOrMedium(tDef) &&
+    action.attackRoll.length > 0 &&
+    skulls === action.attackRoll.length;
+  let wounds = lethalSting
+    ? Math.max(0, tDef.life - target.wounds) // destroyed outright — fill its remaining life
+    : stealthDodge
+      ? 0
+      : Math.max(0, skulls - shields);
+  // ONE SHIELD DEFENSE (Crixus): "when rolling defense dice, if Crixus rolls at least one shield,
+  // the most wounds Crixus may take for this attack is one." A wound CAP, not a dice change — it
+  // rides over any margin (5 skulls vs 1 shield still lands only 1 wound). Off while negated.
+  if (tDef.id === CRIXUS_CARD_ID && !isCardNegated(state, target.cardUid) && shields >= 1 && wounds > 1) {
+    wounds = 1;
+  }
   // COUNTER STRIKE (Izumi Samurai): "When rolling defense dice against a NORMAL
   // attack from an ADJACENT attacking figure, all excess shields count as
   // unblockable hits on the attacking figure. Does not work against other
@@ -4861,13 +5016,19 @@ function doAttack(
     breakdown,
     seq: s.logSeq + 1,
   };
-  const outcome = stealthDodge
-    ? 'all damage blocked (Stealth Dodge).'
-    : destroyed
-      ? `${targetLabel} is destroyed!`
-      : wounds > 0
-        ? `${wounds} wound${wounds === 1 ? '' : 's'}.`
-        : 'blocked.';
+  // LIFE DRAIN (Esenwein vampires): "each time this figure destroys a figure, you may remove a
+  // wound marker from this Army Card." Auto-applied on the kill (free + strictly beneficial); the
+  // attacker must still be alive (mutually exclusive with a Counter-Strike death here anyway).
+  if (destroyed) applyLifeDrain(s, attackerMut);
+  const outcome = lethalSting
+    ? `Lethal Sting — all skulls! ${targetLabel} is destroyed (no defense).`
+    : stealthDodge
+      ? 'all damage blocked (Stealth Dodge).'
+      : destroyed
+        ? `${targetLabel} is destroyed!`
+        : wounds > 0
+          ? `${wounds} wound${wounds === 1 ? '' : 's'}.`
+          : 'blocked.';
   const height =
     req.heightBonusAttacker > 0
       ? ` (+${req.heightBonusAttacker} height advantage)`
@@ -4937,9 +5098,42 @@ function buildAttackBreakdown(req: {
  * unique cards to place on (every slice-4 card is a Unique Hero/Squad, so this
  * only bites in pathological wiped-board cases the finish-gate already covers).
  */
+/** LIFE DRAIN (Esenwein vampires): the attacker just destroyed a figure — if its card has the
+ *  lifeDrain power (and isn't negated), remove one wound marker from the card. Auto-applied: a
+ *  free, strictly-beneficial "may". Called from every kill the vampire itself inflicts (normal
+ *  attack, Chilling Touch, leaving-engagement swipes). */
+function applyLifeDrain(s: HSState, attacker: Figure): void {
+  if (attacker.at == null) return; // a dead vampire drains nothing
+  const def = cardDefFor(s, attacker);
+  if (!def.lifeDrain || isCardNegated(s, attacker.cardUid)) return;
+  if (attacker.wounds <= 0) return; // no wound marker to remove
+  attacker.wounds -= 1;
+  pushLog(s, 'power', `Life Drain — ${figureLabel(s, attacker)} feeds and removes a wound marker.`);
+}
+
 function maybeQueueSpiritOnDestroy(s: HSState, destroyed: Figure): void {
   if (s.phase !== 'playing') return; // finish takes precedence
   const cardId = cardDefFor(s, destroyed).id;
+  // ETERNAL HEARTBREAK (Sonya): "If you control Cyprien Esenwein and he is destroyed, Sonya
+  // Esenwein immediately receives 2 wounds." Every kill site funnels through here, so this is the
+  // one chokepoint for Cyprien's death. The power lives on SONYA's card — off while SHE is negated.
+  if (cardId === CYPRIEN_CARD_ID) {
+    const sonya = s.figures.find(
+      f => f.ownerSeat === destroyed.ownerSeat && f.at != null && cardDefFor(s, f).id === SONYA_CARD_ID,
+    );
+    if (sonya && !isCardNegated(s, sonya.cardUid)) {
+      sonya.wounds += 2;
+      const dead = sonya.wounds >= cardDefFor(s, sonya).life;
+      if (dead) { sonya.at = null; sonya.at2 = null; }
+      pushLog(
+        s,
+        'power',
+        `Eternal Heartbreak — Cyprien falls and Sonya Esenwein receives 2 wounds${dead ? ' and is destroyed!' : '.'}`,
+      );
+      checkEliminationWin(s);
+      if (s.phase !== 'playing') return; // her death just ended the game
+    }
+  }
   const spirit: 'attack' | 'defense' | 'move' | null =
     cardId === FINN_CARD_ID ? 'attack' : cardId === THORGRIM_CARD_ID ? 'defense' : cardId === ELDGRIM_CARD_ID ? 'move' : null;
   if (!spirit) return;
@@ -6144,17 +6338,20 @@ function doThrow(
 }
 
 // ---------------------------------------------------------------------------
-// Theracus — CARRY (before move: pick an unengaged friendly small/medium adjacent
-// figure; after Theracus flies, place it adjacent to his new position).
+// CARRY (Theracus, Brunak) — before move: pick an unengaged friendly small/medium adjacent
+// figure; after the carrier moves, place it adjacent to its new position.
 // ---------------------------------------------------------------------------
 
+/** Card ids with the CARRY power — the generic gate, so a new carrier only needs its id here. */
+const CARRIER_CARD_IDS: ReadonlySet<string> = new Set([THERACUS_CARD_ID, BRUNAK_CARD_ID]);
+
 /** Unengaged friendly (allied) small/medium figures adjacent to the active
- *  Theracus he may Carry. Empty unless his active turn, before he has moved. */
+ *  carrier (Theracus/Brunak) it may Carry. Empty unless its active turn, before it has moved. */
 export function carryPassengers(state: HSState, seat: number): string[] {
   const activeUid = getActiveCardUid(state);
   const active = state.cards.find(c => c.uid === activeUid);
   if (state.subPhase !== 'turns' || state.turnSeat !== seat) return [];
-  if (!active || active.cardId !== THERACUS_CARD_ID) return [];
+  if (!active || !CARRIER_CARD_IDS.has(active.cardId)) return [];
   const theracus = state.figures.find(f => f.cardUid === activeUid && f.at != null);
   if (!theracus) return [];
   if (state.movedFigureIds.includes(theracus.id) || state.turnAttacks.length > 0) return [];
@@ -6187,11 +6384,11 @@ function doCarryMove(
 ): HSResult {
   const r = activeSpecialFigure(state, action.figureId);
   if ('error' in r) return r;
-  const theracus = r.fig;
-  if (cardDefFor(state, theracus).id !== THERACUS_CARD_ID) return { error: 'Only Theracus has Carry' };
+  const theracus = r.fig; // the CARRIER (Theracus or Brunak — variable name kept for history)
+  if (!CARRIER_CARD_IDS.has(cardDefFor(state, theracus).id)) return { error: 'Only a figure with Carry may carry' };
   // The passenger must be a legal Carry choice BEFORE the move.
   if (!carryPassengers(state, seat).includes(action.passengerId)) {
-    return { error: 'Choose an unengaged friendly small/medium figure adjacent to Theracus' };
+    return { error: 'Choose an unengaged friendly small/medium figure adjacent to the carrier' };
   }
   // Theracus's move validates and resolves exactly like a normal flying move
   // (movement budget, takeoff leaving-engagement swipes — the SERVER rolled them).
@@ -6255,6 +6452,221 @@ export function carryDestFootprint(state: HSState, theracusId: string, to: HexKe
 }
 
 // ---------------------------------------------------------------------------
+// Brunak — BLOOD HUNGRY SPECIAL ATTACK (verbatim card): "Range 1. Attack 4. If
+// Brunak's Blood Hungry Special Attack destroys a figure, Brunak may attack
+// again with his Blood Hungry Special Attack. Brunak may continue attacking
+// with his Blood Hungry Special Attack until he does not destroy a figure."
+// It IS his attack; a kill sets `bloodHungryChain` so the next swing is legal.
+// Special attack → flat Attack 4 (no height/aura); the DEFENDER keeps full
+// defense incl. height (§117).
+// ---------------------------------------------------------------------------
+
+/** Adjacent enemy figures Brunak could Blood Hungry right now. Empty unless his
+ *  active turn AND (he hasn't attacked yet OR his last Blood Hungry killed). */
+export function bloodHungryTargets(state: HSState, attackerId: string): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
+  const r = activeSpecialFigure(state, attackerId);
+  if ('error' in r) return [];
+  const brunak = r.fig;
+  if (cardDefFor(state, brunak).id !== BRUNAK_CARD_ID) return [];
+  // No mixing with a normal attack; the chain flag legalises swings past the first.
+  if (state.turnAttacks.some(a => a.attackerId === attackerId && a.special !== 'blood_hungry')) return [];
+  if (state.turnAttacks.some(a => a.special === 'blood_hungry') && !state.bloodHungryChain) return [];
+  return state.figures
+    .filter(t => t.at != null && teamOfSeat(state, t.ownerSeat) !== teamOfSeat(state, brunak.ownerSeat) && figuresAdjacent(state, brunak, t))
+    .map(t => t.id);
+}
+
+function doBloodHungry(
+  state: HSState,
+  action: { attackerId: string; targetId: string; attackRoll: CombatFace[]; defenseRoll: CombatFace[] },
+): HSResult {
+  const r = activeSpecialFigure(state, action.attackerId);
+  if ('error' in r) return r;
+  const brunak = r.fig;
+  if (cardDefFor(state, brunak).id !== BRUNAK_CARD_ID) return { error: 'Only Brunak has the Blood Hungry Special Attack' };
+  if (!bloodHungryTargets(state, brunak.id).includes(action.targetId)) {
+    return { error: 'Choose an adjacent enemy figure (Blood Hungry chains only after a kill)' };
+  }
+  const target = state.figures.find(f => f.id === action.targetId)!;
+  const defDice = Math.max(0, effectiveDefenseDice(state, target, brunak).dice);
+  if (!validFaces(action.attackRoll, BLOOD_HUNGRY_ATTACK)) return { error: 'Malformed Blood Hungry attack roll' };
+  if (!validFaces(action.defenseRoll, defDice)) return { error: 'Malformed Blood Hungry defense roll' };
+
+  const skulls = countFaces(action.attackRoll, 'skull');
+  const shields = countFaces(action.defenseRoll, 'shield');
+  const wounds = specialAttackWounds(state, brunak, target, skulls, shields);
+  const s = clone(state);
+  s.turnAttacks.push({ attackerId: brunak.id, targetId: target.id, special: 'blood_hungry' });
+  const t = s.figures.find(f => f.id === target.id)!;
+  t.wounds += wounds;
+  const tDef = cardDefFor(s, t);
+  const destroyed = t.wounds >= tDef.life;
+  if (destroyed) { t.at = null; t.at2 = null; }
+  // The CHAIN: a kill re-arms the swing; anything else ends it ("until he does not destroy a figure").
+  s.bloodHungryChain = destroyed;
+  s.lastAttack = {
+    attackerId: brunak.id,
+    targetId: target.id,
+    attackerLabel: figureLabel(s, brunak),
+    targetLabel: figureLabel(s, t),
+    attackRoll: action.attackRoll,
+    defenseRoll: action.defenseRoll,
+    skulls,
+    shields,
+    wounds,
+    destroyed,
+    heightBonusAttacker: 0,
+    heightBonusDefender: 0,
+    breakdown: [`Blood Hungry Special Attack`, `Attack ${BLOOD_HUNGRY_ATTACK} (special — no height / aura)`],
+    seq: s.logSeq + 1,
+  };
+  pushLog(
+    s,
+    'attack',
+    `Blood Hungry — ${figureLabel(s, brunak)} savages ${figureLabel(s, t)}: ${skulls} skull${skulls === 1 ? '' : 's'} vs ${shields} shield${shields === 1 ? '' : 's'} — ${destroyed ? 'destroyed! Brunak may attack again.' : wounds > 0 ? `${wounds} wound${wounds === 1 ? '' : 's'}.` : 'blocked.'}`,
+  );
+  setEffect(s, 'chomp', brunak.at, [target.at]); // fangs VFX — a savage bite fits the troll
+  checkEliminationWin(s);
+  if (destroyed) maybeQueueSpiritOnDestroy(s, t);
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Retiarius — NET TRIP 14 (verbatim card): "After moving and before attacking,
+// roll the 20-sided die. If you roll a 14 or higher, any small or medium figure
+// attacked by Retiarius this turn may roll no more than 1 die for defense."
+// The defense-dice cap is folded in effectiveDefenseDice (netTripActive).
+// ---------------------------------------------------------------------------
+
+/** Can Retiarius roll Net Trip right now — his active turn, after-move/before-attack
+ *  window, not yet rolled this turn? */
+export function canNetTrip(state: HSState): boolean {
+  if (activeCardNegated(state)) return false; // Glyph of Nilrend
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (!active || active.cardId !== RETIARIUS_CARD_ID) return false;
+  if (state.netTripRolled || state.turnAttacks.length > 0) return false;
+  return state.figures.some(f => f.cardUid === activeUid && f.at != null);
+}
+
+function doNetTrip(state: HSState, seat: number, d20: number): HSResult {
+  if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) return { error: 'Net Trip requires a d20 roll (1-20)' };
+  if (!canNetTrip(state)) return { error: 'Net Trip: roll once per turn, after moving and before attacking' };
+  const s = clone(state);
+  s.netTripRolled = true;
+  const lodin = lodinD20Bonus(s, seat);
+  const total = d20 + lodin;
+  const rollNote = lodin ? `${d20} +${lodin}` : `${d20}`;
+  s.netTripActive = total >= NET_TRIP_THRESHOLD;
+  pushLog(
+    s,
+    'power',
+    s.netTripActive
+      ? `Net Trip! ${playerName(s, seat)} rolls ${rollNote} — small/medium figures Retiarius attacks this turn roll max 1 defense die.`
+      : `${playerName(s, seat)} attempts Net Trip but rolls ${rollNote} (needs ${NET_TRIP_THRESHOLD}).`,
+  );
+  setLastRoll(s, {
+    title: 'Net Trip',
+    dice: [d20],
+    success: s.netTripActive,
+    detail: s.netTripActive ? `${rollNote} ≥ ${NET_TRIP_THRESHOLD} — the net snares!` : `Rolled ${rollNote} — needs ${NET_TRIP_THRESHOLD}.`,
+  });
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// Cyprien Esenwein — CHILLING TOUCH (verbatim card): "After moving and before
+// attacking, Cyprien Esenwein may attempt a Chilling Touch. To do this, choose a
+// figure adjacent to Cyprien Esenwein and roll the 20-sided die. 1-12 nothing;
+// 13-15 1 wound; 16-17 2 wounds; 18-19 3 wounds; 20 or higher 6 wounds. Does
+// not affect Soulborgs or destructible objects." Does NOT consume his attack.
+// Sonya's ETERNAL STRENGTH (+2) and Lodin fold into the roll — "20 or higher"
+// is reachable exactly because of those bonuses.
+// ---------------------------------------------------------------------------
+
+/** Adjacent non-Soulborg figures Cyprien could Chilling Touch right now. Empty
+ *  unless his active turn, before attacking, and not yet attempted this turn. */
+export function chillingTouchTargets(state: HSState, attackerId: string): string[] {
+  if (activeCardNegated(state)) return []; // Glyph of Nilrend
+  const r = activeSpecialFigure(state, attackerId);
+  if ('error' in r) return [];
+  const cyprien = r.fig;
+  if (cardDefFor(state, cyprien).id !== CYPRIEN_CARD_ID) return [];
+  if (state.chillingTouchSpent || state.turnAttacks.length > 0) return [];
+  return state.figures
+    .filter(
+      t =>
+        t.at != null &&
+        t.id !== cyprien.id &&
+        cardDefFor(state, t).species !== 'Soulborg' && // "does not affect Soulborgs"
+        figuresAdjacent(state, cyprien, t),
+    )
+    .map(t => t.id);
+}
+
+/** Wounds for a Chilling Touch total (already including Eternal Strength/Lodin). */
+function chillingTouchWounds(total: number): number {
+  if (total >= 20) return 6;
+  if (total >= 18) return 3;
+  if (total >= 16) return 2;
+  if (total >= 13) return 1;
+  return 0;
+}
+
+/** Sonya's ETERNAL STRENGTH: +2 to Cyprien's Chilling Touch d20 while the owner
+ *  fields a living, non-negated Sonya. Exported for the dice-panel preview. */
+export function eternalStrengthBonus(state: HSState, seat: number): number {
+  const sonya = state.figures.find(
+    f => f.ownerSeat === seat && f.at != null && cardDefFor(state, f).id === SONYA_CARD_ID && !isCardNegated(state, f.cardUid),
+  );
+  return sonya ? 2 : 0;
+}
+
+function doChillingTouch(state: HSState, seat: number, targetId: string, d20: number): HSResult {
+  if (!Number.isInteger(d20) || d20 < 1 || d20 > 20) return { error: 'Chilling Touch requires a d20 roll (1-20)' };
+  const activeUid = getActiveCardUid(state);
+  const active = state.cards.find(c => c.uid === activeUid);
+  if (!active || active.cardId !== CYPRIEN_CARD_ID) return { error: 'Only Cyprien Esenwein has Chilling Touch' };
+  const cyprien = state.figures.find(f => f.cardUid === activeUid && f.at != null);
+  if (!cyprien) return { error: 'Cyprien Esenwein is not on the battlefield' };
+  if (!chillingTouchTargets(state, cyprien.id).includes(targetId)) {
+    return { error: 'Choose an adjacent non-Soulborg figure, once per turn, before attacking' };
+  }
+  const target = state.figures.find(f => f.id === targetId)!;
+  const s = clone(state);
+  s.chillingTouchSpent = true;
+  const bonus = eternalStrengthBonus(s, seat) + lodinD20Bonus(s, seat);
+  const total = d20 + bonus;
+  const rollNote = bonus ? `${d20} +${bonus}` : `${d20}`;
+  const wounds = chillingTouchWounds(total);
+  const t = s.figures.find(f => f.id === targetId)!;
+  const tDef = cardDefFor(s, t);
+  const cypMut = s.figures.find(f => f.id === cyprien.id)!;
+  if (wounds > 0) {
+    t.wounds += wounds;
+    const destroyed = t.wounds >= tDef.life;
+    if (destroyed) { t.at = null; t.at2 = null; }
+    pushLog(
+      s,
+      'power',
+      `Chilling Touch! ${figureLabel(s, cypMut)} rolls ${rollNote} — ${figureLabel(s, t)} receives ${wounds} wound${wounds === 1 ? '' : 's'}${destroyed ? ' and is destroyed!' : '.'}`,
+    );
+    setLastRoll(s, { title: 'Chilling Touch', dice: [d20], success: true, detail: `${rollNote} — ${wounds} wound${wounds === 1 ? '' : 's'}${destroyed ? `, ${tDef.name} destroyed!` : ''}` });
+    setEffect(s, 'chomp', cypMut.at, [target.at]); // fangs VFX — the vampire's icy grip
+    if (destroyed) {
+      applyLifeDrain(s, cypMut); // a Chilling Touch kill still feeds Life Drain
+      checkEliminationWin(s);
+      maybeQueueSpiritOnDestroy(s, t);
+    }
+  } else {
+    pushLog(s, 'power', `${figureLabel(s, cypMut)} attempts a Chilling Touch on ${figureLabel(s, t)} but rolls ${rollNote} (needs 13+).`);
+    setLastRoll(s, { title: 'Chilling Touch', dice: [d20], success: false, detail: `Rolled ${rollNote} — needs 13+.` });
+  }
+  return s;
+}
+
+// ---------------------------------------------------------------------------
 // Airborne Elite — THE DROP (cards.md): they start OFF the battlefield (reserve);
 // at the start of each round, before order markers, roll a d20 — on 13+ you MAY
 // deploy all reserve Airborne onto empty spaces not adjacent to each other or any
@@ -6313,6 +6725,27 @@ export function theDropHexes(state: HSState, seat: number): HexKey[] {
   const pc = state.pendingChoice;
   if (!pc || pc.kind !== 'airborne_drop' || pc.seat !== seat) return [];
   return Object.keys(MAPS[state.mapId]?.cells ?? {}).filter(k => dropHexLegal(state, k));
+}
+
+/** SUMMON THE RECHETS — the EMPTY spaces within 6 CLEAR SIGHT spaces of Iskra a summoned Rechet
+ *  may land on (only meaningful while a summon_rechets choice is open at its placement step).
+ *  Sighted from Iskra's hex with her height-aware eye (same tracer the ranged attacks use);
+ *  wall pillars and glyph-free rules do NOT apply here — the card only says empty + clear sight. */
+export function summonRechetsSpaces(state: HSState): HexKey[] {
+  const pc = state.pendingChoice;
+  if (!pc || pc.kind !== 'summon_rechets') return [];
+  const iskra = state.figures.find(f => f.id === pc.iskraId);
+  const map = MAPS[state.mapId];
+  if (!iskra || iskra.at == null || !map) return [];
+  const eye = attackerEyeFn(state, iskra);
+  const occupied = new Set(state.figures.filter(f => f.at != null).flatMap(f => figureHexes(f)));
+  return Object.keys(map.cells).filter(k => {
+    if (occupied.has(k)) return false;
+    if (isWallPillar(map.cells[k])) return false; // nobody stands on a wall pillar
+    const dist = rangeDistance(map.cells, iskra.at!, k);
+    if (dist == null || dist > SUMMON_RECHETS_RANGE) return false;
+    return hasLineOfSight3D(map.cells, iskra.at!, k, [], eye, map.walls);
+  });
 }
 
 /** The Drop — ROLL step (cards.md). At round start, before order markers, roll a
@@ -6717,6 +7150,150 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
     return s;
   }
 
+  // --- ETERNAL HATRED (Marcu Esenwein): step 1 = the MANDATORY d20 (server-injected); on 17+ the
+  //     owner picks which opponent controls Marcu this turn (auto-picked when only one). ---
+  if (pc.kind === 'eternal_hatred' && choice.kind === 'eternal_hatred') {
+    const nameSeat = (n: number) => playerName(state, n);
+    if (pc.d20 == null) {
+      if (choice.d20 == null) return { error: 'Eternal Hatred needs the d20 roll' };
+      if (!Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) return { error: 'Malformed d20' };
+      const s = clone(state);
+      const lodin = lodinD20Bonus(s, pc.seat);
+      const total = choice.d20 + lodin;
+      const rollNote = lodin ? `${choice.d20} +${lodin}` : `${choice.d20}`;
+      if (total < ETERNAL_HATRED_THRESHOLD) {
+        delete s.pendingChoice;
+        pushLog(s, 'power', `Eternal Hatred — ${nameSeat(pc.seat)} rolls ${rollNote}: Marcu obeys (needs ${ETERNAL_HATRED_THRESHOLD}+).`);
+        setLastRoll(s, { title: 'Eternal Hatred', dice: [choice.d20], success: false, detail: `Rolled ${rollNote} — Marcu stays loyal.` });
+        openBondOffer(s); // the turn proceeds normally
+        return s;
+      }
+      // 17+: an opponent takes control. One living opponent → auto-assign; otherwise the OWNER picks.
+      const opponents = livingSeats(s).filter(x => teamOfSeat(s, x) !== teamOfSeat(s, pc.seat));
+      setLastRoll(s, { title: 'Eternal Hatred', dice: [choice.d20], success: true, detail: `Rolled ${rollNote} — Marcu turns on his master!` });
+      if (opponents.length <= 1) {
+        const opp = opponents[0];
+        delete s.pendingChoice;
+        if (opp == null) return s; // no living opponent (shouldn't happen mid-turn)
+        s.marcuControlSeat = opp;
+        pushLog(s, 'power', `Eternal Hatred! ${rollNote} — ${nameSeat(opp)} controls Marcu Esenwein for the remainder of this turn.`);
+        return s;
+      }
+      const npc = s.pendingChoice;
+      if (npc?.kind === 'eternal_hatred') npc.d20 = choice.d20; // await the owner's opponent pick
+      pushLog(s, 'power', `Eternal Hatred! ${rollNote} — ${nameSeat(pc.seat)} must choose an opponent to control Marcu.`);
+      return s;
+    }
+    // Step 2 — the owner picks the controlling opponent.
+    if (choice.opponentSeat == null) return { error: 'Choose an opponent to control Marcu' };
+    const valid = livingSeats(state).filter(x => teamOfSeat(state, x) !== teamOfSeat(state, pc.seat));
+    if (!valid.includes(choice.opponentSeat)) return { error: 'Choose a living opponent seat' };
+    const s = clone(state);
+    delete s.pendingChoice;
+    s.marcuControlSeat = choice.opponentSeat;
+    pushLog(s, 'power', `Eternal Hatred — ${nameSeat(choice.opponentSeat)} controls Marcu Esenwein for the remainder of this turn.`);
+    return s;
+  }
+
+  // --- SUMMON THE RECHETS OF BOGDAN (Iskra): step 1 = attempt/decline (+the server d20); step 2
+  //     (14+) = the placements within 6 clear sight of Iskra (+the optional immediate bonus turn).
+  //     The slot advance was DEFERRED at end_turn — every terminal branch advances it here. ---
+  if (pc.kind === 'summon_rechets' && choice.kind === 'summon_rechets') {
+    const advance = (s: HSState) => {
+      s.turnSeat = null;
+      s.movedFigureIds = [];
+      s.turnAttacks = [];
+      s.stepMove = undefined;
+      s.movementEnded = false;
+      s.moveHistory = [];
+      resetTurnScratch(s);
+      if (advanceSlot(s)) beginTurnOrSkip(s);
+    };
+    if (pc.d20 == null) {
+      if (choice.decline) {
+        const s = clone(state);
+        delete s.pendingChoice;
+        pushLog(s, 'info', `${playerName(s, pc.seat)} declines to summon the Rechets of Bogdan.`);
+        advance(s);
+        return s;
+      }
+      if (choice.d20 == null) return { error: 'The summon attempt needs the d20 roll' };
+      if (!Number.isInteger(choice.d20) || choice.d20 < 1 || choice.d20 > 20) return { error: 'Malformed d20' };
+      const s = clone(state);
+      const lodin = lodinD20Bonus(s, pc.seat);
+      const total = choice.d20 + lodin;
+      const rollNote = lodin ? `${choice.d20} +${lodin}` : `${choice.d20}`;
+      if (total < SUMMON_RECHETS_THRESHOLD) {
+        delete s.pendingChoice;
+        pushLog(s, 'power', `${playerName(s, pc.seat)} attempts to summon the Rechets but rolls ${rollNote} (needs ${SUMMON_RECHETS_THRESHOLD}).`);
+        setLastRoll(s, { title: 'Summon the Rechets', dice: [choice.d20], success: false, detail: `Rolled ${rollNote} — the bats stay in the dark.` });
+        advance(s);
+        return s;
+      }
+      const npc = s.pendingChoice;
+      if (npc?.kind === 'summon_rechets') npc.d20 = choice.d20; // await the placements
+      pushLog(s, 'power', `Summon the Rechets! ${playerName(s, pc.seat)} rolls ${rollNote} — place all 3 Rechets within ${SUMMON_RECHETS_RANGE} clear sight spaces of Iskra.`);
+      setLastRoll(s, { title: 'Summon the Rechets', dice: [choice.d20], success: true, detail: `${rollNote} ≥ ${SUMMON_RECHETS_THRESHOLD} — the Rechets answer!` });
+      return s;
+    }
+    // Step 2 — placements. "You MUST place all 3 … any Rechets you cannot place are immediately
+    // destroyed and cannot be summoned again." The roll already succeeded, so this attempt is the
+    // one-and-only summon either way.
+    const placements = choice.placements ?? [];
+    const legal = summonRechetsSpaces(state);
+    const reserves = state.figures.filter(f => f.cardUid === pc.rechetsUid && f.reserve);
+    if (placements.length > reserves.length) return { error: 'More placements than reserve Rechets' };
+    if (new Set(placements).size !== placements.length) return { error: 'Duplicate summon spaces' };
+    for (const k of placements) if (!legal.includes(k)) return { error: `Not an empty space within ${SUMMON_RECHETS_RANGE} clear sight of Iskra` };
+    // Must place as many as legally fit: allow fewer ONLY when the legal spaces ran out.
+    if (placements.length < Math.min(reserves.length, legal.length)) {
+      return { error: 'You must place every Rechet that fits' };
+    }
+    const s = clone(state);
+    delete s.pendingChoice;
+    (s.rechetsSummoned ??= []).push(pc.rechetsUid);
+    const figs = s.figures.filter(f => f.cardUid === pc.rechetsUid && f.reserve);
+    placements.forEach((k, i) => {
+      const f = figs[i];
+      f.reserve = false;
+      f.at = k;
+      f.at2 = null;
+    });
+    let destroyedCount = 0;
+    for (let i = placements.length; i < figs.length; i++) {
+      figs[i].reserve = false; // could not be placed — destroyed, never summonable again
+      figs[i].at = null;
+      destroyedCount++;
+    }
+    pushLog(
+      s,
+      'power',
+      `The Rechets of Bogdan swarm in — ${placements.length} placed${destroyedCount > 0 ? `, ${destroyedCount} could not land and are destroyed` : ''}.`,
+    );
+    // Landing on a glyph triggers it (the bats STOP there), same as every other arrival.
+    for (const k of placements) {
+      const f = s.figures.find(x => x.cardUid === pc.rechetsUid && x.at === k);
+      if (f) applyGlyphOnStop(s, f);
+    }
+    checkEliminationWin(s);
+    if (s.phase !== 'playing') return s;
+    if (choice.takeTurn && placements.length > 0) {
+      // "When the Rechets are summoned, you may immediately take a turn with them" — an AFTER-style
+      // bonus turn: the active card becomes the Rechets; ending it advances the slot.
+      s.bond = { squadUid: pc.rechetsUid, partnerUid: pc.rechetsUid, after: true };
+      s.movedFigureIds = [];
+      s.turnAttacks = [];
+      s.stepMove = undefined;
+      s.movementEnded = false;
+      s.moveHistory = [];
+      resetTurnScratch(s);
+      pushLog(s, 'activate', `Rechets of Bogdan take an immediate bonus turn`, pc.seat);
+      return s;
+    }
+    advance(s);
+    return s;
+  }
+
   // --- Spirit placement (Finn/Thorgrim on destroy) ---
   if (pc.kind === 'spirit_placement' && choice.kind === 'spirit_placement') {
     const spiritName = pc.spirit === 'attack' ? 'Attack' : pc.spirit === 'defense' ? 'Armor' : 'Swiftness';
@@ -6857,6 +7434,22 @@ function doOverextend(state: HSState, seat: number, figureId: string): HSResult 
 
 function doEndTurn(state: HSState, seat: number): HSResult {
   const s = clone(state);
+  // SUMMONED-RECHETS bonus turn (bond.after): ending it advances the slot like a normal turn end —
+  // the marker-turn (Iskra's) was already over when the summon fired.
+  if (s.bond?.after) {
+    const partnerName = HS_CARDS[s.cards.find(c => c.uid === s.bond!.partnerUid)?.cardId ?? '']?.name ?? 'the card';
+    s.bond = undefined;
+    pushLog(s, 'info', `${partnerName}'s bonus turn ends.`);
+    s.turnSeat = null;
+    s.movedFigureIds = [];
+    s.turnAttacks = [];
+    s.stepMove = undefined;
+    s.movementEnded = false;
+    s.moveHistory = [];
+    resetTurnScratch(s);
+    if (advanceSlot(s)) beginTurnOrSkip(s);
+    return s;
+  }
   // BONDING: ending the bonded partner's FREE bonus turn does NOT advance the slot — it hands control
   // to the squad whose marker is revealed, which now takes its OWN turn under the SAME marker. Clear
   // `bond` (the active card reverts to the squad), reset the move/attack scratch for a fresh squad
@@ -6874,6 +7467,29 @@ function doEndTurn(state: HSState, seat: number): HSResult {
     resetTurnScratch(s);
     pushLog(s, 'activate', `${partnerName}'s bonus turn ends — ${squadName} takes its turn`, seat);
     return s; // squad turn begins under the same marker; turnSeat / pointer unchanged
+  }
+  // SUMMON THE RECHETS OF BOGDAN (Iskra): "AFTER taking a turn with Iskra Esenwein, you may attempt
+  // to summon…" — if the turn that just ended was Iskra's, her owner still has the Rechets in
+  // RESERVE, and they haven't been successfully summoned yet, open the offer and DEFER the slot
+  // advance until it resolves (decline / failed roll / placement all advance from resolve_choice).
+  {
+    const activeUid = getActiveCardUid(s);
+    const active = s.cards.find(c => c.uid === activeUid);
+    if (active && active.cardId === ISKRA_CARD_ID && !isCardNegated(s, active.uid)) {
+      const iskraFig = s.figures.find(f => f.cardUid === active.uid && f.at != null);
+      const rechets = s.cards.find(
+        c =>
+          c.ownerSeat === seat &&
+          c.cardId === RECHETS_CARD_ID &&
+          !(s.rechetsSummoned ?? []).includes(c.uid) &&
+          s.figures.some(f => f.cardUid === c.uid && f.reserve),
+      );
+      if (iskraFig && rechets) {
+        s.pendingChoice = { kind: 'summon_rechets', seat, iskraId: iskraFig.id, rechetsUid: rechets.uid, d20: null };
+        pushLog(s, 'power', `${playerName(s, seat)} may attempt to Summon the Rechets of Bogdan.`);
+        return s; // slot advance deferred until the summon resolves
+      }
+    }
   }
   pushLog(s, 'info', `${playerName(s, seat)} ends the turn.`);
   s.turnSeat = null;
@@ -7153,6 +7769,36 @@ function aiResolveChoice(state: HSState, seat: number): HSAction | null {
     // initiates a charge when a Viking is still out of range, so the re-move always helps).
     return { kind: 'resolve_choice', choice: { kind: 'berserker_charge', remove: true } };
   }
+  // ETERNAL HATRED (Marcu): step 1 = press Roll (the d20 is injected in aiEngineAction, like the
+  // roll ceremony); step 2 = pick an opponent — any living enemy seat (the first).
+  if (pc.kind === 'eternal_hatred') {
+    if (pc.d20 == null) return { kind: 'resolve_choice', choice: { kind: 'eternal_hatred' } };
+    const myTeam = teamOfSeat(state, seat);
+    const opp = livingSeats(state).find(x => teamOfSeat(state, x) !== myTeam);
+    if (opp == null) return null;
+    return { kind: 'resolve_choice', choice: { kind: 'eternal_hatred', opponentSeat: opp } };
+  }
+  // SUMMON THE RECHETS (Iskra): always attempt (a free 35% shot at 3 extra attackers); on success
+  // place the bats on the legal spaces CLOSEST to the enemy and take the immediate bonus turn.
+  if (pc.kind === 'summon_rechets') {
+    if (pc.d20 == null) return { kind: 'resolve_choice', choice: { kind: 'summon_rechets' } };
+    const legal = summonRechetsSpaces(state);
+    const reserves = state.figures.filter(f => f.cardUid === pc.rechetsUid && f.reserve).length;
+    const cells = MAPS[state.mapId]?.cells;
+    const enemies = aiEnemies(state, seat).filter(e => e.at != null);
+    const distToEnemy = (k: HexKey): number => {
+      if (!cells || enemies.length === 0) return 0;
+      let best = Infinity;
+      for (const e of enemies) { const d = rangeDistance(cells, k, e.at!); if (d != null && d < best) best = d; }
+      return best;
+    };
+    const placements = legal
+      .map(k => ({ k, d: distToEnemy(k) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, Math.min(reserves, legal.length))
+      .map(x => x.k);
+    return { kind: 'resolve_choice', choice: { kind: 'summon_rechets', placements, takeTurn: placements.length > 0 } };
+  }
   if (pc.kind === 'water_clone_place') {
     // Resolve the CURRENT placement (the engine indexes by `chosen.length`), and pick an option not
     // already taken — reading placements[0] dropped every clone after the first.
@@ -7380,6 +8026,32 @@ function aiTurn(state: HSState, seat: number): HSAction {
     if (aid === 'nilfheim') {
       const t = iceShardTargets(state, hero.id).filter(isEnemy);
       if (t.length > 0) return { kind: 'ice_shard', attackerId: hero.id, targetId: mostValuable(t), attackRoll: [], defenseRoll: [] };
+    }
+    // Retiarius NET TRIP — FREE (before attacking): always roll it when an enemy is in reach; on
+    // 14+ his small/medium targets defend with 1 die this turn (a huge swing for his Attack 5).
+    if (aid === RETIARIUS_CARD_ID && canNetTrip(state)) {
+      const adjEnemy = state.figures.some(t => t.at != null && enemyIds.has(t.id) && figuresAdjacent(state, hero, t));
+      if (adjEnemy) return { kind: 'net_trip', d20: 0 }; // d20 rolled by aiEngineAction
+    }
+    // Cyprien CHILLING TOUCH — FREE (does not use the attack): a d20 wound-band strike on the most
+    // valuable adjacent enemy. Always worth the attempt before his normal swing.
+    if (aid === CYPRIEN_CARD_ID) {
+      const t = chillingTouchTargets(state, hero.id).filter(isEnemy);
+      if (t.length > 0) return { kind: 'chilling_touch', targetId: mostValuable(t), d20: 0 };
+    }
+    // Brunak BLOOD HUNGRY — his attack, but a kill re-arms it: swing at the FLIMSIEST adjacent
+    // enemy first (most likely to die → chain), tie-broken by point value.
+    if (aid === BRUNAK_CARD_ID) {
+      const t = bloodHungryTargets(state, hero.id).filter(isEnemy);
+      if (t.length > 0) {
+        const figOf = (id: string) => state.figures.find(x => x.id === id)!;
+        const lifeLeft = (id: string) => { const f = figOf(id); return cardDefFor(state, f).life - f.wounds; };
+        const best = t.reduce((b, id) => {
+          if (lifeLeft(id) !== lifeLeft(b)) return lifeLeft(id) < lifeLeft(b) ? id : b;
+          return valueOf(id) > valueOf(b) ? id : b;
+        }, t[0]);
+        return { kind: 'blood_hungry', attackerId: hero.id, targetId: best, attackRoll: [], defenseRoll: [] };
+      }
     }
     // Major Q9 QUEGLIX GUN — focus up to 3 of the 9-die pool on the most valuable enemy.
     if (aid === 'major_q9') {
@@ -7864,6 +8536,18 @@ export function aiEngineAction(
   if (intent.kind === 'mind_shackle') {
     return { ...intent, d20: rollers.d20() };
   }
+  // Retiarius NET TRIP / Cyprien CHILLING TOUCH — single d20 each (14+ snares / wound bands).
+  if (intent.kind === 'net_trip' || intent.kind === 'chilling_touch') {
+    return { ...intent, d20: rollers.d20() };
+  }
+  // Brunak BLOOD HUNGRY — flat Attack 4 + the target's full effective defense (special
+  // attack: defender keeps height/auras, §117). Mirrors the ice_shard/queglix seam.
+  if (intent.kind === 'blood_hungry') {
+    const tgt = state.figures.find(f => f.id === intent.targetId);
+    const atk = state.figures.find(f => f.id === intent.attackerId);
+    const defDice = tgt && atk ? Math.max(0, effectiveDefenseDice(state, tgt, atk).dice) : 0;
+    return { ...intent, attackRoll: rollers.rollDice(BLOOD_HUNGRY_ATTACK), defenseRoll: rollers.rollDice(defDice) };
+  }
   // BIG-HERO SPECIAL ATTACKS — each mirrors its server-roll seam (actions.ts): the
   // FIXED attack dice are rolled ONCE (the attack is unmodifiable); each affected
   // figure's defense is rolled SEPARATELY from the engine's single-source defender
@@ -7928,6 +8612,13 @@ export function aiEngineAction(
   // validates it 1..20 at resolution), mirroring the human path's makeMoveHS injection.
   if (intent.kind === 'resolve_choice' && intent.choice.kind === 'roll_ceremony_roll') {
     return { kind: 'resolve_choice', choice: { kind: 'roll_ceremony_roll', d20: rollers.d20() } };
+  }
+  // ETERNAL HATRED / SUMMON THE RECHETS roll steps — same seam: the attempt's d20 is rolled here.
+  if (intent.kind === 'resolve_choice' && intent.choice.kind === 'eternal_hatred' && intent.choice.d20 == null && intent.choice.opponentSeat == null) {
+    return { kind: 'resolve_choice', choice: { kind: 'eternal_hatred', d20: rollers.d20() } };
+  }
+  if (intent.kind === 'resolve_choice' && intent.choice.kind === 'summon_rechets' && intent.choice.d20 == null && !intent.choice.decline && intent.choice.placements == null) {
+    return { kind: 'resolve_choice', choice: { kind: 'summon_rechets', d20: rollers.d20() } };
   }
   // SCATTER (Deathreavers) — a rat's scuttle resolves like a move: roll any fall dice for the chosen
   // landing (the engine re-derives the need + validates). The AI flees to FALL-FREE hexes, so this is
@@ -8005,7 +8696,9 @@ export function aiNextAction(state: HSState, seat: number): HSAction | null {
     if (canTheDrop(state, seat)) return { kind: 'the_drop', d20: 0 };
     return aiPlaceMarkers(state, seat);
   }
-  if (state.turnSeat === seat) return aiTurn(state, seat);
+  // ETERNAL HATRED: while an opponent controls Marcu, THAT seat drives the turn (a bot
+  // controller plays Marcu against his owner with the normal aggressive turn logic).
+  if ((state.marcuControlSeat ?? state.turnSeat) === seat) return aiTurn(state, seat);
   return null;
 }
 
@@ -8027,9 +8720,11 @@ export function getActivePlayerId(state: HSState): string | null {
     return state.players.find(p => p.seat === state.pendingChoice!.seat)?.playerId ?? null;
   }
   // Null while placing markers (simultaneous, ready-gated) and in lobby /
-  // finished — there is a single active player only during a turn.
+  // finished — there is a single active player only during a turn. While an
+  // opponent controls Marcu (Eternal Hatred), the hourglass follows THEM.
   if (state.turnSeat == null) return null;
-  return state.players.find(p => p.seat === state.turnSeat)?.playerId ?? null;
+  const acting = state.marcuControlSeat ?? state.turnSeat;
+  return state.players.find(p => p.seat === acting)?.playerId ?? null;
 }
 
 /** Stable seat order for the whole match (platform invariant — initiative

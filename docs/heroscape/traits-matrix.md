@@ -29,12 +29,12 @@
 | Izumi Samurai | 60 | Unique | Squad | Einar | Earth | Human | Samurai | Disciplined | Single | Medium | 5 | 1 | 6 | 1 | 2 | 5 | No |
 | Shiori (Swarm of the Marro) | 60 | Unique | Hero | Einar |  | Human | Ninja | Tricky | Single | Medium | 4 | 3 | 6 | 1 | 3 | 3 | No |
 | Tagawa Samurai Archers | 65 | Common | Squad | Einar |  | Human | Samurai | Disciplined | Single | Medium | 5 | 1 | 5 | 6 | 2 | 3 | No |
-| Capuan Gladiators | 70 | Common | Squad | Einar |  | Human | Gladiator | Rebellious | Single | Medium | 5 | 1 | 5 | 1 | 3 | 3 | No |
+| Capuan Gladiators | 70 | Common | Squad | Einar | Earth | Human | Gladiator | Rebellious | Single | Medium | 5 | 1 | 5 | 1 | 3 | 3 | No |
 | 10th Regiment of Foot | 75 | Common | Squad | Einar |  | Human | Soldiers | Disciplined | Single | Medium | 5 | 1 | 5 | 6 | 2 | 2 | No |
-| Crixus | 90 | Unique | Hero | Einar |  | Human | Gladiator | Rebellious | Single | Medium | 4 | 5 | 5 | 1 | 5 | 3 | No |
+| Crixus | 90 | Unique | Hero | Einar | Earth | Human | Gladiator | Rebellious | Single | Medium | 4 | 5 | 5 | 1 | 5 | 3 | No |
 | Empress Kiova | 90 | Unique | Hero | Einar |  | Kyrie | Warrior | Disciplined | Single | Medium | 6 | 5 | 5 | 1 | 3 | 4 | No |
 | Parmenio | 90 | Unique | Hero | Einar |  | Human | Warlord | Disciplined | Single | Medium | 5 | 5 | 5 | 1 | 3 | 3 | No |
-| Retiarius | 90 | Unique | Hero | Einar |  | Human | Gladiator | Rebellious | Single | Medium | 5 | 4 | 5 | 1 | 5 | 3 | No |
+| Retiarius | 90 | Unique | Hero | Einar | Earth | Human | Gladiator | Rebellious | Single | Medium | 5 | 4 | 5 | 1 | 5 | 3 | Yes |
 | Gurei-Oni | 100 | Unique | Hero | Einar |  | Ogre | Guard | Tormenting | Single | Large | 7 | 4 | 5 | 1 | 4 | 4 | No |
 | Kozuke Samurai | 100 | Unique | Squad | Einar |  | Human | Samurai | Disciplined | Single | Medium | 4 | 1 | 5 | 1 | 5 | 3 | No |
 | Marcus Decimus Gallus | 100 | Unique | Hero | Einar |  | Human | Warlord | Disciplined | Single | Medium | 5 | 6 | 5 | 1 | 3 | 3 | No |
@@ -46,7 +46,7 @@
 | The Einar Imperium | 140 | Common | Squad | Einar |  | Kyrie | Soldiers | Disciplined | Single | Medium | 5 | 1 | 5 | 1 | 3 | 3 | No |
 | Zelrig | 185 | Unique | Hero | Einar |  | Dragon | Dragon | Disciplined | Single | Huge | 11 | 6 | 6 | 1 | 4 | 4 | No |
 | Kato Katsuro | 200 | Unique | Hero | Einar |  | Human |  | Disciplined | Single | Medium | 5 | 5 | 6 | 1 | 4 | 4 | No |
-| Spartacus | 200 | Unique | Hero | Einar |  | Human | Gladiator | Rebellious | Single | Medium | 5 | 5 | 5 | 1 | 6 | 4 | No |
+| Spartacus | 200 | Unique | Hero | Einar | Earth | Human | Gladiator | Rebellious | Single | Medium | 5 | 5 | 5 | 1 | 6 | 4 | No |
 | Eldgrim the Viking Champion | 30 | Unique | Hero | Jandar | Earth | Human | Champion | Valiant | Single | Medium | 4 | 3 | 5 | 1 | 2 | 2 | No |
 | Omnicron Repulsors | 40 | Common | Squad | Jandar |  | Soulborg | Repulsors | Precise | Single | Small | 3 | 1 | 5 | 7 | 1 | 3 | No |
 | Tarn Viking Warriors | 50 | Unique | Squad | Jandar | Earth | Human | Warriors | Wild | Single | Medium | 5 | 1 | 4 | 1 | 3 | 4 | Yes |
@@ -98,20 +98,20 @@
 | Charos | 210 | Unique | Hero | Ullar |  | Dragon | Dragon | Valiant | Single | Huge | 9 | 9 | 5 | 1 | 5 | 5 | No |
 | Jotun | 225 | Unique | Hero | Ullar | Feylund | Giant | Warrior | Wild | Double | Huge | 10 | 7 | 6 | 1 | 8 | 4 | Yes |
 | Isamu | 10 | Unique | Hero | Utgar |  | Human | Ninja | Disciplined | Single | Medium | 4 | 1 | 6 | 1 | 3 | 1 | No |
-| Marcu Esenwein | 20 | Unique | Hero | Utgar |  | Undead | Devourer | Terrifying | Single | Medium | 4 | 6 | 7 | 1 | 4 | 1 | No |
+| Marcu Esenwein | 20 | Unique | Hero | Utgar | Feylund | Undead | Devourer | Terrifying | Single | Medium | 4 | 6 | 7 | 1 | 4 | 1 | Yes |
 | Dumutef Guard | 25 | Common | Hero | Utgar |  | Fiantooth | Guard | Relentless | Single | Large | 7 | 1 | 6 | 1 | 4 | 4 | No |
 | Swog Rider | 25 | Common | Hero | Utgar | Grut | Orc | Beast | Wild | Double | Large | 6 | 1 | 8 | 1 | 3 | 3 | No |
 | Marrden Nagrubs | 30 | Common | Squad | Utgar |  |  | Nagrubs |  | Single | Small | 3 | 1 | 6 | 1 | 2 | 2 | No |
 | Arrow Gruts | 40 | Common | Squad | Utgar | Grut | Orc | Archer | Wild | Single | Medium | 4 | 1 | 6 | 6 | 1 | 1 | No |
 | Blade Gruts | 40 | Common | Squad | Utgar | Grut | Orc | Warrior | Wild | Single | Medium | 4 | 1 | 6 | 1 | 2 | 2 | No |
-| Sonya Esenwein | 45 | Unique | Hero | Utgar |  | Undead | Lady | Terrifying | Single | Medium | 4 | 3 | 6 | 1 | 3 | 3 | No |
-| Iskra Esenwein | 50 | Unique | Hero | Utgar |  | Undead | Duchess | Terrifying | Single | Medium | 4 | 4 | 6 | 1 | 3 | 3 | No |
+| Sonya Esenwein | 45 | Unique | Hero | Utgar | Feylund | Undead | Lady | Terrifying | Single | Medium | 4 | 3 | 6 | 1 | 3 | 3 | Yes |
+| Iskra Esenwein | 50 | Unique | Hero | Utgar | Feylund | Undead | Duchess | Terrifying | Single | Medium | 4 | 4 | 6 | 1 | 3 | 3 | Yes |
 | Marro Dividers | 50 | Common | Squad | Utgar |  | Marro | Dividers | Wild | Single | Medium | 4 | 1 | 5 | 1 | 3 | 3 | No |
 | Marro Drones | 50 | Common | Squad | Utgar |  | Marro | Drone | Wild | Single | Medium | 5 | 1 | 6 | 1 | 3 | 3 | No |
 | Marro Drudge | 50 | Common | Squad | Utgar |  | Marro | Hunters | Wild | Single | Medium | 4 | 1 | 5 | 5 | 2 | 2 | No |
 | Me-Burq-Sa | 50 | Unique | Hero | Utgar |  | Marro | Warlord | Wild | Single | Large | 7 | 3 | 8 | 6 | 3 | 3 | No |
 | Nerak the Glacian Swog Rider | 50 | Unique | Hero | Utgar |  | Orc | Champion | Wild | Single | Large | 6 | 3 | 8 | 1 | 3 | 3 | No |
-| Rechets of Bogdan | 50 | Unique | Squad | Utgar |  | Undead | Devourer | Terrifying | Single | Medium | 4 | 1 | 6 | 1 | 3 | 3 | No |
+| Rechets of Bogdan | 50 | Unique | Squad | Utgar | Feylund | Undead | Devourer | Terrifying | Single | Medium | 4 | 1 | 6 | 1 | 3 | 3 | No |
 | Deathreavers | 60 | Common | Squad | Utgar | Alpha Prime | Soulborg | Deathreavers | Tricky | Single | Small | 3 | 1 | 6 | 1 | 1 | 4 | No |
 | Marro Stingers | 60 | Common | Squad | Utgar |  | Marro | Stingers | Wild | Single | Medium | 4 | 1 | 5 | 5 | 3 | 3 | No |
 | Zombies of Morindan | 60 | Common | Squad | Utgar |  | Undead | Savages | Terrifying | Single | Medium | 5 | 1 | 4 | 1 | 2 | 3 | No |
@@ -131,7 +131,7 @@
 | Shades of Bleakwoode | 100 | Common | Squad | Utgar |  | Undead | Devourers | Terrifying | Single | Medium | 5 | 1 | 7 | 1 | 2 | 4 | No |
 | Tornak | 100 | Unique | Hero | Utgar |  | Orc | Champion | Tricky | Single | Large | 6 | 3 | 7 | 1 | 4 | 5 | No |
 | Marro Warriors | 105 | Unique | Squad | Utgar | Marr | Marro | Warriors | Wild | Single | Medium | 4 | 1 | 6 | 6 | 2 | 3 | Yes |
-| Brunak | 110 | Unique | Hero | Utgar |  | Troll | Troll | Ferocious | Single | Huge | 8 | 3 | 6 | 1 | 4 | 7 | No |
+| Brunak | 110 | Unique | Hero | Utgar | Feylund | Troll | Troll | Ferocious | Double | Huge | 8 | 3 | 6 | 1 | 4 | 7 | No |
 | Minions of Utgar | 110 | Common | Squad | Utgar |  | Kyrie | Minions | Relentless | Single | Medium | 6 | 1 | 4 | 1 | 2 | 6 | No |
 | Krug | 120 | Unique | Hero | Utgar |  | Beast | Troll | Relentless | Single | Huge | 8 | 8 | 5 | 1 | 2 | 3 | No |
 | Runa | 120 | Unique | Hero | Utgar |  | Kyrie | Warrior | Tricky | Single | Medium | 5 | 5 | 6 | 1 | 3 | 3 | No |
@@ -141,7 +141,7 @@
 | Tul-Bak-Ra | 130 | Unique | Hero | Utgar |  | Marro | Overlord | Terrifying | Single | Medium | 5 | 6 | 5 | 1 | 4 | 4 | No |
 | Wo-Sa-Ga | 135 | Unique | Hero | Utgar |  | Marro | Marro | Terrifying | Single | Huge | 10 | 4 | 6 | 1 | 6 | 4 | No |
 | Deathwalker 9000 | 140 | Unique | Hero | Utgar | Alpha Prime | Soulborg | Deathwalker | Precise | Single | Large | 7 | 1 | 5 | 7 | 4 | 9 | No |
-| Cyprien Esenwein | 150 | Unique | Hero | Utgar |  | Undead | Lord | Terrifying | Single | Medium | 4 | 6 | 8 | 1 | 3 | 4 | No |
+| Cyprien Esenwein | 150 | Unique | Hero | Utgar | Feylund | Undead | Lord | Terrifying | Single | Medium | 4 | 6 | 8 | 1 | 3 | 4 | Yes |
 | Mimring | 150 | Unique | Hero | Utgar | Icaria | Dragon | Beast | Ferocious | Double | Huge | 9 | 5 | 6 | 1 | 4 | 3 | No |
 | Grimnak | 160 | Unique | Hero | Utgar | Grut | Orc | Champion | Ferocious | Double | Huge | 11 | 5 | 5 | 1 | 2 | 4 | Yes |
 | Marro Hive | 160 | Unique | Hero | Utgar |  | Marro | Hive | Terrifying | Single | Huge | 17 | 6 | 0 | 1 | 1 | 2 | No |

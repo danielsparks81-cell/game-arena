@@ -126,8 +126,13 @@ export type HSCardDef = {
    *  card's order marker is revealed, the owner may take a FREE full turn with an
    *  eligible partner card BEFORE the squad's turn (no marker consumed). 'champion'
    *  = Orc Champion (Blade/Heavy Gruts → Grimnak); 'beast' = Beast (Arrow Gruts →
-   *  Swog Rider). See engine.ts openBondOffer / HSState.bond. */
-  bonding?: 'champion' | 'beast';
+   *  Swog Rider); 'human_gladiator_hero' = a Human HERO with a Gladiator class
+   *  (Capuan Gladiators → Crixus/Retiarius/Spartacus). See engine.ts openBondOffer / HSState.bond. */
+  bonding?: 'champion' | 'beast' | 'human_gladiator_hero';
+  /** LIFE DRAIN (Esenwein vampires): "each time this figure destroys a figure, you may
+   *  remove a wound marker from this Army Card." Auto-applied (free, strictly beneficial).
+   *  Fires on normal attacks, Chilling Touch kills, and leaving-engagement swipe kills. */
+  lifeDrain?: boolean;
   /** THORIAN SPEED (Sgt. Drake): opponents must be ADJACENT to attack Drake with
    *  a NORMAL attack — a non-adjacent normal (ranged) attack cannot target him.
    *  Special attacks are unrestricted. Defensive; gates targetBlockReason. */
@@ -556,6 +561,29 @@ export type HSPendingChoice =
       seat: number;
       squadUid: string;
       partnerCardUids: string[];
+    }
+  | {
+      // ETERNAL HATRED (Marcu Esenwein) — opened the moment an order marker is revealed on Marcu's
+      // card ("you MUST roll"). Step 1: the action layer injects the d20. On 17+ with >1 living
+      // opponent, step 2: the OWNER picks the opponent seat who will control Marcu this turn
+      // (auto-resolved when only one opponent). Owned by Marcu's owner (`seat`).
+      kind: 'eternal_hatred';
+      seat: number;
+      cardUid: string;
+      d20: number | null;
+    }
+  | {
+      // SUMMON THE RECHETS OF BOGDAN (Iskra) — opened at the END of Iskra's turn when her owner's
+      // Rechets are still in reserve and not yet successfully summoned. Step 1: attempt or decline
+      // ("you may"); the attempt carries the server d20. On 14+ step 2: the owner places all 3 (or
+      // as many as fit) on empty spaces within 6 clear sight of Iskra, and may take an immediate
+      // bonus turn with them. The slot advance is DEFERRED until this resolves. `iskraId` = her
+      // figure, `rechetsUid` = the squad card. `d20` null until rolled.
+      kind: 'summon_rechets';
+      seat: number;
+      iskraId: string;
+      rechetsUid: string;
+      d20: number | null;
     };
 
 /** Payload that resolves a `pendingChoice` — `kind` must match the open one. */
@@ -577,7 +605,14 @@ export type HSChoiceResolution =
   | { kind: 'scatter'; figureId?: string; to?: HexKey; fallRoll?: CombatFace[]; extremeFallD20?: number; done?: boolean }
   // BONDING (Grut squads): `partnerUid` = the Orc Champion / Beast card to take a free bonus turn
   // first; omitted/undefined = skip and take the squad's turn directly.
-  | { kind: 'bond'; partnerUid?: string };
+  | { kind: 'bond'; partnerUid?: string }
+  // ETERNAL HATRED (Marcu): step 1 = the server-rolled d20; step 2 (17+, >1 opponent) = the owner's
+  // pick of which opponent seat controls Marcu this turn.
+  | { kind: 'eternal_hatred'; d20?: number; opponentSeat?: number }
+  // SUMMON THE RECHETS (Iskra): `decline` = skip the attempt ("you may"); `d20` = the server-rolled
+  // attempt; then `placements` = empty hexes within 6 clear sight of Iskra for the reserve Rechets
+  // (fewer than available ⇒ the rest are destroyed) with `takeTurn` = the immediate bonus turn.
+  | { kind: 'summon_rechets'; decline?: boolean; d20?: number; placements?: HexKey[]; takeTurn?: boolean };
 
 /**
  * Game phase. Slice 5 inserts a `draft` (army-building) and a `placement`
@@ -732,8 +767,10 @@ export type HSState = {
    *  the squad's marker-turn. `squadUid` = the bonding card whose marker is revealed; `partnerUid`
    *  = the Orc Champion / Beast card acting now. While set, `getActiveCardUid` returns `partnerUid`
    *  (so the partner's figures move/attack); ending this turn clears `bond` and hands control to the
-   *  squad under the SAME marker (no slot advance). Cleared at every real turn boundary. */
-  bond?: { squadUid: string; partnerUid: string };
+   *  squad under the SAME marker (no slot advance). Cleared at every real turn boundary.
+   *  `after: true` = a bonus turn AFTER the marker-turn instead (Iskra's freshly-summoned Rechets
+   *  "may immediately take a turn"): ending it advances the slot like a normal end of turn. */
+  bond?: { squadUid: string; partnerUid: string; after?: boolean };
   /** True once the bond OFFER for the current turn slot has been resolved (bonded or skipped), so the
    *  squad's turn after a bonus turn doesn't re-offer it. Reset at each new turn slot / round. */
   bondOffered?: boolean;
@@ -761,7 +798,7 @@ export type HSState = {
      *  normal attack" gates can read the history. Absent ⇒ a normal attack (or a
      *  pre-Big-Heroes save). Ice Shard caps at 3 + distinct targets; Queglix
      *  reads it alongside `queglixDiceSpent`. */
-    special?: 'ice_shard' | 'queglix' | 'wild_swing' | 'acid_breath';
+    special?: 'ice_shard' | 'queglix' | 'wild_swing' | 'acid_breath' | 'blood_hungry';
   }[];
   lastAttack: LastAttack | null;
   /** The last non-combat d20 roll (initiative + d20 special powers), for the
@@ -836,6 +873,31 @@ export type HSState = {
    *  after-move/before-attack window, regardless of the d20 result. Does NOT
    *  consume his attack. Cleared each turn. */
   threwThisTurn?: boolean;
+  // ---- Gladiators + Esenwein vampires (2026-07-01) --------------------------
+  /** GLADIATOR INSPIRATION (Spartacus): card uids inspired THIS ROUND (+1 move,
+   *  +1 attack die, +1 defense die). Computed once per seat at roll_initiative
+   *  (all the seat's markers on Gladiator-class cards AND ≥1 on Spartacus);
+   *  cleared at the round rollover. Spartacus himself is never in the list. */
+  inspiredCardUids?: string[];
+  /** NET TRIP 14 (Retiarius): whether his one d20 has been rolled this turn. */
+  netTripRolled?: boolean;
+  /** NET TRIP 14: the roll SUCCEEDED (14+) — small/medium figures he attacks
+   *  this turn roll max 1 defense die. Cleared each turn. */
+  netTripActive?: boolean;
+  /** BLOOD HUNGRY (Brunak): his last Blood Hungry Special Attack this turn
+   *  destroyed its target, so he may attack again (chain). Cleared each turn
+   *  and on a non-kill. */
+  bloodHungryChain?: boolean;
+  /** CHILLING TOUCH (Cyprien): the once-per-turn attempt has been made. */
+  chillingTouchSpent?: boolean;
+  /** ETERNAL HATRED (Marcu): the OPPONENT seat controlling Marcu for the
+   *  remainder of this turn (d20 17+ on his marker reveal). Turn actions are
+   *  accepted from this seat instead of the owner. Cleared each turn. */
+  marcuControlSeat?: number;
+  /** SUMMON THE RECHETS (Iskra): card uids of Rechets cards that have been
+   *  SUCCESSFULLY summoned (d20 14+) — the attempt is once-per-game once it
+   *  succeeds. Persists for the whole game. */
+  rechetsSummoned?: string[];
   log: HSLogEntry[];
   logSeq: number;
 };
@@ -1079,6 +1141,34 @@ export type HSAction =
       // medium-or-small figure. A Squad figure is destroyed automatically; a Hero
       // is destroyed on a SERVER-rolled d20 of 16+. Does NOT consume the attack.
       kind: 'chomp';
+      targetId: string;
+      d20: number;
+    }
+  | {
+      // Brunak BLOOD HUNGRY SPECIAL ATTACK — Range 1, Attack 4 flat (special:
+      // no height/aura on the attack; the DEFENDER keeps full defense, §117).
+      // It IS his attack; a kill lets him swing again (bloodHungryChain), and he
+      // keeps chaining until an attack fails to destroy its target.
+      kind: 'blood_hungry';
+      attackerId: string;
+      targetId: string;
+      attackRoll: CombatFace[];
+      defenseRoll: CombatFace[];
+    }
+  | {
+      // Retiarius NET TRIP 14 — after moving and before attacking, one d20 per
+      // turn (SERVER-rolled). On 14+ (± Lodin) every small/medium figure he
+      // attacks THIS TURN rolls at most 1 defense die.
+      kind: 'net_trip';
+      d20: number;
+    }
+  | {
+      // Cyprien Esenwein CHILLING TOUCH — after moving and before attacking, one
+      // attempt per turn on a chosen ADJACENT figure (not a Soulborg). SERVER
+      // rolls the d20; wounds by band (13-15:1, 16-17:2, 18-19:3, 20+:6), with +2
+      // from a living friendly Sonya (Eternal Strength) and Lodin folded in.
+      // Does NOT consume his attack.
+      kind: 'chilling_touch';
       targetId: string;
       d20: number;
     }

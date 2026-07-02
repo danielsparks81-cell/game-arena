@@ -73,7 +73,7 @@ function spies() {
   return {
     onStart: vi.fn(), onSetLobbyConfig: vi.fn(), onPlaceMarkers: vi.fn(), onMoveFigure: vi.fn(), onMoveStep: vi.fn(),
     onGrappleMove: vi.fn(), onFireLine: vi.fn(), onExplosion: vi.fn(), onOrient: vi.fn(), onAttack: vi.fn(),
-    onBerserkerCharge: vi.fn(), onWaterClone: vi.fn(), onMindShackle: vi.fn(), onChomp: vi.fn(),
+    onBerserkerCharge: vi.fn(), onWaterClone: vi.fn(), onMindShackle: vi.fn(), onChomp: vi.fn(), onBloodHungry: vi.fn(), onNetTrip: vi.fn(), onChillingTouch: vi.fn(),
     onGrenade: vi.fn(), onGrenadeThrow: vi.fn(), onIceShard: vi.fn(), onQueglix: vi.fn(),
     onWildSwing: vi.fn(), onAcidBreath: vi.fn(), onThrow: vi.fn(), onCarry: vi.fn(), onOverextend: vi.fn(), onTheDrop: vi.fn(),
     onResolveChoice: vi.fn(), onUndoMove: vi.fn(), onEndMove: vi.fn(), onEndTurn: vi.fn(), onDraftCard: vi.fn(), onDraftPass: vi.fn(),
