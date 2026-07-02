@@ -597,13 +597,12 @@ const CARD_ART_CROP: Record<string, { size: string; position: string }> = {
   spartacus: { size: '357.1%', position: '67.7% 21.1%' },
   capuan_gladiators: { size: '303.0%', position: '72.6% 11.3%' },
   crixus: { size: '344.8%', position: '68.0% 20.1%' },
-  // Esenwein vampires — DEFAULT frames on the standard Index_3x5 left-side art box
-  // (same layout as Retiarius); fine-tune in /heroscape-cardcrop when desired.
-  cyprien_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
-  iskra_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
-  sonya_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
-  marcu_esenwein: { size: '243.9%', position: '12.4% 23.9%' },
-  rechets_of_bogdan: { size: '243.9%', position: '12.4% 23.9%' },
+  // Esenwein vampires — user-framed in /heroscape-cardcrop (2026-07-01).
+  iskra_esenwein: { size: '277.8%', position: '19.8% 22.6%' },
+  marcu_esenwein: { size: '243.9%', position: '12.8% 23.4%' },
+  rechets_of_bogdan: { size: '243.9%', position: '10.1% 23.9%' },
+  sonya_esenwein: { size: '243.9%', position: '12.8% 23.6%' },
+  cyprien_esenwein: { size: '243.9%', position: '13.2% 23.7%' },
 };
 const DEFAULT_ART_CROP = { size: 'cover', position: 'center' };
 
