@@ -144,6 +144,9 @@ export const FIGURE_SPAN2: Record<string, { fx: number; fy: number; bx: number; 
   // Swog Rider (orc-on-saber-tooth, peanut base) — re-picked in the gallery 2026-06-27.
   swog_rider: { fx: 0.18, fy: 0.87, bx: 0.80, by: 0.88 },
   theracus: { fx: 0.19, fy: 0.90, bx: 0.78, by: 0.90 },
+  // Brunak (troll-centaur, peanut base) — user-picked in the gallery 2026-07-01. He faces RIGHT
+  // (fx > bx — the picker's front/back order encodes the facing, same as the board's math).
+  brunak: { fx: 0.89, fy: 0.93, bx: 0.34, by: 0.94 },
 };
 
 /** The two-point span pick for a 2-hex figure, or `undefined` to fall back. */
