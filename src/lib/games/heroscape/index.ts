@@ -66,6 +66,7 @@ export {
   eternalStrengthBonus,
   summonRechetsSpaces,
   capuanInitiativeBonus,
+  seatInitiativeBonus,
   erlandDestinations,
   erlandSummonableIds,
   sturlaPlacementHexes,

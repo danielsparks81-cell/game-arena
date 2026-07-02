@@ -94,11 +94,10 @@ import {
   grenadeDefenders as hsGrenadeDefenders,
   wildSwingDefenders as hsWildSwingDefenders,
   effectiveDefenseDice as hsEffectiveDefenseDice,
-  capuanInitiativeBonus as hsCapuanInitiativeBonus,
+  seatInitiativeBonus as hsSeatInitiativeBonus,
   moveConsequences as hsMoveConsequences,
   stepConsequences as hsStepConsequences,
   getActiveCardUid as hsGetActiveCardUid,
-  HS_GLYPHS,
   canTheDrop as hsCanTheDrop,
   COMBAT_DIE_FACES as HS_COMBAT_DIE_FACES,
   type HSAction,
@@ -1793,23 +1792,13 @@ export async function makeMoveHS(roomId: string, action: HSWireAction) {
   // roll_initiative validates the attempt covers EXACTLY those seats.
   const livingForRound = hsInitiativeReadySeats(next);
   if (livingForRound) {
-    // Glyph of Dagmar (slice 4): +8 to its controller's initiative. Determine
-    // control from the post-placement state (a living figure of that seat on a
-    // power-side-up Dagmar glyph), then carry raw+bonus so the engine re-checks.
+    // Dagmar (+8 per controlled glyph), Lodin (+1), and the Capuan Gladiators' Initiative
+    // Advantage — computed by the ENGINE'S exported total (`seatInitiativeBonus`), the exact
+    // function its re-validation runs, so the server's bonus can never drift from it. (The
+    // old server-local copy checked Dagmar as a BOOLEAN — a seat controlling TWO Dagmars on
+    // a random-glyph map owed +16, the server sent +8, and the room wedged at initiative.)
     const afterPlace: HSState = next;
-    // Dagmar (+8) and Lodin (+1) both add to initiative. Footprint-aware (either lobe of a
-    // 2-hex figure controls the glyph) so this matches the engine's re-validation exactly.
-    const controlsGlyph = (seat: number, id: 'dagmar' | 'lodin', active: boolean): boolean =>
-      active && (afterPlace.glyphs ?? []).some(
-        g => g.id === id && g.faceUp &&
-          (afterPlace.figures ?? []).some(f => f.ownerSeat === seat && (f.at === g.at || f.at2 === g.at)),
-      );
-    const dagmarBonus = (seat: number): number =>
-      (controlsGlyph(seat, 'dagmar', HS_GLYPHS.dagmar.active) ? 8 : 0) +
-      (controlsGlyph(seat, 'lodin', HS_GLYPHS.lodin.active) ? 1 : 0) +
-      // Capuan Gladiators' INITIATIVE ADVANTAGE — the engine's exported helper, so the
-      // server's bonus can never drift from the engine's re-validation.
-      hsCapuanInitiativeBonus(afterPlace, seat);
+    const dagmarBonus = (seat: number): number => hsSeatInitiativeBonus(afterPlace, seat);
     // Only the seats TIED FOR HIGHEST re-roll until one wins; everyone else keeps their first roll
     // (02-rounds §Step 2 — only the tying players re-roll). Dagmar/Lodin bonuses carry into the re-rolls.
     const rollSeat = (seat: number): HSInitiativeAttempt[number] => {

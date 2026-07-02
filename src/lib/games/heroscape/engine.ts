@@ -1536,10 +1536,24 @@ function doPlacementReady(state: HSState, seat: number): HSResult {
     return { error: 'You have already locked in your placement' };
   }
   // Must field at least one figure — placed in the start zone OR held in reserve
-  // (Airborne Elite, who deploy later via The Drop). An army can't be empty.
+  // (Airborne Elite / the Rechets, who deploy later). UNLESS the demand is unsatisfiable:
+  // an EMPTY army (the whole draft was passed / a shared team budget ran dry) or a hand
+  // with no legal spot left for ANY figure. Rejecting those would WEDGE the room on a
+  // requirement the seat can never meet — let them lock in figure-less instead (the
+  // elimination check below settles what that means for the game).
   const placed = state.figures.filter(f => f.ownerSeat === seat && f.at != null).length;
   const reserve = state.figures.filter(f => f.ownerSeat === seat && f.reserve).length;
-  if (placed < 1 && reserve < 1) return { error: 'Place at least one figure before locking in' };
+  if (placed < 1 && reserve < 1) {
+    const hand = state.hand?.[seat] ?? [];
+    const canPlaceSomething = hand.some(id => {
+      const fig = state.figures.find(f => f.id === id);
+      if (!fig) return false;
+      return baseSizeOf(cardDefFor(state, fig)) === 2
+        ? placeable2Leads(state, seat).size > 0
+        : placeableHexes(state, seat).size > 0;
+    });
+    if (canPlaceSomething) return { error: 'Place at least one figure before locking in' };
+  }
 
   const s = clone(state);
   // Figures left in hand are DROPPED (unused) — faithful to "excess figures are
@@ -1564,6 +1578,9 @@ function doPlacementReady(state: HSState, seat: number): HSResult {
   if ((s.placementReady ?? []).length >= s.players.length) {
     s.cards = s.cards.filter(c => s.figures.some(f => f.cardUid === c.uid));
     enterPlaying(s);
+    // A figure-less seat can now lock in (see above) — if only one team actually fielded
+    // an army, the game is decided at the door instead of wandering a one-sided board.
+    checkEliminationWin(s);
   }
   return s;
 }
@@ -1657,10 +1674,7 @@ function doRollInitiative(state: HSState, attempts: InitiativeAttempt[]): HSResu
   // Dagmar (+8), Lodin (+1) and the Capuan Gladiators' Initiative Advantage (+1 per marker on
   // their card, max +3, only while ALL the seat's markers sit on Gladiator cards) all add to a
   // seat's initiative. The server carries raw+bonus; this re-validates the exact total.
-  const initiativeBonusFor = (seat: number): number =>
-    seatGlyphCount(state, seat, 'dagmar') * DAGMAR_INITIATIVE_BONUS +
-    lodinD20Bonus(state, seat) +
-    capuanInitiativeBonus(state, seat);
+  const initiativeBonusFor = (seat: number): number => seatInitiativeBonus(state, seat);
   for (const attempt of attempts) {
     if (
       !Array.isArray(attempt) ||
@@ -1853,6 +1867,20 @@ function advanceSlot(s: HSState): boolean {
   return false;
 }
 
+/** End-of-turn slot advance shared by doEndTurn's tail and the Rechets summon resolution
+ *  (which can OWE it until a glyph choice closes — see `advanceAfterChoice`): clear the
+ *  per-turn scratch, then move to the next (turnPointer, turnNumber) slot and begin it. */
+function advanceToNextSlot(s: HSState): void {
+  s.turnSeat = null;
+  s.movedFigureIds = [];
+  s.turnAttacks = [];
+  s.stepMove = undefined;
+  s.movementEnded = false;
+  s.moveHistory = [];
+  resetTurnScratch(s);
+  if (advanceSlot(s)) beginTurnOrSkip(s);
+}
+
 /** Roll over to the next round, then fire the Glyph of Wannok if a figure controls it.
  *  Wannok's curse resolves at the round boundary, BEFORE order markers — we roll the new
  *  round first (so the pendingChoice gate then blocks markers until the curse resolves),
@@ -2025,6 +2053,12 @@ function activatedFigureIdsThisTurn(state: HSState, activeUid: string): Set<stri
   const set = new Set<string>();
   for (const id of state.movedFigureIds) if (onCard(id)) set.add(id);
   for (const a of state.turnAttacks) if (onCard(a.attackerId)) set.add(a.attackerId);
+  // The figure MID-WALK (stepMove) has moved — it's an activated figure even before its walk
+  // commits. Counting it keeps every cap PRE-check (the AI's figureWithinActivationCap filter,
+  // the board's activatableFigureIds glow, activeCardError) consistent with doMoveStep, which
+  // FINALIZES the in-flight walk into movedFigureIds before validating a new figure. Without
+  // it, a pooled-common bot proposed a 5th Grut the engine then rejected — a frozen bot turn.
+  if (state.stepMove && onCard(state.stepMove.figureId)) set.add(state.stepMove.figureId);
   return set;
 }
 
@@ -2350,6 +2384,19 @@ export function capuanInitiativeBonus(state: HSState, seat: number): number {
   return Math.min(3, capuan.orderMarkers.length);
 }
 
+/** A seat's TOTAL initiative bonus — Dagmar (+8 per controlled glyph), Lodin (+1), and the
+ *  Capuan Gladiators' Initiative Advantage. THE single source for the server's roller, the
+ *  engine's re-validation, and any simulation driver — computing it in two places let the
+ *  server's boolean Dagmar check (max +8) drift from the engine's per-glyph count (a map can
+ *  carry TWO Dagmars → +16), which would reject the server's own roll and wedge the room. */
+export function seatInitiativeBonus(state: HSState, seat: number): number {
+  return (
+    seatGlyphCount(state, seat, 'dagmar') * DAGMAR_INITIATIVE_BONUS +
+    lodinD20Bonus(state, seat) +
+    capuanInitiativeBonus(state, seat)
+  );
+}
+
 /** HIVE SUPREMACY (Su-Bak-Na): +1 to a d20 the owner rolls FOR one of their MARRO or WULSINU figures,
  *  while a living, non-negated friendly Su-Bak-Na is on the board. Mirrors lodinD20Bonus but keyed on
  *  the ROLLING figure's species + the owner fielding Su-Bak-Na (Unique ⇒ at most +1). Applied alongside
@@ -2370,7 +2417,12 @@ function hiveD20Bonus(state: HSState, fig: Figure | undefined | null): number {
  *  keeps height): against a NON-adjacent attacker, ≥1 rolled shield blocks ALL the damage. */
 function specialAttackWounds(state: HSState, attacker: Figure | undefined, defender: Figure, skulls: number, shields: number): number {
   if (attacker && shields >= 1 && cardDefFor(state, defender).stealthDodge && !figuresAdjacent(state, attacker, defender)) return 0;
-  return Math.max(0, skulls - shields);
+  const wounds = Math.max(0, skulls - shields);
+  // ONE SHIELD DEFENSE (Crixus): "when rolling defense dice, if Crixus rolls at least one shield,
+  // the most wounds Crixus may take for this attack is one." Unconditional on attack TYPE — the
+  // defender keeps its defensive powers vs specials (same ruling as Stealth Dodge / height above).
+  if (wounds > 1 && shields >= 1 && cardDefFor(state, defender).id === CRIXUS_CARD_ID && !isCardNegated(state, defender.cardUid)) return 1;
+  return wounds;
 }
 
 /** Does `fig`'s FOOTPRINT cover a face-up, active glyph of `glyphId`? (Either lobe of a
@@ -3476,12 +3528,15 @@ const GLYPH_OPENS_CHOICE: ReadonlySet<HSGlyphId> = new Set(['mitonsoul', 'sturla
 function applyGlyphOnStop(s: HSState, fig: Figure): void {
   const glyphs = figureHexes(fig).map(h => glyphAt(s, h)).filter((x): x is HSGlyph => x != null);
   for (const g of glyphs) {
-    // A 2nd choice-glyph can't open while one is already pending — reveal it, defer its effect.
+    // A 2nd choice-glyph can't open while one is already pending — reveal it now, QUEUE the
+    // stop; its effect fires when the open choice chain closes (applyAction's resolve_choice
+    // tail re-runs applyGlyphOnStop for the queued figure).
     if (s.pendingChoice && GLYPH_OPENS_CHOICE.has(g.id)) {
       if (!g.faceUp) {
         g.faceUp = true;
         pushLog(s, 'glyph', `${figureLabel(s, fig)} also reveals the ${HS_GLYPHS[g.id].name} — its effect waits for the open choice.`);
       }
+      if (!(s.pendingGlyphStops ?? []).includes(fig.id)) (s.pendingGlyphStops ??= []).push(fig.id);
       continue;
     }
     applyOneGlyph(s, fig, g);
@@ -4952,7 +5007,9 @@ function doAttack(
   // ONE SHIELD DEFENSE (Crixus): "when rolling defense dice, if Crixus rolls at least one shield,
   // the most wounds Crixus may take for this attack is one." A wound CAP, not a dice change — it
   // rides over any margin (5 skulls vs 1 shield still lands only 1 wound). Off while negated.
-  if (tDef.id === CRIXUS_CARD_ID && !isCardNegated(state, target.cardUid) && shields >= 1 && wounds > 1) {
+  // NOT vs Lethal Sting: there the defender "cannot roll ANY defense dice", so the shields in the
+  // wire's (void) defense roll don't exist — they can't trigger the cap.
+  if (!lethalSting && tDef.id === CRIXUS_CARD_ID && !isCardNegated(state, target.cardUid) && shields >= 1 && wounds > 1) {
     wounds = 1;
   }
   // COUNTER STRIKE (Izumi Samurai): "When rolling defense dice against a NORMAL
@@ -5177,8 +5234,39 @@ function openNextSpiritIfIdle(s: HSState): void {
  *  champions felled together, gets its Spirit prompt the moment the prior sequence clears. A no-op
  *  on an error result or when nothing is queued. */
 function drainSpirits(res: HSResult): HSResult {
-  if (!('error' in res)) { openNextSpiritIfIdle(res); openNextWannokIfIdle(res); } // Spirits first, then the next queued Wannok curse
+  if (!('error' in res)) {
+    openNextSpiritIfIdle(res); // Spirits first, then the next queued Wannok curse…
+    openNextWannokIfIdle(res);
+    fireDeferredGlyphStops(res); // …then choice-glyph stops that waited out an open choice…
+    runDeferredSlotAdvance(res); // …and finally the slot advance a Rechets summon owed.
+  }
   return res;
+}
+
+/** Fire queued choice-glyph stops — figures that landed on a choice-opening glyph while another
+ *  choice was open (Rechets summon placements, Carry double-lobe). One at a time: a glyph that
+ *  opens a new choice re-defers the rest to the next drain. Only CHOICE glyphs re-fire here —
+ *  the figure's passive glyphs already applied at the original stop. */
+function fireDeferredGlyphStops(s: HSState): void {
+  while (s.phase === 'playing' && !s.pendingChoice && s.pendingGlyphStops?.length) {
+    const figId = s.pendingGlyphStops.shift()!;
+    if (s.pendingGlyphStops.length === 0) delete s.pendingGlyphStops;
+    const fig = s.figures.find(f => f.id === figId);
+    if (!fig || fig.at == null) continue; // died or moved off since the deferral — the stop lapsed
+    const g = figureHexes(fig)
+      .map(h => glyphAt(s, h))
+      .find((x): x is HSGlyph => x != null && GLYPH_OPENS_CHOICE.has(x.id));
+    if (g) applyOneGlyph(s, fig, g);
+  }
+}
+
+/** Run the slot advance a Rechets summon deferred behind a glyph choice — only once every
+ *  queue is idle and no choice remains open (the turn truly ends now). */
+function runDeferredSlotAdvance(s: HSState): void {
+  if (!s.advanceAfterChoice) return;
+  if (s.pendingChoice || (s.pendingSpirits?.length ?? 0) > 0 || (s.pendingWannoks?.length ?? 0) > 0 || s.pendingGlyphStops?.length) return;
+  delete s.advanceAfterChoice;
+  if (s.phase === 'playing') advanceToNextSlot(s);
 }
 
 /** Apply ONE Deathreaver's SCATTER hop to the already-cloned `s`: the rat (already proven alive, on
@@ -6397,6 +6485,15 @@ function doCarryMove(
   if (moved.phase !== 'playing') return moved; // a takeoff swipe ended the game — no carry
   const s = moved; // doMove returns a fresh clone we own
   const carrier = s.figures.find(f => f.id === theracus.id)!;
+  // The carrier can DIE mid-flight (takeoff leaving-engagement swipes, a suppressed-Flying
+  // fall) — then the passenger was never picked up; it simply stays where it stood. The move
+  // and the death already resolved inside doMove, so this is a valid outcome, not an error
+  // (rejecting here made the bot re-propose the same carry forever — a frozen turn).
+  if (carrier.at == null) {
+    pushLog(s, 'power', `${figureLabel(s, carrier)} falls on takeoff — the carry never happens.`);
+    checkEliminationWin(s);
+    return s;
+  }
   const passenger = s.figures.find(f => f.id === action.passengerId);
   if (!passenger || passenger.at == null) return { error: 'The carried figure is no longer on the battlefield' };
   // Landing must be an empty real cell adjacent to Theracus's NEW position.
@@ -7199,22 +7296,12 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
   //     (14+) = the placements within 6 clear sight of Iskra (+the optional immediate bonus turn).
   //     The slot advance was DEFERRED at end_turn — every terminal branch advances it here. ---
   if (pc.kind === 'summon_rechets' && choice.kind === 'summon_rechets') {
-    const advance = (s: HSState) => {
-      s.turnSeat = null;
-      s.movedFigureIds = [];
-      s.turnAttacks = [];
-      s.stepMove = undefined;
-      s.movementEnded = false;
-      s.moveHistory = [];
-      resetTurnScratch(s);
-      if (advanceSlot(s)) beginTurnOrSkip(s);
-    };
     if (pc.d20 == null) {
       if (choice.decline) {
         const s = clone(state);
         delete s.pendingChoice;
         pushLog(s, 'info', `${playerName(s, pc.seat)} declines to summon the Rechets of Bogdan.`);
-        advance(s);
+        advanceToNextSlot(s);
         return s;
       }
       if (choice.d20 == null) return { error: 'The summon attempt needs the d20 roll' };
@@ -7227,7 +7314,7 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
         delete s.pendingChoice;
         pushLog(s, 'power', `${playerName(s, pc.seat)} attempts to summon the Rechets but rolls ${rollNote} (needs ${SUMMON_RECHETS_THRESHOLD}).`);
         setLastRoll(s, { title: 'Summon the Rechets', dice: [choice.d20], success: false, detail: `Rolled ${rollNote} — the bats stay in the dark.` });
-        advance(s);
+        advanceToNextSlot(s);
         return s;
       }
       const npc = s.pendingChoice;
@@ -7290,7 +7377,14 @@ function doResolveChoice(state: HSState, seat: number, choice: HSChoiceResolutio
       pushLog(s, 'activate', `Rechets of Bogdan take an immediate bonus turn`, pc.seat);
       return s;
     }
-    advance(s);
+    // A landing bat may have opened a glyph choice (Oreld/Erland/a ceremony) — the turn can't
+    // advance over an open choice (beginTurnOrSkip could stack Eternal Hatred on top of it).
+    // Owe the advance instead; drainSpirits runs it once the choice chain closes.
+    if (s.pendingChoice) {
+      s.advanceAfterChoice = true;
+      return s;
+    }
+    advanceToNextSlot(s);
     return s;
   }
 
@@ -8401,7 +8495,15 @@ function aiTurn(state: HSState, seat: number): HSAction {
           }
         }
         if (pick && pick.gain > 0) {
-          return { kind: 'carry_move', figureId: theracus.id, to, passengerId: pick.passengerId, passengerTo: pick.passengerTo };
+          // Pin the PLANNED tail into the intent: carryLandingHexes derived the set-down
+          // options from moveTailFor's orientation, so doMove must land on that exact
+          // footprint — re-deriving inside the engine could disagree and reject the drop.
+          const tail = moveTailFor(state, theracus, to);
+          return {
+            kind: 'carry_move', figureId: theracus.id, to,
+            ...(tail ? { to2: tail } : {}),
+            passengerId: pick.passengerId, passengerTo: pick.passengerTo,
+          };
         }
       }
     }

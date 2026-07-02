@@ -56,6 +56,7 @@ import {
   startZoneFor,
   POINT_BUDGETS,
   glyphCountForMap,
+  activatableFigureIds,
 } from './engine';
 import { hexKey, offsetToAxial, rangeDistance, neighborKeys } from './board';
 import { MAPS, parseMap, STAR_FIELD } from './maps';
@@ -7138,5 +7139,73 @@ describe('combat: a tie favours the DEFENDER (shields ≥ skulls fully blocks)',
     expect(st.lastAttack?.wounds).toBe(0); // a tie is a full block
     expect(st.lastAttack?.destroyed).toBe(false);
     expect(fig(st, TV).at).not.toBeNull(); // survives
+  });
+});
+
+// ---- overnight audit 2026-07-02: pooled-common cap counts the MID-WALK figure ----
+
+describe('pooled-common activation cap — the mid-walk (stepMove) figure counts', () => {
+  // REGRESSION: with 3 Gruts moved and a 4th mid-step, the cap (4) is REACHED — but the
+  // pre-checks used to count only movedFigureIds + turnAttacks (3), so the AI proposed a
+  // 5th Grut that doMoveStep (which finalizes the in-flight walk first) then rejected —
+  // an infinitely re-proposed move = a frozen bot turn in a live 4-player game.
+  it('with 3 moved + 1 mid-step, a 5th pooled Grut is outside the cap (helper AND engine agree)', () => {
+    let s = customBattle(['blade_gruts'], ['marro_warriors'], 'p1');
+    // Pool a second drafted copy onto the SAME card: figures 5-8 (what a common re-draft produces).
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    for (let n = 5; n <= 8; n++) {
+      s.figures.push({ id: `s0-blade_gruts-${n}`, cardUid: 's0-blade_gruts', ownerSeat: 0, at: null, index: n, wounds: 0 });
+    }
+    const G = (n: number) => `s0-blade_gruts-${n}`;
+    s = clearExcept(s, G(1), G(2), G(3), G(4), G(5), MARRO(1));
+    // Training Field is 7×8 (cols 0-6, rows 0-7) — keep everything on the map.
+    s = place(s, G(1), at(0, 2));
+    s = place(s, G(2), at(1, 2));
+    s = place(s, G(3), at(2, 2));
+    s = place(s, G(4), at(3, 2));
+    s = place(s, G(5), at(4, 2));
+    s = place(s, MARRO(1), at(6, 7)); // far away — no engagement in play
+    // Move Gruts 1-3 (switching figures finalizes the previous walk), then START Grut 4's walk.
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G(1), to: at(0, 3) }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G(2), to: at(1, 3) }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G(3), to: at(2, 3) }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'move_step', figureId: G(4), to: at(3, 3) }));
+    expect(s.stepMove?.figureId).toBe(G(4)); // Grut 4 is MID-WALK — not yet in movedFigureIds
+    expect(s.movedFigureIds).toEqual([G(1), G(2), G(3)]);
+    // The cap (4) is reached: the four activated may continue; Grut 5 may NOT join.
+    const ids = activatableFigureIds(s);
+    expect(ids).toContain(G(1));
+    expect(ids).toContain(G(4));
+    expect(ids).not.toContain(G(5));
+    expect(errOf(applyAction(s, 'p1', { kind: 'move_step', figureId: G(5), to: at(4, 3) }))).toMatch(/only 4/i);
+  });
+});
+
+// ---- overnight audit 2026-07-02: a figure-less seat must be able to lock in placement ----
+
+describe('placement_ready with an EMPTY army (whole draft passed / team budget dry)', () => {
+  // REGRESSION: "Place at least one figure before locking in" was unconditional, so a seat
+  // with NO figures (it passed the whole draft, or its shared team budget was spent by an
+  // ally) could never lock in — the room WEDGED in placement forever.
+  it('a figure-less seat may lock in, and the game is decided at the door', () => {
+    let s = unwrap(applyAction(lobby(), 'p1', { kind: 'start_game', mode: 'draft', pointBudget: 200 }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'draft_roll', attempts: [ATT(15, 4)] })); // p1 drafts first
+    s = unwrap(applyAction(s, 'p1', { kind: 'draft_card', cardId: 'finn' }));
+    // Model the TEAM-BUDGET-DRY seat: nothing is affordable, so the empty pass is FORCED
+    // (doDraftPass only rejects an empty pass while an affordable card still exists).
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.draft!.spent[1] = s.pointBudget!;
+    s = unwrap(applyAction(s, 'p2', { kind: 'draft_pass' })); // p2 exits the draft with NOTHING
+    s = unwrap(applyAction(s, 'p1', { kind: 'draft_pass' }));
+    expect(s.phase).toBe('placement');
+    // Seat 0 fields Finn; seat 1 has no figures — locking in must be ALLOWED, not a wedge.
+    const finnFig = s.hand![0][0];
+    const spot = [...placeableHexes(s, 0)][0];
+    s = unwrap(applyAction(s, 'p1', { kind: 'place_figure', figureId: finnFig, to: spot }));
+    s = unwrap(applyAction(s, 'p2', { kind: 'placement_ready' }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'placement_ready' }));
+    // Only one army was actually fielded → the elimination check settles it immediately.
+    expect(s.phase).toBe('finished');
+    expect(s.winnerSeat).toBe(0);
   });
 });

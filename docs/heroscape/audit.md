@@ -1,5 +1,74 @@
 # HeroScape engine audit
 
+## 2026-07-02 overnight pass — the 10-card gladiator/vampire go-live + mass simulation
+
+Rules-lawyer sweep of every new-card seam vs the existing 29, then a NEW mass-simulation
+harness (`overnight-stress.test.ts`, opt-in via `STRESS=1`) — ~110 full AI-vs-AI games:
+forced gladiators-vs-vampires, vampire mirrors, 10 mixed new+old pairings, 40 natural
+weighted drafts, 4p FFA + 6p 3v3 teams, and vampires on the walled random-glyph PERCOLATOR.
+Every game asserts finish + end-state invariants (2-hex `at2` integrity, on-map positions);
+the batch asserts every new special GENUINELY fires (Blood Hungry, Net Trip, Chilling Touch,
+Eternal Hatred + control transfer, Summon + successful placement, Inspiration).
+
+### Fixed in this pass (shipped, each with a regression test)
+
+- 🟠 **One Shield Defense ignored SPECIAL attacks** — the cap lived only in `doAttack`; all 8
+  special sites (`specialAttackWounds`) let full wounds through. "When rolling defense dice"
+  is unconditional on attack type (same ruling that keeps Stealth Dodge/height for defenders).
+  Cap moved into `specialAttackWounds`.
+- 🟠 **One Shield could cancel Lethal Sting** — the sting says the defender "cannot roll ANY
+  defense dice", but the wire's (void) defense roll still triggered Crixus's cap, letting him
+  survive an all-skull sting with 1 wound. `doAttack` now gates the cap on `!lethalSting`.
+- 🟠 **Summon Rechets × choice-glyph collision** — a bat landing on Oreld/Erland/Mitonsoul
+  opened a choice, then the summon's slot-advance ran `beginTurnOrSkip` OVER it (a next-marker
+  Eternal Hatred would overwrite the open choice / an active roll ceremony). The advance is
+  now OWED (`advanceAfterChoice`) and runs when the choice chain closes (drainSpirits tail).
+- 🟠 **Deferred choice-glyph stops were silently LOST** — the "its effect waits for the open
+  choice" branch only revealed the glyph; nothing ever fired it (reachable via 3-bat summon +
+  Carry double-lobe). Now queued (`pendingGlyphStops`) and fired one at a time as choices close.
+- 🟠 **Pooled-common activation cap missed the MID-WALK figure** — with 3 Gruts moved and a 4th
+  mid-`stepMove`, the pre-checks counted 3, so the bot proposed a 5th Grut that `doMoveStep`
+  (which finalizes the in-flight walk first) then rejected — an infinite re-propose = frozen
+  bot turn in a live 4p game. `activatedFigureIdsThisTurn` now counts `stepMove.figureId`.
+- 🟠 **Placement wedge for a figure-less seat** — "Place at least one figure" was unconditional,
+  but a seat can legally exit the draft EMPTY (team budget spent by an ally → the pass is
+  FORCED). It could never lock in → the room wedged forever. `placement_ready` now accepts a
+  seat with nothing legally placeable, and the elimination check runs when placement completes
+  (a one-army game is decided at the door).
+
+### Verified correct (no change)
+
+- Eternal Hatred × teams: the opponent pick filters by `teamOfSeat` (never a teammate) and
+  auto-assigns only a LONE opponent; the controller never sees the owner's unrevealed markers
+  (owner-only marker projection already enforces the card's clause).
+- Summon offer requires a LIVING on-board Iskra + non-negated card; dead Iskra → no offer.
+- Wannok/ceremonies exclude reserve figures; a reserve-only opponent can't be named.
+- Life Drain: clamped at 0 wounds, dead-vampire guard, negation gate, fires from normal
+  attacks + Chilling Touch + both swipe sites; counter-strike kill/drain can't coexist
+  (kill needs skulls>shields, counter needs shields>skulls).
+- A bot CONTROLLING Marcu plays him via the active card (not ownerSeat) — moves, attacks the
+  owner, initiates powers.
+- Net Trip caps AFTER height/auras (a "no more than 1 die" cap); Inspiration folds only into
+  normal attack dice but into ALL defense rolls (defender keeps modifiers vs specials).
+
+### Simulation results (final, all fixes in)
+
+**7/7 stress suites green — ~110 full AI-vs-AI games, every one to a declared winner with clean
+end-state invariants.** Forced gladiators-vs-vampires ×20 (every new special fired somewhere in
+the batch: Blood Hungry, Net Trip, Chilling Touch, Eternal Hatred opened + control transferred,
+Summon offered + succeeded, Inspiration active), vampire mirror ×6, 10 mixed new+old pairings ×2,
+natural weighted drafts ×40 (bots draft the new cards), 4p FFA ×8 (~75s/game), 6p 3v3 teams ×4,
+PERCOLATOR random-glyph vampires ×10. Plus the standing suites: 650 tests, tsc + build clean.
+
+### Simulation-harness contract (for future drivers)
+
+A pure-engine driver MUST replicate the server: (1) the auto-roll loop for `glyph_oreld` /
+`glyph_nilrend` / `glyph_wannok` / `eternal_hatred` step-1 d20s, (2) the DROPPER acts first
+during place_markers (`canTheDrop`), (3) forced-army injection must PRUNE the drafted uniques
+from `draft.pool` (else bots re-draft duplicate uniques — unreachable live), (4) initiative
+attempts must carry `raw`+`bonus` for Capuan seats AND keep TOTALS distinct (the bonus can
+equalize a naive descending roll-off).
+
 **2026-06-30 — Specials targeting audit (UNIQUE vs COMMON).** Triggered by a live game where
 Ne-Gok-Sa Mind Shackled an Arrow Grut. Real bug: `mindShackleTargets`/`doMindShackle` admitted "any
 adjacent enemy" on a stale assumption that every card is Unique — but the card reads "choose any

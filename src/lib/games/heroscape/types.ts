@@ -898,6 +898,15 @@ export type HSState = {
    *  SUCCESSFULLY summoned (d20 14+) — the attempt is once-per-game once it
    *  succeeds. Persists for the whole game. */
   rechetsSummoned?: string[];
+  /** Figures that stopped on a choice-opening glyph WHILE another choice was
+   *  already open (multi-figure arrivals: Rechets summon placements, Carry
+   *  double-lobe). The glyph is revealed immediately; its EFFECT fires when the
+   *  open choice chain closes (consumed in applyAction's resolve_choice tail). */
+  pendingGlyphStops?: string[];
+  /** The Rechets summon resolution owed a turn-slot advance, but a glyph choice
+   *  opened during the placements — the advance runs when the choice chain
+   *  closes (consumed in applyAction's resolve_choice tail). */
+  advanceAfterChoice?: boolean;
   log: HSLogEntry[];
   logSeq: number;
 };

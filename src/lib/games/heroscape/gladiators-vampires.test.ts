@@ -152,6 +152,19 @@ describe('Crixus — One Shield Defense', () => {
     // Crixus life 5 — 6 unblocked skulls destroy him outright.
     expect(at(s, 's1-thorgrim-1')).toBeNull();
   });
+  it('the cap also applies to SPECIAL attacks ("when rolling defense dice" is unconditional on attack type)', () => {
+    // Brunak's Blood Hungry (Attack 4) vs a defending Crixus who rolls one shield: 4 skulls − 1
+    // shield = 3 unblocked, capped at 1 — a defender keeps its defensive powers vs specials
+    // (the same ruling that keeps Stealth Dodge and height).
+    const { s: base, hero } = stage('brunak');
+    let s = base;
+    s.cards.find(c => c.uid === 's1-thorgrim')!.cardId = 'crixus';
+    const crixus = 's1-thorgrim-1';
+    s = put(s, crixus, adjOf(s, at(s, hero)!));
+    const dd = defDice(s, hero, crixus);
+    s = unwrap(applyAction(s, 'p1', { kind: 'blood_hungry', attackerId: hero, targetId: crixus, attackRoll: F('kkkk'), defenseRoll: ['shield', ...blanks(dd - 1)] }));
+    expect(s.figures.find(f => f.id === crixus)!.wounds).toBe(1);
+  });
 });
 
 describe('Retiarius — Net Trip 14', () => {
@@ -196,6 +209,23 @@ describe('Rechets of Bogdan — Lethal Sting', () => {
       defenseRoll: Array.from({ length: dd }, () => 'shield' as CombatFace),
     }));
     expect(at(s, enemy)).toBeNull();
+  });
+  it("One Shield Defense can't save Crixus from the sting — 'cannot roll ANY defense dice' voids his shields", () => {
+    const { s: base, hero } = stage('rechets_of_bogdan');
+    let s = base;
+    s.cards.find(c => c.uid === 's1-thorgrim')!.cardId = 'crixus'; // Medium — sting-eligible
+    const crixus = 's1-thorgrim-1';
+    s = put(s, crixus, adjOf(s, at(s, hero)!));
+    s = unwrap(applyAction(s, 'p1', { kind: 'end_move' }));
+    const dd = defDice(s, hero, crixus);
+    const atkDice = attackDiceRequirements(s, hero, crixus)!.attack;
+    // All skulls + ALL shields: the (void) defense roll must not trigger the One-Shield cap.
+    s = unwrap(applyAction(s, 'p1', {
+      kind: 'attack', attackerId: hero, targetId: crixus,
+      attackRoll: Array.from({ length: atkDice }, () => 'skull' as CombatFace),
+      defenseRoll: Array.from({ length: dd }, () => 'shield' as CombatFace),
+    }));
+    expect(at(s, crixus)).toBeNull(); // destroyed outright
   });
 });
 
@@ -323,6 +353,58 @@ describe('Iskra — Summon the Rechets of Bogdan', () => {
     s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'summon_rechets', d20: 13 } }));
     expect(s.figures.filter(f => f.cardUid === rechetsUid).every(f => f.reserve)).toBe(true);
     expect(s.rechetsSummoned ?? []).not.toContain(rechetsUid);
+  });
+
+  it('a bat landing on a choice-glyph DEFERS the slot advance until the glyph choice chain closes', () => {
+    // Regression: advance() used to run with the glyph choice still open — beginTurnOrSkip could
+    // then stack Eternal Hatred (or a bond offer) ON TOP of it, vaporizing the glyph's effect.
+    const { s: base } = stageIskra();
+    let s = unwrap(applyAction(base, 'p1', { kind: 'end_turn' }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'summon_rechets', d20: 20 } }));
+    const picks = summonRechetsSpaces(s).slice(0, 3);
+    s.glyphs = [{ id: 'oreld', at: picks[0], faceUp: false }]; // face-down under the first landing space
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'summon_rechets', placements: picks, takeTurn: false } }));
+    // The Oreld choice opened; the slot advance is OWED, not run — the turn has not moved on.
+    expect(s.pendingChoice?.kind).toBe('glyph_oreld');
+    expect(s.advanceAfterChoice).toBe(true);
+    expect(s.turnNumber).toBe(1);
+    // Step 1 (the d20) leaves Oreld's step 2 open — the advance keeps waiting through the chain.
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 20 } }));
+    expect(s.pendingChoice?.kind).toBe('glyph_oreld');
+    expect(s.advanceAfterChoice).toBe(true);
+    // Step 2 (name the victim) closes the chain → the owed advance finally runs.
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', victimSeat: 1 } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.advanceAfterChoice).toBeUndefined();
+    expect(s.turnNumber).toBe(2); // Iskra's marker-2 turn began (seat 1's stripped/wiped slots skipped)
+  });
+
+  it('TWO bats on TWO choice-glyphs: the second stop QUEUES and fires after the first resolves', () => {
+    // Regression: the deferred choice-glyph used to be revealed with a "waits for the open
+    // choice" log — and then never fired (its effect was silently lost).
+    const { s: base } = stageIskra();
+    let s = unwrap(applyAction(base, 'p1', { kind: 'end_turn' }));
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'summon_rechets', d20: 20 } }));
+    const picks = summonRechetsSpaces(s).slice(0, 3);
+    s.glyphs = [
+      { id: 'oreld', at: picks[0], faceUp: false },
+      { id: 'oreld', at: picks[1], faceUp: false },
+    ];
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'summon_rechets', placements: picks, takeTurn: false } }));
+    // First bat's Oreld is open; the second bat's stop is queued (revealed, effect pending).
+    expect(s.pendingChoice?.kind).toBe('glyph_oreld');
+    expect(s.pendingChoice && 'at' in s.pendingChoice ? s.pendingChoice.at : null).toBe(picks[0]);
+    expect(s.pendingGlyphStops).toHaveLength(1);
+    // Resolving the first (a 1 = backfire, single-step) immediately opens the SECOND Oreld.
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 1 } }));
+    expect(s.pendingChoice?.kind).toBe('glyph_oreld');
+    expect(s.pendingChoice && 'at' in s.pendingChoice ? s.pendingChoice.at : null).toBe(picks[1]);
+    expect(s.pendingGlyphStops).toBeUndefined(); // queue drained
+    expect(s.advanceAfterChoice).toBe(true); // and the advance is STILL owed
+    // Closing the second finally releases the advance.
+    s = unwrap(applyAction(s, 'p1', { kind: 'resolve_choice', choice: { kind: 'glyph_oreld', d20: 1 } }));
+    expect(s.pendingChoice).toBeUndefined();
+    expect(s.advanceAfterChoice).toBeUndefined();
   });
 });
 

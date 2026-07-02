@@ -518,6 +518,38 @@ describe('Theracus — Carry', () => {
     expect(carried.glyphs.find(g => g.at === passTo)?.faceUp).toBe(true); // the passenger triggered it
   });
 
+  it('a carrier KILLED on takeoff (leaving-engagement swipe) ends the carry gracefully — the passenger stays put', () => {
+    // REGRESSION (overnight audit 2026-07-02): a dead carrier used to fail the "adjacent to
+    // the new position" check — an ERROR the AI re-proposed forever (frozen bot turn). The
+    // carry simply never happens: the move + death resolve, the passenger is never picked up.
+    let { s, hero } = stage('theracus');
+    // Start Theracus on a CENTRAL hex (all 6 neighbors on-map) — the stage() corner has too
+    // few neighbors to seat both a passenger and a non-adjacent enemy.
+    const cells = MAPS[s.mapId].cells;
+    const h = Object.keys(cells).find(k => neighborKeys(k).filter(n => cells[n]).length === 6)!;
+    s = put(s, hero, h);
+    const nbrs = neighborKeys(h).filter(k => cells[k]);
+    const passHex = nbrs[0];
+    // The enemy must NOT also engage the passenger (an engaged figure is an illegal pick) —
+    // take a neighbor of Theracus that is not adjacent to the passenger's hex.
+    const enemyHex = nbrs.find(k => k !== passHex && (rangeDistance(cells, passHex, k) ?? 0) > 1)!;
+    s = put(s, 's0-tarn_vikings-1', passHex); // the would-be passenger (friendly, unengaged)
+    s = put(s, 's1-thorgrim-1', enemyHex); // an ENEMY engaging Theracus — the takeoff swipes
+    s = JSON.parse(JSON.stringify(s)) as HSState;
+    s.figures.find(f => f.id === hero)!.wounds = HS_CARDS['theracus'].life - 1; // one swipe kills
+    // A landing at distance 4: by the triangle inequality NEITHER of Theracus's lobes can
+    // stay adjacent to the enemy (≥ 4−1 = 3 away) — the engagement is definitely abandoned,
+    // so exactly one takeoff swipe is owed.
+    const to = cellAtDist(s, h, 4, [passHex, enemyHex]);
+    const carried = unwrap(applyAction(s, 'p1', {
+      kind: 'carry_move', figureId: hero, to,
+      passengerId: 's0-tarn_vikings-1', passengerTo: cellAtDist(s, to, 1, [passHex, enemyHex]),
+      leaveRolls: [{ enemyFigureId: 's1-thorgrim-1', roll: 'skull' }],
+    }));
+    expect(at(carried, hero)).toBeNull(); // Theracus fell on takeoff
+    expect(at(carried, 's0-tarn_vikings-1')).toBe(passHex); // the passenger never moved
+  });
+
   it('carryLandingHexes is footprint-aware — exactly the empty cells around BOTH of 2-hex Theracus’s lobes', () => {
     let { s, hero } = stage('theracus');
     const h = at(s, hero)!;
