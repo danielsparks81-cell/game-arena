@@ -100,6 +100,7 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   cyprien_esenwein: { x: 0.43, y: 0.67 },
   marcu_esenwein: { x: 0.48, y: 0.61 },
   sonya_esenwein: { x: 0.62, y: 0.68 },
+  iskra_esenwein: { x: 0.40, y: 0.77 },
   // 2-hex big figures — Y (cut) applies; X is ignored for double-space figures (they stay
   // centred on the peanut). The high Y's = these fill the frame with the base at the bottom.
   braxas: { x: 0.43, y: 0.94 },
