@@ -93,6 +93,13 @@ export const FIGURE_ANCHOR: Record<string, { x: number; y: number }> = {
   crixus: { x: 0.53, y: 0.80 },
   retiarius: { x: 0.44, y: 0.80 },
   spartacus: { x: 0.55, y: 0.81 },
+  // Capuan Gladiators squad + Esenwein vampires (2026-07-02) — user-picked in the gallery.
+  'capuan_gladiators-1': { x: 0.44, y: 0.77 },
+  'capuan_gladiators-2': { x: 0.58, y: 0.83 },
+  'capuan_gladiators-3': { x: 0.43, y: 0.78 },
+  cyprien_esenwein: { x: 0.43, y: 0.67 },
+  marcu_esenwein: { x: 0.48, y: 0.61 },
+  sonya_esenwein: { x: 0.62, y: 0.68 },
   // 2-hex big figures — Y (cut) applies; X is ignored for double-space figures (they stay
   // centred on the peanut). The high Y's = these fill the frame with the base at the bottom.
   braxas: { x: 0.43, y: 0.94 },
