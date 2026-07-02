@@ -301,8 +301,21 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
   };
 
   const stroke = (x: number, y: number) => { if (mode === 'restore') restore(x, y); else brush(x, y); };
-  const onDown = (e: ReactMouseEvent<HTMLCanvasElement>) => { const { x, y } = at(e); if (mode === 'flood') { flood(x, y); return; } drawing.current = true; snapshot(); stroke(x, y); };
-  const onMove = (e: ReactMouseEvent<HTMLCanvasElement>) => { if (mode !== 'flood') setCur({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY }); if (mode !== 'flood' && drawing.current) { const { x, y } = at(e); stroke(x, y); } };
+  // POINTER events (not mouse): a tablet STYLUS / finger fires pointerdown/move, not mousedown —
+  // with mouse-only handlers stylus strokes did nothing (owner 2026-07-01). setPointerCapture keeps
+  // the stroke alive even when the pen drifts off the canvas mid-drag; touch-action:none on the
+  // canvas stops the browser from stealing the gesture for scrolling.
+  const onDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    (e.target as HTMLCanvasElement).setPointerCapture?.(e.pointerId);
+    const { x, y } = at(e);
+    if (mode === 'flood') { flood(x, y); return; }
+    drawing.current = true; snapshot(); stroke(x, y);
+  };
+  const onMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (mode !== 'flood') setCur({ x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY });
+    if (mode !== 'flood' && drawing.current) { const { x, y } = at(e); stroke(x, y); }
+  };
   const onUp = () => { drawing.current = false; };
   const onLeave = () => { drawing.current = false; setCur(null); };
   const doUndo = () => { const prev = undo.current.pop(); const work = workRef.current; if (prev && work) { work.data.set(prev); paint(); } };
@@ -319,9 +332,9 @@ function EraseModal({ tile, onClose }: { tile: Tile; onClose: () => void }) {
         <div className="relative mx-auto w-fit">
           <canvas
             ref={dispRef}
-            onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onLeave}
+            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} onPointerLeave={onLeave}
             className="block select-none"
-            style={{ width: `min(96vw, ${(aspect * 80).toFixed(1)}vh)`, height: 'auto', maxWidth: '96vw', maxHeight: '80vh', cursor: mode === 'flood' ? 'crosshair' : 'none', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
+            style={{ width: `min(96vw, ${(aspect * 80).toFixed(1)}vh)`, height: 'auto', maxWidth: '96vw', maxHeight: '80vh', touchAction: 'none', cursor: mode === 'flood' ? 'crosshair' : 'none', backgroundColor: '#9a9a9a', backgroundImage: 'conic-gradient(#8f8f8f 25%, #aaaaaa 0 50%, #8f8f8f 0 75%, #aaaaaa 0)', backgroundSize: '24px 24px' }}
           />
           {cur && mode !== 'flood' && (
             <div className="pointer-events-none absolute rounded-full" style={{ left: cur.x - brushR, top: cur.y - brushR, width: brushR * 2, height: brushR * 2, border: mode === 'restore' ? '2px solid #34d399' : '2px solid #f87171', boxShadow: '0 0 0 1px rgba(0,0,0,0.7)' }} />
